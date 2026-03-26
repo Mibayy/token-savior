@@ -267,29 +267,50 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             lines.append(f"Estimated token savings: {reduction:.1f}%")
 
     if include_cumulative:
-        # Show cumulative stats for the active project
-        slot = _projects.get(_active_root)
-        if slot and slot.stats_file:
-            cum = _load_cumulative_stats(slot.stats_file)
-            cum_calls = cum.get("total_calls", 0)
-            if cum_calls > 0:
-                lines.append("")
-                lines.append("─── Cumulative (all sessions) ───")
-                lines.append(f"Sessions: {cum.get('sessions', 0)}")
-                lines.append(f"Total queries: {cum_calls:,}")
+        # Collect cumulative stats for ALL projects with data
+        all_project_stats = []
+        for root, slot in _projects.items():
+            sf = slot.stats_file or _get_stats_file(root)
+            cum = _load_cumulative_stats(sf)
+            if cum.get("total_calls", 0) > 0:
+                all_project_stats.append((os.path.basename(root.rstrip("/")), cum))
+
+        if all_project_stats:
+            lines.append("")
+            lines.append("─── Cumulative token savings per project ───")
+
+            # Header
+            lines.append(f"  {'Project':<26} {'Sessions':>8} {'Queries':>8} {'Tokens used':>12} {'Tokens naive':>13} {'Savings':>8}")
+            lines.append(f"  {'─'*26} {'─'*8} {'─'*8} {'─'*12} {'─'*13} {'─'*8}")
+
+            total_chars = 0
+            total_naive = 0
+            total_calls = 0
+            total_sessions = 0
+
+            for name, cum in sorted(all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)):
                 cum_chars = cum.get("total_chars_returned", 0)
                 cum_naive = cum.get("total_naive_chars", 0)
-                lines.append(f"Chars returned: {cum_chars:,} ({cum_chars // 4:,} tokens)")
-                if cum_naive > 0:
-                    cum_reduction = (1 - cum_chars / cum_naive) * 100 if cum_naive > cum_chars else 0
-                    lines.append(f"Naive estimate: {cum_naive:,} ({cum_naive // 4:,} tokens)")
-                    lines.append(f"Token savings: {cum_reduction:.1f}%")
-                if cum.get("tool_counts"):
-                    lines.append("Top tools:")
-                    for t, c in sorted(cum["tool_counts"].items(), key=lambda x: -x[1])[:5]:
-                        lines.append(f"  {t}: {c:,}")
-                if cum.get("last_session"):
-                    lines.append(f"Last session: {cum['last_session']}")
+                cum_calls = cum.get("total_calls", 0)
+                cum_sessions = cum.get("sessions", 0)
+                savings = (1 - cum_chars / cum_naive) * 100 if cum_naive > cum_chars > 0 else 0
+                tokens_used = cum_chars // 4
+                tokens_naive = cum_naive // 4
+                savings_str = f"{savings:.0f}%" if cum_naive > 0 else "—"
+                lines.append(
+                    f"  {name:<26} {cum_sessions:>8} {cum_calls:>8} {tokens_used:>12,} {tokens_naive:>13,} {savings_str:>8}"
+                )
+                total_chars += cum_chars
+                total_naive += cum_naive
+                total_calls += cum_calls
+                total_sessions += cum_sessions
+
+            # Total row
+            total_savings = (1 - total_chars / total_naive) * 100 if total_naive > total_chars > 0 else 0
+            lines.append(f"  {'─'*26} {'─'*8} {'─'*8} {'─'*12} {'─'*13} {'─'*8}")
+            lines.append(
+                f"  {'TOTAL':<26} {total_sessions:>8} {total_calls:>8} {total_chars//4:>12,} {total_naive//4:>13,} {total_savings:.0f}%"
+            )
 
     return "\n".join(lines)
 
