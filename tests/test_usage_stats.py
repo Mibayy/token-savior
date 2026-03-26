@@ -13,11 +13,13 @@ def _reset_server_state():
     srv._session_start = time.time()
     srv._tool_call_counts.clear()
     srv._total_chars_returned = 0
-    srv._indexer = None
-    srv._query_fns = None
+    srv._projects.clear()
+    srv._active_root = ""
     yield
     srv._tool_call_counts.clear()
     srv._total_chars_returned = 0
+    srv._projects.clear()
+    srv._active_root = ""
 
 
 class TestFormatDuration:
@@ -72,6 +74,7 @@ class TestFormatUsageStats:
     def test_with_indexed_project(self, tmp_path):
         import mcp_codebase_index.server as srv
         from mcp_codebase_index.project_indexer import ProjectIndexer
+        from mcp_codebase_index.server import _ProjectSlot
 
         # Create a project with enough source to exceed returned chars
         (tmp_path / "main.py").write_text("def hello():\n    return 'world'\n" * 100)
@@ -79,7 +82,10 @@ class TestFormatUsageStats:
 
         indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
         indexer.index()
-        srv._indexer = indexer
+        root = str(tmp_path)
+        slot = _ProjectSlot(root=root, indexer=indexer)
+        srv._projects[root] = slot
+        srv._active_root = root
 
         srv._tool_call_counts["find_symbol"] = 5
         srv._total_chars_returned = 200
@@ -92,13 +98,17 @@ class TestFormatUsageStats:
         """Naive estimate should use per-tool cost multipliers, not full codebase per query."""
         import mcp_codebase_index.server as srv
         from mcp_codebase_index.project_indexer import ProjectIndexer
+        from mcp_codebase_index.server import _ProjectSlot
 
         # Create a project with known size
         (tmp_path / "big.py").write_text("x = 1\n" * 1000)  # ~6000 chars
 
         indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
         indexer.index()
-        srv._indexer = indexer
+        root = str(tmp_path)
+        slot = _ProjectSlot(root=root, indexer=indexer)
+        srv._projects[root] = slot
+        srv._active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
@@ -119,12 +129,16 @@ class TestFormatUsageStats:
         """Tools with different multipliers should produce different naive estimates."""
         import mcp_codebase_index.server as srv
         from mcp_codebase_index.project_indexer import ProjectIndexer
+        from mcp_codebase_index.server import _ProjectSlot
 
         (tmp_path / "code.py").write_text("x = 1\n" * 1000)
 
         indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
         indexer.index()
-        srv._indexer = indexer
+        root = str(tmp_path)
+        slot = _ProjectSlot(root=root, indexer=indexer)
+        srv._projects[root] = slot
+        srv._active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 

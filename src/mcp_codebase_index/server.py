@@ -22,12 +22,19 @@ Exposes project-wide structural query functions as MCP tools,
 enabling Claude Code to navigate codebases efficiently without
 reading entire files into context.
 
-Usage:
-    PROJECT_ROOT=/path/to/project python -m mcp_codebase_index.server
+Single-project usage (original):
+    PROJECT_ROOT=/path/to/project mcp-codebase-index
+
+Multi-project workspace usage:
+    WORKSPACE_ROOTS=/root/improvence,/root/sirius,/root/sirius-5min mcp-codebase-index
+
+Each root gets its own isolated index — no symbol collision, no dependency
+graph pollution, no shared RAM between unrelated projects.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import fnmatch
 import hashlib
 import json
@@ -35,6 +42,7 @@ import os
 import sys
 import time
 import traceback
+from typing import Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -47,29 +55,80 @@ from mcp_codebase_index.project_indexer import ProjectIndexer
 from mcp_codebase_index.query_api import create_project_query_functions
 
 # ---------------------------------------------------------------------------
+# Per-project slot — one per workspace root, fully isolated
+# ---------------------------------------------------------------------------
+
+@dataclasses.dataclass
+class _ProjectSlot:
+    root: str
+    indexer: Optional[ProjectIndexer] = None
+    query_fns: Optional[dict] = None
+    is_git: bool = False
+    stats_file: str = ""
+    # Incremental update tracking
+    _last_update_check: float = 0.0
+
+
+# ---------------------------------------------------------------------------
 # Module-level state
 # ---------------------------------------------------------------------------
 
 server = Server("mcp-codebase-index")
 
-_project_root: str = ""
-_indexer: ProjectIndexer | None = None
-_query_fns: dict | None = None
-_is_git: bool = False
+# Dict of abs_path -> slot. Populated from WORKSPACE_ROOTS or PROJECT_ROOT.
+_projects: dict[str, _ProjectSlot] = {}
+
+# Currently active project root (used by tools that don't specify a project).
+_active_root: str = ""
 
 # Persistent cache
 _CACHE_FILENAME = ".codebase-index-cache.json"
 _CACHE_VERSION = 2  # Bumped: switched from pickle to JSON
 
-# Session usage stats
+# Session usage stats (aggregated across all projects in this session)
 _session_start: float = time.time()
 _tool_call_counts: dict[str, int] = {}
 _total_chars_returned: int = 0
 
 # Persistent stats
 _STATS_DIR = os.path.expanduser("~/.local/share/mcp-codebase-index")
-_stats_file: str = ""  # Set after PROJECT_ROOT is known
 
+
+# ---------------------------------------------------------------------------
+# Startup: parse env vars and register roots
+# ---------------------------------------------------------------------------
+
+def _parse_workspace_roots() -> list[str]:
+    """Parse WORKSPACE_ROOTS (comma-separated) or fall back to PROJECT_ROOT."""
+    workspace_raw = os.environ.get("WORKSPACE_ROOTS", "").strip()
+    if workspace_raw:
+        roots = [r.strip() for r in workspace_raw.split(",") if r.strip()]
+        return [os.path.abspath(r) for r in roots if os.path.isdir(r)]
+
+    single = os.environ.get("PROJECT_ROOT", "").strip()
+    if single and os.path.isdir(single):
+        return [os.path.abspath(single)]
+
+    return []
+
+
+def _register_roots(roots: list[str]) -> None:
+    """Create slots for each root. Index is built lazily on first use."""
+    global _active_root
+    for root in roots:
+        if root not in _projects:
+            _projects[root] = _ProjectSlot(root=root)
+    if roots and not _active_root:
+        _active_root = roots[0]
+
+
+# Called once at module import so slots exist before any tool call.
+_register_roots(_parse_workspace_roots())
+
+
+# ---------------------------------------------------------------------------
+# Stats helpers
+# ---------------------------------------------------------------------------
 
 def _get_stats_file(project_root: str) -> str:
     """Return path to the stats JSON file for this project."""
@@ -78,39 +137,40 @@ def _get_stats_file(project_root: str) -> str:
     return os.path.join(_STATS_DIR, f"{name}-{slug}.json")
 
 
-def _load_cumulative_stats() -> dict:
+def _load_cumulative_stats(stats_file: str) -> dict:
     """Load cumulative stats from disk, or return empty structure."""
-    if not _stats_file or not os.path.exists(_stats_file):
+    if not stats_file or not os.path.exists(stats_file):
         return {"total_calls": 0, "total_chars_returned": 0, "total_naive_chars": 0, "sessions": 0, "tool_counts": {}}
     try:
-        with open(_stats_file) as f:
+        with open(stats_file) as f:
             return json.load(f)
     except Exception:
         return {"total_calls": 0, "total_chars_returned": 0, "total_naive_chars": 0, "sessions": 0, "tool_counts": {}}
 
 
-def _flush_stats(naive_chars: int) -> None:
-    """Append current session stats to the persistent JSON file."""
-    if not _stats_file:
+def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
+    """Append current session stats to the persistent JSON file for this slot."""
+    if not slot.stats_file:
         return
     try:
         os.makedirs(_STATS_DIR, exist_ok=True)
-        cum = _load_cumulative_stats()
+        cum = _load_cumulative_stats(slot.stats_file)
         session_calls = sum(_tool_call_counts.values()) - _tool_call_counts.get("get_usage_stats", 0)
         cum["sessions"] = cum.get("sessions", 0) + 1
         cum["total_calls"] = cum.get("total_calls", 0) + session_calls
         cum["total_chars_returned"] = cum.get("total_chars_returned", 0) + _total_chars_returned
         cum["total_naive_chars"] = cum.get("total_naive_chars", 0) + naive_chars
-        cum["project"] = _project_root
+        cum["project"] = slot.root
         cum["last_session"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         for tool, count in _tool_call_counts.items():
             if tool == "get_usage_stats":
                 continue
             cum["tool_counts"][tool] = cum["tool_counts"].get(tool, 0) + count
-        with open(_stats_file, "w") as f:
+        with open(slot.stats_file, "w") as f:
             json.dump(cum, f, indent=2)
     except Exception as e:
         print(f"[mcp-codebase-index] Failed to flush stats: {e}", file=sys.stderr)
+
 
 # Realistic estimate of what % of codebase you'd need to read without the indexer
 _TOOL_COST_MULTIPLIERS: dict[str, float] = {
@@ -132,8 +192,14 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "search_codebase": 0.15,
     "reindex": 0.0,
     "set_project_root": 0.0,
+    "switch_project": 0.0,
+    "list_projects": 0.0,
 }
 
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
 
 def _format_result(value: object) -> str:
     """Format a query result as readable text."""
@@ -148,18 +214,26 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     """Format session usage statistics, optionally with cumulative history."""
     elapsed = time.time() - _session_start
     total_calls = sum(_tool_call_counts.values())
-    # Don't count get_usage_stats itself in the query total
     query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
 
-    # Calculate total source size from the index
+    # Aggregate source size across all loaded projects
     source_chars = 0
-    if _indexer and _indexer._project_index:
-        source_chars = sum(m.total_chars for m in _indexer._project_index.files.values())
+    for slot in _projects.values():
+        if slot.indexer and slot.indexer._project_index:
+            source_chars += sum(m.total_chars for m in slot.indexer._project_index.files.values())
 
     lines = [
         f"Session duration: {_format_duration(elapsed)}",
         f"Total queries: {query_calls}",
     ]
+
+    if len(_projects) > 1:
+        loaded = [s.root for s in _projects.values() if s.indexer is not None]
+        lines.append(f"Projects loaded: {len(loaded)}/{len(_projects)}")
+        for root in loaded:
+            lines.append(f"  • {os.path.basename(root)} ({root})")
+        if _active_root:
+            lines.append(f"Active project: {os.path.basename(_active_root)}")
 
     if _tool_call_counts:
         lines.append("")
@@ -175,7 +249,6 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     if source_chars > 0:
         lines.append(f"Total source in index: {source_chars:,} chars")
         if query_calls > 0 and source_chars > _total_chars_returned:
-            # Per-tool estimate of what you'd read without the indexer
             naive_chars = 0
             for tool_name, count in _tool_call_counts.items():
                 if tool_name == "get_usage_stats":
@@ -194,26 +267,29 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             lines.append(f"Estimated token savings: {reduction:.1f}%")
 
     if include_cumulative:
-        cum = _load_cumulative_stats()
-        cum_calls = cum.get("total_calls", 0)
-        if cum_calls > 0:
-            lines.append("")
-            lines.append("─── Cumulative (all sessions) ───")
-            lines.append(f"Sessions: {cum.get('sessions', 0)}")
-            lines.append(f"Total queries: {cum_calls:,}")
-            cum_chars = cum.get("total_chars_returned", 0)
-            cum_naive = cum.get("total_naive_chars", 0)
-            lines.append(f"Chars returned: {cum_chars:,} ({cum_chars // 4:,} tokens)")
-            if cum_naive > 0:
-                cum_reduction = (1 - cum_chars / cum_naive) * 100 if cum_naive > cum_chars else 0
-                lines.append(f"Naive estimate: {cum_naive:,} ({cum_naive // 4:,} tokens)")
-                lines.append(f"Token savings: {cum_reduction:.1f}%")
-            if cum.get("tool_counts"):
-                lines.append("Top tools:")
-                for t, c in sorted(cum["tool_counts"].items(), key=lambda x: -x[1])[:5]:
-                    lines.append(f"  {t}: {c:,}")
-            if cum.get("last_session"):
-                lines.append(f"Last session: {cum['last_session']}")
+        # Show cumulative stats for the active project
+        slot = _projects.get(_active_root)
+        if slot and slot.stats_file:
+            cum = _load_cumulative_stats(slot.stats_file)
+            cum_calls = cum.get("total_calls", 0)
+            if cum_calls > 0:
+                lines.append("")
+                lines.append("─── Cumulative (all sessions) ───")
+                lines.append(f"Sessions: {cum.get('sessions', 0)}")
+                lines.append(f"Total queries: {cum_calls:,}")
+                cum_chars = cum.get("total_chars_returned", 0)
+                cum_naive = cum.get("total_naive_chars", 0)
+                lines.append(f"Chars returned: {cum_chars:,} ({cum_chars // 4:,} tokens)")
+                if cum_naive > 0:
+                    cum_reduction = (1 - cum_chars / cum_naive) * 100 if cum_naive > cum_chars else 0
+                    lines.append(f"Naive estimate: {cum_naive:,} ({cum_naive // 4:,} tokens)")
+                    lines.append(f"Token savings: {cum_reduction:.1f}%")
+                if cum.get("tool_counts"):
+                    lines.append("Top tools:")
+                    for t, c in sorted(cum["tool_counts"].items(), key=lambda x: -x[1])[:5]:
+                        lines.append(f"  {t}: {c:,}")
+                if cum.get("last_session"):
+                    lines.append(f"Last session: {cum['last_session']}")
 
     return "\n".join(lines)
 
@@ -231,8 +307,12 @@ def _format_duration(seconds: float) -> str:
     return f"{hours}h {mins}m"
 
 
+# ---------------------------------------------------------------------------
+# Cache helpers
+# ---------------------------------------------------------------------------
+
 def _cache_path(project_root: str) -> str:
-    """Return the path to the pickle cache file for this project."""
+    """Return the path to the JSON cache file for this project."""
     return os.path.join(project_root, _CACHE_FILENAME)
 
 
@@ -298,7 +378,6 @@ def _index_from_dict(data: dict) -> "ProjectIndex":
             dependency_graph=d.get("dependency_graph", {}),
         )
 
-    # Restore sets in graph fields
     def _sets(d: dict) -> dict[str, set[str]]:
         return {k: set(v) for k, v in d.items()}
 
@@ -350,84 +429,59 @@ def _load_cache(project_root: str) -> "ProjectIndex | None":
         return None
 
 
-def _ensure_index() -> None:
-    """Build the project index on first use (lazy initialization).
+# ---------------------------------------------------------------------------
+# Per-slot index management
+# ---------------------------------------------------------------------------
 
-    Tries to load from a pickle cache first. If the cache is valid and
-    the git ref matches (or the changeset is small enough for incremental
-    update), skips a full rebuild.
-
-    This is called on the first tool call rather than at startup so that
-    the MCP server can complete its initialization handshake immediately.
-    Without this, large projects would cause Claude Code to timeout waiting
-    for the server to become ready.
-    """
-    global _project_root, _indexer, _query_fns, _is_git, _stats_file
-
-    if _indexer is not None:
+def _ensure_slot(slot: _ProjectSlot) -> None:
+    """Lazily initialize a project slot if not yet indexed."""
+    if slot.indexer is not None:
         return
 
-    env_root = os.environ.get("PROJECT_ROOT", "").strip()
-    if not env_root and not _project_root:
-        # Generic instance with no project assigned — stay idle until set_project_root is called
-        return
+    root = slot.root
+    slot.is_git = is_git_repo(root)
+    if not slot.stats_file:
+        slot.stats_file = _get_stats_file(root)
 
-    if not _project_root:
-        _project_root = env_root
-
-    _is_git = is_git_repo(_project_root)
-    if not _stats_file:
-        _stats_file = _get_stats_file(_project_root)
-
-    cached_index = _load_cache(_project_root)
-    if cached_index is not None and _is_git and cached_index.last_indexed_git_ref:
-        current_head = get_head_commit(_project_root)
+    cached_index = _load_cache(root)
+    if cached_index is not None and slot.is_git and cached_index.last_indexed_git_ref:
+        current_head = get_head_commit(root)
         if current_head == cached_index.last_indexed_git_ref:
-            # Exact match — use cache directly
-            print("[mcp-codebase-index] Cache hit (git ref matches)", file=sys.stderr)
-            _indexer = ProjectIndexer(_project_root)
-            _indexer._project_index = cached_index
-            _query_fns = create_project_query_functions(cached_index)
+            print(f"[mcp-codebase-index] Cache hit (git ref matches) — {root}", file=sys.stderr)
+            slot.indexer = ProjectIndexer(root)
+            slot.indexer._project_index = cached_index
+            slot.query_fns = create_project_query_functions(cached_index)
             return
 
-        # Check if changeset is small enough for incremental update on cache
-        changeset = get_changed_files(_project_root, cached_index.last_indexed_git_ref)
+        changeset = get_changed_files(root, cached_index.last_indexed_git_ref)
         total_changes = len(changeset.modified) + len(changeset.added) + len(changeset.deleted)
         if not changeset.is_empty and total_changes <= 20:
             print(
                 f"[mcp-codebase-index] Cache hit with {total_changes} changed files, "
-                f"applying incremental update",
+                f"applying incremental update — {root}",
                 file=sys.stderr,
             )
-            _indexer = ProjectIndexer(_project_root)
-            _indexer._project_index = cached_index
-            _query_fns = create_project_query_functions(cached_index)
-            # _maybe_incremental_update will handle the rest on first tool call
+            slot.indexer = ProjectIndexer(root)
+            slot.indexer._project_index = cached_index
+            slot.query_fns = create_project_query_functions(cached_index)
             return
 
         print(
-            f"[mcp-codebase-index] Cache stale ({total_changes} changes), full rebuild",
+            f"[mcp-codebase-index] Cache stale ({total_changes} changes), full rebuild — {root}",
             file=sys.stderr,
         )
 
-    _build_index()
+    _build_slot(slot)
 
 
-def _build_index() -> None:
-    """Build (or rebuild) the project index and query functions."""
-    global _project_root, _indexer, _query_fns, _is_git, _stats_file
+def _build_slot(slot: _ProjectSlot) -> None:
+    """Full index build for a project slot."""
+    root = slot.root
+    if not slot.stats_file:
+        slot.stats_file = _get_stats_file(root)
 
-    if not _project_root:
-        _project_root = os.environ.get("PROJECT_ROOT", os.getcwd())
+    print(f"[mcp-codebase-index] Indexing project: {root}", file=sys.stderr)
 
-    if not _stats_file:
-        _stats_file = _get_stats_file(_project_root)
-    print(f"[mcp-codebase-index] Indexing project: {_project_root}", file=sys.stderr)
-
-    # Allow per-project pattern overrides via env vars (colon-separated globs)
-    # EXCLUDE_EXTRA: additional patterns appended to the defaults
-    # EXCLUDE_PATTERNS: full override of exclude patterns
-    # INCLUDE_PATTERNS: full override of include patterns
     extra_excludes_raw = os.environ.get("EXCLUDE_EXTRA", "")
     exclude_override_raw = os.environ.get("EXCLUDE_PATTERNS", "")
     include_override_raw = os.environ.get("INCLUDE_PATTERNS", "")
@@ -438,21 +492,20 @@ def _build_index() -> None:
     if exclude_override_raw:
         exclude_patterns = [p.strip() for p in exclude_override_raw.split(":") if p.strip()]
     elif extra_excludes_raw:
-        # Start from defaults, append extras
-        tmp = ProjectIndexer(_project_root)
+        tmp = ProjectIndexer(root)
         exclude_patterns = tmp.exclude_patterns + [p.strip() for p in extra_excludes_raw.split(":") if p.strip()]
 
     if include_override_raw:
         include_patterns = [p.strip() for p in include_override_raw.split(":") if p.strip()]
 
-    _indexer = ProjectIndexer(_project_root, include_patterns=include_patterns, exclude_patterns=exclude_patterns)
-    index = _indexer.index()
-    _query_fns = create_project_query_functions(index)
+    slot.indexer = ProjectIndexer(root, include_patterns=include_patterns, exclude_patterns=exclude_patterns)
+    index = slot.indexer.index()
+    slot.query_fns = create_project_query_functions(index)
 
-    if not _is_git:
-        _is_git = is_git_repo(_project_root)
-    if _is_git:
-        index.last_indexed_git_ref = get_head_commit(_project_root)
+    if not slot.is_git:
+        slot.is_git = is_git_repo(root)
+    if slot.is_git:
+        index.last_indexed_git_ref = get_head_commit(root)
         _save_cache(index)
 
     print(
@@ -460,13 +513,12 @@ def _build_index() -> None:
         f"{index.total_lines} lines, "
         f"{index.total_functions} functions, "
         f"{index.total_classes} classes "
-        f"in {index.index_build_time_seconds:.2f}s",
+        f"in {index.index_build_time_seconds:.2f}s — {root}",
         file=sys.stderr,
     )
 
 
 def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
-    """Check if a relative path matches any of the include glob patterns."""
     normalized = rel_path.replace(os.sep, "/")
     for pattern in patterns:
         if fnmatch.fnmatch(normalized, pattern):
@@ -474,74 +526,147 @@ def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
     return False
 
 
-def _maybe_incremental_update() -> None:
-    """Check git for changes and incrementally update the index if needed."""
-    if not _is_git or _indexer is None or _indexer._project_index is None:
+def _maybe_incremental_update(slot: _ProjectSlot) -> None:
+    """Check git for changes and incrementally update the slot index if needed."""
+    if not slot.is_git or slot.indexer is None or slot.indexer._project_index is None:
         return
 
-    idx = _indexer._project_index
-    changeset = get_changed_files(_project_root, idx.last_indexed_git_ref)
+    # Throttle: check at most once every 30s per slot
+    now = time.time()
+    if now - slot._last_update_check < 30:
+        return
+    slot._last_update_check = now
+
+    idx = slot.indexer._project_index
+    changeset = get_changed_files(slot.root, idx.last_indexed_git_ref)
     if changeset.is_empty:
         return
 
     total_changes = len(changeset.modified) + len(changeset.added) + len(changeset.deleted)
 
-    # Large changeset threshold: full rebuild for branch switches etc.
     if total_changes > 20 and total_changes > idx.total_files * 0.5:
         print(
             f"[mcp-codebase-index] Large changeset ({total_changes} files), "
-            f"doing full rebuild",
+            f"doing full rebuild — {slot.root}",
             file=sys.stderr,
         )
-        _build_index()
+        _build_slot(slot)
         return
 
-    # Process deletions
     for path in changeset.deleted:
         if path in idx.files:
-            _indexer.remove_file(path)
+            slot.indexer.remove_file(path)
 
-    # Process modifications and additions
     for path in changeset.modified + changeset.added:
-        if _indexer._is_excluded(path):
+        if slot.indexer._is_excluded(path):
             continue
-        if not _matches_include_patterns(path, _indexer.include_patterns):
+        if not _matches_include_patterns(path, slot.indexer.include_patterns):
             continue
-        abs_path = os.path.join(_project_root, path)
+        abs_path = os.path.join(slot.root, path)
         if not os.path.isfile(abs_path):
             continue
-        _indexer.reindex_file(path, skip_graph_rebuild=True)
+        slot.indexer.reindex_file(path, skip_graph_rebuild=True)
 
-    # Rebuild cross-file graphs once
-    _indexer.rebuild_graphs()
-
-    # Update the git ref
-    idx.last_indexed_git_ref = get_head_commit(_project_root)
+    slot.indexer.rebuild_graphs()
+    idx.last_indexed_git_ref = get_head_commit(slot.root)
 
     n_mod = len(changeset.modified)
     n_add = len(changeset.added)
     n_del = len(changeset.deleted)
     print(
         f"[mcp-codebase-index] Incremental update: "
-        f"{n_mod} modified, {n_add} added, {n_del} deleted",
+        f"{n_mod} modified, {n_add} added, {n_del} deleted — {slot.root}",
         file=sys.stderr,
     )
-
     _save_cache(idx)
+
+
+# ---------------------------------------------------------------------------
+# Resolve which slot to use for a given tool call
+# ---------------------------------------------------------------------------
+
+def _resolve_slot(project_hint: Optional[str] = None) -> tuple[Optional[_ProjectSlot], str]:
+    """
+    Return (slot, error_message). error_message is empty on success.
+
+    Resolution order:
+    1. explicit project_hint (basename or full path)
+    2. _active_root
+    3. only registered project (if exactly one)
+    4. error
+    """
+    global _active_root
+
+    if project_hint:
+        # Try exact match first
+        hint_abs = os.path.abspath(project_hint)
+        if hint_abs in _projects:
+            return _projects[hint_abs], ""
+        # Try basename match
+        for root, slot in _projects.items():
+            if os.path.basename(root) == project_hint:
+                return slot, ""
+        return None, (
+            f"Project '{project_hint}' not found. "
+            f"Known projects: {', '.join(os.path.basename(r) for r in _projects)}"
+        )
+
+    if _active_root and _active_root in _projects:
+        return _projects[_active_root], ""
+
+    if len(_projects) == 1:
+        root = next(iter(_projects))
+        _active_root = root
+        return _projects[root], ""
+
+    if not _projects:
+        return None, "No projects registered. Call set_project_root('/path') first."
+
+    return None, (
+        "Multiple projects loaded but no active project set. "
+        f"Call switch_project(name) with one of: {', '.join(os.path.basename(r) for r in _projects)}"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
 
+# Shared project parameter injected into multi-project tools
+_PROJECT_PARAM = {
+    "project": {
+        "type": "string",
+        "description": (
+            "Optional project name or path to target a specific project. "
+            "Omit to use the active project."
+        ),
+    }
+}
+
 TOOLS = [
+    Tool(
+        name="list_projects",
+        description="List all registered workspace projects with their index status.",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="switch_project",
+        description="Switch the active project. Subsequent tool calls without explicit project target this project.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Project name (basename of path) or full path.",
+                },
+            },
+            "required": ["name"],
+        },
+    ),
     Tool(
         name="get_project_summary",
         description="High-level overview of the project: file count, packages, top classes/functions.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
+        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
     ),
     Tool(
         name="list_files",
@@ -557,6 +682,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
         },
     ),
@@ -570,6 +696,7 @@ TOOLS = [
                     "type": "string",
                     "description": "Relative path to a file in the project. Omit for project-level summary.",
                 },
+                **_PROJECT_PARAM,
             },
         },
     ),
@@ -591,6 +718,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -613,6 +741,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -631,6 +760,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
         },
     ),
@@ -648,6 +778,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
         },
     ),
@@ -665,6 +796,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
         },
     ),
@@ -678,6 +810,7 @@ TOOLS = [
                     "type": "string",
                     "description": "Symbol name to find (e.g. 'ProjectIndexer', 'annotate', 'MyClass.run').",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -696,6 +829,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -714,6 +848,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -736,6 +871,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of transitive dependents to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
@@ -754,6 +890,7 @@ TOOLS = [
                     "type": "string",
                     "description": "Target symbol name.",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["from_name", "to_name"],
         },
@@ -772,6 +909,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["file_path"],
         },
@@ -790,6 +928,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["file_path"],
         },
@@ -808,6 +947,7 @@ TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of results to return (default 100, 0 = unlimited).",
                 },
+                **_PROJECT_PARAM,
             },
             "required": ["pattern"],
         },
@@ -815,18 +955,14 @@ TOOLS = [
     Tool(
         name="reindex",
         description="Re-index the entire project. Use after making significant file changes to refresh the structural index.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
+        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
     ),
     Tool(
         name="set_project_root",
         description=(
-            "Switch the indexer to a different project directory. "
-            "Use this on a generic (no PROJECT_ROOT env var) instance to point it at any codebase. "
+            "Add a new project root to the workspace and switch to it. "
             "Triggers a full reindex of the new root. "
-            "After calling this, all other tools operate on the new project."
+            "After calling this, all other tools operate on the new project by default."
         ),
         inputSchema={
             "type": "object",
@@ -842,10 +978,7 @@ TOOLS = [
     Tool(
         name="get_usage_stats",
         description="Session efficiency stats: tool calls, characters returned vs total source, estimated token savings.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
+        inputSchema={"type": "object", "properties": {}},
     ),
 ]
 
@@ -862,127 +995,142 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    global _query_fns, _total_chars_returned
+    global _total_chars_returned, _active_root
 
-    # Track tool call counts (including reindex/stats themselves)
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
 
     try:
-        # Lazy initialization: build the index on first tool call so the
-        # MCP handshake completes without waiting for indexing.
-        _ensure_index()
+        # ── Meta tools ────────────────────────────────────────────────────────
 
-        # Handle reindex separately since it rebuilds state
-        if name == "reindex":
-            _build_index()
-            return [TextContent(type="text", text="Project re-indexed successfully.")]
+        if name == "get_usage_stats":
+            return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
 
-        # Switch to a different project root
+        if name == "list_projects":
+            if not _projects:
+                return [TextContent(type="text", text="No projects registered. Call set_project_root('/path') first.")]
+            lines = [f"Workspace projects ({len(_projects)}):"]
+            for root, slot in _projects.items():
+                status = "indexed" if slot.indexer is not None else "not yet loaded"
+                active = " [active]" if root == _active_root else ""
+                name_part = os.path.basename(root)
+                if slot.indexer and slot.indexer._project_index:
+                    idx = slot.indexer._project_index
+                    lines.append(f"  • {name_part}{active} — {idx.total_files} files, {idx.total_functions} functions ({root})")
+                else:
+                    lines.append(f"  • {name_part}{active} — {status} ({root})")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "switch_project":
+            hint = arguments["name"]
+            slot, err = _resolve_slot(hint)
+            if err:
+                return [TextContent(type="text", text=f"Error: {err}")]
+            _active_root = slot.root
+            _ensure_slot(slot)
+            idx = slot.indexer._project_index if slot.indexer else None
+            info = f"{idx.total_files} files" if idx else "index not built"
+            return [TextContent(type="text", text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) — {info}.")]
+
         if name == "set_project_root":
             new_root = os.path.abspath(arguments["path"])
             if not os.path.isdir(new_root):
                 return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-            global _project_root, _indexer, _stats_file
-            _project_root = new_root
-            _indexer = None  # Force full rebuild
-            _stats_file = _get_stats_file(new_root)
-            _build_index()
-            return [TextContent(type="text", text=f"Switched to '{new_root}' and re-indexed successfully.")]
+            if new_root not in _projects:
+                _projects[new_root] = _ProjectSlot(root=new_root)
+            _active_root = new_root
+            slot = _projects[new_root]
+            # Force full rebuild
+            slot.indexer = None
+            slot.query_fns = None
+            _build_slot(slot)
+            return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
 
-        # Handle usage stats
-        if name == "get_usage_stats":
-            return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
+        if name == "reindex":
+            project_hint = arguments.get("project")
+            slot, err = _resolve_slot(project_hint)
+            if err:
+                return [TextContent(type="text", text=f"Error: {err}")]
+            slot.indexer = None
+            slot.query_fns = None
+            _build_slot(slot)
+            return [TextContent(type="text", text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.")]
 
-        _maybe_incremental_update()
+        # ── Query tools — resolve slot, lazy-init, run ─────────────────────
 
-        if _query_fns is None:
-            if not _project_root:
-                return [TextContent(type="text", text="Error: no project assigned. Call set_project_root('/path/to/project') first.")]
-            return [TextContent(type="text", text="Error: index not built yet. Call reindex first.")]
+        project_hint = arguments.get("project")
+        slot, err = _resolve_slot(project_hint)
+        if err:
+            return [TextContent(type="text", text=f"Error: {err}")]
 
-        # Dispatch to the appropriate query function
+        _ensure_slot(slot)
+        _maybe_incremental_update(slot)
+
+        if slot.query_fns is None:
+            return [TextContent(type="text", text=f"Error: index not built for '{slot.root}'. Call reindex first.")]
+
+        qfns = slot.query_fns
+
         if name == "get_project_summary":
-            result = _query_fns["get_project_summary"]()
+            result = qfns["get_project_summary"]()
 
         elif name == "list_files":
             pattern = arguments.get("pattern")
             max_results = arguments.get("max_results", 0)
-            result = _query_fns["list_files"](pattern, max_results=max_results)
+            result = qfns["list_files"](pattern, max_results=max_results)
 
         elif name == "get_structure_summary":
-            file_path = arguments.get("file_path")
-            result = _query_fns["get_structure_summary"](file_path)
+            result = qfns["get_structure_summary"](arguments.get("file_path"))
 
         elif name == "get_function_source":
-            max_lines = arguments.get("max_lines", 0)
-            result = _query_fns["get_function_source"](
+            result = qfns["get_function_source"](
                 arguments["name"],
                 arguments.get("file_path"),
-                max_lines=max_lines,
+                max_lines=arguments.get("max_lines", 0),
             )
 
         elif name == "get_class_source":
-            max_lines = arguments.get("max_lines", 0)
-            result = _query_fns["get_class_source"](
+            result = qfns["get_class_source"](
                 arguments["name"],
                 arguments.get("file_path"),
-                max_lines=max_lines,
+                max_lines=arguments.get("max_lines", 0),
             )
 
         elif name == "get_functions":
-            file_path = arguments.get("file_path")
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_functions"](file_path, max_results=max_results)
+            result = qfns["get_functions"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
 
         elif name == "get_classes":
-            file_path = arguments.get("file_path")
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_classes"](file_path, max_results=max_results)
+            result = qfns["get_classes"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
 
         elif name == "get_imports":
-            file_path = arguments.get("file_path")
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_imports"](file_path, max_results=max_results)
+            result = qfns["get_imports"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
 
         elif name == "find_symbol":
-            result = _query_fns["find_symbol"](arguments["name"])
+            result = qfns["find_symbol"](arguments["name"])
 
         elif name == "get_dependencies":
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_dependencies"](arguments["name"], max_results=max_results)
+            result = qfns["get_dependencies"](arguments["name"], max_results=arguments.get("max_results", 0))
 
         elif name == "get_dependents":
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_dependents"](arguments["name"], max_results=max_results)
+            result = qfns["get_dependents"](arguments["name"], max_results=arguments.get("max_results", 0))
 
         elif name == "get_change_impact":
-            max_direct = arguments.get("max_direct", 0)
-            max_transitive = arguments.get("max_transitive", 0)
-            result = _query_fns["get_change_impact"](
-                arguments["name"], max_direct=max_direct, max_transitive=max_transitive
+            result = qfns["get_change_impact"](
+                arguments["name"],
+                max_direct=arguments.get("max_direct", 0),
+                max_transitive=arguments.get("max_transitive", 0),
             )
 
         elif name == "get_call_chain":
-            result = _query_fns["get_call_chain"](
-                arguments["from_name"],
-                arguments["to_name"],
-            )
+            result = qfns["get_call_chain"](arguments["from_name"], arguments["to_name"])
 
         elif name == "get_file_dependencies":
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_file_dependencies"](
-                arguments["file_path"], max_results=max_results
-            )
+            result = qfns["get_file_dependencies"](arguments["file_path"], max_results=arguments.get("max_results", 0))
 
         elif name == "get_file_dependents":
-            max_results = arguments.get("max_results", 0)
-            result = _query_fns["get_file_dependents"](
-                arguments["file_path"], max_results=max_results
-            )
+            result = qfns["get_file_dependents"](arguments["file_path"], max_results=arguments.get("max_results", 0))
 
         elif name == "search_codebase":
-            max_results = arguments.get("max_results", 100)
-            result = _query_fns["search_codebase"](arguments["pattern"], max_results=max_results)
+            result = qfns["search_codebase"](arguments["pattern"], max_results=arguments.get("max_results", 100))
 
         else:
             return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
@@ -990,16 +1138,18 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         formatted = _format_result(result)
         _total_chars_returned += len(formatted)
 
-        # Flush stats after every call so data survives abrupt session end
+        # Flush stats
         source_chars = 0
-        if _indexer and _indexer._project_index:
-            source_chars = sum(m.total_chars for m in _indexer._project_index.files.values())
+        for s in _projects.values():
+            if s.indexer and s.indexer._project_index:
+                source_chars += sum(m.total_chars for m in s.indexer._project_index.files.values())
         naive_chars = 0
         for t, c in _tool_call_counts.items():
             if t == "get_usage_stats":
                 continue
             naive_chars += int(source_chars * _TOOL_COST_MULTIPLIERS.get(t, 0.10) * c)
-        _flush_stats(naive_chars)
+        if slot.stats_file:
+            _flush_stats(slot, naive_chars)
 
         return [TextContent(type="text", text=formatted)]
 
@@ -1026,7 +1176,6 @@ async def main():
 def main_sync():
     """Synchronous entry point for console_scripts."""
     import asyncio
-
     asyncio.run(main())
 
 
