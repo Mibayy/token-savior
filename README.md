@@ -1,5 +1,4 @@
-
-<!-- mcp-name: io.github.MikeRecognex/mcp-codebase-index -->
+<!-- mcp-name: io.github.Mibayy/mcp-codebase-index -->
 # mcp-codebase-index
 
 [![CI](https://github.com/MikeRecognex/mcp-codebase-index/actions/workflows/ci.yml/badge.svg)](https://github.com/MikeRecognex/mcp-codebase-index/actions/workflows/ci.yml)
@@ -7,119 +6,90 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)]()
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](https://pypi.org/project/mcp-codebase-index/)
 
-A structural codebase indexer with an [MCP](https://modelcontextprotocol.io) server for AI-assisted development. Zero runtime dependencies — uses Python's `ast` module for Python analysis and regex-based parsing for TypeScript/JS, Go, Rust, and C#. Requires Python 3.11+.
+A structural indexer with an [MCP](https://modelcontextprotocol.io) server for AI-assisted work — code navigation, doc search, config tracing, all from a single index. Zero runtime dependencies. Requires Python 3.11+.
 
-## What It Does
+## What it does
 
-Indexes codebases by parsing source files into structural metadata -- functions, classes, imports, dependency graphs, and cross-file call chains -- then exposes 18 query tools via the Model Context Protocol, enabling Claude Code and other MCP clients to navigate codebases efficiently without reading entire files.
+Instead of the agent reading entire files to find one thing, it queries a pre-built structural index. `find_symbol("_honcho_prefetch")` returns a 20-line preview, the file, and the line number. `get_change_impact("send_message")` returns 11 direct dependents and 31 transitive ones in a single call — 204 characters, sub-millisecond.
 
-**Automatic incremental re-indexing:** In git repositories, the index stays up to date automatically. Before every query, the server checks `git diff` and `git status` (~1-2ms). If files changed, only those files are re-parsed and the dependency graph is rebuilt. No need to manually call `reindex` after edits, branch switches, or pulls.
+The index covers more than just code. This fork extends the upstream with annotators for Markdown/text files, JSON configs, and a generic fallback — so a workspace pointing at `/root` indexes Python bots, docker-compose files, READMEs, skill files, and API configs in one pass. Any agent task benefits, not only refactoring sessions.
 
-**Persistent disk cache:** The index is saved to a pickle cache file (`.codebase-index-cache.pkl`) after every build. On subsequent server starts, the cache is loaded and validated against the current git HEAD — if the ref matches, startup is instant. If a small number of files changed (≤20), the cached index is loaded and incrementally updated instead of rebuilt from scratch. This eliminates the cold-start penalty when restarting Claude Code sessions, restarting the MCP server, or resuming work after context compaction.
+**Automatic incremental re-indexing:** In git repositories, the server checks `git diff` and `git status` before every query (~1-2ms) and re-parses only changed files. No manual `reindex` calls needed after edits, branch switches, or pulls.
 
-## Language Support
+**Persistent disk cache:** The index is saved to `.codebase-index-cache.json` after every build. On restart, it loads from the cache and validates against the current git HEAD — exact match means instant startup, no parsing. Small changesets (≤20 files) are applied incrementally. Cold starts on large projects go from tens of seconds to under a second.
 
-| Language | Method | Extracts |
-|----------|--------|----------|
-| Python (`.py`) | AST parsing | Functions, classes, methods, imports, dependency graph |
-| TypeScript/JS (`.ts`, `.tsx`, `.js`, `.jsx`) | Regex-based | Functions, arrow functions, classes, interfaces, type aliases, imports |
-| Go (`.go`) | Regex-based | Functions, methods (receiver-based), structs, interfaces, type aliases, imports, doc comments |
-| Rust (`.rs`) | Regex-based | Functions (`pub`/`async`/`const`/`unsafe`), structs, enums, traits, impl blocks, use statements, attributes, doc comments, macro_rules |
-| C# (`.cs`) | Regex-based | Classes, interfaces, structs, enums, records, methods, constructors, using directives, `[Attributes]`, `///` XML doc comments |
-| Markdown/Text (`.md`, `.txt`, `.rst`) | Heading detection | Sections (# headings, underlines, numbered, ALL-CAPS) |
-| Other | Generic | Line counts only |
+## Language and file support
+
+| Type | Files | Extracts |
+|------|-------|----------|
+| Python | `.py`, `.pyw` | Functions, classes, methods, imports, dependency graph |
+| TypeScript / JS | `.ts`, `.tsx`, `.js`, `.jsx` | Functions, arrow functions, classes, interfaces, type aliases, imports |
+| Go | `.go` | Functions, methods (receiver), structs, interfaces, type aliases, imports, doc comments |
+| Rust | `.rs` | Functions (`pub`/`async`/`const`/`unsafe`), structs, enums, traits, impl blocks, use statements, doc comments, macro_rules |
+| C# | `.cs` | Classes, interfaces, structs, enums, records, methods, constructors, using directives, XML doc comments |
+| Markdown / Text | `.md`, `.txt`, `.rst` | Sections via heading detection (`#`, underlines, numbered `1.2.3`, ALL-CAPS) |
+| JSON | `.json` | Nested key structure up to depth 4, `$ref` cross-references as imports |
+| Everything else | `*` | Line counts (generic fallback) |
+
+The Markdown, JSON, and generic annotators are what enable full-workspace indexing. Without them, pointing `WORKSPACE_ROOTS` at a mixed directory would produce empty results for half the files.
+
+## How it operates
+
+### Indexing
+
+On first use, the server walks every file under `WORKSPACE_ROOTS`, dispatches each file to the appropriate annotator based on extension, and builds two structures:
+
+1. **Symbol table** — maps every function, class, method, and section heading to its file, line range, signature, and a source preview.
+2. **Dependency graph** — directed graph of what calls what, built from import analysis and call-site detection. Used for `get_dependencies`, `get_dependents`, and `get_change_impact`.
+
+The result is saved to `.codebase-index-cache.json` (human-readable, unlike the upstream's pickle format — safer across Python versions and inspectable when things go wrong).
+
+### Querying
+
+All queries are in-memory lookups against the symbol table or graph traversals. They do not re-read source files. Response size scales with the answer, not the codebase — `find_symbol` returns the same ~60 characters whether the project is 7K lines or 1.1M lines.
+
+### Multi-project workspaces
+
+`WORKSPACE_ROOTS` takes a comma-separated list of absolute paths. Each path gets its own isolated index, loaded lazily on first use. `list_projects` shows all registered roots and their status. `switch_project` sets the active one for subsequent queries. This is the intended setup for a VPS or development machine with multiple projects — one server instance covers everything.
+
+```bash
+WORKSPACE_ROOTS=/root/myapp,/root/mybot,/root/docs mcp-codebase-index
+```
 
 ## Installation
 
 ```bash
-pip install "mcp-codebase-index[mcp]"
+python -m venv ~/.local/mcp-codebase-index-venv
+~/.local/mcp-codebase-index-venv/bin/pip install mcp-codebase-index
 ```
 
-The `[mcp]` extra includes the MCP server dependency. Omit it if you only need the programmatic API.
+Installing in a dedicated venv avoids dependency conflicts with other tools on the same machine.
 
-For development (from a local clone):
+## Configuring with Hermes Agent
 
-```bash
-pip install -e ".[dev,mcp]"
+Add to `~/.hermes/cli-config.yaml`:
+
+```yaml
+mcp_servers:
+  codebase-index:
+    command: ~/.local/mcp-codebase-index-venv/bin/mcp-codebase-index
+    env:
+      WORKSPACE_ROOTS: /path/to/project1,/path/to/project2
+    timeout: 120
+    connect_timeout: 30
 ```
 
-## MCP Server
+Restart Hermes after editing the config. Verify with:
 
-### Running
-
-```bash
-# As a console script
-PROJECT_ROOT=/path/to/project mcp-codebase-index
-
-# As a Python module
-PROJECT_ROOT=/path/to/project python -m mcp_codebase_index.server
+```
+hermes> list all indexed projects
 ```
 
-`PROJECT_ROOT` specifies which directory to index. Defaults to the current working directory.
+The agent will call `list_projects` and show each root with its index status.
 
-### Persistent Cache
-
-In git repositories, the server automatically caches the index to `.codebase-index-cache.pkl` in the project root. On startup:
-
-1. **Cache hit (exact match):** If the cached git ref matches the current HEAD, the index loads instantly from disk — no parsing, no file walking.
-2. **Cache hit (small changeset):** If ≤20 files changed since the cached ref, the cached index is loaded and incrementally updated on the first query.
-3. **Cache miss:** If the changeset is large or no cache exists, a full rebuild runs and saves a new cache.
-
-Add `.codebase-index-cache.pkl` to your `.gitignore` — it's a local-only build artifact.
-
-### Configuring with OpenClaw
-
-Install the package on the machine where OpenClaw is running:
-
-```bash
-# Local install
-pip install "mcp-codebase-index[mcp]"
-
-# Or inside a Docker container / remote VPS
-docker exec -it openclaw bash
-pip install "mcp-codebase-index[mcp]"
-```
-
-Add the MCP server to your OpenClaw agent config (`openclaw.json`):
-
-```json
-{
-  "agents": {
-    "list": [{
-      "id": "main",
-      "mcp": {
-        "servers": [
-          {
-            "name": "codebase-index",
-            "command": "mcp-codebase-index",
-            "env": {
-              "PROJECT_ROOT": "/path/to/project"
-            }
-          }
-        ]
-      }
-    }]
-  }
-}
-```
-
-Restart OpenClaw and verify the connection:
-
-```bash
-openclaw mcp list
-```
-
-All 18 tools will be available to your agent.
-
-**Performance note:** The server automatically detects file changes via `git diff` before every query (~1-2ms) and incrementally re-indexes only what changed. However, OpenClaw's default MCP integration via mcporter spawns a fresh server process per tool call, which discards the in-memory index and forces a full rebuild each time (~1-2s for small projects, longer for large ones). With persistent caching, these cold starts are now significantly faster — the server loads from the disk cache instead of re-parsing the entire codebase. For persistent connections (avoiding even the cache load overhead), use the [openclaw-mcp-adapter](https://github.com/androidStern-personal/openclaw-mcp-adapter) plugin, which connects once at startup and keeps the server running:
-
-```bash
-pip install openclaw-mcp-adapter
-```
-
-### Configuring with Claude Code
+## Configuring with Claude Code
 
 Add to your project's `.mcp.json`:
 
@@ -127,140 +97,73 @@ Add to your project's `.mcp.json`:
 {
   "mcpServers": {
     "codebase-index": {
-      "command": "mcp-codebase-index",
+      "command": "/path/to/.venv/bin/mcp-codebase-index",
       "env": {
-        "PROJECT_ROOT": "/path/to/project"
+        "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2"
       }
     }
   }
 }
 ```
 
-Or using the Python module directly (useful if installed in a virtualenv):
+### Making the agent actually use the tools
 
-```json
-{
-  "mcpServers": {
-    "codebase-index": {
-      "command": "/path/to/.venv/bin/python3",
-      "args": ["-m", "mcp_codebase_index.server"],
-      "env": {
-        "PROJECT_ROOT": "/path/to/project"
-      }
-    }
-  }
-}
-```
-
-#### Reinforcing Tool Usage with Hooks
-
-Claude Code tends to default to built-in Glob/Grep/Read tools even when codebase-index is available. In addition to CLAUDE.md instructions (see below), you can add hooks that fire on every prompt to reinforce the behavior. Add this to `.claude/settings.local.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'CRITICAL REMINDER: Use codebase-index MCP tools FIRST for ALL code navigation (find_symbol, get_function_source, search_codebase, get_dependencies, etc). Only fall back to Glob/Grep/Read for non-code files.'"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'Use codebase-index MCP tools first for code navigation.'"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Hook stdout is injected as context Claude sees before responding. `SessionStart` fires on startup, resume, and context compaction. `UserPromptSubmit` fires on every turn.
-
-### Important: Make the AI Actually Use Indexed Tools
-
-By default, AI assistants will ignore the indexed tools and fall back to reading entire files with Glob/Grep/Read. Soft language like "prefer" gets rationalized away. Add this to your project's `CLAUDE.md` (or equivalent instructions file) with **mandatory** language:
+AI assistants default to `grep` and `cat` even when index tools are available. Add this to your `CLAUDE.md` or equivalent instructions file with mandatory language — soft language like "prefer" gets rationalized away:
 
 ```
 ## Codebase Navigation — MANDATORY
 
-You MUST use codebase-index MCP tools FIRST when exploring or navigating the codebase. This is not optional.
+You MUST use codebase-index MCP tools FIRST when exploring or navigating the codebase.
 
-- ALWAYS start with: get_project_summary, find_symbol, get_function_source, get_class_source,
-  get_structure_summary, get_dependencies, get_dependents, get_change_impact, get_call_chain, search_codebase
-- Only fall back to Read/Glob/Grep when codebase-index tools genuinely don't have what you need
-  (e.g. reading non-code files, config, frontmatter)
-- If you catch yourself reaching for Glob/Grep/Read to find or understand code, STOP and use
-  codebase-index instead
+- ALWAYS start with: find_symbol, get_function_source, get_class_source,
+  search_codebase, get_dependencies, get_dependents, get_change_impact
+- Only fall back to Read/Grep when codebase-index tools genuinely don't have
+  what you need (e.g. binary files)
+- If you catch yourself reaching for grep to find code, STOP and use
+  search_codebase instead
 ```
-
-The word "prefer" is too weak — models treat it as a suggestion and default to familiar tools. Mandatory language with explicit fallback criteria is what actually changes behavior.
-
-### Available Tools (18)
-
-| Tool | Description |
-|------|-------------|
-| `get_project_summary` | File count, packages, top classes/functions |
-| `list_files` | List indexed files with optional glob filter |
-| `get_structure_summary` | Structure of a file or the whole project |
-| `get_functions` | List functions with name, lines, params |
-| `get_classes` | List classes with name, lines, methods, bases |
-| `get_imports` | List imports with module, names, line |
-| `get_function_source` | Full source of a function/method |
-| `get_class_source` | Full source of a class |
-| `find_symbol` | Find where a symbol is defined (file, line, type) |
-| `get_dependencies` | What a symbol calls/uses |
-| `get_dependents` | What calls/uses a symbol |
-| `get_change_impact` | Direct + transitive dependents |
-| `get_call_chain` | Shortest dependency path (BFS) |
-| `get_file_dependencies` | Files imported by a given file |
-| `get_file_dependents` | Files that import from a given file |
-| `search_codebase` | Regex search across all files (max 100 results) |
-| `reindex` | Force full re-index (rarely needed — incremental updates happen automatically in git repos) |
-| `get_usage_stats` | Session efficiency stats: tool calls, characters returned vs total source, estimated token savings |
 
 ## Benchmarks
 
-Tested across four real-world projects on an M-series MacBook Pro, from a small project to CPython itself (1.1 million lines):
+### Token savings across real sessions
 
-### Index Build Performance
+Measured across 92 sessions on production codebases running Hermes Agent with this fork. All projects were mixed workspaces (code + docs + configs):
 
-| Project | Files | Lines | Functions | Classes | Index Time | Peak Memory |
+| Project | Sessions | Queries | Chars used | Chars (naive) | Chars saved | Saving |
+|---------|----------|---------|------------|---------------|-------------|--------|
+| project-alpha | 35 | 360 | 4,801,108 | 639,560,872 | 634,759,764 | **99%** |
+| project-beta | 26 | 189 | 766,508 | 20,936,204 | 20,169,696 | **96%** |
+| project-gamma | 30 | 232 | 410,816 | 3,679,868 | 3,269,052 | **89%** |
+| project-delta | 1 | 1 | 3,036 | 52,148 | 49,112 | **94%** |
+| **TOTAL** | **92** | **782** | **5,981,476** | **664,229,092** | **658,247,616** | **99%** |
+
+"Chars (naive)" is the total source size of all files the agent would have read with `cat`/`grep`. "Chars used" is what the index actually returned. These savings are model-agnostic — the index reduces what enters the context window regardless of provider.
+
+### Index build performance
+
+Tested on real-world projects from small to CPython's 1.1M lines:
+
+| Project | Files | Lines | Functions | Classes | Index time | Peak memory |
 |---------|------:|------:|----------:|--------:|-----------:|------------:|
 | RMLPlus | 36 | 7,762 | 237 | 55 | 0.9s | 2.4 MB |
 | FastAPI | 2,556 | 332,160 | 4,139 | 617 | 5.7s | 55 MB |
 | Django | 3,714 | 707,493 | 29,995 | 7,371 | 36.2s | 126 MB |
 | **CPython** | **2,464** | **1,115,334** | **59,620** | **9,037** | **55.9s** | **197 MB** |
 
-With persistent caching, subsequent startups bypass the full build entirely. Cache load time is negligible compared to parsing — a cache hit on CPython restores the full index in under a second instead of 56s.
+With the persistent cache, subsequent restarts skip the full build entirely. A cache hit on CPython restores the index in under a second instead of 56s.
 
-### Query Response Size vs Total Source
+### Query response size vs total source (CPython — 41M chars)
 
-Querying CPython — 41 million characters of source code:
-
-| Query | Response | Total Source | Reduction |
+| Query | Response | Total source | Reduction |
 |-------|-------:|------------:|----------:|
 | `find_symbol("TestCase")` | 67 chars | 41,077,561 chars | **99.9998%** |
 | `get_dependencies("compile")` | 115 chars | 41,077,561 chars | **99.9997%** |
 | `get_change_impact("TestCase")` | 16,812 chars | 41,077,561 chars | **99.96%** |
 | `get_function_source("compile")` | 4,531 chars | 41,077,561 chars | **99.99%** |
-| `get_function_source("run_unittest")` | 439 chars | 41,077,561 chars | **99.999%** |
 
-`find_symbol` returns 54-67 characters regardless of whether the project is 7K lines or 1.1M lines. Response size scales with the answer, not the codebase.
+### Query response time
 
-`get_change_impact("TestCase")` on CPython found **154 direct dependents and 492 transitive dependents** in 0.45ms — the kind of query that's impossible without a dependency graph. Use `max_direct` and `max_transitive` to cap output to your token budget.
-
-### Query Response Time
-
-All targeted queries return in sub-millisecond time, even on CPython's 1.1M lines:
+All targeted queries return in sub-millisecond time even on 1.1M lines:
 
 | Query | RMLPlus | FastAPI | Django | CPython |
 |-------|--------:|--------:|-------:|--------:|
@@ -271,13 +174,36 @@ All targeted queries return in sub-millisecond time, even on CPython's 1.1M line
 
 Run the benchmarks yourself: `python benchmarks/benchmark.py`
 
-## How Is This Different from LSP?
+## Available tools (18)
 
-LSP answers "where is this function?" — mcp-codebase-index answers "what happens if I change it?" LSP is point queries: one symbol, one file, one position. It can tell you where `LLMClient` is defined and who references it. But ask "what breaks transitively if I refactor `LLMClient`?" and LSP has nothing. This tool returns 11 direct dependents and 31 transitive impacts in a single call — 204 characters. To get the same answer from LSP, the AI would need to chain dozens of find-reference calls recursively, reading files at every step, burning thousands of tokens to reconstruct what the dependency graph already knows.
+| Tool | What it does |
+|------|-------------|
+| `get_project_summary` | File count, packages, top classes/functions |
+| `list_files` | Indexed files with optional glob filter |
+| `get_structure_summary` | Structure of a file or whole project |
+| `get_functions` | All functions with name, lines, params |
+| `get_classes` | All classes with name, lines, methods, bases |
+| `get_imports` | All imports with module, names, line |
+| `get_function_source` | Full source of a function/method |
+| `get_class_source` | Full source of a class |
+| `find_symbol` | Where a symbol is defined — file, line, type, preview |
+| `get_dependencies` | What a symbol calls/uses |
+| `get_dependents` | What calls/uses a symbol |
+| `get_change_impact` | Direct + transitive dependents |
+| `get_call_chain` | Shortest dependency path (BFS) |
+| `get_file_dependencies` | Files imported by a given file |
+| `get_file_dependents` | Files that import from a given file |
+| `search_codebase` | Regex search across all indexed files (max 100 results) |
+| `reindex` | Force full re-index (rarely needed — incremental updates handle git changes automatically) |
+| `get_usage_stats` | Cumulative token savings per project across sessions |
 
-LSP also requires you to install a separate language server for every language in your project — pyright for Python, vtsls for TypeScript, gopls for Go. Each one is a heavyweight binary with its own dependencies and configuration. mcp-codebase-index is zero dependencies, handles Python + TypeScript/JS + Go + Rust + C# + Markdown out of the box, and every response has built-in token budget controls (`max_results`, `max_lines`). LSP was built for IDEs. This was built for AI.
+## How is this different from LSP?
 
-## Programmatic Usage
+LSP answers "where is this defined?" — mcp-codebase-index answers "what breaks if I change it?" LSP is point queries: one symbol, one file, one position. It can find where `LLMClient` is defined and who references it directly. Ask "what breaks transitively if I refactor `LLMClient`?" and LSP has nothing — the AI would need to chain dozens of find-reference calls recursively, reading files at every step.
+
+`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. LSP also requires a separate language server per language. This tool is zero dependencies, covers Python + TS/JS + Go + Rust + C# + Markdown + JSON out of the box, and every response has built-in token budget controls (`max_results`, `max_lines`, `max_direct`, `max_transitive`).
+
+## Programmatic usage
 
 ```python
 from mcp_codebase_index.project_indexer import ProjectIndexer
@@ -287,7 +213,6 @@ indexer = ProjectIndexer("/path/to/project", include_patterns=["**/*.py"])
 index = indexer.index()
 query_funcs = create_project_query_functions(index)
 
-# Use query functions
 print(query_funcs["get_project_summary"]())
 print(query_funcs["find_symbol"]("MyClass"))
 print(query_funcs["get_change_impact"]("some_function"))
@@ -301,6 +226,12 @@ pytest tests/ -v
 ruff check src/ tests/
 ```
 
+## Known limitations
+
+- **Live-editing window:** The index is git-aware but updates on query, not on save. If you edit a file and immediately call `get_function_source`, you may get the pre-edit version. The next git-tracked change triggers a re-index.
+- **Cross-language dependency tracing:** `get_change_impact` stops at language boundaries. A Python script calling a shell script that modifies a JSON config — the chain breaks after Python.
+- **JSON value semantics:** The JSON annotator indexes key structure, not value meaning. Tracing what a config value propagates to across files is still manual.
+
 ## References
 
 The structural indexer was originally developed as part of the [RMLPlus](https://github.com/MikeRecognex/RMLPlus) project, an implementation of the [Recursive Language Models](https://arxiv.org/abs/2512.24601) framework.
@@ -311,5 +242,3 @@ This project is dual-licensed:
 
 - **AGPL-3.0** for open-source use — see [LICENSE](LICENSE)
 - **Commercial License** for proprietary use — see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)
-
-If you're using mcp-codebase-index as a standalone MCP server for development, the AGPL-3.0 license applies at no cost. If you're embedding it in a proprietary product or offering it as part of a hosted service, you'll need a commercial license. See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) for details.
