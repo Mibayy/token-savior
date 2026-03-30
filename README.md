@@ -7,10 +7,9 @@
 **Stop feeding your AI entire codebases. Give it a scalpel instead.**
 
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/token-savior)](https://pypi.org/project/token-savior/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](https://pypi.org/project/token-savior/)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](https://github.com/Mibayy/token-savior)
 
 </div>
 
