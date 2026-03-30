@@ -3,20 +3,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mcp-codebase-index"
+name = "token-savior"
 version = "0.7.1"
-description = "Structural codebase indexer with MCP server for AI-assisted development"
+description = "Compact structural codebase MCP server for token-efficient AI development"
 requires-python = ">=3.11"
 readme = "README.md"
-license = {file = "LICENSE"}
 authors = [
-    {name = "Michael Doyle"},
+    {name = "Mibay"},
 ]
 keywords = ["mcp", "codebase", "indexer", "code-navigation", "structural-analysis"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -30,18 +28,18 @@ dev = ["pytest>=8.0", "ruff>=0.5"]
 benchmark = ["aiohttp>=3.9"]
 
 [project.scripts]
-mcp-codebase-index = "mcp_codebase_index.server:main_sync"
+token-savior = "token_savior.server:main_sync"
+token-savior-dashboard = "token_savior.dashboard:main"
 
 [project.urls]
-Homepage = "https://github.com/MikeRecognex/mcp-codebase-index"
-Repository = "https://github.com/MikeRecognex/mcp-codebase-index"
+Homepage = "https://github.com/Mibayy/token-savior"
+Repository = "https://github.com/Mibayy/token-savior"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_codebase_index"]
+packages = ["src/token_savior"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-timeout = 30
 
 [tool.ruff]
 target-version = "py311"

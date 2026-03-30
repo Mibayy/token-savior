@@ -1,6 +1,6 @@
 """Tests for the regex-based Go annotator."""
 
-from mcp_codebase_index.go_annotator import annotate_go
+from token_savior.go_annotator import annotate_go
 
 
 class TestGoFunctionDetection:

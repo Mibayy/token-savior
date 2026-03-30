@@ -2,7 +2,7 @@
 
 import json
 
-from mcp_codebase_index.json_annotator import annotate_json
+from token_savior.json_annotator import annotate_json
 
 
 class TestJsonBasicObject:
@@ -268,7 +268,7 @@ class TestAnnotatorDispatch:
     """Test that the annotator dispatch routes .json correctly."""
 
     def test_json_dispatch(self):
-        from mcp_codebase_index.annotator import annotate
+        from token_savior.annotator import annotate
 
         text = '{"key": "value"}'
         meta = annotate(text, source_name="test.json")
@@ -276,7 +276,7 @@ class TestAnnotatorDispatch:
         assert "key" in titles
 
     def test_json_explicit_file_type(self):
-        from mcp_codebase_index.annotator import annotate
+        from token_savior.annotator import annotate
 
         text = '{"key": "value"}'
         meta = annotate(text, file_type="json")

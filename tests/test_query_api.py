@@ -1,7 +1,7 @@
 """Tests for the structural query API (single-file and project-wide)."""
 
 
-from mcp_codebase_index.models import (
+from token_savior.models import (
     ClassInfo,
     FunctionInfo,
     ImportInfo,
@@ -10,7 +10,7 @@ from mcp_codebase_index.models import (
     SectionInfo,
     StructuralMetadata,
 )
-from mcp_codebase_index.query_api import (
+from token_savior.query_api import (
     STRUCTURAL_QUERY_INSTRUCTIONS,
     create_file_query_functions,
     create_project_query_functions,

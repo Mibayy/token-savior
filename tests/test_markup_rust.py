@@ -1,6 +1,6 @@
 """Tests for the regex-based Rust annotator."""
 
-from mcp_codebase_index.rust_annotator import annotate_rust
+from token_savior.rust_annotator import annotate_rust
 
 
 class TestRustFunctionDetection:

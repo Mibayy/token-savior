@@ -1,8 +1,8 @@
 """Tests for the Python file annotator."""
 
 
-from mcp_codebase_index.python_annotator import annotate_python
-from mcp_codebase_index.models import (
+from token_savior.python_annotator import annotate_python
+from token_savior.models import (
     StructuralMetadata,
 )
 

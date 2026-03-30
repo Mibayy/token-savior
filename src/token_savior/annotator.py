@@ -1,32 +1,14 @@
-# mcp-codebase-index - Structural codebase indexer with MCP server
-# Copyright (C) 2026 Michael Doyle
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Commercial licensing available. See COMMERCIAL-LICENSE.md for details.
-
 """Dispatch layer that selects the appropriate annotator by file type."""
 
-from mcp_codebase_index.csharp_annotator import annotate_csharp
-from mcp_codebase_index.generic_annotator import annotate_generic
-from mcp_codebase_index.go_annotator import annotate_go
-from mcp_codebase_index.json_annotator import annotate_json
-from mcp_codebase_index.models import StructuralMetadata
-from mcp_codebase_index.python_annotator import annotate_python
-from mcp_codebase_index.rust_annotator import annotate_rust
-from mcp_codebase_index.text_annotator import annotate_text
-from mcp_codebase_index.typescript_annotator import annotate_typescript
+from token_savior.csharp_annotator import annotate_csharp
+from token_savior.generic_annotator import annotate_generic
+from token_savior.go_annotator import annotate_go
+from token_savior.json_annotator import annotate_json
+from token_savior.models import StructuralMetadata
+from token_savior.python_annotator import annotate_python
+from token_savior.rust_annotator import annotate_rust
+from token_savior.text_annotator import annotate_text
+from token_savior.typescript_annotator import annotate_typescript
 
 _EXTENSION_MAP: dict[str, str] = {
     ".py": "python",

@@ -1,21 +1,3 @@
-# mcp-codebase-index - Structural codebase indexer with MCP server
-# Copyright (C) 2026 Michael Doyle
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Commercial licensing available. See COMMERCIAL-LICENSE.md for details.
-
 """Project-wide codebase indexer.
 
 Walks a project directory, annotates each file using the dispatch annotator,
@@ -31,8 +13,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from mcp_codebase_index.annotator import annotate
-from mcp_codebase_index.models import ProjectIndex, StructuralMetadata
+from token_savior.annotator import annotate
+from token_savior.models import ProjectIndex, StructuralMetadata
 
 logger = logging.getLogger(__name__)
 

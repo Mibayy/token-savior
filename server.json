@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.MikeRecognex/mcp-codebase-index",
-  "description": "Structural codebase indexer with 17 query tools. 87% token reduction. Zero dependencies.",
+  "name": "io.github.token-savior/token-savior",
+  "description": "Compact structural codebase MCP server for token-efficient AI development.",
   "repository": {
-    "url": "https://github.com/MikeRecognex/mcp-codebase-index",
+    "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
   "version": "0.2.2",
   "packages": [
     {
       "registryType": "pypi",
-      "identifier": "mcp-codebase-index",
+      "identifier": "token-savior",
       "version": "0.2.2",
       "transport": {
         "type": "stdio"

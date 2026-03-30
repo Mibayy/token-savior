@@ -1,7 +1,7 @@
 """Tests for the regex-based C# annotator."""
 
-from mcp_codebase_index.annotator import annotate
-from mcp_codebase_index.csharp_annotator import annotate_csharp
+from token_savior.annotator import annotate
+from token_savior.csharp_annotator import annotate_csharp
 
 
 class TestCSharpUsingDirectives:

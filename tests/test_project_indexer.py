@@ -8,7 +8,7 @@ Covers:
 - Reverse graphs
 - Max file size filtering
 - reindex_file incremental updates
-- Integration test on the actual mcp-codebase-index source directory
+- Integration test on the actual token-savior source directory
 """
 
 import os
@@ -16,7 +16,7 @@ import textwrap
 
 import pytest
 
-from mcp_codebase_index.project_indexer import ProjectIndexer
+from token_savior.project_indexer import ProjectIndexer
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +467,7 @@ class TestStats:
 
 
 # ---------------------------------------------------------------------------
-# Integration test: index the actual mcp-codebase-index source
+# Integration test: index the actual token-savior source
 # ---------------------------------------------------------------------------
 
 
@@ -659,15 +659,15 @@ class TestRustProject:
 
 
 class TestIntegration:
-    def test_index_mcp_codebase_index_source(self):
-        """Index the actual mcp-codebase-index src directory as an integration test."""
+    def test_index_token_savior_source(self):
+        """Index the actual token-savior src directory as an integration test."""
         project_root = os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))
         )
         src_dir = os.path.join(project_root, "src")
 
         if not os.path.isdir(src_dir):
-            pytest.skip("mcp-codebase-index src directory not found")
+            pytest.skip("token-savior src directory not found")
 
         indexer = ProjectIndexer(
             src_dir,

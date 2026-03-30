@@ -1,21 +1,3 @@
-# mcp-codebase-index - Structural codebase indexer with MCP server
-# Copyright (C) 2026 Michael Doyle
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Commercial licensing available. See COMMERCIAL-LICENSE.md for details.
-
 """Git change detection for incremental re-indexing."""
 
 from __future__ import annotations
@@ -35,6 +17,21 @@ class GitChangeSet:
     @property
     def is_empty(self) -> bool:
         return not self.modified and not self.added and not self.deleted
+
+
+@dataclass
+class GitStatus:
+    """Structured git status summary for the current work tree."""
+
+    branch: str | None = None
+    upstream: str | None = None
+    ahead: int = 0
+    behind: int = 0
+    staged: list[str] = field(default_factory=list)
+    unstaged: list[str] = field(default_factory=list)
+    untracked: list[str] = field(default_factory=list)
+    conflicted: list[str] = field(default_factory=list)
+    clean: bool = True
 
 
 def is_git_repo(root_path: str) -> bool:
@@ -67,6 +64,36 @@ def get_head_commit(root_path: str) -> str | None:
         return None
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
+
+
+def get_git_status(root_path: str) -> dict:
+    """Return a structured status summary for the git work tree."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain=1", "--branch"],
+            cwd=root_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip() or "git status failed"}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"ok": False, "error": "git status unavailable"}
+
+    status = _parse_status_porcelain(result.stdout)
+    return {
+        "ok": True,
+        "branch": status.branch,
+        "upstream": status.upstream,
+        "ahead": status.ahead,
+        "behind": status.behind,
+        "staged": status.staged,
+        "unstaged": status.unstaged,
+        "untracked": status.untracked,
+        "conflicted": status.conflicted,
+        "clean": status.clean,
+    }
 
 
 def get_changed_files(root_path: str, since_ref: str | None) -> GitChangeSet:
@@ -163,3 +190,54 @@ def _parse_diff_output(
             deleted.add(path)
             if len(parts) >= 3:
                 added.add(parts[2])
+
+
+def _parse_status_porcelain(output: str) -> GitStatus:
+    """Parse `git status --porcelain=1 --branch` output."""
+    status = GitStatus()
+    lines = output.splitlines()
+    if not lines:
+        return status
+
+    if lines[0].startswith("## "):
+        _parse_branch_header(lines[0][3:], status)
+        lines = lines[1:]
+
+    for line in lines:
+        if len(line) < 3:
+            continue
+        index_status = line[0]
+        worktree_status = line[1]
+        path = line[3:]
+        if index_status == "?" and worktree_status == "?":
+            status.untracked.append(path)
+            continue
+
+        if index_status == "U" or worktree_status == "U" or (index_status == "A" and worktree_status == "A"):
+            status.conflicted.append(path)
+            continue
+
+        if index_status not in (" ", "?"):
+            status.staged.append(path)
+        if worktree_status not in (" ", "?"):
+            status.unstaged.append(path)
+
+    status.clean = not (status.staged or status.unstaged or status.untracked or status.conflicted)
+    return status
+
+
+def _parse_branch_header(header: str, status: GitStatus) -> None:
+    """Parse the branch/upstream metadata from the porcelain header line."""
+    branch_part, _, tracking_part = header.partition("...")
+    status.branch = branch_part.strip() or None
+    if tracking_part:
+        upstream_part, _, counts_part = tracking_part.partition(" ")
+        status.upstream = upstream_part.strip() or None
+        counts = counts_part.strip().strip("[]")
+        if counts:
+            for item in counts.split(","):
+                piece = item.strip()
+                if piece.startswith("ahead "):
+                    status.ahead = int(piece.split(" ", 1)[1])
+                elif piece.startswith("behind "):
+                    status.behind = int(piece.split(" ", 1)[1])

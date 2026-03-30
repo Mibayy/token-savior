@@ -1,21 +1,3 @@
-# mcp-codebase-index - Structural codebase indexer with MCP server
-# Copyright (C) 2026 Michael Doyle
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Commercial licensing available. See COMMERCIAL-LICENSE.md for details.
-
 """MCP server for the structural codebase indexer.
 
 Exposes project-wide structural query functions as MCP tools,
@@ -23,10 +5,10 @@ enabling Claude Code to navigate codebases efficiently without
 reading entire files into context.
 
 Single-project usage (original):
-    PROJECT_ROOT=/path/to/project mcp-codebase-index
+    PROJECT_ROOT=/path/to/project token-savior
 
 Multi-project workspace usage:
-    WORKSPACE_ROOTS=/root/improvence,/root/sirius,/root/sirius-5min mcp-codebase-index
+    WORKSPACE_ROOTS=/root/hermes-agent,/root/token-savior,/root/improvence token-savior
 
 Each root gets its own isolated index — no symbol collision, no dependency
 graph pollution, no shared RAM between unrelated projects.
@@ -42,6 +24,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from typing import Optional
 
 from mcp.server import Server
@@ -49,10 +32,24 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from mcp_codebase_index.git_tracker import is_git_repo, get_head_commit, get_changed_files
-from mcp_codebase_index.models import ProjectIndex
-from mcp_codebase_index.project_indexer import ProjectIndexer
-from mcp_codebase_index.query_api import create_project_query_functions
+from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files, get_git_status
+from token_savior.compact_ops import get_changed_symbols
+from token_savior.checkpoint_ops import (
+    compare_checkpoint_by_symbol,
+    create_checkpoint,
+    delete_checkpoint,
+    list_checkpoints,
+    prune_checkpoints,
+    restore_checkpoint,
+)
+from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
+from token_savior.git_ops import build_commit_summary, get_changed_symbols_since_ref, summarize_patch_by_symbol
+from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
+from token_savior.models import ProjectIndex
+from token_savior.project_indexer import ProjectIndexer
+from token_savior.project_actions import discover_project_actions, run_project_action
+from token_savior.query_api import create_project_query_functions
+from token_savior.workflow_ops import apply_symbol_change_and_validate, apply_symbol_change_validate_with_rollback
 
 # ---------------------------------------------------------------------------
 # Per-project slot — one per workspace root, fully isolated
@@ -73,7 +70,7 @@ class _ProjectSlot:
 # Module-level state
 # ---------------------------------------------------------------------------
 
-server = Server("mcp-codebase-index")
+server = Server("token-savior")
 
 # Dict of abs_path -> slot. Populated from WORKSPACE_ROOTS or PROJECT_ROOT.
 _projects: dict[str, _ProjectSlot] = {}
@@ -87,11 +84,32 @@ _CACHE_VERSION = 2  # Bumped: switched from pickle to JSON
 
 # Session usage stats (aggregated across all projects in this session)
 _session_start: float = time.time()
+_session_id: str = uuid.uuid4().hex[:12]
 _tool_call_counts: dict[str, int] = {}
 _total_chars_returned: int = 0
+_total_naive_chars: int = 0
 
 # Persistent stats
-_STATS_DIR = os.path.expanduser("~/.local/share/mcp-codebase-index")
+_STATS_DIR = os.path.expanduser("~/.local/share/token-savior")
+_MAX_SESSION_HISTORY = 200
+
+
+def _detect_client_name() -> str:
+    """Best-effort client attribution for persisted stats."""
+    explicit = os.environ.get("TOKEN_SAVIOR_CLIENT", "").strip()
+    if explicit:
+        return explicit
+    if os.environ.get("HERMES_GATEWAY_URL") or os.environ.get("HERMES_SESSION_ID"):
+        return "hermes"
+    if os.environ.get("CODEX_HOME") or os.environ.get("CODEX_SANDBOX"):
+        return "codex"
+    if os.environ.get("CLAUDECODE") or os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
+        return "claude-code"
+    return "unknown"
+
+
+_CLIENT_NAME = _detect_client_name()
+_SESSION_LABEL = os.environ.get("TOKEN_SAVIOR_SESSION_LABEL", "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -140,36 +158,86 @@ def _get_stats_file(project_root: str) -> str:
 def _load_cumulative_stats(stats_file: str) -> dict:
     """Load cumulative stats from disk, or return empty structure."""
     if not stats_file or not os.path.exists(stats_file):
-        return {"total_calls": 0, "total_chars_returned": 0, "total_naive_chars": 0, "sessions": 0, "tool_counts": {}}
+        return {
+            "total_calls": 0,
+            "total_chars_returned": 0,
+            "total_naive_chars": 0,
+            "sessions": 0,
+            "tool_counts": {},
+            "client_counts": {},
+            "history": [],
+        }
     try:
         with open(stats_file) as f:
-            return json.load(f)
+            payload = json.load(f)
+            if "history" not in payload:
+                payload["history"] = []
+            if "client_counts" not in payload:
+                payload["client_counts"] = {}
+            return payload
     except Exception:
-        return {"total_calls": 0, "total_chars_returned": 0, "total_naive_chars": 0, "sessions": 0, "tool_counts": {}}
+        return {
+            "total_calls": 0,
+            "total_chars_returned": 0,
+            "total_naive_chars": 0,
+            "sessions": 0,
+            "tool_counts": {},
+            "client_counts": {},
+            "history": [],
+        }
 
 
 def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
-    """Append current session stats to the persistent JSON file for this slot."""
+    """Persist a per-session snapshot and recompute cumulative totals."""
     if not slot.stats_file:
         return
     try:
         os.makedirs(_STATS_DIR, exist_ok=True)
         cum = _load_cumulative_stats(slot.stats_file)
         session_calls = sum(_tool_call_counts.values()) - _tool_call_counts.get("get_usage_stats", 0)
-        cum["sessions"] = cum.get("sessions", 0) + 1
-        cum["total_calls"] = cum.get("total_calls", 0) + session_calls
-        cum["total_chars_returned"] = cum.get("total_chars_returned", 0) + _total_chars_returned
-        cum["total_naive_chars"] = cum.get("total_naive_chars", 0) + naive_chars
         cum["project"] = slot.root
         cum["last_session"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        for tool, count in _tool_call_counts.items():
-            if tool == "get_usage_stats":
-                continue
-            cum["tool_counts"][tool] = cum["tool_counts"].get(tool, 0) + count
+        cum["last_client"] = _CLIENT_NAME
+        history = [entry for entry in cum.get("history", []) if entry.get("session_id") != _session_id]
+        savings_pct = (1 - _total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0.0
+        session_entry = {
+            "session_id": _session_id,
+            "timestamp": cum["last_session"],
+            "client_name": _CLIENT_NAME,
+            "session_label": _SESSION_LABEL,
+            "duration_sec": round(time.time() - _session_start, 3),
+            "query_calls": session_calls,
+            "chars_returned": _total_chars_returned,
+            "naive_chars": naive_chars,
+            "tokens_used": _total_chars_returned // 4,
+            "tokens_naive": naive_chars // 4,
+            "savings_pct": round(savings_pct, 2),
+            "tool_counts": {
+                tool: count
+                for tool, count in _tool_call_counts.items()
+                if tool != "get_usage_stats"
+            },
+        }
+        history.append(session_entry)
+        history = history[-_MAX_SESSION_HISTORY:]
+        cum["history"] = history
+        cum["sessions"] = len(history)
+        cum["total_calls"] = sum(entry.get("query_calls", 0) for entry in history)
+        cum["total_chars_returned"] = sum(entry.get("chars_returned", 0) for entry in history)
+        cum["total_naive_chars"] = sum(entry.get("naive_chars", 0) for entry in history)
+        aggregate_tool_counts: dict[str, int] = {}
+        aggregate_client_counts: dict[str, int] = {}
+        for entry in history:
+            for tool, count in entry.get("tool_counts", {}).items():
+                aggregate_tool_counts[tool] = aggregate_tool_counts.get(tool, 0) + count
+            client_name = str(entry.get("client_name") or "unknown").strip() or "unknown"
+            aggregate_client_counts[client_name] = aggregate_client_counts.get(client_name, 0) + 1
+        cum["tool_counts"] = aggregate_tool_counts
+        cum["client_counts"] = aggregate_client_counts
         with open(slot.stats_file, "w") as f:
             json.dump(cum, f, indent=2)
     except Exception as e:
-        print(f"[mcp-codebase-index] Failed to flush stats: {e}", file=sys.stderr)
+        print(f"[token-savior] Failed to flush stats: {e}", file=sys.stderr)
 
 
 # Realistic estimate of what % of codebase you'd need to read without the indexer
@@ -190,6 +258,25 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_file_dependencies": 0.02,
     "get_file_dependents": 0.10,
     "search_codebase": 0.15,
+    "get_git_status": 0.03,
+    "get_changed_symbols": 0.12,
+    "get_changed_symbols_since_ref": 0.12,
+    "summarize_patch_by_symbol": 0.15,
+    "build_commit_summary": 0.18,
+    "create_checkpoint": 0.05,
+    "list_checkpoints": 0.02,
+    "delete_checkpoint": 0.02,
+    "prune_checkpoints": 0.03,
+    "compare_checkpoint_by_symbol": 0.18,
+    "restore_checkpoint": 0.08,
+    "replace_symbol_source": 0.20,
+    "insert_near_symbol": 0.10,
+    "find_impacted_test_files": 0.08,
+    "run_impacted_tests": 0.18,
+    "apply_symbol_change_and_validate": 0.35,
+    "apply_symbol_change_validate_with_rollback": 0.40,
+    "discover_project_actions": 0.0,
+    "run_project_action": 0.0,
     "reindex": 0.0,
     "set_project_root": 0.0,
     "switch_project": 0.0,
@@ -208,6 +295,66 @@ def _format_result(value: object) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, indent=2, default=str)
     return str(value)
+
+
+def _count_and_wrap_result(slot: _ProjectSlot, name: str, arguments: dict, result: object) -> list[types.TextContent]:
+    """Update usage counters for a tool result and return it as text content."""
+    global _total_chars_returned, _total_naive_chars
+
+    formatted = _format_result(result)
+    _total_chars_returned += len(formatted)
+    _total_naive_chars += _estimate_naive_chars_for_call(slot, name, arguments, result)
+
+    if slot.stats_file:
+        _flush_stats(slot, _total_naive_chars)
+
+    return [TextContent(type="text", text=formatted)]
+
+
+def _estimate_naive_chars_for_call(slot: _ProjectSlot, tool_name: str, arguments: dict, result: object) -> int:
+    """Estimate the naive character cost of one tool call."""
+    index = slot.indexer._project_index if slot.indexer else None
+    if index is None:
+        return 0
+
+    source_chars = sum(meta.total_chars for meta in index.files.values())
+    file_sizes = {path: meta.total_chars for path, meta in index.files.items()}
+
+    def size_for(paths: list[str]) -> int:
+        total = 0
+        for path in paths:
+            resolved = path if path in file_sizes else next((p for p in file_sizes if p.endswith(path) or path.endswith(p)), None)
+            if resolved:
+                total += file_sizes[resolved]
+        return total
+
+    if tool_name in {"summarize_patch_by_symbol", "build_commit_summary", "create_checkpoint"}:
+        changed_files = arguments.get("changed_files") or arguments.get("file_paths") or []
+        return max(size_for(changed_files), len(_format_result(result)))
+
+    if tool_name in {"replace_symbol_source", "insert_near_symbol"} and isinstance(result, dict):
+        target_file = result.get("file")
+        return max(size_for([target_file]) * 2 if target_file else 0, len(_format_result(result)))
+
+    if tool_name in {"run_impacted_tests", "find_impacted_test_files"} and isinstance(result, dict):
+        selection = result.get("selection") or result
+        impacted = selection.get("impacted_tests", [])
+        changed = selection.get("changed_files", [])
+        return max(size_for(impacted + changed), len(_format_result(result)))
+
+    if tool_name in {"apply_symbol_change_and_validate", "apply_symbol_change_validate_with_rollback"} and isinstance(result, dict):
+        edit = result.get("edit", {})
+        file_path = edit.get("file")
+        validation = result.get("validation", {})
+        impacted = validation.get("selection", {}).get("impacted_tests", [])
+        return max(size_for(([file_path] if file_path else []) + impacted) * 2, len(_format_result(result)))
+
+    if tool_name in {"get_changed_symbols", "get_changed_symbols_since_ref", "compare_checkpoint_by_symbol"} and isinstance(result, dict):
+        files = [entry.get("file") for entry in result.get("files", []) if entry.get("file")]
+        return max(size_for(files), len(_format_result(result)))
+
+    multiplier = _TOOL_COST_MULTIPLIERS.get(tool_name, 0.10)
+    return max(int(source_chars * multiplier), len(_format_result(result)))
 
 
 def _format_usage_stats(include_cumulative: bool = False) -> str:
@@ -248,13 +395,8 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
 
     if source_chars > 0:
         lines.append(f"Total source in index: {source_chars:,} chars")
-        if query_calls > 0 and source_chars > _total_chars_returned:
-            naive_chars = 0
-            for tool_name, count in _tool_call_counts.items():
-                if tool_name == "get_usage_stats":
-                    continue
-                multiplier = _TOOL_COST_MULTIPLIERS.get(tool_name, 0.10)
-                naive_chars += int(source_chars * multiplier * count)
+        if query_calls > 0 and _total_naive_chars > _total_chars_returned:
+            naive_chars = _total_naive_chars
             reduction = (1 - _total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0
             lines.append(
                 f"Estimated without indexer: {naive_chars:,} chars "
@@ -312,6 +454,28 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
                 f"  {'TOTAL':<26} {total_sessions:>8} {total_calls:>8} {total_chars//4:>12,} {total_naive//4:>13,} {total_savings:.0f}%"
             )
 
+            latest_project_name, latest_project_stats = max(
+                all_project_stats,
+                key=lambda item: item[1].get("last_session", ""),
+            )
+            history = latest_project_stats.get("history", [])[-5:]
+            if history:
+                lines.append("")
+                lines.append(f"─── Recent session log ({latest_project_name}) ───")
+                lines.append(
+                    f"  {'When':<20} {'Queries':>8} {'Used':>10} {'Naive':>10} {'Savings':>8}"
+                )
+                lines.append(f"  {'─'*20} {'─'*8} {'─'*10} {'─'*10} {'─'*8}")
+                for entry in history:
+                    when = entry.get("timestamp", "")[5:19].replace("T", " ")
+                    lines.append(
+                        f"  {when:<20} "
+                        f"{entry.get('query_calls', 0):>8} "
+                        f"{entry.get('tokens_used', 0):>10,} "
+                        f"{entry.get('tokens_naive', 0):>10,} "
+                        f"{entry.get('savings_pct', 0):>7.1f}%"
+                    )
+
     return "\n".join(lines)
 
 
@@ -355,7 +519,7 @@ def _index_to_dict(index: "ProjectIndex") -> dict:
 
 def _index_from_dict(data: dict) -> "ProjectIndex":
     """Deserialize a ProjectIndex from JSON dict, restoring sets where needed."""
-    from mcp_codebase_index.models import (
+    from token_savior.models import (
         ProjectIndex, StructuralMetadata, FunctionInfo, ClassInfo,
         ImportInfo, SectionInfo, LineRange
     )
@@ -428,9 +592,9 @@ def _save_cache(index: "ProjectIndex") -> None:
         payload = {"version": _CACHE_VERSION, "index": _index_to_dict(index)}
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
-        print(f"[mcp-codebase-index] Cache saved → {path}", file=sys.stderr)
+        print(f"[token-savior] Cache saved → {path}", file=sys.stderr)
     except Exception as exc:
-        print(f"[mcp-codebase-index] Cache save failed: {exc}", file=sys.stderr)
+        print(f"[token-savior] Cache save failed: {exc}", file=sys.stderr)
 
 
 def _load_cache(project_root: str) -> "ProjectIndex | None":
@@ -442,11 +606,11 @@ def _load_cache(project_root: str) -> "ProjectIndex | None":
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
         if not isinstance(payload, dict) or payload.get("version") != _CACHE_VERSION:
-            print("[mcp-codebase-index] Cache version mismatch, ignoring", file=sys.stderr)
+            print("[token-savior] Cache version mismatch, ignoring", file=sys.stderr)
             return None
         return _index_from_dict(payload["index"])
     except Exception as exc:
-        print(f"[mcp-codebase-index] Cache load failed: {exc}", file=sys.stderr)
+        print(f"[token-savior] Cache load failed: {exc}", file=sys.stderr)
         return None
 
 
@@ -468,7 +632,7 @@ def _ensure_slot(slot: _ProjectSlot) -> None:
     if cached_index is not None and slot.is_git and cached_index.last_indexed_git_ref:
         current_head = get_head_commit(root)
         if current_head == cached_index.last_indexed_git_ref:
-            print(f"[mcp-codebase-index] Cache hit (git ref matches) — {root}", file=sys.stderr)
+            print(f"[token-savior] Cache hit (git ref matches) — {root}", file=sys.stderr)
             slot.indexer = ProjectIndexer(root)
             slot.indexer._project_index = cached_index
             slot.query_fns = create_project_query_functions(cached_index)
@@ -478,7 +642,7 @@ def _ensure_slot(slot: _ProjectSlot) -> None:
         total_changes = len(changeset.modified) + len(changeset.added) + len(changeset.deleted)
         if not changeset.is_empty and total_changes <= 20:
             print(
-                f"[mcp-codebase-index] Cache hit with {total_changes} changed files, "
+                f"[token-savior] Cache hit with {total_changes} changed files, "
                 f"applying incremental update — {root}",
                 file=sys.stderr,
             )
@@ -488,7 +652,7 @@ def _ensure_slot(slot: _ProjectSlot) -> None:
             return
 
         print(
-            f"[mcp-codebase-index] Cache stale ({total_changes} changes), full rebuild — {root}",
+            f"[token-savior] Cache stale ({total_changes} changes), full rebuild — {root}",
             file=sys.stderr,
         )
 
@@ -501,7 +665,7 @@ def _build_slot(slot: _ProjectSlot) -> None:
     if not slot.stats_file:
         slot.stats_file = _get_stats_file(root)
 
-    print(f"[mcp-codebase-index] Indexing project: {root}", file=sys.stderr)
+    print(f"[token-savior] Indexing project: {root}", file=sys.stderr)
 
     extra_excludes_raw = os.environ.get("EXCLUDE_EXTRA", "")
     exclude_override_raw = os.environ.get("EXCLUDE_PATTERNS", "")
@@ -530,7 +694,7 @@ def _build_slot(slot: _ProjectSlot) -> None:
         _save_cache(index)
 
     print(
-        f"[mcp-codebase-index] Indexed {index.total_files} files, "
+        f"[token-savior] Indexed {index.total_files} files, "
         f"{index.total_lines} lines, "
         f"{index.total_functions} functions, "
         f"{index.total_classes} classes "
@@ -567,7 +731,7 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
 
     if total_changes > 20 and total_changes > idx.total_files * 0.5:
         print(
-            f"[mcp-codebase-index] Large changeset ({total_changes} files), "
+            f"[token-savior] Large changeset ({total_changes} files), "
             f"doing full rebuild — {slot.root}",
             file=sys.stderr,
         )
@@ -595,7 +759,7 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
     n_add = len(changeset.added)
     n_del = len(changeset.deleted)
     print(
-        f"[mcp-codebase-index] Incremental update: "
+        f"[token-savior] Incremental update: "
         f"{n_mod} modified, {n_add} added, {n_del} deleted — {slot.root}",
         file=sys.stderr,
     )
@@ -682,6 +846,415 @@ TOOLS = [
                 },
             },
             "required": ["name"],
+        },
+    ),
+    Tool(
+        name="get_git_status",
+        description="Return a structured git status summary for the active project: branch, ahead/behind, staged, unstaged, and untracked files.",
+        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
+    ),
+    Tool(
+        name="get_changed_symbols",
+        description="Return a compact symbol-oriented summary of current worktree changes, avoiding large textual diffs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum changed files to report (default 20).",
+                },
+                "max_symbols_per_file": {
+                    "type": "integer",
+                    "description": "Maximum symbols to report per file (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="get_changed_symbols_since_ref",
+        description="Return a compact symbol-oriented summary of git changes since a given ref, avoiding large textual diffs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "since_ref": {
+                    "type": "string",
+                    "description": "Git ref to compare against HEAD and current worktree.",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum changed files to report (default 20).",
+                },
+                "max_symbols_per_file": {
+                    "type": "integer",
+                    "description": "Maximum symbols to report per file (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["since_ref"],
+        },
+    ),
+    Tool(
+        name="summarize_patch_by_symbol",
+        description="Summarize a set of changed files as symbol-level entries for compact review instead of textual diffs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed files to summarize. Omit to summarize indexed files currently passed in by caller logic.",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum files to report (default 20).",
+                },
+                "max_symbols_per_file": {
+                    "type": "integer",
+                    "description": "Maximum symbols to report per file (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="build_commit_summary",
+        description="Build a compact commit/review summary from changed files using symbol-level structure instead of textual diffs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed files to summarize.",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum files to report (default 20).",
+                },
+                "max_symbols_per_file": {
+                    "type": "integer",
+                    "description": "Maximum symbols to report per file (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["changed_files"],
+        },
+    ),
+    Tool(
+        name="create_checkpoint",
+        description="Create a compact checkpoint for a bounded set of files before a workflow mutation.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Project files to save into the checkpoint.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["file_paths"],
+        },
+    ),
+    Tool(
+        name="list_checkpoints",
+        description="List available checkpoints for the active project.",
+        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
+    ),
+    Tool(
+        name="delete_checkpoint",
+        description="Delete a specific checkpoint.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "checkpoint_id": {
+                    "type": "string",
+                    "description": "Checkpoint identifier to delete.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["checkpoint_id"],
+        },
+    ),
+    Tool(
+        name="prune_checkpoints",
+        description="Keep only the newest N checkpoints and delete older ones.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "keep_last": {
+                    "type": "integer",
+                    "description": "How many recent checkpoints to keep (default 10).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="restore_checkpoint",
+        description="Restore files from a previously created checkpoint.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "checkpoint_id": {
+                    "type": "string",
+                    "description": "Checkpoint identifier returned by create_checkpoint.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["checkpoint_id"],
+        },
+    ),
+    Tool(
+        name="compare_checkpoint_by_symbol",
+        description="Compare a checkpoint against current files at symbol level, returning added/removed/changed symbols without a textual diff.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "checkpoint_id": {
+                    "type": "string",
+                    "description": "Checkpoint identifier returned by create_checkpoint.",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum files to compare (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["checkpoint_id"],
+        },
+    ),
+    Tool(
+        name="replace_symbol_source",
+        description="Replace an indexed symbol's full source block directly, without sending a file-wide patch.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Function, method, class, or section name to replace.",
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "Replacement source for the symbol.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate symbols.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "new_source"],
+        },
+    ),
+    Tool(
+        name="insert_near_symbol",
+        description="Insert content immediately before or after an indexed symbol, avoiding a file-wide edit payload.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Function, method, class, or section name near which to insert.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to insert.",
+                },
+                "position": {
+                    "type": "string",
+                    "description": "Insertion position: 'before' or 'after' (default 'after').",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate symbols.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "content"],
+        },
+    ),
+    Tool(
+        name="find_impacted_test_files",
+        description="Infer a compact set of likely impacted pytest files from changed files or symbols.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed project files to map to likely impacted tests.",
+                },
+                "symbol_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed symbols to map to likely impacted tests.",
+                },
+                "max_tests": {
+                    "type": "integer",
+                    "description": "Maximum impacted test files to return (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="run_impacted_tests",
+        description="Run only the inferred impacted pytest files and return a compact summary instead of full logs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed project files to map to likely impacted tests.",
+                },
+                "symbol_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Changed symbols to map to likely impacted tests.",
+                },
+                "max_tests": {
+                    "type": "integer",
+                    "description": "Maximum impacted test files to run (default 20).",
+                },
+                "timeout_sec": {
+                    "type": "integer",
+                    "description": "Maximum runtime in seconds (default 120).",
+                },
+                "max_output_chars": {
+                    "type": "integer",
+                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
+                },
+                "include_output": {
+                    "type": "boolean",
+                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
+                },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Return only the minimum useful fields for agent loops.",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="apply_symbol_change_and_validate",
+        description="Replace a symbol, reindex the file, and run only the inferred impacted tests as one compact workflow.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Function, method, class, or section name to replace.",
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "Replacement source for the symbol.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate symbols.",
+                },
+                "max_tests": {
+                    "type": "integer",
+                    "description": "Maximum impacted test files to run (default 20).",
+                },
+                "timeout_sec": {
+                    "type": "integer",
+                    "description": "Maximum runtime in seconds (default 120).",
+                },
+                "max_output_chars": {
+                    "type": "integer",
+                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
+                },
+                "include_output": {
+                    "type": "boolean",
+                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
+                },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Return only the minimum useful fields for agent loops.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "new_source"],
+        },
+    ),
+    Tool(
+        name="apply_symbol_change_validate_with_rollback",
+        description="Replace a symbol, validate impacted tests, and restore the previous file automatically if validation fails.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Function, method, class, or section name to replace.",
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "Replacement source for the symbol.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate symbols.",
+                },
+                "max_tests": {
+                    "type": "integer",
+                    "description": "Maximum impacted test files to run (default 20).",
+                },
+                "timeout_sec": {
+                    "type": "integer",
+                    "description": "Maximum runtime in seconds (default 120).",
+                },
+                "max_output_chars": {
+                    "type": "integer",
+                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
+                },
+                "include_output": {
+                    "type": "boolean",
+                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
+                },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Return only the minimum useful fields for agent loops.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "new_source"],
+        },
+    ),
+    Tool(
+        name="discover_project_actions",
+        description="Detect conventional project actions from build files (tests, lint, build, run) without executing them.",
+        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
+    ),
+    Tool(
+        name="run_project_action",
+        description="Run a previously discovered project action by id with bounded output and timeout.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "Action id returned by discover_project_actions (e.g. 'python:test', 'npm:test').",
+                },
+                "timeout_sec": {
+                    "type": "integer",
+                    "description": "Maximum runtime in seconds (default 120).",
+                },
+                "max_output_chars": {
+                    "type": "integer",
+                    "description": "Maximum stdout/stderr characters to keep (default 12000).",
+                },
+                "include_output": {
+                    "type": "boolean",
+                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["action_id"],
         },
     ),
     Tool(
@@ -1016,7 +1589,7 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    global _total_chars_returned, _active_root
+    global _total_chars_returned, _total_naive_chars, _active_root
 
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
 
@@ -1082,6 +1655,193 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         slot, err = _resolve_slot(project_hint)
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
+
+        if name == "get_git_status":
+            return _count_and_wrap_result(slot, name, arguments, get_git_status(slot.root))
+
+        if name == "get_changed_symbols":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = get_changed_symbols(
+                slot.indexer._project_index,
+                max_files=arguments.get("max_files", 20),
+                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "get_changed_symbols_since_ref":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = get_changed_symbols_since_ref(
+                slot.indexer._project_index,
+                arguments["since_ref"],
+                max_files=arguments.get("max_files", 20),
+                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "summarize_patch_by_symbol":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = summarize_patch_by_symbol(
+                slot.indexer._project_index,
+                changed_files=arguments.get("changed_files"),
+                max_files=arguments.get("max_files", 20),
+                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "build_commit_summary":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = build_commit_summary(
+                slot.indexer._project_index,
+                changed_files=arguments["changed_files"],
+                max_files=arguments.get("max_files", 20),
+                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "create_checkpoint":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = create_checkpoint(slot.indexer._project_index, arguments["file_paths"])
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "list_checkpoints":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = list_checkpoints(slot.indexer._project_index)
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "delete_checkpoint":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = delete_checkpoint(slot.indexer._project_index, arguments["checkpoint_id"])
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "prune_checkpoints":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = prune_checkpoints(slot.indexer._project_index, keep_last=arguments.get("keep_last", 10))
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "restore_checkpoint":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = restore_checkpoint(slot.indexer._project_index, arguments["checkpoint_id"])
+            if result.get("ok"):
+                for restored_file in result.get("restored_files", []):
+                    slot.indexer.reindex_file(restored_file)
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "compare_checkpoint_by_symbol":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = compare_checkpoint_by_symbol(
+                slot.indexer._project_index,
+                arguments["checkpoint_id"],
+                max_files=arguments.get("max_files", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "replace_symbol_source":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = replace_symbol_source(
+                slot.indexer._project_index,
+                arguments["symbol_name"],
+                arguments["new_source"],
+                file_path=arguments.get("file_path"),
+            )
+            if result.get("ok"):
+                slot.indexer.reindex_file(result["file"])
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "insert_near_symbol":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = insert_near_symbol(
+                slot.indexer._project_index,
+                arguments["symbol_name"],
+                arguments["content"],
+                position=arguments.get("position", "after"),
+                file_path=arguments.get("file_path"),
+            )
+            if result.get("ok"):
+                slot.indexer.reindex_file(result["file"])
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "find_impacted_test_files":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = find_impacted_test_files(
+                slot.indexer._project_index,
+                changed_files=arguments.get("changed_files"),
+                symbol_names=arguments.get("symbol_names"),
+                max_tests=arguments.get("max_tests", 20),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "run_impacted_tests":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_impacted_tests(
+                slot.indexer._project_index,
+                changed_files=arguments.get("changed_files"),
+                symbol_names=arguments.get("symbol_names"),
+                max_tests=arguments.get("max_tests", 20),
+                timeout_sec=arguments.get("timeout_sec", 120),
+                max_output_chars=arguments.get("max_output_chars", 12000),
+                include_output=arguments.get("include_output", False),
+                compact=arguments.get("compact", False),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "apply_symbol_change_and_validate":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = apply_symbol_change_and_validate(
+                slot.indexer,
+                arguments["symbol_name"],
+                arguments["new_source"],
+                file_path=arguments.get("file_path"),
+                max_tests=arguments.get("max_tests", 20),
+                timeout_sec=arguments.get("timeout_sec", 120),
+                max_output_chars=arguments.get("max_output_chars", 12000),
+                include_output=arguments.get("include_output", False),
+                compact=arguments.get("compact", False),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "apply_symbol_change_validate_with_rollback":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = apply_symbol_change_validate_with_rollback(
+                slot.indexer,
+                arguments["symbol_name"],
+                arguments["new_source"],
+                file_path=arguments.get("file_path"),
+                max_tests=arguments.get("max_tests", 20),
+                timeout_sec=arguments.get("timeout_sec", 120),
+                max_output_chars=arguments.get("max_output_chars", 12000),
+                include_output=arguments.get("include_output", False),
+                compact=arguments.get("compact", False),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "discover_project_actions":
+            return _count_and_wrap_result(slot, name, arguments, discover_project_actions(slot.root))
+
+        if name == "run_project_action":
+            result = run_project_action(
+                slot.root,
+                arguments["action_id"],
+                timeout_sec=arguments.get("timeout_sec", 120),
+                max_output_chars=arguments.get("max_output_chars", 12000),
+                include_output=arguments.get("include_output", False),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
 
         _ensure_slot(slot)
         _maybe_incremental_update(slot)
@@ -1156,27 +1916,11 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         else:
             return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 
-        formatted = _format_result(result)
-        _total_chars_returned += len(formatted)
-
-        # Flush stats
-        source_chars = 0
-        for s in _projects.values():
-            if s.indexer and s.indexer._project_index:
-                source_chars += sum(m.total_chars for m in s.indexer._project_index.files.values())
-        naive_chars = 0
-        for t, c in _tool_call_counts.items():
-            if t == "get_usage_stats":
-                continue
-            naive_chars += int(source_chars * _TOOL_COST_MULTIPLIERS.get(t, 0.10) * c)
-        if slot.stats_file:
-            _flush_stats(slot, naive_chars)
-
-        return [TextContent(type="text", text=formatted)]
+        return _count_and_wrap_result(slot, name, arguments, result)
 
     except Exception as e:
         tb = traceback.format_exc()
-        print(f"[mcp-codebase-index] Error in {name}: {tb}", file=sys.stderr)
+        print(f"[token-savior] Error in {name}: {tb}", file=sys.stderr)
         return [TextContent(type="text", text=f"Error: {e}")]
 
 

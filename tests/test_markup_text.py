@@ -1,6 +1,6 @@
 """Tests for the text/markdown annotator."""
 
-from mcp_codebase_index.text_annotator import annotate_text
+from token_savior.text_annotator import annotate_text
 
 
 class TestMarkdownHeadings:

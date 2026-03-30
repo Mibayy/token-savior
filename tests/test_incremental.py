@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from mcp_codebase_index.project_indexer import ProjectIndexer
+from token_savior.project_indexer import ProjectIndexer
 
 
 @pytest.fixture

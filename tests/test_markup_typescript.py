@@ -1,6 +1,6 @@
 """Tests for the regex-based TypeScript annotator."""
 
-from mcp_codebase_index.typescript_annotator import annotate_typescript
+from token_savior.typescript_annotator import annotate_typescript
 
 
 class TestFunctionDetection:

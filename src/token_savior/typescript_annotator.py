@@ -1,21 +1,3 @@
-# mcp-codebase-index - Structural codebase indexer with MCP server
-# Copyright (C) 2026 Michael Doyle
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Commercial licensing available. See COMMERCIAL-LICENSE.md for details.
-
 """Regex-based TypeScript annotator (v1, best-effort).
 
 This is NOT a full TypeScript parser. It handles common patterns for
@@ -28,7 +10,7 @@ be missed, and that is acceptable for v1.
 import re
 from typing import Optional
 
-from mcp_codebase_index.models import (
+from token_savior.models import (
     ClassInfo,
     FunctionInfo,
     ImportInfo,
