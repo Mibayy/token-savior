@@ -51,7 +51,7 @@ class TestCheckpointOps:
 
         create_checkpoint(index, ["main.py"])
         (tmp_path / "main.py").write_text("x = 2\n", encoding="utf-8")
-        cp2 = create_checkpoint(index, ["main.py"])
+        create_checkpoint(index, ["main.py"])
 
         listed = list_checkpoints(index)
         assert listed["ok"] is True
