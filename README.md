@@ -164,8 +164,10 @@ LSP is point queries: one symbol, one file, one position. It can find where `LLM
 ## Install
 
 ```bash
+git clone https://github.com/Mibayy/token-savior
+cd token-savior
 python3 -m venv ~/.local/token-savior-venv
-~/.local/token-savior-venv/bin/pip install token-savior
+~/.local/token-savior-venv/bin/pip install -e ".[mcp]"
 ```
 
 ---

@@ -1,7 +1,10 @@
 # Installation
 
 ```bash
-pip install "token-savior[mcp]"
+git clone https://github.com/Mibayy/token-savior
+cd token-savior
+python3 -m venv ~/.local/token-savior-venv
+~/.local/token-savior-venv/bin/pip install -e ".[mcp]"
 ```
 
 # Configuration
@@ -12,7 +15,7 @@ Add to `.mcp.json`:
 {
   "mcpServers": {
     "token-savior": {
-      "command": "token-savior",
+      "command": "~/.local/token-savior-venv/bin/token-savior",
       "env": {
         "WORKSPACE_ROOTS": "/path/to/project",
         "TOKEN_SAVIOR_CLIENT": "codex"
