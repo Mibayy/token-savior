@@ -723,6 +723,12 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
     slot._last_update_check = now
 
     idx = slot.indexer._project_index
+    if idx.last_indexed_git_ref is None:
+        # No git ref recorded (e.g. empty repo or first index on non-git).
+        # Trigger a full rebuild so the index gets a git ref for future checks.
+        _build_slot(slot)
+        return
+
     changeset = get_changed_files(slot.root, idx.last_indexed_git_ref)
     if changeset.is_empty:
         return
