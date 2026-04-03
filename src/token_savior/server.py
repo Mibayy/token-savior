@@ -79,7 +79,8 @@ _projects: dict[str, _ProjectSlot] = {}
 _active_root: str = ""
 
 # Persistent cache
-_CACHE_FILENAME = ".codebase-index-cache.json"
+_CACHE_FILENAME = ".token-savior-cache.json"
+_LEGACY_CACHE_FILENAME = ".codebase-index-cache.json"  # auto-migrate
 _CACHE_VERSION = 2  # Bumped: switched from pickle to JSON
 
 # Session usage stats (aggregated across all projects in this session)
@@ -255,6 +256,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_dependents": 0.15,
     "get_change_impact": 0.30,
     "get_call_chain": 0.20,
+    "get_edit_context": 0.25,  # source + deps + callers in one call
     "get_file_dependencies": 0.02,
     "get_file_dependents": 0.10,
     "search_codebase": 0.15,
@@ -497,8 +499,18 @@ def _format_duration(seconds: float) -> str:
 # ---------------------------------------------------------------------------
 
 def _cache_path(project_root: str) -> str:
-    """Return the path to the JSON cache file for this project."""
-    return os.path.join(project_root, _CACHE_FILENAME)
+    """Return the path to the JSON cache file for this project.
+    Auto-migrates legacy .codebase-index-cache.json → .token-savior-cache.json."""
+    new_path = os.path.join(project_root, _CACHE_FILENAME)
+    if not os.path.exists(new_path):
+        legacy = os.path.join(project_root, _LEGACY_CACHE_FILENAME)
+        if os.path.exists(legacy):
+            try:
+                os.rename(legacy, new_path)
+                print(f"[token-savior] Migrated cache {_LEGACY_CACHE_FILENAME} → {_CACHE_FILENAME}", file=sys.stderr)
+            except OSError:
+                return legacy  # fallback to old name if rename fails
+    return new_path
 
 
 def _index_to_dict(index: "ProjectIndex") -> dict:
@@ -1490,6 +1502,33 @@ TOOLS = [
         },
     ),
     Tool(
+        name="get_edit_context",
+        description=(
+            "All-in-one context for editing a symbol. Returns the symbol source, "
+            "its direct dependencies (what it calls), and its callers (who uses it) "
+            "in a single response. Saves 3 separate tool calls."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name to get full edit context for.",
+                },
+                "max_deps": {
+                    "type": "integer",
+                    "description": "Max dependencies to return (default 10).",
+                },
+                "max_callers": {
+                    "type": "integer",
+                    "description": "Max callers to return (default 10).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name"],
+        },
+    ),
+    Tool(
         name="get_file_dependencies",
         description="List files that this file imports from (file-level import graph).",
         inputSchema={
@@ -1903,6 +1942,36 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "get_call_chain":
             result = qfns["get_call_chain"](arguments["from_name"], arguments["to_name"])
+
+        elif name == "get_edit_context":
+            sym_name = arguments["name"]
+            max_deps = arguments.get("max_deps", 10)
+            max_callers = arguments.get("max_callers", 10)
+            ctx: dict = {"symbol": sym_name}
+            # Source
+            try:
+                ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+            except Exception:
+                try:
+                    ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+                except Exception:
+                    ctx["source"] = None
+            # Location
+            try:
+                ctx["location"] = qfns["find_symbol"](sym_name)
+            except Exception:
+                ctx["location"] = None
+            # Dependencies (what it calls)
+            try:
+                ctx["dependencies"] = qfns["get_dependencies"](sym_name, max_results=max_deps)
+            except Exception:
+                ctx["dependencies"] = []
+            # Callers (who uses it)
+            try:
+                ctx["callers"] = qfns["get_dependents"](sym_name, max_results=max_callers)
+            except Exception:
+                ctx["callers"] = []
+            result = ctx
 
         elif name == "get_file_dependencies":
             result = qfns["get_file_dependencies"](arguments["file_path"], max_results=arguments.get("max_results", 0))
