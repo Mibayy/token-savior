@@ -30,16 +30,16 @@ def _project_name(payload: dict, path: Path) -> str:
     project_root = str(payload.get("project") or "").rstrip("/")
     if project_root:
         base = os.path.basename(project_root) or project_root
-        return "token-savior" if base == "mcp-codebase-index" else base
+        return "token-savior" if base == "token-savior" else base
     derived = path.stem.rsplit("-", 1)[0]
-    return "token-savior" if derived == "mcp-codebase-index" else derived
+    return "token-savior" if derived == "token-savior" else derived
 
 
 def _display_project_root(value: object) -> str:
     project_root = str(value or "").strip()
     if not project_root:
         return ""
-    return project_root.replace("/root/mcp-codebase-index", "/root/token-savior")
+    return project_root.replace("/root/token-savior", "/root/token-savior")
 
 
 def _safe_int(payload: dict, key: str) -> int:
@@ -167,7 +167,6 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
     top_tools = sorted(tool_totals.items(), key=lambda item: (-item[1], item[0]))[:12]
     top_clients = sorted(client_totals.items(), key=lambda item: (-item[1], item[0]))
     generated_at = datetime.now(timezone.utc).isoformat()
-    codex_sessions = client_totals.get("codex", 0)
     total_sessions = sum(client_totals.values())
 
     return {
@@ -175,19 +174,12 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
         "started_at": STARTED_AT.isoformat(),
         "stats_dir": str(stats_dir),
         "project_count": len(projects),
-        "active_project_count": len(projects),
-        "configured_project_count": len(projects),
-        "idle_project_count": 0,
         "client_count": len(client_totals),
-        "clients": [{"client": client_name, "sessions": count} for client_name, count in top_clients],
-        "codex": {
-            "sessions": codex_sessions,
-            "active": codex_sessions > 0,
-            "coverage_pct": round((codex_sessions / total_sessions) * 100, 2) if total_sessions > 0 else 0.0,
-        },
+        "total_sessions": total_sessions,
+        "clients": [{"client": c, "sessions": n} for c, n in top_clients],
         "projects": projects,
         "recent_sessions": recent_sessions,
-        "top_tools": [{"tool": tool, "count": count} for tool, count in top_tools],
+        "top_tools": [{"tool": t, "count": n} for t, n in top_tools],
         "totals": {
             "queries": total_calls,
             "chars_used": total_chars_used,
@@ -206,682 +198,804 @@ HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Token Savior Dashboard</title>
+  <title>Token Savior</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
     :root {
-      color-scheme: dark;
-      --bg: #07111b;
-      --bg2: #0d1724;
-      --panel: rgba(10, 22, 35, 0.86);
-      --panel-2: rgba(12, 28, 45, 0.9);
-      --line: rgba(148, 181, 220, 0.16);
-      --line-strong: rgba(148, 181, 220, 0.28);
-      --text: #ebf2ff;
-      --muted: #93a8c3;
-      --soft: #c3d5ea;
-      --good: #67e8b0;
-      --warn: #f7c96a;
-      --bad: #ff8f8f;
-      --accent: #7cc7ff;
-      --accent-2: #9a7cff;
-      --shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
-      --radius: 24px;
+      --bg:        #060912;
+      --bg2:       #0b0f1a;
+      --card:      #0e1420;
+      --card2:     #111827;
+      --border:    rgba(255,255,255,0.06);
+      --border2:   rgba(255,255,255,0.1);
+      --text:      #f0f4ff;
+      --muted:     #5a6a82;
+      --soft:      #8fa3be;
+      --emerald:   #10d98e;
+      --emerald2:  #05a36a;
+      --cyan:      #38bdf8;
+      --violet:    #818cf8;
+      --amber:     #f59e0b;
+      --rose:      #fb7185;
+      --r:         14px;
+      --r2:        10px;
     }
-    * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+
     body {
-      margin: 0;
-      font-family: Inter, "IBM Plex Sans", "Segoe UI", sans-serif;
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
       color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(124, 199, 255, 0.12), transparent 32%),
-        radial-gradient(circle at top right, rgba(154, 124, 255, 0.16), transparent 28%),
-        linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+      min-height: 100vh;
     }
-    .shell {
-      max-width: 1560px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero {
-      position: relative;
-      overflow: hidden;
-      padding: 26px;
-      border-radius: 30px;
-      border: 1px solid var(--line);
-      background:
-        linear-gradient(135deg, rgba(124,199,255,0.16), rgba(154,124,255,0.1)),
-        rgba(8, 20, 32, 0.88);
-      box-shadow: var(--shadow);
-      margin-bottom: 18px;
-    }
-    .hero::after {
-      content: "";
-      position: absolute;
-      inset: auto -8% -30% auto;
-      width: 340px;
-      height: 340px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(103,232,176,0.18), transparent 68%);
+
+    /* ─── Dot grid background ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
       pointer-events: none;
+      z-index: 0;
     }
-    .hero-top {
+
+    .wrap {
       position: relative;
       z-index: 1;
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 20px;
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
     }
-    .eyebrow {
-      display: inline-flex;
+
+    /* ─── Topbar ─── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 40px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #1a3554, #0d2240);
+      border: 1px solid rgba(56,189,248,0.25);
+      display: grid; place-items: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .brand-name {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .brand-tagline {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+    .status-pill {
+      display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 14px;
-      padding: 7px 12px;
+      padding: 7px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(124, 199, 255, 0.22);
-      background: rgba(8, 20, 32, 0.4);
-      color: var(--soft);
+      border: 1px solid rgba(16,217,142,0.18);
+      background: rgba(16,217,142,0.05);
       font-size: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      color: var(--emerald);
+      font-weight: 500;
+      letter-spacing: 0.01em;
     }
     .dot {
-      width: 8px;
-      height: 8px;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--emerald);
+      flex-shrink: 0;
+      animation: blink 2.4s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ─── Hero ─── */
+    .hero {
+      text-align: center;
+      margin-bottom: 48px;
+      padding: 0 16px;
+    }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
       border-radius: 999px;
-      background: var(--good);
-      box-shadow: 0 0 18px rgba(103, 232, 176, 0.75);
-    }
-    h1, h2, h3, p { margin: 0; }
-    h1 {
-      font-size: clamp(32px, 4vw, 48px);
-      line-height: 1.02;
-      letter-spacing: -0.045em;
-      max-width: 11ch;
-    }
-    h2 {
-      font-size: 18px;
-      letter-spacing: -0.02em;
-    }
-    .lead {
-      margin-top: 12px;
-      max-width: 780px;
+      border: 1px solid var(--border2);
+      background: rgba(255,255,255,0.03);
+      font-size: 11px;
+      font-weight: 500;
       color: var(--soft);
-      font-size: 15px;
-      line-height: 1.6;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
     }
-    .subtle, .meta, .muted {
-      color: var(--muted);
+    .hero-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(72px, 12vw, 120px);
+      font-weight: 600;
+      letter-spacing: -0.05em;
+      line-height: 1;
+      background: linear-gradient(135deg, #10d98e 0%, #38bdf8 60%, #818cf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .hero-label {
+      font-size: 16px;
+      color: var(--soft);
+      font-weight: 400;
+      letter-spacing: -0.01em;
+    }
+    .hero-sub {
+      margin-top: 6px;
       font-size: 13px;
-      line-height: 1.5;
-    }
-    .hero-meta {
-      min-width: 300px;
-      padding: 18px;
-      border-radius: 22px;
-      border: 1px solid rgba(148, 181, 220, 0.18);
-      background: rgba(7, 17, 27, 0.54);
-      backdrop-filter: blur(12px);
-    }
-    .hero-meta strong {
-      display: block;
-      margin-top: 8px;
-      font-size: 28px;
-      letter-spacing: -0.04em;
-    }
-    .stats-grid {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .stat {
-      padding: 16px;
-      border-radius: 20px;
-      border: 1px solid var(--line);
-      background: rgba(7, 17, 27, 0.62);
-      min-height: 116px;
-    }
-    .stat-label {
       color: var(--muted);
-      font-size: 12px;
+    }
+
+    /* ─── Stats row ─── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      padding: 18px 20px;
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      background: var(--card);
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: var(--stat-line, transparent);
+    }
+    .stat-card.s-emerald { --stat-line: linear-gradient(90deg, transparent, var(--emerald), transparent); }
+    .stat-card.s-cyan    { --stat-line: linear-gradient(90deg, transparent, var(--cyan), transparent); }
+    .stat-card.s-violet  { --stat-line: linear-gradient(90deg, transparent, var(--violet), transparent); }
+    .stat-card.s-amber   { --stat-line: linear-gradient(90deg, transparent, var(--amber), transparent); }
+    .stat-label {
+      font-size: 11px;
+      font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 10px;
     }
     .stat-value {
-      margin-top: 10px;
-      font-size: clamp(24px, 2.8vw, 36px);
-      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 26px;
+      font-weight: 600;
       letter-spacing: -0.04em;
+      line-height: 1;
     }
     .stat-hint {
       margin-top: 8px;
-      color: var(--soft);
-      font-size: 13px;
-      line-height: 1.45;
+      font-size: 12px;
+      color: var(--muted);
     }
-    .accent { color: var(--accent); }
-    .good { color: var(--good); }
-    .warn { color: var(--warn); }
-    .bad { color: var(--bad); }
-    .mono { font-family: "IBM Plex Mono", Consolas, monospace; }
-    .layout {
+    .c-emerald { color: var(--emerald); }
+    .c-cyan    { color: var(--cyan); }
+    .c-violet  { color: var(--violet); }
+    .c-amber   { color: var(--amber); }
+    .c-rose    { color: var(--rose); }
+    .c-soft    { color: var(--soft); }
+    .c-muted   { color: var(--muted); }
+
+    /* ─── Main grid ─── */
+    .main-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.6fr) minmax(360px, 0.95fr);
-      gap: 18px;
+      grid-template-columns: 1fr 380px;
+      gap: 16px;
       align-items: start;
     }
-    .stack {
-      display: grid;
-      gap: 18px;
-    }
-    .panel {
-      border-radius: var(--radius);
-      border: 1px solid var(--line);
-      background: var(--panel);
-      box-shadow: var(--shadow);
+    .left-col  { display: flex; flex-direction: column; gap: 16px; }
+    .right-col { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ─── Section card ─── */
+    .section {
+      border-radius: var(--r);
+      border: 1px solid var(--border);
+      background: var(--card);
       overflow: hidden;
     }
-    .panel-head {
+    .section-head {
       display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 22px 22px 14px;
-      border-bottom: 1px solid rgba(148, 181, 220, 0.1);
-    }
-    .panel-body {
-      padding: 18px 22px 22px;
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .search {
-      flex: 1 1 240px;
-      min-width: 0;
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line-strong);
-      background: rgba(6, 16, 25, 0.88);
-      color: var(--text);
-      outline: none;
-    }
-    .search:focus {
-      border-color: rgba(124, 199, 255, 0.5);
-      box-shadow: 0 0 0 3px rgba(124, 199, 255, 0.12);
-    }
-    .chip-row, .pill-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .chip, .pill {
-      display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(10, 24, 38, 0.82);
-      color: var(--soft);
-      font-size: 12px;
-      line-height: 1;
-    }
-    .chip strong, .pill strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-    .projects-grid {
-      display: grid;
-      gap: 12px;
-    }
-    .project-card {
-      padding: 16px;
-      border-radius: 20px;
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(10, 24, 38, 0.94), rgba(8, 18, 29, 0.9));
-    }
-    .project-top {
-      display: flex;
-      align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
     }
-    .project-title {
-      font-size: 18px;
-      letter-spacing: -0.03em;
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
     }
-    .project-path {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.5;
-      word-break: break-all;
-    }
-    .project-metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 14px;
-    }
-    .mini {
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.02);
-      border: 1px solid rgba(148, 181, 220, 0.08);
-    }
-    .mini-label {
-      color: var(--muted);
+    .section-sub {
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-top: 2px;
     }
-    .mini-value {
-      margin-top: 6px;
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.03em;
+    .section-body { padding: 16px 20px; }
+    .count-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--soft);
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border2);
+      background: rgba(255,255,255,0.03);
     }
-    .bar {
-      margin-top: 14px;
-      height: 10px;
+
+    /* ─── Search ─── */
+    .search-bar {
+      width: 100%;
+      padding: 9px 13px;
+      border-radius: var(--r2);
+      border: 1px solid var(--border2);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      margin-bottom: 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .search-bar::placeholder { color: var(--muted); }
+    .search-bar:focus {
+      border-color: rgba(56,189,248,0.35);
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.08);
+    }
+
+    /* ─── Project rows ─── */
+    .proj-list { display: flex; flex-direction: column; gap: 8px; }
+    .proj-row {
+      padding: 14px 16px;
+      border-radius: var(--r2);
+      border: 1px solid var(--border);
+      background: var(--card2);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: start;
+      transition: border-color .15s;
+    }
+    .proj-row:hover { border-color: var(--border2); }
+    .proj-name {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 3px;
+    }
+    .proj-path {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .proj-nums {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+      align-items: center;
+    }
+    .pn-item { display: flex; flex-direction: column; gap: 2px; }
+    .pn-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+    .pn-value { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+    .proj-bar-wrap {
+      margin-top: 10px;
+      height: 3px;
       border-radius: 999px;
-      background: rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.05);
       overflow: hidden;
-      border: 1px solid rgba(148, 181, 220, 0.08);
     }
-    .bar > span {
-      display: block;
+    .proj-bar {
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, var(--accent), var(--good));
+      background: linear-gradient(90deg, var(--cyan), var(--emerald));
+      transition: width .5s ease;
     }
-    .project-foot {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 14px;
-    }
-    .list {
-      display: grid;
-      gap: 10px;
-    }
-    .session-row {
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(10, 24, 38, 0.94), rgba(8, 18, 29, 0.9));
-    }
-    .session-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 6px;
-    }
-    .session-grid {
-      display: grid;
-      grid-template-columns: 1.2fr 0.9fr 0.9fr 0.8fr;
-      gap: 8px;
-    }
-    .session-cell {
+    .proj-right {
       display: flex;
       flex-direction: column;
-      gap: 2px;
-      min-width: 0;
+      align-items: flex-end;
+      gap: 8px;
     }
-    .session-label {
-      color: var(--muted);
+    .pct-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+    }
+    .proj-chips { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+    .chip {
       font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .session-value {
-      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 7px;
+      border-radius: 5px;
+      border: 1px solid var(--border2);
       color: var(--soft);
-      line-height: 1.25;
+    }
+
+    /* ─── Tool bars ─── */
+    .tool-list { display: flex; flex-direction: column; gap: 7px; }
+    .tool-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+    }
+    .tool-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--soft);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .tag-cloud {
+    .tool-bar-wrap {
+      grid-column: 1 / -1;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      overflow: hidden;
+      margin-top: -4px;
+    }
+    .tool-bar {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--violet), var(--cyan));
+    }
+    .tool-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    /* ─── Sessions ─── */
+    .sess-list { display: flex; flex-direction: column; gap: 6px; }
+    .sess-row {
+      padding: 10px 12px;
+      border-radius: var(--r2);
+      border: 1px solid var(--border);
+      background: var(--card2);
+    }
+    .sess-head {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .tag {
-      display: inline-flex;
       align-items: center;
-      padding: 8px 10px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(10, 24, 38, 0.82);
-      color: var(--soft);
-      font-size: 12px;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
     }
+    .sess-project { font-size: 13px; font-weight: 600; }
+    .sess-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 5px;
+      border: 1px solid currentColor;
+      opacity: 0.85;
+    }
+    .sess-meta {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .sm-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .sm-value { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--soft); margin-top: 1px; }
+
+    /* ─── Clients ─── */
+    .client-list { display: flex; flex-direction: column; gap: 8px; }
+    .client-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .client-name { font-family: 'JetBrains Mono', monospace; font-size: 13px; min-width: 90px; }
+    .client-track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.05); overflow: hidden; }
+    .client-fill  { height: 100%; border-radius: inherit; background: var(--cyan); }
+    .client-n { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); min-width: 28px; text-align: right; }
+
+    /* ─── Empty ─── */
     .empty {
-      padding: 18px;
-      border-radius: 18px;
-      border: 1px dashed var(--line-strong);
-      color: var(--muted);
-      background: rgba(10, 24, 38, 0.52);
-      font-size: 13px;
-    }
-    .footnote {
-      margin-top: 14px;
+      padding: 24px;
+      text-align: center;
       color: var(--muted);
       font-size: 12px;
-      line-height: 1.55;
+      border: 1px dashed var(--border2);
+      border-radius: var(--r2);
     }
-    @media (max-width: 1280px) {
-      .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .layout { grid-template-columns: 1fr; }
+
+    /* ─── Footer ─── */
+    .footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
     }
-    @media (max-width: 860px) {
-      .shell { padding: 14px; }
-      .hero, .panel-head, .panel-body { padding-left: 16px; padding-right: 16px; }
-      .hero-top { flex-direction: column; }
-      .hero-meta { min-width: 0; width: 100%; }
-      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .project-metrics, .session-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1100px) {
+      .main-grid { grid-template-columns: 1fr; }
     }
-    @media (max-width: 560px) {
-      .stats-grid, .project-metrics, .session-grid { grid-template-columns: 1fr; }
+    @media (max-width: 700px) {
+      .wrap { padding: 20px 14px 40px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .hero-number { font-size: 72px; }
+      .proj-nums { flex-wrap: wrap; gap: 10px; }
+    }
+    @media (max-width: 420px) {
+      .stats-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="hero">
-      <div class="hero-top">
-        <div>
-          <div class="eyebrow"><span class="dot"></span> live token efficiency telemetry</div>
-          <h1>Token Savior workspace dashboard</h1>
-          <p class="lead">A cleaner view of what is actually being used, what is merely configured, and where the savings are coming from.</p>
-        </div>
-        <div class="hero-meta">
-          <div class="meta">Workspace health</div>
-          <strong id="headlineProject">0 active projects</strong>
-          <p class="subtle" id="subline">Waiting for stats...</p>
-          <p class="footnote mono" id="statsDir"></p>
-        </div>
-      </div>
-      <div class="stats-grid">
-        <div class="stat">
-          <div class="stat-label">Savings rate</div>
-          <div class="stat-value good" id="savingsPct">0%</div>
-          <div class="stat-hint" id="savedTokens">0 tokens saved</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Tokens used</div>
-          <div class="stat-value" id="tokensUsed">0</div>
-          <div class="stat-hint" id="tokensNaive">Naive 0</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Queries</div>
-          <div class="stat-value accent" id="queries">0</div>
-          <div class="stat-hint" id="sessionCount">0 observed sessions</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Projects in view</div>
-          <div class="stat-value" id="projects">0</div>
-          <div class="stat-hint" id="projectCount">0 active • 0 idle</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Clients</div>
-          <div class="stat-value" id="clientsCount">0</div>
-          <div class="stat-hint" id="clientSummary">Watching persisted Token Savior sessions.</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Codex coverage</div>
-          <div class="stat-value" id="codexCoverage">0%</div>
-          <div class="stat-hint" id="codexSummary">No Codex-attributed sessions yet.</div>
-        </div>
-      </div>
-    </section>
+<div class="wrap">
 
-    <section class="layout">
-      <div class="stack">
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Projects</h2>
-              <p class="subtle">A project appears here only after Token Savior has actually been used on it.</p>
-            </div>
-            <div class="chip-row" id="projectSummaryChips"></div>
-          </div>
-          <div class="panel-body">
-            <div class="toolbar">
-              <input class="search" id="projectSearch" type="search" placeholder="Filter by project, client, or path">
-            </div>
-            <div class="projects-grid" id="projectsGrid"></div>
-          </div>
-        </section>
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-name">Token Savior</div>
+        <div class="brand-tagline" id="statsPath"></div>
       </div>
-
-      <div class="stack">
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Clients and tools</h2>
-              <p class="subtle">Who is calling the server and which tools are doing the work.</p>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="tag-cloud" id="topClients"></div>
-            <div style="height:12px"></div>
-            <div class="tag-cloud" id="topTools"></div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Recent sessions</h2>
-              <p class="subtle">Latest persisted snapshots across the workspace.</p>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="list" id="sessionsList"></div>
-          </div>
-        </section>
-      </div>
-    </section>
+    </div>
+    <div class="status-pill">
+      <div class="dot"></div>
+      <span id="liveLabel">Live</span>
+    </div>
   </div>
 
-  <script>
-    const state = { data: null };
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-eyebrow">
+      <span>workspace token efficiency</span>
+    </div>
+    <div class="hero-number" id="heroSavingsPct">—</div>
+    <div class="hero-label">of tokens saved across the workspace</div>
+    <div class="hero-sub" id="heroSub">Loading…</div>
+  </div>
 
-    function fmtInt(value) {
-      return new Intl.NumberFormat('en-US').format(Number(value || 0));
-    }
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card s-emerald">
+      <div class="stat-label">Tokens saved</div>
+      <div class="stat-value c-emerald" id="sTokSaved">—</div>
+      <div class="stat-hint" id="sCharsSaved">— chars</div>
+    </div>
+    <div class="stat-card s-cyan">
+      <div class="stat-label">Tokens used</div>
+      <div class="stat-value c-cyan" id="sTokUsed">—</div>
+      <div class="stat-hint" id="sTokNaive">Naive —</div>
+    </div>
+    <div class="stat-card s-violet">
+      <div class="stat-label">Total queries</div>
+      <div class="stat-value c-violet" id="sQueries">—</div>
+      <div class="stat-hint" id="sSessions">— sessions</div>
+    </div>
+    <div class="stat-card s-amber">
+      <div class="stat-label">Projects tracked</div>
+      <div class="stat-value c-amber" id="sProjects">—</div>
+      <div class="stat-hint" id="sClients">— clients</div>
+    </div>
+  </div>
 
-    function fmtPct(value) {
-      return `${Number(value || 0).toFixed(1)}%`;
-    }
+  <!-- Main grid -->
+  <div class="main-grid">
 
-    function fmtDate(value) {
-      if (!value) return 'No sessions yet';
-      return String(value).replace('T', ' ').replace('Z', ' UTC').slice(0, 23);
-    }
-
-    function esc(value) {
-      return String(value || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-    }
-
-    function pillClassFromPct(value) {
-      const pct = Number(value || 0);
-      if (pct >= 85) return 'good';
-      if (pct >= 60) return 'warn';
-      return 'bad';
-    }
-
-    function renderProjects(data) {
-      const query = String(document.getElementById('projectSearch').value || '').trim().toLowerCase();
-      const rows = (data.projects || []).filter((row) => {
-        if (!query) return true;
-        const haystack = [
-          row.project,
-          row.project_root,
-          row.last_client,
-          Object.keys(row.client_counts || {}).join(' '),
-        ].join(' ').toLowerCase();
-        return haystack.includes(query);
-      });
-
-      document.getElementById('projectsGrid').innerHTML = rows.map((row) => {
-        const clientPills = Object.entries(row.client_counts || {}).map(([client, count]) =>
-          `<span class="pill mono"><strong>${esc(client)}</strong> ${fmtInt(count)}</span>`
-        ).join('') || '<span class="pill">No client history</span>';
-        const lastSeen = row.last_session ? fmtDate(row.last_session) : 'No persisted session yet';
-        const path = row.project_root || row.stats_file || 'No root recorded';
-        return `
-          <article class="project-card">
-            <div class="project-top">
-              <div>
-                <div class="project-title">${esc(row.project)}</div>
-                <div class="project-path mono">${esc(path)}</div>
-              </div>
-              <span class="pill good">Observed</span>
-            </div>
-            <div class="project-metrics">
-              <div class="mini">
-                <div class="mini-label">Savings</div>
-                <div class="mini-value ${pillClassFromPct(row.savings_pct)}">${fmtPct(row.savings_pct)}</div>
-              </div>
-              <div class="mini">
-                <div class="mini-label">Sessions</div>
-                <div class="mini-value">${fmtInt(row.sessions)}</div>
-              </div>
-              <div class="mini">
-                <div class="mini-label">Queries</div>
-                <div class="mini-value">${fmtInt(row.queries)}</div>
-              </div>
-              <div class="mini">
-                <div class="mini-label">Saved tokens</div>
-                <div class="mini-value good">${fmtInt(row.tokens_saved)}</div>
-              </div>
-            </div>
-            <div class="bar"><span style="width:${Math.max(4, Math.min(100, Number(row.savings_pct || 0)))}%"></span></div>
-            <div class="project-foot">
-              <div class="pill-row">${clientPills}</div>
-              <div class="muted">Last client: <span class="mono">${esc(row.last_client || 'unknown')}</span> • Last seen: <span class="mono">${esc(lastSeen)}</span></div>
-            </div>
-          </article>
-        `;
-      }).join('') || '<div class="empty">No project matches this filter.</div>';
-    }
-
-    function renderSessions(data) {
-      document.getElementById('sessionsList').innerHTML = (data.recent_sessions || []).map((row) => `
-        <article class="session-row">
-          <div class="session-top">
-            <div>
-              <div><strong>${esc(row.project)}</strong></div>
-              <div class="muted mono">${esc(fmtDate(row.timestamp))}</div>
-            </div>
-            <span class="pill ${pillClassFromPct(row.savings_pct)}">${fmtPct(row.savings_pct)}</span>
+    <!-- Left: projects -->
+    <div class="left-col">
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Projects</div>
+            <div class="section-sub">Ranked by tokens saved · only used projects appear</div>
           </div>
-          <div class="session-grid">
-            <div class="session-cell">
-              <div class="session-label">Client</div>
-              <div class="session-value mono">${esc(row.client_name || 'unknown')}</div>
-            </div>
-            <div class="session-cell">
-              <div class="session-label">Used</div>
-              <div class="session-value mono">${fmtInt(row.tokens_used)}</div>
-            </div>
-            <div class="session-cell">
-              <div class="session-label">Naive</div>
-              <div class="session-value mono">${fmtInt(row.tokens_naive)}</div>
-            </div>
-            <div class="session-cell">
-              <div class="session-label">Calls</div>
-              <div class="session-value mono">${fmtInt(row.query_calls)}</div>
-            </div>
+          <span class="count-badge" id="projCount">0</span>
+        </div>
+        <div class="section-body">
+          <input class="search-bar" id="projSearch" type="search" placeholder="Filter by name, path, or client…">
+          <div class="proj-list" id="projList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right sidebar -->
+    <div class="right-col">
+
+      <!-- Clients -->
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Clients</div>
+            <div class="section-sub">Sessions per client</div>
           </div>
-        </article>
-      `).join('') || '<div class="empty">No sessions yet.</div>';
-    }
+        </div>
+        <div class="section-body">
+          <div class="client-list" id="clientList"></div>
+        </div>
+      </div>
 
-    function renderTags(targetId, rows, labelFormatter) {
-      document.getElementById(targetId).innerHTML = rows.map(labelFormatter).join('') || '<div class="empty">Nothing recorded yet.</div>';
-    }
+      <!-- Top tools -->
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Top tools</div>
+            <div class="section-sub">Most called across workspace</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="tool-list" id="toolList"></div>
+        </div>
+      </div>
 
-    function render(data) {
-      state.data = data;
-      const observedSessions = (data.recent_sessions || []).length;
-      document.getElementById('headlineProject').textContent = `${fmtInt(data.project_count || 0)} active projects`;
-      document.getElementById('subline').textContent = `Started ${fmtDate(data.started_at)} • Updated ${fmtDate(data.generated_at)}`;
-      document.getElementById('statsDir').textContent = data.stats_dir || '';
+      <!-- Recent sessions -->
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Recent sessions</div>
+            <div class="section-sub">Latest 25 snapshots</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="sess-list" id="sessList"></div>
+        </div>
+      </div>
 
-      document.getElementById('savingsPct').textContent = fmtPct(data.totals.savings_pct);
-      document.getElementById('savedTokens').textContent = `${fmtInt(data.totals.tokens_saved)} tokens saved across the workspace`;
-      document.getElementById('tokensUsed').textContent = fmtInt(data.totals.tokens_used);
-      document.getElementById('tokensNaive').textContent = `Naive baseline ${fmtInt(data.totals.tokens_naive)}`;
-      document.getElementById('queries').textContent = fmtInt(data.totals.queries);
-      document.getElementById('sessionCount').textContent = `${fmtInt(observedSessions)} recent snapshots shown`;
-      document.getElementById('projects').textContent = fmtInt(data.project_count);
-      document.getElementById('projectCount').textContent = `${fmtInt(data.project_count || 0)} active projects`;
-      document.getElementById('clientsCount').textContent = fmtInt(data.client_count);
-      document.getElementById('clientSummary').textContent = data.client_count
-        ? `${fmtInt(data.client_count)} distinct clients seen in persisted stats`
-        : 'Watching persisted Token Savior sessions.';
-      document.getElementById('codexCoverage').textContent = fmtPct(data.codex.coverage_pct || 0);
-      document.getElementById('codexSummary').textContent = data.codex.active
-        ? `Codex sessions: ${fmtInt(data.codex.sessions)} of observed persisted sessions`
-        : 'No Codex-attributed sessions yet. Set TOKEN_SAVIOR_CLIENT=codex in the MCP config if you want attribution.';
+    </div>
+  </div>
 
-      document.getElementById('projectSummaryChips').innerHTML = [
-        `<span class="chip"><strong>${fmtInt(data.project_count)}</strong> shown</span>`,
-        `<span class="chip"><strong>${fmtInt(data.project_count || 0)}</strong> used with Token Savior</span>`,
-        `<span class="chip"><strong>${fmtInt(data.client_count || 0)}</strong> clients seen</span>`,
-        `<span class="chip"><strong>${fmtInt(data.totals.queries || 0)}</strong> total queries</span>`,
-      ].join('');
+  <div class="footer" id="footer"></div>
 
-      renderTags('topClients', data.clients || [], (row) => `<span class="tag mono">${esc(row.client)} · ${fmtInt(row.sessions)} sessions</span>`);
-      renderTags('topTools', data.top_tools || [], (row) => `<span class="tag mono">${esc(row.tool)} · ${fmtInt(row.count)}</span>`);
-      renderProjects(data);
-      renderSessions(data);
-    }
+</div>
+<script>
+  const S = { data: null, ts: null };
 
-    async function refresh() {
-      const res = await fetch('./api/status', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      render(data);
-    }
+  // ── Format helpers ──────────────────────────────────────
+  function fmt(n) {
+    n = Number(n || 0);
+    if (n >= 1e9)  return (n / 1e9).toFixed(2).replace(/\\.?0+$/, '') + 'B';
+    if (n >= 1e6)  return (n / 1e6).toFixed(2).replace(/\\.?0+$/, '') + 'M';
+    if (n >= 1e3)  return (n / 1e3).toFixed(1).replace(/\\.?0+$/, '') + 'K';
+    return String(n);
+  }
+  function fmtFull(n) {
+    return new Intl.NumberFormat('en-US').format(Number(n || 0));
+  }
+  function fmtPct(v) {
+    const n = Number(v || 0);
+    return n.toFixed(n >= 10 ? 1 : 2) + '%';
+  }
+  function fmtDate(v) {
+    if (!v) return '—';
+    const d = new Date(v);
+    if (isNaN(d)) return String(v).slice(0, 16).replace('T', ' ');
+    return d.toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function ago(iso) {
+    if (!iso) return '';
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 10)  return 'just now';
+    if (s < 60)  return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+  function esc(v) {
+    return String(v || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function pctColor(v) {
+    const p = Number(v || 0);
+    if (p >= 80) return 'var(--emerald)';
+    if (p >= 55) return 'var(--amber)';
+    return 'var(--rose)';
+  }
+  function pctClass(v) {
+    const p = Number(v || 0);
+    if (p >= 80) return 'c-emerald';
+    if (p >= 55) return 'c-amber';
+    return 'c-rose';
+  }
 
-    async function safeRefresh() {
-      try {
-        await refresh();
-      } catch (error) {
-        const message = error && error.message ? error.message : String(error || 'unknown error');
-        document.getElementById('subline').textContent = `Dashboard fetch failed: ${message}`;
-      }
-    }
+  // ── Render ──────────────────────────────────────────────
+  function set(id, v) { document.getElementById(id).textContent = v; }
 
-    document.getElementById('projectSearch').addEventListener('input', () => {
-      if (state.data) renderProjects(state.data);
+  function renderHero(d) {
+    const t = d.totals;
+    set('heroSavingsPct', fmtPct(t.savings_pct));
+    set('heroSub', fmtFull(t.tokens_saved) + ' tokens saved · ' + fmtFull(t.tokens_used) + ' used vs ' + fmtFull(t.tokens_naive) + ' naive');
+    set('statsPath', d.stats_dir || '');
+  }
+
+  function renderStats(d) {
+    const t = d.totals;
+    set('sTokSaved',  fmt(t.tokens_saved));
+    set('sCharsSaved', fmtFull(t.chars_saved) + ' chars');
+    set('sTokUsed',   fmt(t.tokens_used));
+    set('sTokNaive',  'Naive ' + fmt(t.tokens_naive));
+    set('sQueries',   fmt(t.queries));
+    set('sSessions',  fmtFull(d.total_sessions || 0) + ' sessions');
+    set('sProjects',  String(d.project_count || 0));
+    set('sClients',   (d.client_count || 0) + ' client' + (d.client_count === 1 ? '' : 's'));
+    set('projCount',  String(d.project_count || 0));
+  }
+
+  function renderProjects(d) {
+    const q = (document.getElementById('projSearch').value || '').trim().toLowerCase();
+    const rows = (d.projects || []).filter(r => {
+      if (!q) return true;
+      return [r.project, r.project_root, r.last_client,
+              Object.keys(r.client_counts || {}).join(' ')].join(' ').toLowerCase().includes(q);
     });
+    if (!rows.length) {
+      document.getElementById('projList').innerHTML = '<div class="empty">No projects match this filter.</div>';
+      return;
+    }
+    document.getElementById('projList').innerHTML = rows.map(r => {
+      const pct = Math.max(0, Math.min(100, Number(r.savings_pct || 0)));
+      const col = pctColor(r.savings_pct);
+      const cls = pctClass(r.savings_pct);
+      const chips = Object.entries(r.client_counts || {})
+        .map(([c, n]) => `<span class="chip">${esc(c)} ${fmt(n)}</span>`).join('');
+      return `
+        <div class="proj-row">
+          <div>
+            <div class="proj-name">${esc(r.project)}</div>
+            ${r.project_root ? `<div class="proj-path">${esc(r.project_root)}</div>` : ''}
+            <div class="proj-nums">
+              <div class="pn-item"><div class="pn-label">Saved</div><div class="pn-value c-emerald">${fmt(r.tokens_saved)}</div></div>
+              <div class="pn-item"><div class="pn-label">Used</div><div class="pn-value c-cyan">${fmt(r.tokens_used)}</div></div>
+              <div class="pn-item"><div class="pn-label">Queries</div><div class="pn-value">${fmt(r.queries)}</div></div>
+              <div class="pn-item"><div class="pn-label">Sessions</div><div class="pn-value">${fmt(r.sessions)}</div></div>
+              <div class="pn-item"><div class="pn-label">Last seen</div><div class="pn-value c-muted" style="font-size:12px">${fmtDate(r.last_session)}</div></div>
+            </div>
+            <div class="proj-bar-wrap"><div class="proj-bar" style="width:${pct}%"></div></div>
+          </div>
+          <div class="proj-right">
+            <div class="pct-badge ${cls}">${fmtPct(r.savings_pct)}</div>
+            <div class="proj-chips">${chips}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
 
-    safeRefresh();
-    setInterval(safeRefresh, 5000);
-  </script>
+  function renderClients(d) {
+    const rows = d.clients || [];
+    if (!rows.length) {
+      document.getElementById('clientList').innerHTML = '<div class="empty">No data yet.</div>';
+      return;
+    }
+    const max = Math.max(...rows.map(r => r.sessions));
+    document.getElementById('clientList').innerHTML = rows.map(r => {
+      const w = max > 0 ? Math.round((r.sessions / max) * 100) : 0;
+      return `
+        <div class="client-row">
+          <div class="client-name">${esc(r.client)}</div>
+          <div class="client-track"><div class="client-fill" style="width:${w}%"></div></div>
+          <div class="client-n">${fmtFull(r.sessions)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderTools(d) {
+    const rows = d.top_tools || [];
+    if (!rows.length) {
+      document.getElementById('toolList').innerHTML = '<div class="empty">No data yet.</div>';
+      return;
+    }
+    const max = rows[0].count;
+    document.getElementById('toolList').innerHTML = rows.map(r => {
+      const w = max > 0 ? Math.round((r.count / max) * 100) : 0;
+      return `
+        <div class="tool-row">
+          <div class="tool-name">${esc(r.tool)}</div>
+          <div class="tool-count">${fmt(r.count)}</div>
+          <div class="tool-bar-wrap"><div class="tool-bar" style="width:${w}%"></div></div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderSessions(d) {
+    const rows = d.recent_sessions || [];
+    if (!rows.length) {
+      document.getElementById('sessList').innerHTML = '<div class="empty">No sessions yet.</div>';
+      return;
+    }
+    document.getElementById('sessList').innerHTML = rows.map(r => {
+      const cls = pctClass(r.savings_pct);
+      const col = pctColor(r.savings_pct);
+      return `
+        <div class="sess-row">
+          <div class="sess-head">
+            <div class="sess-project">${esc(r.project)}</div>
+            <span class="sess-badge ${cls}">${fmtPct(r.savings_pct)}</span>
+          </div>
+          <div class="sess-meta">
+            <div><div class="sm-label">Client</div><div class="sm-value">${esc(r.client_name || '—')}</div></div>
+            <div><div class="sm-label">Used</div><div class="sm-value">${fmt(r.tokens_used)}</div></div>
+            <div><div class="sm-label">Naive</div><div class="sm-value">${fmt(r.tokens_naive)}</div></div>
+            <div><div class="sm-label">When</div><div class="sm-value">${fmtDate(r.timestamp)}</div></div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderFooter(d) {
+    set('footer', 'Updated ' + ago(S.ts) + ' · ' + (d.stats_dir || ''));
+  }
+
+  function render(d) {
+    S.data = d;
+    S.ts   = new Date().toISOString();
+    renderHero(d);
+    renderStats(d);
+    renderProjects(d);
+    renderClients(d);
+    renderTools(d);
+    renderSessions(d);
+    renderFooter(d);
+    document.getElementById('liveLabel').textContent = 'Live · ' + ago(S.ts);
+  }
+
+  // ── Fetch ───────────────────────────────────────────────
+  async function refresh() {
+    const r = await fetch('./api/status', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    render(await r.json());
+  }
+
+  async function tick() {
+    try { await refresh(); } catch (e) {
+      document.getElementById('liveLabel').textContent = 'Error: ' + (e.message || e);
+    }
+    if (S.data) renderFooter(S.data);
+  }
+
+  document.getElementById('projSearch').addEventListener('input', () => {
+    if (S.data) renderProjects(S.data);
+  });
+
+  // Update "X ago" label every 15s without re-fetching
+  setInterval(() => {
+    document.getElementById('liveLabel').textContent = 'Live · ' + ago(S.ts);
+    if (S.data) renderFooter(S.data);
+  }, 15000);
+
+  tick();
+  setInterval(tick, 5000);
+</script>
 </body>
 </html>
 """

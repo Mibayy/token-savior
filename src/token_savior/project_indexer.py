@@ -1,4 +1,4 @@
-"""Project-wide codebase indexer.
+"""Token Savior — project-wide indexer.
 
 Walks a project directory, annotates each file using the dispatch annotator,
 builds cross-file dependency graphs, import graphs, and a global symbol table.

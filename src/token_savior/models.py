@@ -1,4 +1,4 @@
-"""Structural metadata models for codebase indexing."""
+"""Structural metadata models for Token Savior."""
 
 from dataclasses import dataclass, field
 

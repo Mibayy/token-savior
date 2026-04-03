@@ -1,4 +1,4 @@
-"""MCP server for the structural codebase indexer.
+"""Token Savior — MCP server.
 
 Exposes project-wide structural query functions as MCP tools,
 enabling Claude Code to navigate codebases efficiently without

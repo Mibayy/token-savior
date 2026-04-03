@@ -147,10 +147,10 @@ def test_collect_dashboard_data_falls_back_to_unknown_client_for_legacy_stats(tm
 
 
 def test_collect_dashboard_data_rebrands_legacy_self_project(tmp_path: Path):
-    (tmp_path / "mcp-codebase-index-11111111.json").write_text(
+    (tmp_path / "token-savior-11111111.json").write_text(
         json.dumps(
             {
-                "project": "/root/mcp-codebase-index",
+                "project": "/root/token-savior",
                 "total_calls": 1,
                 "total_chars_returned": 20,
                 "total_naive_chars": 200,
