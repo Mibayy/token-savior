@@ -87,7 +87,7 @@ A workspace pointing at `/root` indexes Python bots, docker-compose files, READM
 
 ---
 
-## 34 tools
+## 39 tools
 
 ### Navigation
 | Tool | What it does |
@@ -103,6 +103,15 @@ A workspace pointing at `/root` indexes Python bots, docker-compose files, READM
 | `get_project_summary` | File count, packages, top classes/functions |
 | `search_codebase` | Regex search across all indexed files |
 | `reindex` | Force full re-index (rarely needed) |
+
+### Context & discovery
+| Tool | What it does |
+|------|-------------|
+| `get_edit_context` | All-in-one: symbol source + dependencies + callers in one call (saves 3 calls) |
+| `get_feature_files` | Find all files related to a feature keyword, then trace imports transitively |
+| `get_routes` | Detect API routes and pages (Next.js App Router, Express, pages/api) |
+| `get_components` | Detect React components (functions returning JSX) in `.tsx`/`.jsx` files |
+| `get_env_usage` | Find all references to an env variable across the codebase |
 
 ### Impact analysis
 | Tool | What it does |
