@@ -752,9 +752,6 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         """Find all references to an environment variable across the codebase.
         Searches for process.env.VAR, os.environ["VAR"], os.getenv("VAR"),
         and ${{ secrets.VAR }} patterns."""
-        patterns = [
-            re.compile(re.escape(var_name)),
-        ]
         results: list[dict] = []
         for path, meta in index.files.items():
             for line_idx, line in enumerate(meta.lines):
@@ -793,7 +790,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         components: list[dict] = []
         targets = index.files.items()
         if file_path:
-            meta = _find_file_meta(file_path)
+            meta = index.files.get(file_path)
             if meta:
                 targets = [(file_path, meta)]
             else:
