@@ -169,7 +169,7 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
     generated_at = datetime.now(timezone.utc).isoformat()
     total_sessions = sum(client_totals.values())
 
-    return {
+    result = {
         "generated_at": generated_at,
         "started_at": STARTED_AT.isoformat(),
         "stats_dir": str(stats_dir),
@@ -191,6 +191,9 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
             "savings_pct": round((1 - total_chars_used / total_chars_naive) * 100, 2) if total_chars_naive > 0 else 0.0,
         },
     }
+    for client_name, session_count in client_totals.items():
+        result[client_name] = {"active": True, "sessions": session_count}
+    return result
 
 
 HTML = """<!doctype html>
