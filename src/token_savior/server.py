@@ -283,6 +283,10 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "set_project_root": 0.0,
     "switch_project": 0.0,
     "list_projects": 0.0,
+    # v3
+    "get_routes": 0.08,
+    "get_env_usage": 0.12,
+    "get_components": 0.06,
 }
 
 
@@ -1613,6 +1617,43 @@ TOOLS = [
         description="Session efficiency stats: tool calls, characters returned vs total source, estimated token savings.",
         inputSchema={"type": "object", "properties": {}},
     ),
+    # v3: Route Map, Env Usage, Components
+    Tool(
+        name="get_routes",
+        description="Detect all API routes and pages in a Next.js App Router project. Returns route path, file, HTTP methods, and type (api/page/layout).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_results": {"type": "integer", "description": "Max routes to return (0 = all, default 0)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="get_env_usage",
+        description="Cross-reference an environment variable across all code, .env files, and workflow configs. Shows where it's defined, read, and written.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "var_name": {"type": "string", "description": "Environment variable name (e.g. HELLOASSO_CLIENT_ID)."},
+                "max_results": {"type": "integer", "description": "Max results (0 = all, default 0)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["var_name"],
+        },
+    ),
+    Tool(
+        name="get_components",
+        description="Detect React components in .tsx/.jsx files. Identifies pages, layouts, and named components by convention (uppercase name or default export).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Optional file to scan (default: all .tsx/.jsx)."},
+                "max_results": {"type": "integer", "description": "Max results (0 = all, default 0)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
 ]
 
 
@@ -1981,6 +2022,19 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "search_codebase":
             result = qfns["search_codebase"](arguments["pattern"], max_results=arguments.get("max_results", 100))
+
+        # v3: Route Map, Env Usage, Components
+        elif name == "get_routes":
+            result = qfns["get_routes"](max_results=arguments.get("max_results", 0))
+
+        elif name == "get_env_usage":
+            result = qfns["get_env_usage"](arguments["var_name"], max_results=arguments.get("max_results", 0))
+
+        elif name == "get_components":
+            result = qfns["get_components"](
+                file_path=arguments.get("file_path"),
+                max_results=arguments.get("max_results", 0),
+            )
 
         else:
             return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]

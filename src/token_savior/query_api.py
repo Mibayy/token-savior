@@ -674,6 +674,166 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             "transitive": [_resolve_symbol_info(t) for t in transitive_only],
         }
 
+    # ------------------------------------------------------------------
+    # v3: Route Map (Next.js App Router + Express-style)
+    # ------------------------------------------------------------------
+
+    def get_routes(max_results: int = 0) -> list[dict]:
+        """Detect API routes and pages from the project structure.
+        Returns [{route, file, methods, type}] for Next.js App Router,
+        Express, and similar frameworks."""
+        routes: list[dict] = []
+        for path, meta in index.files.items():
+            # Next.js App Router: app/**/route.ts → API route
+            if "/route." in path and ("app/" in path or "pages/api/" in path):
+                # Extract HTTP methods from exported functions
+                methods = []
+                for func in meta.functions:
+                    upper = func.name.upper()
+                    if upper in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+                        methods.append(upper)
+                # Derive the route path from file path
+                route_path = path
+                for prefix in ("app/", "src/app/"):
+                    if prefix in route_path:
+                        route_path = "/" + route_path.split(prefix, 1)[1]
+                        break
+                route_path = route_path.rsplit("/route.", 1)[0]
+                if not route_path:
+                    route_path = "/"
+                routes.append({
+                    "route": route_path,
+                    "file": path,
+                    "methods": methods or ["GET"],
+                    "type": "api",
+                })
+            # Next.js App Router: app/**/page.tsx → Page
+            elif "/page." in path and "app/" in path:
+                route_path = path
+                for prefix in ("app/", "src/app/"):
+                    if prefix in route_path:
+                        route_path = "/" + route_path.split(prefix, 1)[1]
+                        break
+                route_path = route_path.rsplit("/page.", 1)[0]
+                if not route_path:
+                    route_path = "/"
+                routes.append({
+                    "route": route_path,
+                    "file": path,
+                    "methods": [],
+                    "type": "page",
+                })
+            # Next.js App Router: app/**/layout.tsx → Layout
+            elif "/layout." in path and "app/" in path:
+                route_path = path
+                for prefix in ("app/", "src/app/"):
+                    if prefix in route_path:
+                        route_path = "/" + route_path.split(prefix, 1)[1]
+                        break
+                route_path = route_path.rsplit("/layout.", 1)[0]
+                if not route_path:
+                    route_path = "/"
+                routes.append({
+                    "route": route_path,
+                    "file": path,
+                    "methods": [],
+                    "type": "layout",
+                })
+        routes.sort(key=lambda r: (r["type"], r["route"]))
+        if max_results > 0:
+            routes = routes[:max_results]
+        return routes
+
+    # ------------------------------------------------------------------
+    # v3: Env var cross-reference
+    # ------------------------------------------------------------------
+
+    def get_env_usage(var_name: str, max_results: int = 0) -> list[dict]:
+        """Find all references to an environment variable across the codebase.
+        Searches for process.env.VAR, os.environ["VAR"], os.getenv("VAR"),
+        and ${{ secrets.VAR }} patterns."""
+        patterns = [
+            re.compile(re.escape(var_name)),
+        ]
+        results: list[dict] = []
+        for path, meta in index.files.items():
+            for line_idx, line in enumerate(meta.lines):
+                if var_name in line:
+                    context = line.strip()
+                    usage_type = "reference"
+                    if "process.env." in line:
+                        usage_type = "process.env"
+                    elif "os.environ" in line or "os.getenv" in line:
+                        usage_type = "os.environ"
+                    elif "secrets." in line:
+                        usage_type = "github_secret"
+                    elif line.strip().startswith(var_name + "=") or line.strip().startswith(f'"{var_name}"'):
+                        usage_type = "definition"
+                    elif "printf" in line and var_name in line:
+                        usage_type = "env_write"
+                    results.append({
+                        "file": path,
+                        "line": line_idx + 1,
+                        "usage_type": usage_type,
+                        "content": context[:200],
+                    })
+        results.sort(key=lambda r: (r["usage_type"], r["file"]))
+        if max_results > 0:
+            results = results[:max_results]
+        return results
+
+    # ------------------------------------------------------------------
+    # v3: React component detection
+    # ------------------------------------------------------------------
+
+    def get_components(file_path: str | None = None, max_results: int = 0) -> list[dict]:
+        """Detect React components (functions returning JSX).
+        Heuristic: exported functions whose name starts with uppercase
+        or are default exports in page/layout/component files."""
+        components: list[dict] = []
+        targets = index.files.items()
+        if file_path:
+            meta = _find_file_meta(file_path)
+            if meta:
+                targets = [(file_path, meta)]
+            else:
+                return []
+        for path, meta in targets:
+            ext = path.rsplit(".", 1)[-1] if "." in path else ""
+            if ext not in ("tsx", "jsx"):
+                continue
+            for func in meta.functions:
+                is_component = False
+                comp_type = "component"
+                # Uppercase first letter = React component convention
+                if func.name and func.name[0].isupper():
+                    is_component = True
+                # Default export in page/layout file
+                elif func.name == "default":
+                    is_component = True
+                    if "/page." in path:
+                        comp_type = "page"
+                    elif "/layout." in path:
+                        comp_type = "layout"
+                    elif "/loading." in path:
+                        comp_type = "loading"
+                    elif "/error." in path:
+                        comp_type = "error"
+                    else:
+                        comp_type = "default_export"
+                if is_component:
+                    components.append({
+                        "name": func.name,
+                        "file": path,
+                        "line_range": f"{func.line_range.start}-{func.line_range.end}",
+                        "params": func.parameters,
+                        "type": comp_type,
+                    })
+        components.sort(key=lambda c: (c["type"], c["file"], c["name"]))
+        if max_results > 0:
+            components = components[:max_results]
+        return components
+
     return {
         "get_project_summary": get_project_summary,
         "list_files": list_files,
@@ -692,6 +852,9 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         "get_file_dependents": get_file_dependents,
         "search_codebase": search_codebase,
         "get_change_impact": get_change_impact,
+        "get_routes": get_routes,
+        "get_env_usage": get_env_usage,
+        "get_components": get_components,
     }
 
 
