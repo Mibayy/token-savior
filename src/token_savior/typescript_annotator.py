@@ -1,10 +1,16 @@
-"""Regex-based TypeScript annotator (v1, best-effort).
+"""Regex-based TypeScript annotator (v2, improved for Next.js/React).
 
 This is NOT a full TypeScript parser. It handles common patterns for
 function declarations, class/interface/type declarations, and import
 statements using regular expressions and brace counting. Edge cases
 (e.g. functions inside template literals, deeply nested generics) may
-be missed, and that is acceptable for v1.
+be missed, and that is acceptable.
+
+v2 improvements over v1:
+  - export default function / export default async function
+  - Multi-line function parameters (join lines until closing paren)
+  - Arrow functions with type annotations (const x: Type = () =>)
+  - Better destructured parameter handling
 """
 
 import re
@@ -45,6 +51,25 @@ def _find_brace_end(lines: list[str], start_line_0: int) -> int:
                     return idx
     # If we never found a closing brace, return last line
     return len(lines) - 1
+
+
+def _join_until_paren_close(lines: list[str], start_0: int) -> tuple[str, int]:
+    """Join lines starting from start_0 until we find a balanced closing paren.
+    Returns (joined_string, last_line_0_consumed).
+    Handles multi-line function parameters."""
+    depth = 0
+    parts = []
+    for idx in range(start_0, min(start_0 + 20, len(lines))):  # max 20 lines lookahead
+        line = lines[idx]
+        parts.append(line)
+        for ch in line:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return " ".join(parts), idx
+    return " ".join(parts), start_0
 
 
 # ---------------------------------------------------------------------------
@@ -131,24 +156,57 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
 # Function detection
 # ---------------------------------------------------------------------------
 
-# Patterns for standalone / exported functions
+# Patterns for standalone / exported / default-exported functions
 _FUNC_DECL_RE = re.compile(
-    r"^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)"
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\("
 )
-# Arrow function assigned to const/let/var
+
+# Anonymous default export: export default function(
+_FUNC_DEFAULT_ANON_RE = re.compile(
+    r"^export\s+default\s+(?:async\s+)?function\s*\("
+)
+
+# Arrow function assigned to const/let/var — with optional type annotation
+# Handles: const foo = () =>, const foo: Type = () =>, export const foo = async () =>
 _ARROW_FUNC_RE = re.compile(
-    r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*[^=]+?)?\s*=>"
+    r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+?)?\s*=\s*(?:async\s+)?\("
+)
+
+# Arrow function single-expression (no parens on single param)
+# const foo = x => x + 1
+_ARROW_SINGLE_RE = re.compile(
+    r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+?)?\s*=\s*(?:async\s+)?(\w+)\s*=>"
 )
 
 # Method inside a class body (indented)
 _METHOD_RE = re.compile(
-    r"^\s+(?:(?:public|private|protected|static|async|readonly|abstract|override|get|set)\s+)*(\w+)\s*\(([^)]*)\)"
+    r"^\s+(?:(?:public|private|protected|static|async|readonly|abstract|override|get|set)\s+)*(\w+)\s*\("
 )
 
 
 def _extract_params(raw: str) -> list[str]:
     """Extract parameter names from a raw parameter string."""
     params: list[str] = []
+    # Handle the content between the outermost parens
+    # Remove nested generics/types to avoid confusion
+    depth = 0
+    cleaned = []
+    for ch in raw:
+        if ch in "<({":
+            depth += 1
+            if depth == 1 and ch == "(":
+                continue  # skip outer paren
+            cleaned.append(ch)
+        elif ch in ">)}":
+            if depth == 1 and ch == ")":
+                depth -= 1
+                continue  # skip outer paren
+            depth -= 1
+            cleaned.append(ch)
+        else:
+            cleaned.append(ch)
+    raw = "".join(cleaned)
+
     for p in raw.split(","):
         p = p.strip()
         if not p:
@@ -156,11 +214,35 @@ def _extract_params(raw: str) -> list[str]:
         # Remove type annotations, defaults, optional markers
         name = re.split(r"[:\s=?]", p)[0].strip()
         if name and name != "...":
-            # Handle destructuring – skip for now
+            # Handle destructuring — extract a meaningful name
             if name.startswith("{") or name.startswith("["):
+                params.append("destructured")
                 continue
+            if name.startswith("}") or name.startswith("]"):
+                continue  # closing brace from destructured — skip
             params.append(name)
     return params
+
+
+def _extract_params_from_joined(joined: str) -> list[str]:
+    """Extract params from a joined multi-line string containing the function signature."""
+    # Find content between first ( and its matching )
+    depth = 0
+    start = -1
+    end = -1
+    for i, ch in enumerate(joined):
+        if ch == "(":
+            if depth == 0:
+                start = i + 1
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if start >= 0 and end > start:
+        return _extract_params(joined[start:end])
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +250,7 @@ def _extract_params(raw: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _CLASS_RE = re.compile(
-    r"^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w.,\s]+))?"
+    r"^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w.,\s]+))?"
 )
 
 _INTERFACE_RE = re.compile(
@@ -188,7 +270,8 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
     """Parse TypeScript source and extract structural metadata using regex.
 
     Detects:
-      - function declarations (function foo, const foo = () =>)
+      - function declarations (function foo, export default function foo)
+      - arrow functions (const foo = () =>, export const foo: Type = async () =>)
       - class declarations (class Foo, export class Foo extends Bar)
       - interface declarations (treated as ClassInfo with no methods by default)
       - type alias declarations (treated as ClassInfo with empty body)
@@ -281,12 +364,14 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                 # Skip things that look like keywords used as property names
                 if method_name in ("if", "else", "for", "while", "switch", "return", "new", "throw", "import", "export", "const", "let", "var"):
                     continue
-                params = _extract_params(mm.group(2))
+                # Join multi-line params
+                joined, last_line = _join_until_paren_close(lines, j)
+                params = _extract_params_from_joined(joined)
                 # Find end of method via brace counting
-                if "{" in line:
+                if "{" in lines[j] or (last_line > j and any("{" in lines[k] for k in range(j, last_line + 1))):
                     mend_0 = _find_brace_end(lines, j)
                 else:
-                    mend_0 = j  # abstract method or interface member, single line
+                    mend_0 = last_line  # abstract method or interface member
 
                 func_info = FunctionInfo(
                     name=method_name,
@@ -326,15 +411,19 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
 
         stripped = lines[i].strip()
 
-        # function declarations
+        # Named function declarations (including export default)
         fm = _FUNC_DECL_RE.match(stripped)
         if fm:
             name = fm.group(1)
-            params = _extract_params(fm.group(2))
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            else:
-                end_0 = i
+            joined, last_param_line = _join_until_paren_close(lines, i)
+            params = _extract_params_from_joined(joined)
+            # Find the brace start — may be on the param-closing line or the next
+            brace_start = last_param_line
+            for k in range(last_param_line, min(last_param_line + 3, total_lines)):
+                if "{" in lines[k]:
+                    brace_start = k
+                    break
+            end_0 = _find_brace_end(lines, brace_start)
             functions.append(FunctionInfo(
                 name=name,
                 qualified_name=name,
@@ -348,18 +437,83 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
             i = end_0 + 1
             continue
 
-        # Arrow functions
+        # Anonymous default export function
+        fda = _FUNC_DEFAULT_ANON_RE.match(stripped)
+        if fda:
+            name = "default"
+            joined, last_param_line = _join_until_paren_close(lines, i)
+            params = _extract_params_from_joined(joined)
+            brace_start = last_param_line
+            for k in range(last_param_line, min(last_param_line + 3, total_lines)):
+                if "{" in lines[k]:
+                    brace_start = k
+                    break
+            end_0 = _find_brace_end(lines, brace_start)
+            functions.append(FunctionInfo(
+                name=name,
+                qualified_name=name,
+                line_range=LineRange(start=i + 1, end=end_0 + 1),
+                parameters=params,
+                decorators=[],
+                docstring=None,
+                is_method=False,
+                parent_class=None,
+            ))
+            i = end_0 + 1
+            continue
+
+        # Arrow functions (with optional type annotation before =)
         am = _ARROW_FUNC_RE.match(stripped)
         if am:
             name = am.group(1)
-            params = _extract_params(am.group(2))
+            joined, last_param_line = _join_until_paren_close(lines, i)
+            params = _extract_params_from_joined(joined)
+            # Find => and then the body
+            # Look for { on the same line or following lines
+            body_start = last_param_line
+            found_brace = False
+            for k in range(last_param_line, min(last_param_line + 3, total_lines)):
+                if "{" in lines[k]:
+                    body_start = k
+                    found_brace = True
+                    break
+            if found_brace:
+                end_0 = _find_brace_end(lines, body_start)
+            else:
+                # Single-expression arrow — find the end
+                end_0 = last_param_line
+                for j in range(last_param_line, total_lines):
+                    line_s = lines[j].strip()
+                    if j > last_param_line and line_s and not line_s.endswith(","):
+                        end_0 = j
+                        break
+                    if ";" in lines[j]:
+                        end_0 = j
+                        break
+            functions.append(FunctionInfo(
+                name=name,
+                qualified_name=name,
+                line_range=LineRange(start=i + 1, end=end_0 + 1),
+                parameters=params,
+                decorators=[],
+                docstring=None,
+                is_method=False,
+                parent_class=None,
+            ))
+            i = end_0 + 1
+            continue
+
+        # Single-param arrow (no parens): const fn = x => ...
+        asm = _ARROW_SINGLE_RE.match(stripped)
+        if asm:
+            name = asm.group(1)
+            params = [asm.group(2)]
             if "{" in stripped:
                 end_0 = _find_brace_end(lines, i)
             else:
-                # Single-expression arrow: find the end via semicolon or next non-continuation
                 end_0 = i
                 for j in range(i, total_lines):
-                    if ";" in lines[j] or (j > i and lines[j].strip() and not lines[j].strip().endswith(",")):
+                    if ";" in lines[j]:
                         end_0 = j
                         break
             functions.append(FunctionInfo(
