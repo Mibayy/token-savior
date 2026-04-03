@@ -834,6 +834,76 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             components = components[:max_results]
         return components
 
+    # ------------------------------------------------------------------
+    # v3: Feature file discovery (keyword → all related files via imports)
+    # ------------------------------------------------------------------
+
+    def get_feature_files(keyword: str, max_results: int = 0) -> list[dict]:
+        """Find all files related to a feature keyword, then trace their imports
+        transitively to build the complete feature file set.
+
+        Example: get_feature_files("contrat") returns route files, components,
+        lib helpers, types — everything connected to contracts."""
+        kw_lower = keyword.lower()
+
+        # Step 1: Seed files — paths or symbols containing the keyword
+        seeds: set[str] = set()
+        for path in index.files:
+            if kw_lower in path.lower():
+                seeds.add(path)
+            else:
+                meta = index.files[path]
+                for func in meta.functions:
+                    if kw_lower in func.name.lower():
+                        seeds.add(path)
+                        break
+                else:
+                    for cls in meta.classes:
+                        if kw_lower in cls.name.lower():
+                            seeds.add(path)
+                            break
+
+        # Step 2: Expand via import graph (1 hop each direction)
+        expanded: set[str] = set(seeds)
+        for seed in seeds:
+            expanded.update(index.import_graph.get(seed, set()))
+            expanded.update(index.reverse_import_graph.get(seed, set()))
+
+        # Step 3: Classify each file
+        results: list[dict] = []
+        for path in sorted(expanded):
+            if path not in index.files:
+                continue
+            meta = index.files[path]
+            role = "lib"
+            if "/route." in path:
+                role = "api"
+            elif "/page." in path:
+                role = "page"
+            elif "/layout." in path:
+                role = "layout"
+            elif "/components/" in path:
+                role = "component"
+            elif "/types" in path or path.endswith(".d.ts"):
+                role = "type"
+            elif "/lib/" in path or "/utils/" in path:
+                role = "lib"
+            elif "test" in path.lower() or "spec" in path.lower():
+                role = "test"
+            symbols = [f.name for f in meta.functions[:5]]
+            symbols += [c.name for c in meta.classes[:3]]
+            results.append({
+                "file": path,
+                "role": role,
+                "seed": path in seeds,
+                "symbols": symbols,
+                "lines": meta.total_lines,
+            })
+        results.sort(key=lambda r: (0 if r["seed"] else 1, r["role"], r["file"]))
+        if max_results > 0:
+            results = results[:max_results]
+        return results
+
     return {
         "get_project_summary": get_project_summary,
         "list_files": list_files,
@@ -855,6 +925,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         "get_routes": get_routes,
         "get_env_usage": get_env_usage,
         "get_components": get_components,
+        "get_feature_files": get_feature_files,
     }
 
 

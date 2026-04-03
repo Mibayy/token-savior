@@ -287,6 +287,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_routes": 0.08,
     "get_env_usage": 0.12,
     "get_components": 0.06,
+    "get_feature_files": 0.20,
 }
 
 
@@ -1613,6 +1614,23 @@ TOOLS = [
         },
     ),
     Tool(
+        name="get_feature_files",
+        description=(
+            "Find all files related to a feature keyword, then trace imports to build the "
+            "complete feature map. Example: get_feature_files('contrat') returns all routes, "
+            "components, lib, types connected to contracts. Each file is classified by role."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "Feature keyword (e.g. 'contrat', 'paiement', 'auth')."},
+                "max_results": {"type": "integer", "description": "Max files to return (0 = all, default 0)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["keyword"],
+        },
+    ),
+    Tool(
         name="get_usage_stats",
         description="Session efficiency stats: tool calls, characters returned vs total source, estimated token savings.",
         inputSchema={"type": "object", "properties": {}},
@@ -2033,6 +2051,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "get_components":
             result = qfns["get_components"](
                 file_path=arguments.get("file_path"),
+                max_results=arguments.get("max_results", 0),
+            )
+
+        elif name == "get_feature_files":
+            result = qfns["get_feature_files"](
+                arguments["keyword"],
                 max_results=arguments.get("max_results", 0),
             )
 
