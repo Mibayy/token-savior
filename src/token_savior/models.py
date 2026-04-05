@@ -111,3 +111,16 @@ class ProjectIndex:
 
     # Git tracking
     last_indexed_git_ref: str | None = None
+
+
+@dataclass
+class ConfigIssue:
+    """A single issue found by config analysis."""
+
+    file: str
+    key: str
+    line: int
+    severity: str   # "error" | "warning" | "info"
+    check: str      # "duplicate" | "secret" | "orphan"
+    message: str
+    detail: str | None = None
