@@ -746,6 +746,18 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
     slot._last_update_check = now
 
     idx = slot.indexer._project_index
+    if idx.last_indexed_git_ref is None:
+        # No git ref was recorded at index time (e.g. initial index ran before
+        # the first commit, or the cache was written by an older version).
+        # Stamp HEAD now so future incremental checks have a baseline.
+        # If HEAD is also None (empty repo, no commits yet) do nothing —
+        # avoids a full-rebuild loop that would fire every 30 seconds.
+        head = get_head_commit(slot.root)
+        if head is not None:
+            idx.last_indexed_git_ref = head
+            _save_cache(idx)
+        return
+
     changeset = get_changed_files(slot.root, idx.last_indexed_git_ref)
     if changeset.is_empty:
         return
