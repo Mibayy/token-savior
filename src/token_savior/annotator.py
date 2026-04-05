@@ -1,18 +1,21 @@
 """Dispatch layer that selects the appropriate annotator by file type."""
 
+from token_savior.conf_annotator import annotate_conf
 from token_savior.csharp_annotator import annotate_csharp
+from token_savior.env_annotator import annotate_env
 from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
 from token_savior.hcl_annotator import annotate_hcl
 from token_savior.ini_annotator import annotate_ini
 from token_savior.json_annotator import annotate_json
 from token_savior.models import StructuralMetadata
-from token_savior.xml_annotator import annotate_xml
-from token_savior.yaml_annotator import annotate_yaml
 from token_savior.python_annotator import annotate_python
 from token_savior.rust_annotator import annotate_rust
 from token_savior.text_annotator import annotate_text
+from token_savior.toml_annotator import annotate_toml
 from token_savior.typescript_annotator import annotate_typescript
+from token_savior.xml_annotator import annotate_xml
+from token_savior.yaml_annotator import annotate_yaml
 
 _EXTENSION_MAP: dict[str, str] = {
     ".py": "python",
@@ -30,16 +33,18 @@ _EXTENSION_MAP: dict[str, str] = {
     ".json": "json",
     ".yaml": "yaml",
     ".yml": "yaml",
+    ".toml": "toml",
     ".ini": "ini",
     ".cfg": "ini",
-    ".conf": "ini",
     ".properties": "ini",
+    ".env": "env",
     ".xml": "xml",
     ".plist": "xml",
     ".svg": "xml",
     ".xhtml": "xml",
-    ".tf": "hcl",
     ".hcl": "hcl",
+    ".tf": "hcl",
+    ".conf": "conf",
 }
 
 
@@ -89,5 +94,11 @@ def annotate(
         return annotate_xml(text, source_name)
     elif file_type == "hcl":
         return annotate_hcl(text, source_name)
+    elif file_type == "toml":
+        return annotate_toml(text, source_name)
+    elif file_type == "env":
+        return annotate_env(text, source_name)
+    elif file_type == "conf":
+        return annotate_conf(text, source_name)
     else:
         return annotate_generic(text, source_name)
