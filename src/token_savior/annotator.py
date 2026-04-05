@@ -1,6 +1,7 @@
 """Dispatch layer that selects the appropriate annotator by file type."""
 
 from token_savior.conf_annotator import annotate_conf
+from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.csharp_annotator import annotate_csharp
 from token_savior.env_annotator import annotate_env
 from token_savior.generic_annotator import annotate_generic
@@ -66,11 +67,22 @@ def annotate(
     - Otherwise -> generic annotator (line-only)
     """
     if file_type is None:
-        # Detect from source_name extension
-        dot_idx = source_name.rfind(".")
-        if dot_idx >= 0:
-            ext = source_name[dot_idx:].lower()
-            file_type = _EXTENSION_MAP.get(ext)
+        # Detect Dockerfile by filename (no extension)
+        import os as _os
+        _basename = _os.path.basename(source_name)
+        if (
+            _basename == "Dockerfile"
+            or _basename.lower() == "dockerfile"
+            or _basename.startswith("Dockerfile.")
+            or _basename.lower().endswith(".dockerfile")
+        ):
+            file_type = "dockerfile"
+        else:
+            # Detect from source_name extension
+            dot_idx = source_name.rfind(".")
+            if dot_idx >= 0:
+                ext = source_name[dot_idx:].lower()
+                file_type = _EXTENSION_MAP.get(ext)
 
     if file_type == "python":
         return annotate_python(text, source_name)
@@ -100,5 +112,7 @@ def annotate(
         return annotate_env(text, source_name)
     elif file_type == "conf":
         return annotate_conf(text, source_name)
+    elif file_type == "dockerfile":
+        return annotate_dockerfile(text, source_name)
     else:
         return annotate_generic(text, source_name)
