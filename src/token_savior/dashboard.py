@@ -189,6 +189,7 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
             "chars_saved": max(total_chars_naive - total_chars_used, 0),
             "tokens_saved": max(total_chars_naive - total_chars_used, 0) // 4,
             "savings_pct": round((1 - total_chars_used / total_chars_naive) * 100, 2) if total_chars_naive > 0 else 0.0,
+            "estimated_savings_usd": round(max(total_chars_naive - total_chars_used, 0) / 4 * 3.0 / 1_000_000, 2),
         },
     }
     for client_name, session_count in client_totals.items():
@@ -707,9 +708,9 @@ HTML = """<!doctype html>
       <div class="stat-hint" id="sSessions">— sessions</div>
     </div>
     <div class="stat-card s-amber">
-      <div class="stat-label">Projects tracked</div>
-      <div class="stat-value c-amber" id="sProjects">—</div>
-      <div class="stat-hint" id="sClients">— clients</div>
+      <div class="stat-label">$ Saved (est.)</div>
+      <div class="stat-value c-amber" id="sSavingsUsd">—</div>
+      <div class="stat-hint" id="sSavingsHint">@ $3/M input tokens</div>
     </div>
   </div>
 
@@ -850,8 +851,9 @@ HTML = """<!doctype html>
     set('sTokNaive',  'Naive ' + fmt(t.tokens_naive));
     set('sQueries',   fmt(t.queries));
     set('sSessions',  fmtFull(d.total_sessions || 0) + ' sessions');
-    set('sProjects',  String(d.project_count || 0));
-    set('sClients',   (d.client_count || 0) + ' client' + (d.client_count === 1 ? '' : 's'));
+    const usd = (t.estimated_savings_usd || 0);
+    set('sSavingsUsd', '$' + (usd >= 1 ? usd.toFixed(2) : usd.toFixed(3)));
+    set('sSavingsHint', '@ $3/M input tokens · ' + (d.project_count || 0) + ' projects');
     set('projCount',  String(d.project_count || 0));
   }
 
