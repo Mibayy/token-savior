@@ -3,8 +3,10 @@
 from token_savior.csharp_annotator import annotate_csharp
 from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
+from token_savior.ini_annotator import annotate_ini
 from token_savior.json_annotator import annotate_json
 from token_savior.models import StructuralMetadata
+from token_savior.xml_annotator import annotate_xml
 from token_savior.yaml_annotator import annotate_yaml
 from token_savior.python_annotator import annotate_python
 from token_savior.rust_annotator import annotate_rust
@@ -27,6 +29,14 @@ _EXTENSION_MAP: dict[str, str] = {
     ".json": "json",
     ".yaml": "yaml",
     ".yml": "yaml",
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".conf": "ini",
+    ".properties": "ini",
+    ".xml": "xml",
+    ".plist": "xml",
+    ".svg": "xml",
+    ".xhtml": "xml",
 }
 
 
@@ -70,5 +80,9 @@ def annotate(
         return annotate_json(text, source_name)
     elif file_type == "yaml":
         return annotate_yaml(text, source_name)
+    elif file_type == "ini":
+        return annotate_ini(text, source_name)
+    elif file_type == "xml":
+        return annotate_xml(text, source_name)
     else:
         return annotate_generic(text, source_name)
