@@ -2,8 +2,6 @@
 
 import textwrap
 
-import pytest
-
 from token_savior.xml_annotator import annotate_xml
 
 

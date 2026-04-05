@@ -52,7 +52,6 @@ def annotate_dockerfile(text: str, source_name: str = "<dockerfile>") -> Structu
     line_offsets = _build_line_offsets(lines)
 
     sections: list[SectionInfo] = []
-    in_stage = False  # have we seen at least one FROM?
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -70,7 +69,6 @@ def annotate_dockerfile(text: str, source_name: str = "<dockerfile>") -> Structu
         lineno = i + 1  # 1-indexed
 
         if instruction == "FROM":
-            in_stage = True
             title = _make_title(instruction, value)
             sections.append(
                 SectionInfo(

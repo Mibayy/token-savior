@@ -1,7 +1,5 @@
 """Tests for config_analyzer.check_duplicates."""
 
-import pytest
-
 from token_savior.config_analyzer import (
     analyze_config,
     check_duplicates,
@@ -20,7 +18,7 @@ def _make_meta(source_name, sections, lines=None):
     return StructuralMetadata(
         source_name=source_name,
         total_lines=len(lines),
-        total_chars=sum(len(l) for l in lines),
+        total_chars=sum(len(line) for line in lines),
         lines=lines,
         line_char_offsets=[0] * len(lines),
         sections=sections,
@@ -341,7 +339,7 @@ def _make_code_meta(source_name: str, lines: list[str]) -> StructuralMetadata:
     return StructuralMetadata(
         source_name=source_name,
         total_lines=len(lines),
-        total_chars=sum(len(l) for l in lines),
+        total_chars=sum(len(line) for line in lines),
         lines=lines,
         line_char_offsets=[0] * len(lines),
     )
@@ -454,7 +452,7 @@ def _make_simple_struct(source_name: str, lines: list[str]) -> StructuralMetadat
     return StructuralMetadata(
         source_name=source_name,
         total_lines=len(lines),
-        total_chars=sum(len(l) for l in lines),
+        total_chars=sum(len(line) for line in lines),
         lines=lines,
         line_char_offsets=[0] * len(lines),
         sections=[],

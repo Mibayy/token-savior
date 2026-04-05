@@ -10,9 +10,8 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-from token_savior.annotator import annotate
 from token_savior.git_tracker import get_changed_files
-from token_savior.models import ClassInfo, FunctionInfo, ProjectIndex, StructuralMetadata
+from token_savior.models import ProjectIndex
 
 
 # ---------------------------------------------------------------------------

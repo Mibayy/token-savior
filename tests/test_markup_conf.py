@@ -1,5 +1,4 @@
 """Tests for the .conf config file annotator."""
-import pytest
 from token_savior.conf_annotator import annotate_conf
 
 

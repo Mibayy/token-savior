@@ -2,8 +2,6 @@
 
 import textwrap
 
-import pytest
-
 from token_savior.toml_annotator import annotate_toml
 
 

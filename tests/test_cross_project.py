@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from token_savior.cross_project import (
     find_cross_project_deps,
     _get_project_packages,

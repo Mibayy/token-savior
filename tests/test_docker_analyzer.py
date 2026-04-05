@@ -1,7 +1,5 @@
 """Tests for the Docker analyzer."""
 
-import pytest
-
 from token_savior.docker_analyzer import analyze_docker
 from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.models import ProjectIndex, StructuralMetadata
@@ -27,8 +25,6 @@ class TestNoDockerfiles:
         assert result == "Docker Analysis -- no Dockerfiles found in project"
 
     def test_index_with_only_python_files(self):
-        from token_savior.models import LineRange, SectionInfo
-
         meta = StructuralMetadata(
             source_name="/fake/project/app.py",
             total_lines=3,

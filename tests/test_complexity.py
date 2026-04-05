@@ -18,7 +18,7 @@ def _make_index(files: dict[str, tuple[list[str], list[FunctionInfo]]]) -> Proje
         index_files[path] = StructuralMetadata(
             source_name=path,
             total_lines=len(lines),
-            total_chars=sum(len(l) for l in lines),
+            total_chars=sum(len(line) for line in lines),
             lines=lines,
             line_char_offsets=[],
             functions=functions,

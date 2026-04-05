@@ -1,7 +1,5 @@
 """Tests for the Dockerfile annotator."""
 
-import pytest
-
 from token_savior.dockerfile_annotator import annotate_dockerfile
 
 

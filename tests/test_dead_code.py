@@ -1,8 +1,6 @@
 """Tests for the dead_code module."""
 from __future__ import annotations
 
-import pytest
-
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,

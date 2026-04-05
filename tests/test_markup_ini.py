@@ -1,6 +1,5 @@
 """Tests for INI/properties config annotator."""
 
-import pytest
 from token_savior.ini_annotator import annotate_ini
 
 

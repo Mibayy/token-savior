@@ -1,7 +1,5 @@
 """Tests for the YAML annotator."""
 
-import yaml
-
 from token_savior.yaml_annotator import annotate_yaml
 
 
