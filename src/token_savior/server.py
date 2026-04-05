@@ -50,6 +50,7 @@ from token_savior.project_indexer import ProjectIndexer
 from token_savior.project_actions import discover_project_actions, run_project_action
 from token_savior.query_api import create_project_query_functions
 from token_savior.workflow_ops import apply_symbol_change_and_validate, apply_symbol_change_validate_with_rollback
+from token_savior.config_analyzer import analyze_config as run_config_analysis
 
 # ---------------------------------------------------------------------------
 # Per-project slot — one per workspace root, fully isolated
@@ -1672,6 +1673,33 @@ TOOLS = [
             },
         },
     ),
+    Tool(
+        name="analyze_config",
+        description=(
+            "Analyze config files for issues: duplicate keys, hardcoded secrets, and orphan entries. "
+            "Checks can be filtered via the 'checks' parameter."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "checks": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["duplicates", "secrets", "orphans"]},
+                    "description": 'Checks to run (default: all). Options: "duplicates", "secrets", "orphans".',
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Specific config file to analyze. Omit to analyze all config files.",
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["all", "error", "warning"],
+                    "description": 'Filter by severity (default: "all").',
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
 ]
 
 
@@ -1938,6 +1966,17 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 timeout_sec=arguments.get("timeout_sec", 120),
                 max_output_chars=arguments.get("max_output_chars", 12000),
                 include_output=arguments.get("include_output", False),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "analyze_config":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_config_analysis(
+                slot.indexer._project_index,
+                checks=arguments.get("checks"),
+                file_path=arguments.get("file_path"),
+                severity=arguments.get("severity", "all"),
             )
             return _count_and_wrap_result(slot, name, arguments, result)
 
