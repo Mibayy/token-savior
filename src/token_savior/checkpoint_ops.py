@@ -89,12 +89,16 @@ def restore_checkpoint(index: ProjectIndex, checkpoint_id: str) -> dict:
     if not os.path.isdir(checkpoint_dir):
         return {"error": f"Checkpoint '{checkpoint_id}' not found"}
 
+    root_norm = os.path.normpath(index.root_path)
     restored_files: list[str] = []
     for root, _, files in os.walk(checkpoint_dir):
         for name in files:
             src = os.path.join(root, name)
             rel = os.path.relpath(src, checkpoint_dir)
-            dst = os.path.join(index.root_path, rel)
+            dst = os.path.normpath(os.path.join(index.root_path, rel))
+            # Guard against path traversal (e.g. "../../../etc/passwd" in checkpoint)
+            if os.path.commonpath([dst, root_norm]) != root_norm:
+                return {"error": f"Checkpoint contains unsafe path: {rel}"}
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
             restored_files.append(rel)
