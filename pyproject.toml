@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior"
-version = "0.7.1"
+version = "0.8.0"
 description = "Compact structural codebase MCP server for token-efficient AI development"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",
 ]
-dependencies = []
+dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0,<1.25"]
