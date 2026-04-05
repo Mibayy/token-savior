@@ -11,7 +11,6 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
 from token_savior.annotator import annotate
 from token_savior.models import ProjectIndex, StructuralMetadata
@@ -92,8 +91,8 @@ class ProjectIndexer:
         """Walk the project, annotate all files, build cross-file graphs.
 
         Steps:
-        1. Discover files using pathlib.Path.glob matching include patterns,
-           filtering out exclude patterns
+        1. Discover files using a single os.walk() traversal matching include
+           patterns, filtering out exclude patterns
         2. Read and annotate each file using the dispatch annotator
         3. Build global symbol table: for each file's functions and classes,
            map qualified_name -> file_path
@@ -352,29 +351,54 @@ class ProjectIndexer:
     # ------------------------------------------------------------------
 
     def _discover_files(self) -> list[str]:
-        """Discover files matching include patterns, excluding exclude patterns."""
-        root = Path(self.root_path)
+        """Discover files using a single os.walk() traversal.
+
+        Previous implementation called Path.glob() once per include pattern,
+        producing N full directory traversals (N ≈ 27 by default).  On slow
+        or network-backed filesystems (OneDrive, NFS, SMB) each traversal
+        can take minutes; a single os.walk() pass reduces that to one trip.
+
+        All include patterns are ``**/<name_pattern>`` style, so recursive
+        descent is handled by os.walk and only the filename portion needs
+        fnmatch matching.  Excluded directories are pruned in-place so
+        os.walk never descends into them.
+        """
         matched: set[str] = set()
 
-        for pattern in self.include_patterns:
-            for p in root.glob(pattern):
-                if p.is_file():
-                    abs_str = str(p)
-                    rel_str = os.path.relpath(abs_str, self.root_path)
+        # Extract just the filename part of every include pattern
+        # e.g. "**/*.py" → "*.py", "**/Dockerfile.*" → "Dockerfile.*"
+        filename_patterns = [pat.rsplit("/", 1)[-1] for pat in self.include_patterns]
 
-                    if self._is_excluded(rel_str):
-                        continue
+        for dirpath, dirnames, filenames in os.walk(self.root_path, topdown=True):
+            rel_dir = os.path.relpath(dirpath, self.root_path)
+            if rel_dir == ".":
+                rel_dir = ""
 
-                    # Check file size
-                    try:
-                        size = p.stat().st_size
-                    except OSError:
-                        continue
-                    if size > self.max_file_size_bytes:
-                        logger.debug("Skipping %s (size %d > %d)", rel_str, size, self.max_file_size_bytes)
-                        continue
+            # Prune excluded directories in-place — os.walk won't descend into them.
+            dirnames[:] = [
+                d for d in dirnames
+                if not self._is_excluded(os.path.join(rel_dir, d) if rel_dir else d)
+            ]
 
-                    matched.add(abs_str)
+            for filename in filenames:
+                rel_path = os.path.join(rel_dir, filename) if rel_dir else filename
+
+                if self._is_excluded(rel_path):
+                    continue
+
+                if not any(fnmatch.fnmatch(filename, fp) for fp in filename_patterns):
+                    continue
+
+                abs_path = os.path.join(dirpath, filename)
+                try:
+                    size = os.path.getsize(abs_path)
+                except OSError:
+                    continue
+                if size > self.max_file_size_bytes:
+                    logger.debug("Skipping %s (size %d > %d)", rel_path, size, self.max_file_size_bytes)
+                    continue
+
+                matched.add(abs_path)
 
         return sorted(matched)
 
