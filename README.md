@@ -9,7 +9,6 @@
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](https://github.com/Mibayy/token-savior)
 
 </div>
 
@@ -21,6 +20,7 @@ An MCP server that indexes your codebase structurally and exposes surgical query
 find_symbol("send_message")           →  67 chars    (was: 41M chars of source)
 get_change_impact("LLMClient")        →  16K chars   (154 direct + 492 transitive deps)
 get_function_source("compile")        →  4.5K chars  (exact source, no grep, no cat)
+analyze_config()                      →  finds duplicates, secrets, orphan keys
 ```
 
 **Measured across 782 real sessions: 99% token reduction.**
@@ -72,8 +72,8 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 
 ## What it covers
 
-| Language / Type | Files | Extracts |
-|-----------------|-------|----------|
+| Language / Format | Files | Extracts |
+|-------------------|-------|----------|
 | Python | `.py`, `.pyw` | Functions, classes, methods, imports, dependency graph |
 | TypeScript / JS | `.ts`, `.tsx`, `.js`, `.jsx` | Functions, arrow functions, classes, interfaces, type aliases |
 | Go | `.go` | Functions, methods (receiver), structs, interfaces, type aliases |
@@ -81,13 +81,19 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 | C# | `.cs` | Classes, interfaces, structs, enums, methods, XML doc comments |
 | Markdown / Text | `.md`, `.txt`, `.rst` | Sections via heading detection |
 | JSON | `.json` | Nested key structure up to depth 4, `$ref` cross-references |
+| YAML | `.yaml`, `.yml` | Nested key hierarchy, array markers, depth cap 4 |
+| TOML | `.toml` | Tables, key-value pairs, nested structure |
+| INI / Properties | `.ini`, `.cfg`, `.properties` | Sections, key-value pairs |
+| Environment | `.env` | Variable names, values (with secret masking) |
+| XML / Plist / SVG | `.xml`, `.plist`, `.svg`, `.xhtml` | Element hierarchy, attributes |
+| HCL / Terraform | `.hcl`, `.tf` | Blocks, nested resources, key-value pairs |
+| Conf | `.conf` | Key-value pairs, block structure |
+| Dockerfile | `Dockerfile`, `*.dockerfile` | Instructions, multi-stage builds, FROM/RUN/COPY/ENV |
 | Everything else | `*` | Line counts (generic fallback) |
-
-A workspace pointing at `/root` indexes Python bots, docker-compose files, READMEs, skill files, and API configs in one pass. Any agent task benefits — not only code refactoring.
 
 ---
 
-## 39 tools
+## 51 tools
 
 ### Navigation
 | Tool | What it does |
@@ -152,6 +158,36 @@ A workspace pointing at `/root` indexes Python bots, docker-compose files, READM
 | `discover_project_actions` | Detect test/lint/build/run commands from project files |
 | `run_project_action` | Execute a discovered action with bounded output |
 
+### Config analysis
+| Tool | What it does |
+|------|-------------|
+| `analyze_config` | Scan config files for duplicates, secrets, typos, and orphan keys |
+
+Runs three checks (individually toggleable via the `checks` parameter):
+
+- **Duplicates** — Same key defined twice in the same file, plus Levenshtein-based typo detection (e.g. `db_hsot` vs `db_host`)
+- **Secrets** — Regex patterns for known secret formats (API keys, tokens, private keys) plus Shannon entropy analysis for high-entropy strings
+- **Orphans** — Cross-references config keys against actual code usage. Detects keys your code never reads and env vars your code expects but aren't set. Understands `os.environ`, `process.env`, `os.Getenv`, `std::env::var`, and more.
+
+Supported formats: `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.properties`, `.env`, `.xml`, `.plist`, `.hcl`, `.tf`, `.conf`, `.json`
+
+### Code quality
+| Tool | What it does |
+|------|-------------|
+| `find_dead_code` | Find functions/classes with zero callers (excludes entry points, tests, decorated routes) |
+| `find_hotspots` | Rank functions by complexity score (lines, branches, nesting, parameter count) |
+| `detect_breaking_changes` | Compare current function signatures against a git ref — flags removed/renamed params, changed defaults |
+
+### Docker
+| Tool | What it does |
+|------|-------------|
+| `analyze_docker` | Audit Dockerfiles: base images, exposed ports, ENV/ARG cross-reference, `latest` tag warnings |
+
+### Multi-project
+| Tool | What it does |
+|------|-------------|
+| `find_cross_project_deps` | Cross-reference imports across projects to find shared dependencies |
+
 ### Stats
 | Tool | What it does |
 |------|-------------|
@@ -165,7 +201,7 @@ LSP answers "where is this defined?" — `token-savior` answers "what breaks if 
 
 LSP is point queries: one symbol, one file, one position. It can find where `LLMClient` is defined and who references it directly. Ask "what breaks transitively if I refactor `LLMClient`?" and LSP has nothing — the AI would need to chain dozens of find-reference calls recursively, reading files at every step.
 
-`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. And unlike LSP, it requires zero language servers — one binary covers Python + TS/JS + Go + Rust + C# + Markdown + JSON out of the box.
+`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. And unlike LSP, it requires zero language servers — one binary covers Python + TS/JS + Go + Rust + C# + config files + Dockerfiles out of the box.
 
 ---
 
