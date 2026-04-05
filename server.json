@@ -1,25 +1,30 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.token-savior/token-savior",
-  "description": "Compact structural codebase MCP server for token-efficient AI development.",
+  "name": "io.github.Mibayy/token-savior",
+  "description": "Structural code intelligence MCP server for AI-assisted development. Navigate and edit codebases by symbol names instead of raw text.",
   "repository": {
     "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
-  "version": "0.2.2",
+  "version": "0.9.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "token-savior",
-      "version": "0.2.2",
+      "version": "0.9.0",
       "transport": {
         "type": "stdio"
       },
       "environment_variables": [
         {
-          "name": "PROJECT_ROOT",
-          "description": "Root directory of the project to index",
+          "name": "WORKSPACE_ROOTS",
+          "description": "Comma-separated list of absolute paths to project roots to index",
           "required": true
+        },
+        {
+          "name": "TOKEN_SAVIOR_CLIENT",
+          "description": "Optional client identifier (e.g. claude-code, cursor, windsurf)",
+          "required": false
         }
       ]
     }
