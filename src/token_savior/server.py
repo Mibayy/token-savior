@@ -50,7 +50,12 @@ from token_savior.project_indexer import ProjectIndexer
 from token_savior.project_actions import discover_project_actions, run_project_action
 from token_savior.query_api import create_project_query_functions
 from token_savior.workflow_ops import apply_symbol_change_and_validate, apply_symbol_change_validate_with_rollback
+from token_savior.breaking_changes import detect_breaking_changes as run_breaking_changes
+from token_savior.complexity import find_hotspots as run_hotspots
 from token_savior.config_analyzer import analyze_config as run_config_analysis
+from token_savior.cross_project import find_cross_project_deps as run_cross_project
+from token_savior.dead_code import find_dead_code as run_dead_code
+from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 
 # ---------------------------------------------------------------------------
 # Per-project slot — one per workspace root, fully isolated
@@ -1700,6 +1705,85 @@ TOOLS = [
             },
         },
     ),
+    Tool(
+        name="find_dead_code",
+        description=(
+            "Find unreferenced functions and classes in the codebase. "
+            "Detects symbols with zero callers, excluding entry points (main, tests, route handlers, etc.)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of dead symbols to report (default: 50).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="find_hotspots",
+        description=(
+            "Rank functions by complexity score (line count, branching, nesting depth, parameter count). "
+            "Helps identify code that needs refactoring."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of functions to report (default: 20).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum complexity score to include (default: 0).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="detect_breaking_changes",
+        description=(
+            "Detect breaking API changes between the current code and a git ref. "
+            "Finds removed functions, removed parameters, added required parameters, and signature changes."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "since_ref": {
+                    "type": "string",
+                    "description": 'Git ref to compare against (default: "HEAD~1"). Can be a commit SHA, branch, or tag.',
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="find_cross_project_deps",
+        description=(
+            "Detect dependencies between indexed projects. "
+            "Shows which projects import packages from other indexed projects and shared external dependencies."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="analyze_docker",
+        description=(
+            "Analyze Dockerfiles in the project: base images, stages, exposed ports, ENV/ARG vars, "
+            "and cross-reference with config files. Flags issues like 'latest' tags and missing env vars."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
 ]
 
 
@@ -1978,6 +2062,50 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 file_path=arguments.get("file_path"),
                 severity=arguments.get("severity", "all"),
             )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "find_dead_code":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_dead_code(
+                slot.indexer._project_index,
+                max_results=arguments.get("max_results", 50),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "find_hotspots":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_hotspots(
+                slot.indexer._project_index,
+                max_results=arguments.get("max_results", 20),
+                min_score=arguments.get("min_score", 0.0),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "detect_breaking_changes":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_breaking_changes(
+                slot.indexer._project_index,
+                since_ref=arguments.get("since_ref", "HEAD~1"),
+            )
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "find_cross_project_deps":
+            # This tool operates across ALL loaded projects
+            loaded: dict[str, ProjectIndex] = {}
+            for root, s in _projects.items():
+                _ensure_slot(s)
+                if s.indexer and s.indexer._project_index:
+                    loaded[os.path.basename(root)] = s.indexer._project_index
+            result = run_cross_project(loaded)
+            return _count_and_wrap_result(slot, name, arguments, result)
+
+        if name == "analyze_docker":
+            _ensure_slot(slot)
+            _maybe_incremental_update(slot)
+            result = run_docker_analysis(slot.indexer._project_index)
             return _count_and_wrap_result(slot, name, arguments, result)
 
         _ensure_slot(slot)
