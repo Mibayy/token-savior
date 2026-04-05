@@ -7,6 +7,8 @@ cross-file conflicts.
 
 from __future__ import annotations
 
+import math
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -169,5 +171,200 @@ def check_duplicates(
                     ),
                     detail=f"Value in this file: {content!r}",
                 ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Secrets detection helpers
+# ---------------------------------------------------------------------------
+
+# Known secret prefixes that directly identify a credential
+_KNOWN_PREFIXES: tuple[str, ...] = (
+    "sk-", "sk_live_", "sk_test_",
+    "ghp_", "gho_", "ghu_", "ghs_",
+    "AKIA",
+    "-----BEGIN",
+    "xox", "xapp-",
+    "eyJ",  # JWT
+)
+
+# Key name patterns that suggest the value is sensitive
+_SUSPICIOUS_KEY_RE = re.compile(
+    r"(?i)(password|passwd|secret|token|api_key|apikey|private_key"
+    r"|credential|auth|access_key|signing_key|encryption_key)"
+)
+
+# URL with embedded credentials: scheme://user:pass@host
+_CRED_URL_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+\-.]*://[^@\s]+:[^@\s]+@")
+
+# Patterns that look like secrets but are actually harmless
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_SEMVER_RE = re.compile(r"^\d+\.\d+(\.\d+)?([.\-+][a-zA-Z0-9._+\-]*)?$")
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$")
+_FILE_PATH_RE = re.compile(r"^[/\\]|^[a-zA-Z]:[/\\]|\.\w{1,5}$")
+_BOOL_LIKE_RE = re.compile(r"^(true|false|yes|no|on|off|null|none|0|1)$", re.IGNORECASE)
+
+
+def _shannon_entropy(s: str) -> float:
+    """Return the Shannon entropy (bits per character) of *s*."""
+    if not s:
+        return 0.0
+    freq: dict[str, int] = {}
+    for ch in s:
+        freq[ch] = freq.get(ch, 0) + 1
+    length = len(s)
+    return -sum((c / length) * math.log2(c / length) for c in freq.values())
+
+
+def _extract_value(line: str) -> str:
+    """Extract the value part from a KEY=VALUE or KEY: VALUE line.
+
+    Strips surrounding single/double quotes from the value.
+    """
+    line = line.strip()
+    # KEY=VALUE (ENV style)
+    if "=" in line:
+        _, _, raw = line.partition("=")
+    # KEY: VALUE (YAML-ish)
+    elif ":" in line:
+        _, _, raw = line.partition(":")
+    else:
+        return ""
+    value = raw.strip()
+    # Strip matching surrounding quotes
+    if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+        value = value[1:-1]
+    return value
+
+
+def _mask_value(value: str) -> str:
+    """Return a masked representation: first 4 + **** + last 4 chars."""
+    if len(value) <= 8:
+        return "****"
+    return value[:4] + "****" + value[-4:]
+
+
+def _is_non_secret_pattern(value: str) -> bool:
+    """Return True when *value* matches a known harmless pattern."""
+    if _UUID_RE.match(value):
+        return True
+    if _SEMVER_RE.match(value):
+        return True
+    if _HEX_COLOR_RE.match(value):
+        return True
+    if _FILE_PATH_RE.search(value):
+        return True
+    if _BOOL_LIKE_RE.match(value):
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# check_secrets
+# ---------------------------------------------------------------------------
+
+def check_secrets(
+    config_files: dict[str, StructuralMetadata],
+) -> list[ConfigIssue]:
+    """Scan *config_files* for hardcoded secrets and return a list of issues.
+
+    Detection engines
+    -----------------
+    1. **Known prefix** — value starts with a well-known credential prefix
+       (``sk-``, ``ghp_``, ``AKIA``, ``eyJ``, ``-----BEGIN``, …).
+    2. **Suspicious key name** — the key name matches a regex for sensitive
+       names (password, secret, token, api_key, …) and the value is non-trivial.
+    3. **URL with embedded credentials** — ``scheme://user:pass@host`` pattern.
+    4. **High entropy** — Shannon entropy > 4.5 for values ≥ 16 chars, after
+       filtering out UUIDs, semver strings, hex colours, file paths, and
+       boolean-like values.
+
+    Severity
+    --------
+    - Known prefix → ``"error"``
+    - URL with credentials, suspicious key name, high entropy → ``"warning"``
+    """
+    issues: list[ConfigIssue] = []
+
+    for source_name, meta in config_files.items():
+        for line_idx, raw_line in enumerate(meta.lines):
+            line_no = line_idx  # lines are stored with leading "" so index == line number
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            value = _extract_value(stripped)
+            key = stripped.split("=")[0].split(":")[0].strip() if value else ""
+
+            # ----------------------------------------------------------------
+            # Engine 1 – Known prefix
+            # ----------------------------------------------------------------
+            if value:
+                for prefix in _KNOWN_PREFIXES:
+                    if value.startswith(prefix):
+                        issues.append(ConfigIssue(
+                            file=source_name,
+                            key=key,
+                            line=line_no,
+                            severity="error",
+                            check="secret",
+                            message=f"Hardcoded secret detected in '{key}' (known prefix '{prefix}')",
+                            detail=f"Value: {_mask_value(value)}",
+                        ))
+                        break  # one issue per line for known-prefix
+
+            # ----------------------------------------------------------------
+            # Engine 3 – URL with embedded credentials
+            # ----------------------------------------------------------------
+            if _CRED_URL_RE.search(stripped):
+                issues.append(ConfigIssue(
+                    file=source_name,
+                    key=key,
+                    line=line_no,
+                    severity="warning",
+                    check="secret",
+                    message=f"URL with embedded credentials in '{key}'",
+                    detail=f"Value: {_mask_value(value) if value else '(see line)'}",
+                ))
+
+            if not value:
+                continue
+
+            # ----------------------------------------------------------------
+            # Engine 2 – Suspicious key name
+            # ----------------------------------------------------------------
+            if key and _SUSPICIOUS_KEY_RE.search(key):
+                # Only flag when value looks like a real hardcoded string
+                # (not a placeholder like ${...}, %(...), or an empty string)
+                placeholder_re = re.compile(r"^\$\{.*\}$|^%\(.*\)s?$|^<.*>$")
+                if value and not placeholder_re.match(value) and not _is_non_secret_pattern(value):
+                    issues.append(ConfigIssue(
+                        file=source_name,
+                        key=key,
+                        line=line_no,
+                        severity="warning",
+                        check="secret",
+                        message=f"Suspicious key name '{key}' with hardcoded value",
+                        detail=f"Value: {_mask_value(value)}",
+                    ))
+
+            # ----------------------------------------------------------------
+            # Engine 4 – High entropy
+            # ----------------------------------------------------------------
+            if len(value) >= 16 and not _is_non_secret_pattern(value):
+                entropy = _shannon_entropy(value)
+                if entropy > 4.5:
+                    issues.append(ConfigIssue(
+                        file=source_name,
+                        key=key,
+                        line=line_no,
+                        severity="warning",
+                        check="secret",
+                        message=f"High-entropy value in '{key}' (possible hardcoded secret)",
+                        detail=f"Entropy={entropy:.2f}, Value: {_mask_value(value)}",
+                    ))
 
     return issues

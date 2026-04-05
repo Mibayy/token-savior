@@ -2,7 +2,7 @@
 
 import pytest
 
-from token_savior.config_analyzer import check_duplicates
+from token_savior.config_analyzer import check_duplicates, check_secrets
 from token_savior.models import ConfigIssue, LineRange, SectionInfo, StructuralMetadata
 
 
@@ -178,3 +178,147 @@ class TestCrossFileConflicts:
         meta = _make_meta("config.env", sections, lines=["", "HOST=localhost", "PORT=3000"])
         issues = check_duplicates({"config.env": meta})
         assert len(issues) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestCheckSecrets
+# ---------------------------------------------------------------------------
+
+def _make_simple_meta(source_name: str, lines: list[str]):
+    """Build a minimal StructuralMetadata from a list of raw lines.
+
+    Lines are stored with a leading empty string so that lines[1] == first
+    line of content (matching the convention used by _make_meta above).
+    """
+    stored = [""] + lines  # index 0 unused, index N == line N
+    return _make_meta(source_name, sections=[], lines=stored)
+
+
+class TestCheckSecrets:
+    # ------------------------------------------------------------------ #
+    # Known prefixes                                                       #
+    # ------------------------------------------------------------------ #
+
+    def test_sk_prefix_is_error(self):
+        """sk- prefix → severity error."""
+        meta = _make_simple_meta("app.env", ["OPENAI_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890"])
+        issues = check_secrets({"app.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+        assert any(i.severity == "error" for i in secrets)
+
+    def test_ghp_prefix_detected(self):
+        """ghp_ prefix → detected."""
+        meta = _make_simple_meta("app.env", ["GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"])
+        issues = check_secrets({"app.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+
+    def test_begin_private_key_detected(self):
+        """-----BEGIN prefix → detected."""
+        meta = _make_simple_meta(
+            "secrets.env",
+            ["PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKCAQEA"],
+        )
+        issues = check_secrets({"secrets.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+        assert any(i.severity == "error" for i in secrets)
+
+    # ------------------------------------------------------------------ #
+    # Suspicious key names                                                 #
+    # ------------------------------------------------------------------ #
+
+    def test_suspicious_key_password(self):
+        """Key named 'password' with a value → detected."""
+        meta = _make_simple_meta("config.env", ["password=s3cr3tP@ssw0rd!"])
+        issues = check_secrets({"config.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+
+    # ------------------------------------------------------------------ #
+    # URL with embedded credentials                                        #
+    # ------------------------------------------------------------------ #
+
+    def test_url_with_credentials(self):
+        """DATABASE_URL with user:pass@ → detected as warning."""
+        meta = _make_simple_meta(
+            "app.env",
+            ["DATABASE_URL=postgres://admin:supersecret@db.example.com:5432/mydb"],
+        )
+        issues = check_secrets({"app.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+        assert any(i.severity == "warning" for i in secrets)
+
+    # ------------------------------------------------------------------ #
+    # High entropy                                                         #
+    # ------------------------------------------------------------------ #
+
+    def test_high_entropy_value(self):
+        """A high-entropy 32-char string → detected."""
+        # This string has mixed case + digits + symbols → high entropy
+        meta = _make_simple_meta(
+            "app.env",
+            ["SESSION_SECRET=aB3$kX9!mQ2#nZ7@pR5&wT1^yU8*vS4%"],
+        )
+        issues = check_secrets({"app.env": meta})
+        secrets = [i for i in issues if i.check == "secret"]
+        assert len(secrets) >= 1
+
+    # ------------------------------------------------------------------ #
+    # Normal values — must NOT be flagged                                  #
+    # ------------------------------------------------------------------ #
+
+    def test_normal_port_not_flagged(self):
+        """PORT=8080 should not be flagged."""
+        meta = _make_simple_meta("app.env", ["PORT=8080"])
+        issues = check_secrets({"app.env": meta})
+        assert len(issues) == 0
+
+    def test_normal_host_not_flagged(self):
+        """HOST=localhost should not be flagged."""
+        meta = _make_simple_meta("app.env", ["HOST=localhost"])
+        issues = check_secrets({"app.env": meta})
+        assert len(issues) == 0
+
+    def test_debug_true_not_flagged(self):
+        """DEBUG=true should not be flagged."""
+        meta = _make_simple_meta("app.env", ["DEBUG=true"])
+        issues = check_secrets({"app.env": meta})
+        assert len(issues) == 0
+
+    # ------------------------------------------------------------------ #
+    # UUID not flagged (even though it is long / looks random)             #
+    # ------------------------------------------------------------------ #
+
+    def test_uuid_not_flagged(self):
+        """A UUID value should be excluded from entropy check."""
+        meta = _make_simple_meta(
+            "app.env",
+            ["APP_ID=550e8400-e29b-41d4-a716-446655440000"],
+        )
+        issues = check_secrets({"app.env": meta})
+        # UUID must not trigger high-entropy warning
+        entropy_issues = [
+            i for i in issues
+            if i.check == "secret" and "entropy" in i.message.lower()
+        ]
+        assert len(entropy_issues) == 0
+
+    # ------------------------------------------------------------------ #
+    # Masked value in detail                                               #
+    # ------------------------------------------------------------------ #
+
+    def test_masked_value_in_detail(self):
+        """The full secret must NOT appear in the detail field — only masked."""
+        secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        meta = _make_simple_meta("app.env", [f"OPENAI_KEY={secret}"])
+        issues = check_secrets({"app.env": meta})
+        secrets = [i for i in issues if i.check == "secret" and i.severity == "error"]
+        assert len(secrets) >= 1
+        issue = secrets[0]
+        # The full secret must not be in the detail
+        assert secret not in (issue.detail or "")
+        # But the masked form (****) must be present
+        assert "****" in (issue.detail or "")
