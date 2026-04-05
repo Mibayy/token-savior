@@ -1,13 +1,14 @@
-"""Config analysis: check_duplicates and helpers.
+"""Config analysis: check_duplicates, check_secrets, check_orphans and helpers.
 
 Analyses StructuralMetadata produced by config annotators (YAML, ENV, INI, …)
-to surface problems like exact duplicate keys, likely typos (similar keys), and
-cross-file conflicts.
+to surface problems like exact duplicate keys, likely typos (similar keys),
+cross-file conflicts, hardcoded secrets, and orphan / ghost keys.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
@@ -366,5 +367,184 @@ def check_secrets(
                         message=f"High-entropy value in '{key}' (possible hardcoded secret)",
                         detail=f"Entropy={entropy:.2f}, Value: {_mask_value(value)}",
                     ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Orphans / Ghost keys detection
+# ---------------------------------------------------------------------------
+
+_ACCESS_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "python": [
+        re.compile(r'os\.environ\[(["\'])(.+?)\1\]'),
+        re.compile(r'os\.getenv\((["\'])(.+?)\1'),
+        re.compile(r'os\.environ\.get\((["\'])(.+?)\1'),
+    ],
+    "typescript": [
+        re.compile(r'process\.env\.([A-Z_][A-Z0-9_]*)'),
+        re.compile(r'process\.env\[(["\'])(.+?)\1\]'),
+        re.compile(r'import\.meta\.env\.([A-Z_][A-Z0-9_]*)'),
+    ],
+    "go": [
+        re.compile(r'os\.Getenv\((["\'])(.+?)\1\)'),
+    ],
+    "rust": [
+        re.compile(r'env::var\((["\'])(.+?)\1\)'),
+    ],
+}
+
+_EXT_TO_LANG: dict[str, str] = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "typescript",
+    ".jsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+}
+
+
+def _detect_lang(source_name: str) -> str | None:
+    """Return the language key for *source_name* based on file extension."""
+    _, ext = os.path.splitext(source_name)
+    return _EXT_TO_LANG.get(ext.lower())
+
+
+def _pick_key_from_match(m: re.Match[str]) -> str | None:
+    """Pick the meaningful key group from a regex match.
+
+    Iterate groups in reverse and return the first group that is a string
+    longer than 1 char and is not a bare quote character.
+    """
+    groups = m.groups()
+    for g in reversed(groups):
+        if g and len(g) > 1 and g not in ('"', "'"):
+            return g
+    return None
+
+
+def _extract_referenced_keys(
+    code_files: dict[str, StructuralMetadata],
+) -> dict[str, list[tuple[str, int]]]:
+    """Scan *code_files* with language-specific access patterns.
+
+    Returns a mapping of ``key → [(source_name, line_no), …]`` for every
+    environment-variable key reference found in code.
+    """
+    result: dict[str, list[tuple[str, int]]] = defaultdict(list)
+
+    for source_name, meta in code_files.items():
+        lang = _detect_lang(source_name)
+        patterns = _ACCESS_PATTERNS.get(lang, []) if lang else []
+
+        for line_idx, line in enumerate(meta.lines):
+            line_no = line_idx  # same convention as check_secrets
+            for pattern in patterns:
+                for m in pattern.finditer(line):
+                    key = _pick_key_from_match(m)
+                    if key:
+                        result[key].append((source_name, line_no))
+
+    return dict(result)
+
+
+def check_orphans(
+    config_files: dict[str, StructuralMetadata],
+    code_files: dict[str, StructuralMetadata],
+) -> list[ConfigIssue]:
+    """Detect orphan keys, ghost keys, and orphan config files.
+
+    Three checks
+    ------------
+    1. **Orphan key** — a level-1 config key that is not referenced anywhere in
+       code (neither via access patterns nor as a plain substring).
+    2. **Ghost key** — a key referenced in code via an access pattern but not
+       defined in any config file.
+    3. **Orphan file** — a config file whose basename does not appear in any
+       code file's text.
+    """
+    issues: list[ConfigIssue] = []
+
+    # ------------------------------------------------------------------
+    # Collect level-1 keys from config files
+    # ------------------------------------------------------------------
+    # config_keys: key → list of (source_name, line_no)
+    config_keys: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    for source_name, meta in config_files.items():
+        for sec in meta.sections:
+            if sec.level == 1:
+                config_keys[sec.title].append((source_name, sec.line_range.start))
+
+    # ------------------------------------------------------------------
+    # Collect referenced keys from code (via access patterns)
+    # ------------------------------------------------------------------
+    referenced_keys = _extract_referenced_keys(code_files)
+
+    # Build a flat set of all code text lines for substring fallback
+    all_code_text: list[str] = []
+    for meta in code_files.values():
+        all_code_text.extend(meta.lines)
+
+    # ------------------------------------------------------------------
+    # Check 1 — Orphan keys (config keys not used in code)
+    # ------------------------------------------------------------------
+    for key, occurrences in config_keys.items():
+        # Primary: access-pattern match
+        if key in referenced_keys:
+            continue
+        # Fallback: plain substring presence in any code line
+        if any(key in line for line in all_code_text):
+            continue
+        # Not referenced anywhere → orphan
+        for source_name, line_no in occurrences:
+            issues.append(ConfigIssue(
+                file=source_name,
+                key=key,
+                line=line_no,
+                severity="warning",
+                check="orphan",
+                message=f"Orphan config key '{key}' is not referenced in any code file",
+                detail=None,
+            ))
+
+    # ------------------------------------------------------------------
+    # Check 2 — Ghost keys (referenced in code but absent from config)
+    # ------------------------------------------------------------------
+    defined_keys = set(config_keys.keys())
+    for key, refs in referenced_keys.items():
+        if key not in defined_keys:
+            # Report once per unique (file, line) reference
+            for ref_file, ref_line in refs:
+                issues.append(ConfigIssue(
+                    file=ref_file,
+                    key=key,
+                    line=ref_line,
+                    severity="warning",
+                    check="ghost",
+                    message=(
+                        f"Ghost key '{key}' is referenced in code but not defined "
+                        f"in any config file"
+                    ),
+                    detail=None,
+                ))
+
+    # ------------------------------------------------------------------
+    # Check 3 — Orphan config files (basename not found in code text)
+    # ------------------------------------------------------------------
+    for source_name, meta in config_files.items():
+        basename = os.path.basename(source_name)
+        if not any(basename in line for line in all_code_text):
+            issues.append(ConfigIssue(
+                file=source_name,
+                key="",
+                line=0,
+                severity="warning",
+                check="orphan_file",
+                message=(
+                    f"Config file '{basename}' is not referenced in any code file"
+                ),
+                detail=None,
+            ))
 
     return issues
