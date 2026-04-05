@@ -3,6 +3,7 @@
 from token_savior.csharp_annotator import annotate_csharp
 from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
+from token_savior.hcl_annotator import annotate_hcl
 from token_savior.ini_annotator import annotate_ini
 from token_savior.json_annotator import annotate_json
 from token_savior.models import StructuralMetadata
@@ -37,6 +38,8 @@ _EXTENSION_MAP: dict[str, str] = {
     ".plist": "xml",
     ".svg": "xml",
     ".xhtml": "xml",
+    ".tf": "hcl",
+    ".hcl": "hcl",
 }
 
 
@@ -84,5 +87,7 @@ def annotate(
         return annotate_ini(text, source_name)
     elif file_type == "xml":
         return annotate_xml(text, source_name)
+    elif file_type == "hcl":
+        return annotate_hcl(text, source_name)
     else:
         return annotate_generic(text, source_name)
