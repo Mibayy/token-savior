@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from token_savior.models import ConfigIssue, StructuralMetadata
+from token_savior.models import ConfigIssue, ProjectIndex, StructuralMetadata
 
 if TYPE_CHECKING:
     pass
@@ -548,3 +548,147 @@ def check_orphans(
             ))
 
     return issues
+
+
+# ---------------------------------------------------------------------------
+# analyze_config helpers
+# ---------------------------------------------------------------------------
+
+_CONFIG_EXTENSIONS: frozenset[str] = frozenset({
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".properties", ".env",
+    ".xml", ".plist", ".hcl", ".tf", ".conf", ".json",
+})
+
+_CODE_EXTENSIONS: frozenset[str] = frozenset({
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".cs",
+})
+
+
+def _is_config_file(filename: str) -> bool:
+    """Return True if *filename* should be treated as a config file.
+
+    A file qualifies if its extension is in ``_CONFIG_EXTENSIONS`` OR if its
+    basename starts with ``".env"`` (e.g. ``.env.local``, ``.env.production``).
+    """
+    basename = os.path.basename(filename)
+    if basename.startswith(".env"):
+        return True
+    _, ext = os.path.splitext(filename)
+    return ext in _CONFIG_EXTENSIONS
+
+
+def _is_code_file(filename: str) -> bool:
+    """Return True if *filename* should be treated as a source-code file."""
+    _, ext = os.path.splitext(filename)
+    return ext in _CODE_EXTENSIONS
+
+
+# ---------------------------------------------------------------------------
+# _format_issues
+# ---------------------------------------------------------------------------
+
+def _format_issues(all_issues: list[ConfigIssue], severity_filter: str) -> str:
+    """Format *all_issues* into a human-readable report string.
+
+    Severity filter
+    ---------------
+    ``"error"``   → only ``error``-level issues
+    ``"warning"`` → ``error`` + ``warning``-level issues
+    ``"all"``     → every issue regardless of severity
+
+    The output groups issues by their ``check`` attribute.
+    """
+    # Apply severity filter
+    if severity_filter == "error":
+        allowed = {"error"}
+    elif severity_filter == "warning":
+        allowed = {"error", "warning"}
+    else:  # "all"
+        allowed = None  # no filter
+
+    filtered = [i for i in all_issues if allowed is None or i.severity in allowed]
+
+    if not filtered:
+        return "Config Analysis -- 0 issues found"
+
+    # Group by check type, preserving insertion order
+    groups: dict[str, list[ConfigIssue]] = defaultdict(list)
+    for issue in filtered:
+        groups[issue.check].append(issue)
+
+    lines: list[str] = [f"Config Analysis -- {len(filtered)} issues found", ""]
+
+    for check_name, issues in groups.items():
+        lines.append(f"-- {check_name} ({len(issues)}) --")
+        for issue in issues:
+            detail_part = f" ({issue.detail})" if issue.detail else ""
+            lines.append(
+                f"[{issue.severity}] {issue.file}:{issue.line} -- {issue.message}{detail_part}"
+            )
+        lines.append("")
+
+    # Remove trailing blank line if present
+    if lines and lines[-1] == "":
+        lines.pop()
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# analyze_config — main entry point
+# ---------------------------------------------------------------------------
+
+def analyze_config(
+    index: ProjectIndex,
+    checks: list[str] | None = None,
+    file_path: str | None = None,
+    severity: str = "all",
+) -> str:
+    """Run config analysis checks on *index* and return a formatted report.
+
+    Parameters
+    ----------
+    index:
+        Project index containing all indexed files.
+    checks:
+        List of check names to run. Defaults to
+        ``["duplicates", "secrets", "orphans"]``.
+    file_path:
+        When given, restrict the analysis to this single config file.
+    severity:
+        Severity filter passed to :func:`_format_issues`.
+        One of ``"all"`` (default), ``"warning"``, or ``"error"``.
+    """
+    if checks is None:
+        checks = ["duplicates", "secrets", "orphans"]
+
+    # Partition index.files into config_files and code_files
+    all_files: dict[str, StructuralMetadata] = index.files
+
+    if file_path is not None:
+        # Only the requested file (if it exists and is a config file)
+        config_files: dict[str, StructuralMetadata] = {}
+        if file_path in all_files and _is_config_file(file_path):
+            config_files[file_path] = all_files[file_path]
+        code_files: dict[str, StructuralMetadata] = {
+            k: v for k, v in all_files.items() if _is_code_file(k)
+        }
+    else:
+        config_files = {k: v for k, v in all_files.items() if _is_config_file(k)}
+        code_files = {k: v for k, v in all_files.items() if _is_code_file(k)}
+
+    if not config_files:
+        return "Config Analysis -- 0 config files found in project"
+
+    all_issues: list[ConfigIssue] = []
+
+    if "duplicates" in checks:
+        all_issues.extend(check_duplicates(config_files))
+
+    if "secrets" in checks:
+        all_issues.extend(check_secrets(config_files))
+
+    if "orphans" in checks:
+        all_issues.extend(check_orphans(config_files, code_files))
+
+    return _format_issues(all_issues, severity)

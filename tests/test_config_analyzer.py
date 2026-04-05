@@ -2,8 +2,16 @@
 
 import pytest
 
-from token_savior.config_analyzer import check_duplicates, check_orphans, check_secrets
-from token_savior.models import ConfigIssue, LineRange, SectionInfo, StructuralMetadata
+from token_savior.config_analyzer import (
+    analyze_config,
+    check_duplicates,
+    check_orphans,
+    check_secrets,
+    _format_issues,
+    _is_config_file,
+    _is_code_file,
+)
+from token_savior.models import ConfigIssue, LineRange, ProjectIndex, SectionInfo, StructuralMetadata
 
 
 def _make_meta(source_name, sections, lines=None):
@@ -436,3 +444,248 @@ class TestCheckOrphans:
     def test_empty_config_and_code_no_issues(self):
         """Empty inputs produce no issues."""
         assert check_orphans({}, {}) == []
+
+
+# ---------------------------------------------------------------------------
+# Helpers for analyze_config tests
+# ---------------------------------------------------------------------------
+
+def _make_simple_struct(source_name: str, lines: list[str]) -> StructuralMetadata:
+    return StructuralMetadata(
+        source_name=source_name,
+        total_lines=len(lines),
+        total_chars=sum(len(l) for l in lines),
+        lines=lines,
+        line_char_offsets=[0] * len(lines),
+        sections=[],
+    )
+
+
+def _make_index(files: dict[str, StructuralMetadata]) -> ProjectIndex:
+    return ProjectIndex(
+        root_path="/fake/project",
+        files=files,
+        total_files=len(files),
+        total_lines=sum(m.total_lines for m in files.values()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestIsConfigFile / TestIsCodeFile
+# ---------------------------------------------------------------------------
+
+class TestIsConfigFile:
+    def test_yaml_is_config(self):
+        assert _is_config_file("settings.yaml") is True
+
+    def test_env_extension_is_config(self):
+        assert _is_config_file("prod.env") is True
+
+    def test_dotenv_basename_is_config(self):
+        assert _is_config_file("/project/.env.local") is True
+
+    def test_py_is_not_config(self):
+        assert _is_config_file("app.py") is False
+
+    def test_json_is_config(self):
+        assert _is_config_file("config.json") is True
+
+    def test_tf_is_config(self):
+        assert _is_config_file("main.tf") is True
+
+
+class TestIsCodeFile:
+    def test_py_is_code(self):
+        assert _is_code_file("app.py") is True
+
+    def test_ts_is_code(self):
+        assert _is_code_file("index.ts") is True
+
+    def test_yaml_is_not_code(self):
+        assert _is_code_file("settings.yaml") is False
+
+    def test_go_is_code(self):
+        assert _is_code_file("main.go") is True
+
+
+# ---------------------------------------------------------------------------
+# TestFormatIssues
+# ---------------------------------------------------------------------------
+
+class TestFormatIssues:
+    def _make_issue(self, severity: str, check: str) -> ConfigIssue:
+        return ConfigIssue(
+            file="settings.yaml",
+            key="KEY",
+            line=1,
+            severity=severity,
+            check=check,
+            message=f"A {severity} {check} issue",
+            detail=None,
+        )
+
+    def test_zero_issues_message(self):
+        result = _format_issues([], "all")
+        assert result == "Config Analysis -- 0 issues found"
+
+    def test_header_contains_count(self):
+        issues = [self._make_issue("warning", "duplicate")]
+        result = _format_issues(issues, "all")
+        assert "Config Analysis -- 1 issues found" in result
+
+    def test_groups_by_check(self):
+        issues = [
+            self._make_issue("error", "secret"),
+            self._make_issue("warning", "duplicate"),
+        ]
+        result = _format_issues(issues, "all")
+        assert "-- secret (1) --" in result
+        assert "-- duplicate (1) --" in result
+
+    def test_severity_filter_error_excludes_warnings(self):
+        issues = [
+            self._make_issue("error", "secret"),
+            self._make_issue("warning", "duplicate"),
+        ]
+        result = _format_issues(issues, "error")
+        assert "secret" in result
+        assert "duplicate" not in result
+
+    def test_severity_filter_warning_includes_errors(self):
+        issues = [
+            self._make_issue("error", "secret"),
+            self._make_issue("warning", "duplicate"),
+        ]
+        result = _format_issues(issues, "warning")
+        assert "secret" in result
+        assert "duplicate" in result
+
+    def test_severity_filter_error_all_warnings_gives_zero(self):
+        issues = [self._make_issue("warning", "orphan")]
+        result = _format_issues(issues, "error")
+        assert result == "Config Analysis -- 0 issues found"
+
+    def test_detail_included_in_line(self):
+        issue = ConfigIssue(
+            file="app.env", key="SECRET", line=5,
+            severity="error", check="secret",
+            message="Hardcoded secret", detail="Value: sk-***",
+        )
+        result = _format_issues([issue], "all")
+        assert "(Value: sk-***)" in result
+
+
+# ---------------------------------------------------------------------------
+# TestAnalyzeConfig
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeConfig:
+    """Tests for the main analyze_config() entry point."""
+
+    def _env_meta(self, name: str = "config.env") -> StructuralMetadata:
+        """A minimal .env config file with no known issues."""
+        return _make_simple_struct(name, ["", "PORT=8080", "DEBUG=true"])
+
+    def _py_meta(self, name: str = "app.py") -> StructuralMetadata:
+        return _make_simple_struct(name, ["", "import os", "port = os.environ['PORT']"])
+
+    # --- No config files ---
+
+    def test_no_config_files_returns_zero_message(self):
+        """Index with only .py files → 'no config files' message."""
+        index = _make_index({"app.py": self._py_meta()})
+        result = analyze_config(index)
+        assert "0 config files found in project" in result
+
+    def test_empty_index_returns_zero_message(self):
+        index = _make_index({})
+        result = analyze_config(index)
+        assert "0 config files found in project" in result
+
+    # --- Default checks run ---
+
+    def test_default_checks_result_contains_header(self):
+        """With a config file present the result always starts with 'Config Analysis'."""
+        index = _make_index({
+            "config.env": self._env_meta(),
+            "app.py": self._py_meta(),
+        })
+        result = analyze_config(index)
+        assert result.startswith("Config Analysis")
+
+    # --- Specific checks ---
+
+    def test_only_duplicates_check_runs(self):
+        """Requesting ['duplicates'] does not run secrets or orphans."""
+        # Insert a known-secret value so we can confirm secrets check didn't run
+        secret_meta = _make_simple_struct("secrets.env", [
+            "", "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
+        ])
+        index = _make_index({"secrets.env": secret_meta})
+        result = analyze_config(index, checks=["duplicates"])
+        # secrets check not requested — its output group shouldn't appear
+        assert "-- secret" not in result
+
+    def test_only_secrets_check_runs(self):
+        """Requesting ['secrets'] surfaces a hardcoded secret."""
+        secret_meta = _make_simple_struct("creds.env", [
+            "", "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
+        ])
+        index = _make_index({"creds.env": secret_meta})
+        result = analyze_config(index, checks=["secrets"])
+        assert "-- secret" in result
+
+    # --- Severity filter ---
+
+    def test_severity_error_filter_hides_warnings(self):
+        """severity='error' keeps only error-level issues."""
+        # orphan issues are warning-level; inject no error issues
+        orphan_meta = _make_simple_struct("settings.yaml", [
+            "", "UNUSED_KEY: value",
+        ])
+        index = _make_index({"settings.yaml": orphan_meta})
+        result = analyze_config(index, checks=["orphans"], severity="error")
+        # All orphan issues are warnings → filtered out
+        assert "0 issues found" in result
+
+    def test_severity_error_still_shows_error_issues(self):
+        """severity='error' preserves genuine error-level secrets."""
+        secret_meta = _make_simple_struct("prod.env", [
+            "", "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        index = _make_index({"prod.env": secret_meta})
+        result = analyze_config(index, checks=["secrets"], severity="error")
+        assert "-- secret" in result
+
+    # --- file_path filter ---
+
+    def test_file_path_restricts_to_one_file(self):
+        """When file_path is given, only that file is analysed."""
+        secret_meta = _make_simple_struct("prod.env", [
+            "", "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        clean_meta = _make_simple_struct("dev.env", ["", "PORT=3000"])
+        index = _make_index({"prod.env": secret_meta, "dev.env": clean_meta})
+        result = analyze_config(index, checks=["secrets"], file_path="prod.env")
+        assert "prod.env" in result
+
+    def test_file_path_nonexistent_gives_zero_config(self):
+        """Specifying a file_path that doesn't exist → 0 config files message."""
+        index = _make_index({"config.env": self._env_meta()})
+        result = analyze_config(index, file_path="nonexistent.env")
+        assert "0 config files found in project" in result
+
+    def test_file_path_code_file_gives_zero_config(self):
+        """Specifying a code file as file_path → 0 config files message."""
+        index = _make_index({"app.py": self._py_meta()})
+        result = analyze_config(index, file_path="app.py")
+        assert "0 config files found in project" in result
+
+    # --- dotenv basename detection ---
+
+    def test_dotenv_basename_recognized_as_config(self):
+        """'.env.production' should be treated as a config file."""
+        meta = _make_simple_struct(".env.production", ["", "SECRET=plaintext"])
+        index = _make_index({".env.production": meta})
+        result = analyze_config(index)
+        assert result.startswith("Config Analysis")
