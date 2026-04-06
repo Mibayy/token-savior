@@ -24,7 +24,7 @@ classifiers = [
 dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0,<1.25"]
+mcp = ["mcp>=1.25"]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 benchmark = ["aiohttp>=3.9"]
 
