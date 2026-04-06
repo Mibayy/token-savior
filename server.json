@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Mibayy/token-savior",
-  "description": "Structural code intelligence MCP server for AI-assisted development. Navigate and edit codebases by symbol names instead of raw text.",
+  "description": "Structural codebase MCP server — navigate and edit code by symbol name, not raw text.",
   "repository": {
     "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
-  "version": "0.9.0",
+  "version": "0.9.1",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "token-savior",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "transport": {
         "type": "stdio"
       },

@@ -124,10 +124,12 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 |------|-------------|
 | `get_dependencies` | What a symbol calls/uses |
 | `get_dependents` | What calls/uses a symbol |
-| `get_change_impact` | Direct + transitive dependents in one call |
+| `get_change_impact` | Direct + transitive dependents with **confidence score** (1.0 = direct, 0.6/hop) and depth |
 | `get_call_chain` | Shortest dependency path between two symbols (BFS) |
 | `get_file_dependencies` | Files imported by a given file |
 | `get_file_dependents` | Files that import from a given file |
+| `get_symbol_cluster` | All functionally related symbols via label propagation community detection — one call instead of chaining dependency queries |
+| `get_entry_points` | Score functions by likelihood of being execution entry points (routes ×3, handlers ×1.5, main ×2, zero callers) |
 
 ### Git & diffs
 | Tool | What it does |

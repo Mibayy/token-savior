@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior"
-version = "0.9.0"
+version = "0.9.1"
 description = "Compact structural codebase MCP server for token-efficient AI development"
 requires-python = ">=3.11"
 readme = "README.md"
