@@ -2,7 +2,7 @@
 import tempfile
 from pathlib import Path
 from token_savior.project_indexer import ProjectIndexer
-from token_savior.community import compute_communities, get_cluster_for_symbol
+from token_savior.community import compute_communities
 from token_savior.query_api import create_project_query_functions
 
 

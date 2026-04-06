@@ -57,7 +57,7 @@ def compute_communities(index: ProjectIndex, max_iterations: int = 10) -> dict[s
                 continue
             # Pick most common label (tie-break: alphabetically smallest)
             max_count = max(label_counts.values())
-            best_labels = sorted(l for l, c in label_counts.items() if c == max_count)
+            best_labels = sorted(lbl for lbl, c in label_counts.items() if c == max_count)
             new_label = best_labels[0]
             if new_label != labels[sym]:
                 labels[sym] = new_label

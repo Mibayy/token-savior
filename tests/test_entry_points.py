@@ -1,6 +1,4 @@
 """Tests for entry point detection."""
-import pytest
-from pathlib import Path
 import tempfile
 from token_savior.project_indexer import ProjectIndexer
 
