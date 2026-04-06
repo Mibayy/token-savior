@@ -12,6 +12,7 @@ import re
 from collections import deque
 from typing import Callable
 
+from token_savior.entry_points import score_entry_points
 from token_savior.models import (
     ProjectIndex,
     StructuralMetadata,
@@ -901,6 +902,11 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             results = results[:max_results]
         return results
 
+    def get_entry_points(max_results: int = 20) -> list[dict]:
+        """Score functions by likelihood of being execution entry points.
+        Returns [{name, file, line, score, reasons, params}] sorted by score desc."""
+        return score_entry_points(index, max_results=max_results)
+
     return {
         "get_project_summary": get_project_summary,
         "list_files": list_files,
@@ -923,6 +929,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         "get_env_usage": get_env_usage,
         "get_components": get_components,
         "get_feature_files": get_feature_files,
+        "get_entry_points": get_entry_points,
     }
 
 
