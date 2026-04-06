@@ -15,16 +15,18 @@
       "transport": {
         "type": "stdio"
       },
-      "environment_variables": [
+      "environmentVariables": [
         {
           "name": "WORKSPACE_ROOTS",
-          "description": "Comma-separated list of absolute paths to project roots to index",
-          "required": true
+          "description": "Comma-separated list of absolute paths to project roots to index.",
+          "isRequired": true,
+          "format": "string"
         },
         {
           "name": "TOKEN_SAVIOR_CLIENT",
-          "description": "Optional client identifier (e.g. claude-code, cursor, windsurf)",
-          "required": false
+          "description": "Optional client identifier (e.g. 'claude-code', 'cursor', 'hermes') for usage attribution.",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     }
