@@ -643,35 +643,47 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
     def get_change_impact(
         name: str, max_direct: int = 0, max_transitive: int = 0
     ) -> dict:
-        """Direct and transitive dependents of a symbol."""
+        """Direct and transitive dependents of a symbol, each with confidence and depth."""
         resolved_name, direct = _resolve_dep_name(name)
         if direct is None:
             return {"error": f"'{name}' not found in reverse dependency graph"}
-        direct_list = sorted(direct)
-        if max_direct > 0:
-            direct_list = direct_list[:max_direct]
 
-        # BFS for transitive dependents
-        transitive = set()
-        queue = deque(list(direct))
-        visited = set(direct) | {name}
+        # BFS tracking depth per symbol
+        depth_map: dict[str, int] = {}
+        queue: deque[tuple[str, int]] = deque((sym, 1) for sym in direct)
+        visited: set[str] = set(direct) | {name}
+        for sym in direct:
+            depth_map[sym] = 1
+
         while queue:
-            current = queue.popleft()
-            transitive.add(current)
+            current, depth = queue.popleft()
             next_deps = index.reverse_dependency_graph.get(current, set())
             for dep in next_deps:
                 if dep not in visited:
                     visited.add(dep)
-                    queue.append(dep)
+                    depth_map[dep] = depth + 1
+                    queue.append((dep, depth + 1))
 
-        # Transitive = everything reachable beyond direct
-        transitive_only = sorted(transitive - set(sorted(direct)))
+        def _make_entry(sym: str) -> dict:
+            d = depth_map[sym]
+            confidence = max(0.05, 0.6 ** (d - 1))
+            info = _resolve_symbol_info(sym)
+            return {**info, "confidence": confidence, "depth": d}
+
+        direct_set = set(direct)
+        direct_entries = [_make_entry(s) for s in direct_set]
+        direct_entries.sort(key=lambda e: -e["confidence"])
+        if max_direct > 0:
+            direct_entries = direct_entries[:max_direct]
+
+        transitive_entries = [_make_entry(s) for s in depth_map if s not in direct_set]
+        transitive_entries.sort(key=lambda e: -e["confidence"])
         if max_transitive > 0:
-            transitive_only = transitive_only[:max_transitive]
+            transitive_entries = transitive_entries[:max_transitive]
 
         return {
-            "direct": [_resolve_symbol_info(d) for d in direct_list],
-            "transitive": [_resolve_symbol_info(t) for t in transitive_only],
+            "direct": direct_entries,
+            "transitive": transitive_entries,
         }
 
     # ------------------------------------------------------------------

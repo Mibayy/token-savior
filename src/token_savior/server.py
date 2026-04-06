@@ -1484,7 +1484,7 @@ TOOLS = [
     ),
     Tool(
         name="get_change_impact",
-        description="Analyze the impact of changing a symbol. Returns direct dependents and transitive (cascading) dependents.",
+        description="Analyze the impact of changing a symbol. Returns direct and transitive dependents, each scored with a confidence value (1.0 = direct caller, 0.6 = 2 hops, etc.) and depth.",
         inputSchema={
             "type": "object",
             "properties": {
