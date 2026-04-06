@@ -743,7 +743,7 @@ def check_schema(
             parts.append("default: (none — required)")
 
         if is_defined:
-            cfg_locs = ", ".join(f"{f}:{l}" for f, l, _ in defined_in)
+            cfg_locs = ", ".join(f"{cf}:{ln}" for cf, ln, _ in defined_in)
             parts.append(f"config: {cfg_locs}")
         else:
             parts.append("config: MISSING")
