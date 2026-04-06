@@ -11,6 +11,7 @@ import math
 import os
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from token_savior.models import ConfigIssue, ProjectIndex, StructuralMetadata
@@ -551,6 +552,219 @@ def check_orphans(
 
 
 # ---------------------------------------------------------------------------
+# Loaders — which code files load which config files
+# ---------------------------------------------------------------------------
+
+
+def check_loaders(
+    config_files: dict[str, StructuralMetadata],
+    code_files: dict[str, StructuralMetadata],
+) -> list[ConfigIssue]:
+    """Detect which code files reference which config files.
+
+    For each config file in the project, scans all code files for references
+    to its basename. Returns one issue per (code_file, config_file) pair with
+    the matching lines.
+    """
+    issues: list[ConfigIssue] = []
+
+    for config_name in config_files:
+        basename = os.path.basename(config_name)
+        for code_name, code_meta in code_files.items():
+            for line_idx, line in enumerate(code_meta.lines):
+                if basename in line:
+                    issues.append(ConfigIssue(
+                        file=code_name,
+                        key=config_name,
+                        line=line_idx,
+                        severity="info",
+                        check="loader",
+                        message=f"loads '{basename}'",
+                        detail=line.strip()[:120],
+                    ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Schema — what keys the code expects with defaults and status
+# ---------------------------------------------------------------------------
+
+# Patterns that capture (key, default_value_or_None)
+_SCHEMA_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "python": [
+        # os.getenv('KEY', 'default')  /  os.environ.get('KEY', 'default')
+        re.compile(
+            r'os\.(?:getenv|environ\.get)\(\s*'
+            r'(["\'])(.+?)\1'            # key
+            r'(?:\s*,\s*(["\'])(.+?)\3)?' # optional default
+            r'\)'
+        ),
+        # os.environ['KEY']  — required (no default)
+        re.compile(r'os\.environ\[(["\'])(.+?)\1\]'),
+    ],
+    "typescript": [
+        # process.env.KEY ?? 'default'  or  process.env.KEY || 'default'
+        re.compile(
+            r'process\.env\.([A-Z_][A-Z0-9_]*)'
+            r'\s*(?:\?\?|\|\|)\s*'
+            r'(["\'])(.+?)\2'
+        ),
+        # process.env.KEY  — no default
+        re.compile(r'process\.env\.([A-Z_][A-Z0-9_]*)'),
+        # process.env['KEY']
+        re.compile(r'process\.env\[(["\'])(.+?)\1\]'),
+        # import.meta.env.KEY
+        re.compile(r'import\.meta\.env\.([A-Z_][A-Z0-9_]*)'),
+    ],
+    "go": [
+        re.compile(r'os\.Getenv\((["\'])(.+?)\1\)'),
+    ],
+    "rust": [
+        re.compile(r'env::var\((["\'])(.+?)\1\)'),
+    ],
+}
+
+
+@dataclass
+class _KeyRef:
+    """A reference to a config key found in code."""
+    key: str
+    file: str
+    line: int
+    default: str | None
+
+
+def _extract_schema_refs(
+    code_files: dict[str, StructuralMetadata],
+) -> list[_KeyRef]:
+    """Extract all config key references with optional defaults from code."""
+    refs: list[_KeyRef] = []
+
+    for source_name, meta in code_files.items():
+        lang = _detect_lang(source_name)
+        patterns = _SCHEMA_PATTERNS.get(lang, []) if lang else []
+
+        for line_idx, line in enumerate(meta.lines):
+            for pattern in patterns:
+                for m in pattern.finditer(line):
+                    groups = m.groups()
+                    key: str | None = None
+                    default: str | None = None
+
+                    if lang == "python":
+                        if len(groups) >= 2:
+                            key = groups[1]  # key is always group 2
+                        if len(groups) >= 4 and groups[3] is not None:
+                            default = groups[3]
+                    elif lang == "typescript":
+                        # Pattern with default: (KEY, quote, default)
+                        if len(groups) == 3 and groups[2] is not None:
+                            key = groups[0]
+                            default = groups[2]
+                        elif len(groups) == 2:
+                            # process.env['KEY'] pattern
+                            key = groups[1]
+                        elif len(groups) >= 1:
+                            key = groups[0]
+                    else:
+                        # Go, Rust — key is group 2 (after quote)
+                        if len(groups) >= 2:
+                            key = groups[1]
+
+                    if key and key.strip():
+                        refs.append(_KeyRef(
+                            key=key, file=source_name,
+                            line=line_idx, default=default,
+                        ))
+    return refs
+
+
+def check_schema(
+    config_files: dict[str, StructuralMetadata],
+    code_files: dict[str, StructuralMetadata],
+) -> list[ConfigIssue]:
+    """Build a schema report: what keys the code expects and their status.
+
+    For each key referenced in code, reports:
+    - Where it's used (file:line)
+    - Default value if detected
+    - Whether it's defined in config files or missing
+    """
+    issues: list[ConfigIssue] = []
+    refs = _extract_schema_refs(code_files)
+
+    if not refs:
+        return issues
+
+    # Build config key → (file, line, value) mapping
+    config_keys: dict[str, list[tuple[str, int, str]]] = defaultdict(list)
+    for source_name, meta in config_files.items():
+        for sec in meta.sections:
+            if sec.level == 1:
+                # Try to get value from the line
+                value = ""
+                if sec.line_range.start < len(meta.lines):
+                    raw = meta.lines[sec.line_range.start].strip()
+                    if "=" in raw:
+                        value = raw.split("=", 1)[1].strip()
+                config_keys[sec.title].append((source_name, sec.line_range.start, value))
+
+    # Group refs by key
+    key_refs: dict[str, list[_KeyRef]] = defaultdict(list)
+    for ref in refs:
+        key_refs[ref.key].append(ref)
+
+    for key, key_ref_list in sorted(key_refs.items()):
+        # Deduplicate files
+        files_seen: set[str] = set()
+        unique_refs: list[_KeyRef] = []
+        for r in key_ref_list:
+            loc = f"{r.file}:{r.line}"
+            if loc not in files_seen:
+                files_seen.add(loc)
+                unique_refs.append(r)
+
+        # Detect default from any ref
+        default = next((r.default for r in unique_refs if r.default is not None), None)
+
+        # Check if defined in config
+        defined_in = config_keys.get(key, [])
+        is_defined = len(defined_in) > 0
+
+        # Build detail
+        used_in = ", ".join(f"{r.file}:{r.line}" for r in unique_refs[:5])
+        if len(unique_refs) > 5:
+            used_in += f" (+{len(unique_refs) - 5} more)"
+
+        parts = [f"used in: {used_in}"]
+        if default is not None:
+            parts.append(f"default: '{default}'")
+        else:
+            parts.append("default: (none — required)")
+
+        if is_defined:
+            cfg_locs = ", ".join(f"{f}:{l}" for f, l, _ in defined_in)
+            parts.append(f"config: {cfg_locs}")
+        else:
+            parts.append("config: MISSING")
+
+        severity = "info" if is_defined else "warning"
+        status = "defined" if is_defined else "missing"
+
+        issues.append(ConfigIssue(
+            file=unique_refs[0].file,
+            key=key,
+            line=unique_refs[0].line,
+            severity=severity,
+            check=f"schema_{status}",
+            message=f"Key '{key}'",
+            detail=" | ".join(parts),
+        ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # analyze_config helpers
 # ---------------------------------------------------------------------------
 
@@ -690,5 +904,11 @@ def analyze_config(
 
     if "orphans" in checks:
         all_issues.extend(check_orphans(config_files, code_files))
+
+    if "loaders" in checks:
+        all_issues.extend(check_loaders(config_files, code_files))
+
+    if "schema" in checks:
+        all_issues.extend(check_schema(config_files, code_files))
 
     return _format_issues(all_issues, severity)

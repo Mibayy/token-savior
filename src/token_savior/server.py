@@ -1695,7 +1695,8 @@ TOOLS = [
     Tool(
         name="analyze_config",
         description=(
-            "Analyze config files for issues: duplicate keys, hardcoded secrets, and orphan entries. "
+            "Analyze config files for issues and insights: duplicate keys, hardcoded secrets, orphan entries, "
+            "config file loaders (which code loads which config), and schema (what keys code expects with defaults). "
             "Checks can be filtered via the 'checks' parameter."
         ),
         inputSchema={
@@ -1703,8 +1704,8 @@ TOOLS = [
             "properties": {
                 "checks": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["duplicates", "secrets", "orphans"]},
-                    "description": 'Checks to run (default: all). Options: "duplicates", "secrets", "orphans".',
+                    "items": {"type": "string", "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"]},
+                    "description": 'Checks to run (default: duplicates,secrets,orphans). Options: "duplicates", "secrets", "orphans", "loaders", "schema".',
                 },
                 "file_path": {
                     "type": "string",
