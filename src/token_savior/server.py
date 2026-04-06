@@ -294,6 +294,8 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_env_usage": 0.12,
     "get_components": 0.06,
     "get_feature_files": 0.20,
+    "get_entry_points": 0.10,
+    "get_symbol_cluster": 0.15,
 }
 
 
@@ -1796,6 +1798,44 @@ TOOLS = [
             },
         },
     ),
+    Tool(
+        name="get_entry_points",
+        description="Score functions by likelihood of being execution entry points (routes, handlers, main functions, exported APIs). Returns functions with score and reasons, sorted by likelihood desc.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of entry points to return (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    ),
+    Tool(
+        name="get_symbol_cluster",
+        description=(
+            "Get the functional cluster for a symbol — all closely related symbols "
+            "grouped by community detection on the dependency graph. Useful for "
+            "understanding which symbols belong to the same functional area without "
+            "chaining multiple dependency queries."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name to find the cluster for.",
+                },
+                "max_members": {
+                    "type": "integer",
+                    "description": "Maximum cluster members to return (default 30).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name"],
+        },
+    ),
 ]
 
 
@@ -2237,6 +2277,15 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             result = qfns["get_feature_files"](
                 arguments["keyword"],
                 max_results=arguments.get("max_results", 0),
+            )
+
+        elif name == "get_entry_points":
+            result = qfns["get_entry_points"](max_results=arguments.get("max_results", 20))
+
+        elif name == "get_symbol_cluster":
+            result = qfns["get_symbol_cluster"](
+                arguments["name"],
+                max_members=arguments.get("max_members", 30),
             )
 
         else:

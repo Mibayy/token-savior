@@ -12,6 +12,8 @@ import re
 from collections import deque
 from typing import Callable
 
+from token_savior.community import compute_communities, get_cluster_for_symbol
+from token_savior.entry_points import score_entry_points
 from token_savior.models import (
     ProjectIndex,
     StructuralMetadata,
@@ -901,6 +903,26 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             results = results[:max_results]
         return results
 
+    def get_entry_points(max_results: int = 20) -> list[dict]:
+        """Score functions by likelihood of being execution entry points.
+        Returns [{name, file, line, score, reasons, params}] sorted by score desc."""
+        return score_entry_points(index, max_results=max_results)
+
+    # Lazy-computed communities (computed once on first call)
+    _communities: dict[str, str] | None = None
+
+    def _get_communities() -> dict[str, str]:
+        nonlocal _communities
+        if _communities is None:
+            _communities = compute_communities(index)
+        return _communities
+
+    def get_symbol_cluster(name: str, max_members: int = 30) -> dict:
+        """Get the functional cluster for a symbol — all closely related symbols
+        grouped by community detection on the dependency graph.
+        Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
+        return get_cluster_for_symbol(name, _get_communities(), index, max_members=max_members)
+
     return {
         "get_project_summary": get_project_summary,
         "list_files": list_files,
@@ -923,6 +945,8 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         "get_env_usage": get_env_usage,
         "get_components": get_components,
         "get_feature_files": get_feature_files,
+        "get_entry_points": get_entry_points,
+        "get_symbol_cluster": get_symbol_cluster,
     }
 
 
