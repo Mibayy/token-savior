@@ -25,46 +25,6 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
     return offsets
 
 
-def _strip_comments_and_strings(line: str) -> str:
-    """Remove string literals, raw strings, and comments for brace counting."""
-    result: list[str] = []
-    i = 0
-    in_backtick = False
-    while i < len(line):
-        ch = line[i]
-        if in_backtick:
-            if ch == '`':
-                in_backtick = False
-            i += 1
-            continue
-        if ch == '`':
-            in_backtick = True
-            i += 1
-            continue
-        if ch == '"':
-            i += 1
-            while i < len(line) and line[i] != '"':
-                if line[i] == '\\':
-                    i += 1
-                i += 1
-            i += 1  # skip closing "
-            continue
-        if ch == '/' and i + 1 < len(line):
-            if line[i + 1] == '/':
-                break  # rest is comment
-            if line[i + 1] == '*':
-                # block comment on single line (simplified)
-                end = line.find('*/', i + 2)
-                if end >= 0:
-                    i = end + 2
-                    continue
-                else:
-                    break  # rest is block comment start
-        result.append(ch)
-        i += 1
-    return ''.join(result)
-
-
 def _find_brace_end(lines: list[str], start_line_0: int) -> int:
     """Find the 0-based line where the outermost brace closes, skipping strings/comments."""
     depth = 0

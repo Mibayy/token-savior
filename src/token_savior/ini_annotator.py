@@ -21,12 +21,7 @@ def _is_properties_file(source_name: str) -> bool:
     return source_name.lower().endswith(".properties")
 
 
-def _find_line(lines: list[str], pattern: str, start: int = 0) -> int:
-    """Return the 1-indexed line number of the first match at or after start (0-indexed)."""
-    for i in range(start, len(lines)):
-        if re.search(pattern, lines[i]):
-            return i + 1  # 1-indexed
-    return start + 1
+# Removed: _find_line was unused dead code
 
 
 def _parse_properties(text: str, source_name: str) -> StructuralMetadata:
