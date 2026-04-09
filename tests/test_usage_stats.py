@@ -197,7 +197,7 @@ class TestFormatUsageStats:
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
         srv._tool_call_counts["apply_symbol_change_and_validate"] = 1
         srv._total_chars_returned = 200
-        srv._total_naive_chars = expected_naive = int(source_chars * 0.35)
+        srv._total_naive_chars = int(source_chars * 0.35)
 
         result = srv._format_usage_stats()
         assert "Savings:" in result
