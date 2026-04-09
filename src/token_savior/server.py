@@ -304,11 +304,11 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 def _format_result(value: object) -> str:
-    """Format a query result as readable text."""
+    """Format a query result as compact text."""
     if isinstance(value, str):
         return value
     if isinstance(value, (dict, list)):
-        return json.dumps(value, indent=2, default=str)
+        return json.dumps(value, separators=(",", ":"), default=str)
     return str(value)
 
 
@@ -1850,6 +1850,290 @@ async def list_tools() -> list[Tool]:
     return TOOLS
 
 
+# ---------------------------------------------------------------------------
+# Tool handler functions — each returns a raw result (not wrapped)
+# ---------------------------------------------------------------------------
+
+
+def _prep(slot: _ProjectSlot) -> None:
+    """Ensure slot is indexed and incrementally updated."""
+    _ensure_slot(slot)
+    _maybe_incremental_update(slot)
+
+
+# ── Index-level handlers (slot + ensure + update → result) ────────────────
+
+def _h_get_git_status(slot, args):
+    return get_git_status(slot.root)
+
+def _h_get_changed_symbols(slot, args):
+    _prep(slot)
+    return get_changed_symbols(
+        slot.indexer._project_index,
+        max_files=args.get("max_files", 20),
+        max_symbols_per_file=args.get("max_symbols_per_file", 20),
+    )
+
+def _h_get_changed_symbols_since_ref(slot, args):
+    _prep(slot)
+    return get_changed_symbols_since_ref(
+        slot.indexer._project_index, args["since_ref"],
+        max_files=args.get("max_files", 20),
+        max_symbols_per_file=args.get("max_symbols_per_file", 20),
+    )
+
+def _h_summarize_patch_by_symbol(slot, args):
+    _prep(slot)
+    return summarize_patch_by_symbol(
+        slot.indexer._project_index,
+        changed_files=args.get("changed_files"),
+        max_files=args.get("max_files", 20),
+        max_symbols_per_file=args.get("max_symbols_per_file", 20),
+    )
+
+def _h_build_commit_summary(slot, args):
+    _prep(slot)
+    return build_commit_summary(
+        slot.indexer._project_index,
+        changed_files=args["changed_files"],
+        max_files=args.get("max_files", 20),
+        max_symbols_per_file=args.get("max_symbols_per_file", 20),
+    )
+
+def _h_create_checkpoint(slot, args):
+    _prep(slot)
+    return create_checkpoint(slot.indexer._project_index, args["file_paths"])
+
+def _h_list_checkpoints(slot, args):
+    _prep(slot)
+    return list_checkpoints(slot.indexer._project_index)
+
+def _h_delete_checkpoint(slot, args):
+    _prep(slot)
+    return delete_checkpoint(slot.indexer._project_index, args["checkpoint_id"])
+
+def _h_prune_checkpoints(slot, args):
+    _prep(slot)
+    return prune_checkpoints(slot.indexer._project_index, keep_last=args.get("keep_last", 10))
+
+def _h_restore_checkpoint(slot, args):
+    _prep(slot)
+    result = restore_checkpoint(slot.indexer._project_index, args["checkpoint_id"])
+    if result.get("ok"):
+        for f in result.get("restored_files", []):
+            slot.indexer.reindex_file(f)
+    return result
+
+def _h_compare_checkpoint_by_symbol(slot, args):
+    _prep(slot)
+    return compare_checkpoint_by_symbol(
+        slot.indexer._project_index, args["checkpoint_id"],
+        max_files=args.get("max_files", 20),
+    )
+
+def _h_replace_symbol_source(slot, args):
+    _prep(slot)
+    result = replace_symbol_source(
+        slot.indexer._project_index, args["symbol_name"], args["new_source"],
+        file_path=args.get("file_path"),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex_file(result["file"])
+    return result
+
+def _h_insert_near_symbol(slot, args):
+    _prep(slot)
+    result = insert_near_symbol(
+        slot.indexer._project_index, args["symbol_name"], args["content"],
+        position=args.get("position", "after"), file_path=args.get("file_path"),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex_file(result["file"])
+    return result
+
+def _h_find_impacted_test_files(slot, args):
+    _prep(slot)
+    return find_impacted_test_files(
+        slot.indexer._project_index,
+        changed_files=args.get("changed_files"),
+        symbol_names=args.get("symbol_names"),
+        max_tests=args.get("max_tests", 20),
+    )
+
+def _h_run_impacted_tests(slot, args):
+    _prep(slot)
+    return run_impacted_tests(
+        slot.indexer._project_index,
+        changed_files=args.get("changed_files"),
+        symbol_names=args.get("symbol_names"),
+        max_tests=args.get("max_tests", 20),
+        timeout_sec=args.get("timeout_sec", 120),
+        max_output_chars=args.get("max_output_chars", 12000),
+        include_output=args.get("include_output", False),
+        compact=args.get("compact", False),
+    )
+
+def _h_apply_symbol_change_and_validate(slot, args):
+    _prep(slot)
+    return apply_symbol_change_and_validate(
+        slot.indexer, args["symbol_name"], args["new_source"],
+        file_path=args.get("file_path"),
+        max_tests=args.get("max_tests", 20),
+        timeout_sec=args.get("timeout_sec", 120),
+        max_output_chars=args.get("max_output_chars", 12000),
+        include_output=args.get("include_output", False),
+        compact=args.get("compact", False),
+    )
+
+def _h_apply_symbol_change_validate_with_rollback(slot, args):
+    _prep(slot)
+    return apply_symbol_change_validate_with_rollback(
+        slot.indexer, args["symbol_name"], args["new_source"],
+        file_path=args.get("file_path"),
+        max_tests=args.get("max_tests", 20),
+        timeout_sec=args.get("timeout_sec", 120),
+        max_output_chars=args.get("max_output_chars", 12000),
+        include_output=args.get("include_output", False),
+        compact=args.get("compact", False),
+    )
+
+def _h_discover_project_actions(slot, args):
+    return discover_project_actions(slot.root)
+
+def _h_run_project_action(slot, args):
+    return run_project_action(
+        slot.root, args["action_id"],
+        timeout_sec=args.get("timeout_sec", 120),
+        max_output_chars=args.get("max_output_chars", 12000),
+        include_output=args.get("include_output", False),
+    )
+
+def _h_analyze_config(slot, args):
+    _prep(slot)
+    return run_config_analysis(
+        slot.indexer._project_index,
+        checks=args.get("checks"), file_path=args.get("file_path"),
+        severity=args.get("severity", "all"),
+    )
+
+def _h_find_dead_code(slot, args):
+    _prep(slot)
+    return run_dead_code(slot.indexer._project_index, max_results=args.get("max_results", 50))
+
+def _h_find_hotspots(slot, args):
+    _prep(slot)
+    return run_hotspots(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 20),
+        min_score=args.get("min_score", 0.0),
+    )
+
+def _h_detect_breaking_changes(slot, args):
+    _prep(slot)
+    return run_breaking_changes(
+        slot.indexer._project_index, since_ref=args.get("since_ref", "HEAD~1"),
+    )
+
+def _h_find_cross_project_deps(slot, args):
+    loaded: dict[str, ProjectIndex] = {}
+    for root, s in _projects.items():
+        _ensure_slot(s)
+        if s.indexer and s.indexer._project_index:
+            loaded[os.path.basename(root)] = s.indexer._project_index
+    return run_cross_project(loaded)
+
+def _h_analyze_docker(slot, args):
+    _prep(slot)
+    return run_docker_analysis(slot.indexer._project_index)
+
+
+# Dispatch table: tool name → handler(slot, arguments) → result
+_SLOT_HANDLERS: dict[str, object] = {
+    "get_git_status": _h_get_git_status,
+    "get_changed_symbols": _h_get_changed_symbols,
+    "get_changed_symbols_since_ref": _h_get_changed_symbols_since_ref,
+    "summarize_patch_by_symbol": _h_summarize_patch_by_symbol,
+    "build_commit_summary": _h_build_commit_summary,
+    "create_checkpoint": _h_create_checkpoint,
+    "list_checkpoints": _h_list_checkpoints,
+    "delete_checkpoint": _h_delete_checkpoint,
+    "prune_checkpoints": _h_prune_checkpoints,
+    "restore_checkpoint": _h_restore_checkpoint,
+    "compare_checkpoint_by_symbol": _h_compare_checkpoint_by_symbol,
+    "replace_symbol_source": _h_replace_symbol_source,
+    "insert_near_symbol": _h_insert_near_symbol,
+    "find_impacted_test_files": _h_find_impacted_test_files,
+    "run_impacted_tests": _h_run_impacted_tests,
+    "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
+    "apply_symbol_change_validate_with_rollback": _h_apply_symbol_change_validate_with_rollback,
+    "discover_project_actions": _h_discover_project_actions,
+    "run_project_action": _h_run_project_action,
+    "analyze_config": _h_analyze_config,
+    "find_dead_code": _h_find_dead_code,
+    "find_hotspots": _h_find_hotspots,
+    "detect_breaking_changes": _h_detect_breaking_changes,
+    "find_cross_project_deps": _h_find_cross_project_deps,
+    "analyze_docker": _h_analyze_docker,
+}
+
+
+# ── Query-function handlers (qfns dict + arguments → result) ─────────────
+
+def _q_get_edit_context(qfns, args):
+    sym_name = args["name"]
+    max_deps = args.get("max_deps", 10)
+    max_callers = args.get("max_callers", 10)
+    ctx: dict = {"symbol": sym_name}
+    try:
+        ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+    except Exception:
+        try:
+            ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+        except Exception:
+            ctx["source"] = None
+    try:
+        ctx["location"] = qfns["find_symbol"](sym_name)
+    except Exception:
+        ctx["location"] = None
+    try:
+        ctx["dependencies"] = qfns["get_dependencies"](sym_name, max_results=max_deps)
+    except Exception:
+        ctx["dependencies"] = []
+    try:
+        ctx["callers"] = qfns["get_dependents"](sym_name, max_results=max_callers)
+    except Exception:
+        ctx["callers"] = []
+    return ctx
+
+
+# Dispatch table: tool name → handler(qfns, arguments) → result
+_QFN_HANDLERS: dict[str, object] = {
+    "get_project_summary": lambda q, a: q["get_project_summary"](),
+    "list_files": lambda q, a: q["list_files"](a.get("pattern"), max_results=a.get("max_results", 0)),
+    "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
+    "get_function_source": lambda q, a: q["get_function_source"](a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)),
+    "get_class_source": lambda q, a: q["get_class_source"](a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)),
+    "get_functions": lambda q, a: q["get_functions"](a.get("file_path"), max_results=a.get("max_results", 0)),
+    "get_classes": lambda q, a: q["get_classes"](a.get("file_path"), max_results=a.get("max_results", 0)),
+    "get_imports": lambda q, a: q["get_imports"](a.get("file_path"), max_results=a.get("max_results", 0)),
+    "find_symbol": lambda q, a: q["find_symbol"](a["name"]),
+    "get_dependencies": lambda q, a: q["get_dependencies"](a["name"], max_results=a.get("max_results", 0)),
+    "get_dependents": lambda q, a: q["get_dependents"](a["name"], max_results=a.get("max_results", 0)),
+    "get_change_impact": lambda q, a: q["get_change_impact"](a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0)),
+    "get_call_chain": lambda q, a: q["get_call_chain"](a["from_name"], a["to_name"]),
+    "get_edit_context": _q_get_edit_context,
+    "get_file_dependencies": lambda q, a: q["get_file_dependencies"](a["file_path"], max_results=a.get("max_results", 0)),
+    "get_file_dependents": lambda q, a: q["get_file_dependents"](a["file_path"], max_results=a.get("max_results", 0)),
+    "search_codebase": lambda q, a: q["search_codebase"](a["pattern"], max_results=a.get("max_results", 100)),
+    "get_routes": lambda q, a: q["get_routes"](max_results=a.get("max_results", 0)),
+    "get_env_usage": lambda q, a: q["get_env_usage"](a["var_name"], max_results=a.get("max_results", 0)),
+    "get_components": lambda q, a: q["get_components"](file_path=a.get("file_path"), max_results=a.get("max_results", 0)),
+    "get_feature_files": lambda q, a: q["get_feature_files"](a["keyword"], max_results=a.get("max_results", 0)),
+    "get_entry_points": lambda q, a: q["get_entry_points"](max_results=a.get("max_results", 20)),
+    "get_symbol_cluster": lambda q, a: q["get_symbol_cluster"](a["name"], max_members=a.get("max_members", 30)),
+}
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     global _total_chars_returned, _total_naive_chars, _active_root
@@ -1857,7 +2141,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
 
     try:
-        # ── Meta tools ────────────────────────────────────────────────────────
+        # ── Meta tools (no slot needed) ───────────────────────────────────
 
         if name == "get_usage_stats":
             return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
@@ -1872,9 +2156,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 name_part = os.path.basename(root)
                 if slot.indexer and slot.indexer._project_index:
                     idx = slot.indexer._project_index
-                    lines.append(f"  • {name_part}{active} — {idx.total_files} files, {idx.total_functions} functions ({root})")
+                    lines.append(f"  {name_part}{active} -- {idx.total_files} files, {idx.total_functions} functions ({root})")
                 else:
-                    lines.append(f"  • {name_part}{active} — {status} ({root})")
+                    lines.append(f"  {name_part}{active} -- {status} ({root})")
             return [TextContent(type="text", text="\n".join(lines))]
 
         if name == "switch_project":
@@ -1886,7 +2170,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             _ensure_slot(slot)
             idx = slot.indexer._project_index if slot.indexer else None
             info = f"{idx.total_files} files" if idx else "index not built"
-            return [TextContent(type="text", text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) — {info}.")]
+            return [TextContent(type="text", text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.")]
 
         if name == "set_project_root":
             new_root = os.path.abspath(arguments["path"])
@@ -1896,7 +2180,6 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 _projects[new_root] = _ProjectSlot(root=new_root)
             _active_root = new_root
             slot = _projects[new_root]
-            # Force full rebuild
             slot.indexer = None
             slot.query_fns = None
             _build_slot(slot)
@@ -1912,387 +2195,29 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             _build_slot(slot)
             return [TextContent(type="text", text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.")]
 
-        # ── Query tools — resolve slot, lazy-init, run ─────────────────────
+        # ── All other tools need a resolved slot ──────────────────────────
 
         project_hint = arguments.get("project")
         slot, err = _resolve_slot(project_hint)
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
 
-        if name == "get_git_status":
-            return _count_and_wrap_result(slot, name, arguments, get_git_status(slot.root))
-
-        if name == "get_changed_symbols":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = get_changed_symbols(
-                slot.indexer._project_index,
-                max_files=arguments.get("max_files", 20),
-                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
-            )
+        # Slot-level handlers (index operations, git, analysis)
+        handler = _SLOT_HANDLERS.get(name)
+        if handler is not None:
+            result = handler(slot, arguments)
             return _count_and_wrap_result(slot, name, arguments, result)
 
-        if name == "get_changed_symbols_since_ref":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = get_changed_symbols_since_ref(
-                slot.indexer._project_index,
-                arguments["since_ref"],
-                max_files=arguments.get("max_files", 20),
-                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
-            )
+        # Query-function handlers (require qfns)
+        qfn_handler = _QFN_HANDLERS.get(name)
+        if qfn_handler is not None:
+            _prep(slot)
+            if slot.query_fns is None:
+                return [TextContent(type="text", text=f"Error: index not built for '{slot.root}'. Call reindex first.")]
+            result = qfn_handler(slot.query_fns, arguments)
             return _count_and_wrap_result(slot, name, arguments, result)
 
-        if name == "summarize_patch_by_symbol":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = summarize_patch_by_symbol(
-                slot.indexer._project_index,
-                changed_files=arguments.get("changed_files"),
-                max_files=arguments.get("max_files", 20),
-                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "build_commit_summary":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = build_commit_summary(
-                slot.indexer._project_index,
-                changed_files=arguments["changed_files"],
-                max_files=arguments.get("max_files", 20),
-                max_symbols_per_file=arguments.get("max_symbols_per_file", 20),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "create_checkpoint":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = create_checkpoint(slot.indexer._project_index, arguments["file_paths"])
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "list_checkpoints":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = list_checkpoints(slot.indexer._project_index)
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "delete_checkpoint":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = delete_checkpoint(slot.indexer._project_index, arguments["checkpoint_id"])
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "prune_checkpoints":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = prune_checkpoints(slot.indexer._project_index, keep_last=arguments.get("keep_last", 10))
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "restore_checkpoint":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = restore_checkpoint(slot.indexer._project_index, arguments["checkpoint_id"])
-            if result.get("ok"):
-                for restored_file in result.get("restored_files", []):
-                    slot.indexer.reindex_file(restored_file)
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "compare_checkpoint_by_symbol":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = compare_checkpoint_by_symbol(
-                slot.indexer._project_index,
-                arguments["checkpoint_id"],
-                max_files=arguments.get("max_files", 20),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "replace_symbol_source":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = replace_symbol_source(
-                slot.indexer._project_index,
-                arguments["symbol_name"],
-                arguments["new_source"],
-                file_path=arguments.get("file_path"),
-            )
-            if result.get("ok"):
-                slot.indexer.reindex_file(result["file"])
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "insert_near_symbol":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = insert_near_symbol(
-                slot.indexer._project_index,
-                arguments["symbol_name"],
-                arguments["content"],
-                position=arguments.get("position", "after"),
-                file_path=arguments.get("file_path"),
-            )
-            if result.get("ok"):
-                slot.indexer.reindex_file(result["file"])
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "find_impacted_test_files":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = find_impacted_test_files(
-                slot.indexer._project_index,
-                changed_files=arguments.get("changed_files"),
-                symbol_names=arguments.get("symbol_names"),
-                max_tests=arguments.get("max_tests", 20),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "run_impacted_tests":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_impacted_tests(
-                slot.indexer._project_index,
-                changed_files=arguments.get("changed_files"),
-                symbol_names=arguments.get("symbol_names"),
-                max_tests=arguments.get("max_tests", 20),
-                timeout_sec=arguments.get("timeout_sec", 120),
-                max_output_chars=arguments.get("max_output_chars", 12000),
-                include_output=arguments.get("include_output", False),
-                compact=arguments.get("compact", False),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "apply_symbol_change_and_validate":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = apply_symbol_change_and_validate(
-                slot.indexer,
-                arguments["symbol_name"],
-                arguments["new_source"],
-                file_path=arguments.get("file_path"),
-                max_tests=arguments.get("max_tests", 20),
-                timeout_sec=arguments.get("timeout_sec", 120),
-                max_output_chars=arguments.get("max_output_chars", 12000),
-                include_output=arguments.get("include_output", False),
-                compact=arguments.get("compact", False),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "apply_symbol_change_validate_with_rollback":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = apply_symbol_change_validate_with_rollback(
-                slot.indexer,
-                arguments["symbol_name"],
-                arguments["new_source"],
-                file_path=arguments.get("file_path"),
-                max_tests=arguments.get("max_tests", 20),
-                timeout_sec=arguments.get("timeout_sec", 120),
-                max_output_chars=arguments.get("max_output_chars", 12000),
-                include_output=arguments.get("include_output", False),
-                compact=arguments.get("compact", False),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "discover_project_actions":
-            return _count_and_wrap_result(slot, name, arguments, discover_project_actions(slot.root))
-
-        if name == "run_project_action":
-            result = run_project_action(
-                slot.root,
-                arguments["action_id"],
-                timeout_sec=arguments.get("timeout_sec", 120),
-                max_output_chars=arguments.get("max_output_chars", 12000),
-                include_output=arguments.get("include_output", False),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "analyze_config":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_config_analysis(
-                slot.indexer._project_index,
-                checks=arguments.get("checks"),
-                file_path=arguments.get("file_path"),
-                severity=arguments.get("severity", "all"),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "find_dead_code":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_dead_code(
-                slot.indexer._project_index,
-                max_results=arguments.get("max_results", 50),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "find_hotspots":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_hotspots(
-                slot.indexer._project_index,
-                max_results=arguments.get("max_results", 20),
-                min_score=arguments.get("min_score", 0.0),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "detect_breaking_changes":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_breaking_changes(
-                slot.indexer._project_index,
-                since_ref=arguments.get("since_ref", "HEAD~1"),
-            )
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "find_cross_project_deps":
-            # This tool operates across ALL loaded projects
-            loaded: dict[str, ProjectIndex] = {}
-            for root, s in _projects.items():
-                _ensure_slot(s)
-                if s.indexer and s.indexer._project_index:
-                    loaded[os.path.basename(root)] = s.indexer._project_index
-            result = run_cross_project(loaded)
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        if name == "analyze_docker":
-            _ensure_slot(slot)
-            _maybe_incremental_update(slot)
-            result = run_docker_analysis(slot.indexer._project_index)
-            return _count_and_wrap_result(slot, name, arguments, result)
-
-        _ensure_slot(slot)
-        _maybe_incremental_update(slot)
-
-        if slot.query_fns is None:
-            return [TextContent(type="text", text=f"Error: index not built for '{slot.root}'. Call reindex first.")]
-
-        qfns = slot.query_fns
-
-        if name == "get_project_summary":
-            result = qfns["get_project_summary"]()
-
-        elif name == "list_files":
-            pattern = arguments.get("pattern")
-            max_results = arguments.get("max_results", 0)
-            result = qfns["list_files"](pattern, max_results=max_results)
-
-        elif name == "get_structure_summary":
-            result = qfns["get_structure_summary"](arguments.get("file_path"))
-
-        elif name == "get_function_source":
-            result = qfns["get_function_source"](
-                arguments["name"],
-                arguments.get("file_path"),
-                max_lines=arguments.get("max_lines", 0),
-            )
-
-        elif name == "get_class_source":
-            result = qfns["get_class_source"](
-                arguments["name"],
-                arguments.get("file_path"),
-                max_lines=arguments.get("max_lines", 0),
-            )
-
-        elif name == "get_functions":
-            result = qfns["get_functions"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
-
-        elif name == "get_classes":
-            result = qfns["get_classes"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
-
-        elif name == "get_imports":
-            result = qfns["get_imports"](arguments.get("file_path"), max_results=arguments.get("max_results", 0))
-
-        elif name == "find_symbol":
-            result = qfns["find_symbol"](arguments["name"])
-
-        elif name == "get_dependencies":
-            result = qfns["get_dependencies"](arguments["name"], max_results=arguments.get("max_results", 0))
-
-        elif name == "get_dependents":
-            result = qfns["get_dependents"](arguments["name"], max_results=arguments.get("max_results", 0))
-
-        elif name == "get_change_impact":
-            result = qfns["get_change_impact"](
-                arguments["name"],
-                max_direct=arguments.get("max_direct", 0),
-                max_transitive=arguments.get("max_transitive", 0),
-            )
-
-        elif name == "get_call_chain":
-            result = qfns["get_call_chain"](arguments["from_name"], arguments["to_name"])
-
-        elif name == "get_edit_context":
-            sym_name = arguments["name"]
-            max_deps = arguments.get("max_deps", 10)
-            max_callers = arguments.get("max_callers", 10)
-            ctx: dict = {"symbol": sym_name}
-            # Source
-            try:
-                ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
-            except Exception:
-                try:
-                    ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
-                except Exception:
-                    ctx["source"] = None
-            # Location
-            try:
-                ctx["location"] = qfns["find_symbol"](sym_name)
-            except Exception:
-                ctx["location"] = None
-            # Dependencies (what it calls)
-            try:
-                ctx["dependencies"] = qfns["get_dependencies"](sym_name, max_results=max_deps)
-            except Exception:
-                ctx["dependencies"] = []
-            # Callers (who uses it)
-            try:
-                ctx["callers"] = qfns["get_dependents"](sym_name, max_results=max_callers)
-            except Exception:
-                ctx["callers"] = []
-            result = ctx
-
-        elif name == "get_file_dependencies":
-            result = qfns["get_file_dependencies"](arguments["file_path"], max_results=arguments.get("max_results", 0))
-
-        elif name == "get_file_dependents":
-            result = qfns["get_file_dependents"](arguments["file_path"], max_results=arguments.get("max_results", 0))
-
-        elif name == "search_codebase":
-            result = qfns["search_codebase"](arguments["pattern"], max_results=arguments.get("max_results", 100))
-
-        # v3: Route Map, Env Usage, Components
-        elif name == "get_routes":
-            result = qfns["get_routes"](max_results=arguments.get("max_results", 0))
-
-        elif name == "get_env_usage":
-            result = qfns["get_env_usage"](arguments["var_name"], max_results=arguments.get("max_results", 0))
-
-        elif name == "get_components":
-            result = qfns["get_components"](
-                file_path=arguments.get("file_path"),
-                max_results=arguments.get("max_results", 0),
-            )
-
-        elif name == "get_feature_files":
-            result = qfns["get_feature_files"](
-                arguments["keyword"],
-                max_results=arguments.get("max_results", 0),
-            )
-
-        elif name == "get_entry_points":
-            result = qfns["get_entry_points"](max_results=arguments.get("max_results", 20))
-
-        elif name == "get_symbol_cluster":
-            result = qfns["get_symbol_cluster"](
-                arguments["name"],
-                max_members=arguments.get("max_members", 30),
-            )
-
-        else:
-            return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
-
-        return _count_and_wrap_result(slot, name, arguments, result)
+        return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 
     except Exception as e:
         tb = traceback.format_exc()

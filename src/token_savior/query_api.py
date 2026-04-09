@@ -250,42 +250,34 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
     """
 
     def get_project_summary() -> str:
-        """High-level overview: file count, packages, top classes/functions."""
+        """Compact project overview: counts + top packages only."""
         parts = [
             f"Project: {index.root_path}",
             f"Files: {index.total_files}, Lines: {index.total_lines}, "
             f"Functions: {index.total_functions}, Classes: {index.total_classes}",
         ]
 
-        # Identify packages (directories containing files)
-        packages = sorted({
-            "/".join(p.split("/")[:-1])
+        # Top-level packages only (deduplicated)
+        top_packages = sorted({
+            p.split("/")[0]
             for p in index.files
             if "/" in p
         })
-        if packages:
-            parts.append(f"Packages: {', '.join(packages)}")
+        if top_packages:
+            parts.append(f"Packages ({len(top_packages)}): {', '.join(top_packages[:15])}")
+            if len(top_packages) > 15:
+                parts.append(f"  ... and {len(top_packages) - 15} more")
 
-        # Top classes
-        all_classes = []
-        for path, meta in index.files.items():
-            for cls in meta.classes:
-                all_classes.append(f"{cls.name} ({path})")
-        if all_classes:
-            parts.append(f"Classes: {', '.join(all_classes[:20])}")
-            if len(all_classes) > 20:
-                parts.append(f"  ... and {len(all_classes) - 20} more")
-
-        # Top functions (non-method)
-        all_funcs = []
-        for path, meta in index.files.items():
-            for func in meta.functions:
-                if not func.is_method:
-                    all_funcs.append(f"{func.name} ({path})")
-        if all_funcs:
-            parts.append(f"Functions: {', '.join(all_funcs[:20])}")
-            if len(all_funcs) > 20:
-                parts.append(f"  ... and {len(all_funcs) - 20} more")
+        # Counts per type, no individual names
+        class_count = sum(len(meta.classes) for meta in index.files.values())
+        func_count = sum(
+            sum(1 for f in meta.functions if not f.is_method)
+            for meta in index.files.values()
+        )
+        if class_count:
+            parts.append(f"Classes: {class_count} total")
+        if func_count:
+            parts.append(f"Top-level functions: {func_count} total")
 
         return "\n".join(parts)
 
@@ -388,40 +380,53 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def get_function_source(
-        name: str, file_path: str | None = None, max_lines: int = 0
+    def _get_symbol_source(
+        name: str, kind: str, file_path: str | None = None, max_lines: int = 0
     ) -> str:
-        """Source of a function, uses symbol_table to find file if not specified."""
+        """Shared helper for get_function_source / get_class_source.
+
+        kind is "function" or "class", controlling which file-level query
+        and which symbol collection to search.
+        """
+        file_qfn_key = f"get_{kind}_source"
         source: str | None = None
+
         if file_path is not None:
             meta = _resolve_file(index, file_path)
             if meta is None:
                 return f"Error: file '{file_path}' not found in index"
             file_funcs = create_file_query_functions(meta)
-            source = file_funcs["get_function_source"](name)
+            source = file_funcs[file_qfn_key](name)
         else:
-            # Try symbol table
+            # Try symbol table first
             if name in index.symbol_table:
                 resolved_path = index.symbol_table[name]
                 meta = _resolve_file(index, resolved_path)
                 if meta is not None:
                     file_funcs = create_file_query_functions(meta)
-                    result = file_funcs["get_function_source"](name)
+                    result = file_funcs[file_qfn_key](name)
                     if not result.startswith("Error:"):
                         source = result
-            # Search all files
+            # Fallback: linear search
             if source is None:
                 for path, meta in sorted(index.files.items()):
-                    for f in meta.functions:
-                        if f.name == name or f.qualified_name == name:
+                    symbols = meta.functions if kind == "function" else meta.classes
+                    for sym in symbols:
+                        match = (
+                            (sym.name == name or getattr(sym, "qualified_name", None) == name)
+                            if kind == "function"
+                            else sym.name == name
+                        )
+                        if match:
                             source = "\n".join(
-                                meta.lines[f.line_range.start - 1 : f.line_range.end]
+                                meta.lines[sym.line_range.start - 1 : sym.line_range.end]
                             )
                             break
                     if source is not None:
                         break
+
         if source is None:
-            return f"Error: function '{name}' not found in project"
+            return f"Error: {kind} '{name}' not found in project"
         if max_lines > 0:
             lines = source.split("\n")
             if len(lines) > max_lines:
@@ -429,46 +434,17 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 source += f"\n... (truncated to {max_lines} lines)"
         return source
 
+    def get_function_source(
+        name: str, file_path: str | None = None, max_lines: int = 0
+    ) -> str:
+        """Source of a function, uses symbol_table to find file if not specified."""
+        return _get_symbol_source(name, "function", file_path, max_lines)
+
     def get_class_source(
         name: str, file_path: str | None = None, max_lines: int = 0
     ) -> str:
         """Source of a class, uses symbol_table to find file if not specified."""
-        source: str | None = None
-        if file_path is not None:
-            meta = _resolve_file(index, file_path)
-            if meta is None:
-                return f"Error: file '{file_path}' not found in index"
-            file_funcs = create_file_query_functions(meta)
-            source = file_funcs["get_class_source"](name)
-        else:
-            # Try symbol table
-            if name in index.symbol_table:
-                resolved_path = index.symbol_table[name]
-                meta = _resolve_file(index, resolved_path)
-                if meta is not None:
-                    file_funcs = create_file_query_functions(meta)
-                    result = file_funcs["get_class_source"](name)
-                    if not result.startswith("Error:"):
-                        source = result
-            # Search all files
-            if source is None:
-                for path, meta in sorted(index.files.items()):
-                    for cls in meta.classes:
-                        if cls.name == name:
-                            source = "\n".join(
-                                meta.lines[cls.line_range.start - 1 : cls.line_range.end]
-                            )
-                            break
-                    if source is not None:
-                        break
-        if source is None:
-            return f"Error: class '{name}' not found in project"
-        if max_lines > 0:
-            lines = source.split("\n")
-            if len(lines) > max_lines:
-                source = "\n".join(lines[:max_lines])
-                source += f"\n... (truncated to {max_lines} lines)"
-        return source
+        return _get_symbol_source(name, "class", file_path, max_lines)
 
     def _func_result(func, path, meta):
         preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]

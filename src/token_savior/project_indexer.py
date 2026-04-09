@@ -79,6 +79,8 @@ class ProjectIndexer:
             # Coverage / test artifacts
             "**/coverage/**",
             "**/.nyc_output/**",
+            # Claude Code worktrees (duplicates of the project)
+            "**/.claude/worktrees/**",
         ]
         self.max_file_size_bytes = max_file_size_bytes
         self._project_index: ProjectIndex | None = None

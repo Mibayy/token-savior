@@ -479,8 +479,8 @@ class TestProjectQueryFunctions:
         summary = self.funcs["get_project_summary"]()
         assert "/project" in summary
         assert "3" in summary  # total files
-        assert "Engine" in summary
-        assert "Runner" in summary
+        assert "Classes:" in summary
+        assert "functions:" in summary.lower()
 
     def test_list_files_all(self):
         files = self.funcs["list_files"]()
