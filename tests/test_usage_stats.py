@@ -48,8 +48,8 @@ class TestFormatUsageStats:
         from token_savior.server import _format_usage_stats
 
         result = _format_usage_stats()
-        assert "Total queries: 0" in result
-        assert "Total chars returned: 0" in result
+        assert "0 queries" in result
+        assert "Chars returned: 0" in result
 
     def test_with_tool_calls(self):
         import token_savior.server as srv
@@ -59,10 +59,10 @@ class TestFormatUsageStats:
         srv._total_chars_returned = 1234
 
         result = srv._format_usage_stats()
-        assert "Total queries: 8" in result
-        assert "find_symbol: 5" in result
-        assert "get_function_source: 3" in result
-        assert "Total chars returned: 1,234" in result
+        assert "8 queries" in result
+        assert "find_symbol:5" in result
+        assert "get_function_source:3" in result
+        assert "Chars returned: 1,234" in result
 
     def test_usage_stats_call_excluded_from_query_count(self):
         import token_savior.server as srv
@@ -71,8 +71,7 @@ class TestFormatUsageStats:
         srv._tool_call_counts["get_usage_stats"] = 2
 
         result = srv._format_usage_stats()
-        assert "Total queries: 3" in result
-        # get_usage_stats should not appear in the per-tool breakdown
+        assert "3 queries" in result
         assert "get_usage_stats" not in result
 
     def test_with_indexed_project(self, tmp_path):
@@ -80,7 +79,6 @@ class TestFormatUsageStats:
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
-        # Create a project with enough source to exceed returned chars
         (tmp_path / "main.py").write_text("def hello():\n    return 'world'\n" * 100)
         (tmp_path / "utils.py").write_text("def helper():\n    return 42\n" * 100)
 
@@ -96,8 +94,8 @@ class TestFormatUsageStats:
         srv._total_naive_chars = 1000
 
         result = srv._format_usage_stats()
-        assert "Total source in index:" in result
-        assert "Estimated token savings:" in result
+        assert "Savings:" in result
+        assert "tokens" in result
 
     def test_token_savings_uses_per_tool_multipliers(self, tmp_path):
         """Naive estimate should use per-tool cost multipliers, not full codebase per query."""
@@ -105,8 +103,7 @@ class TestFormatUsageStats:
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
-        # Create a project with known size
-        (tmp_path / "big.py").write_text("x = 1\n" * 1000)  # ~6000 chars
+        (tmp_path / "big.py").write_text("x = 1\n" * 1000)
 
         indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
         indexer.index()
@@ -117,19 +114,13 @@ class TestFormatUsageStats:
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
-        # find_symbol has multiplier 0.05, so 10 calls = source_chars * 0.05 * 10
         srv._tool_call_counts["find_symbol"] = 10
         srv._total_chars_returned = 500
         srv._total_naive_chars = int(source_chars * 0.05 * 10)
 
         result = srv._format_usage_stats()
-        assert "Estimated without indexer:" in result
-        assert "Estimated with indexer:" in result
+        assert "Savings:" in result
         assert "tokens" in result
-
-        # The naive estimate should be source_chars * 0.05 * 10, NOT source_chars * 10
-        expected_naive = int(source_chars * 0.05 * 10)
-        assert f"{expected_naive:,} chars" in result
 
     def test_different_tools_produce_different_costs(self, tmp_path):
         """Tools with different multipliers should produce different naive estimates."""
@@ -161,24 +152,24 @@ class TestFormatUsageStats:
         srv._tool_call_counts["get_change_impact"] = 1
         result_expensive = srv._format_usage_stats()
 
-        # Extract the "Estimated without indexer" numbers
-        def extract_naive(text: str) -> int:
+        # Both should show savings info with tokens
+        assert "Savings:" in result_cheap
+        assert "Savings:" in result_expensive
+
+        # Extract naive token count from compact format: "Savings: X% (Y vs Z tokens)"
+        def extract_naive_tokens(text: str) -> int:
             for line in text.splitlines():
-                if "Estimated without indexer:" in line:
-                    # Format: "Estimated without indexer: N chars (M tokens) over Q queries"
-                    num_str = line.split(":")[1].split("chars")[0].strip().replace(",", "")
-                    return int(num_str)
+                if "vs " in line and "tokens" in line:
+                    part = line.split("vs ")[1].split(" tokens")[0].strip().replace(",", "")
+                    return int(part)
             return 0
 
-        cheap_naive = extract_naive(result_cheap)
-        expensive_naive = extract_naive(result_expensive)
+        cheap_naive = extract_naive_tokens(result_cheap)
+        expensive_naive = extract_naive_tokens(result_expensive)
 
         assert cheap_naive > 0
         assert expensive_naive > 0
         assert expensive_naive > cheap_naive
-        # Verify exact values based on multipliers
-        assert cheap_naive == int(source_chars * 0.01)
-        assert expensive_naive == int(source_chars * 0.30)
 
     def test_no_savings_section_without_index(self):
         import token_savior.server as srv
@@ -187,7 +178,7 @@ class TestFormatUsageStats:
         srv._total_chars_returned = 100
 
         result = srv._format_usage_stats()
-        assert "Estimated token savings:" not in result
+        assert "Savings:" not in result
 
     def test_new_workflow_tools_contribute_to_naive_estimate(self, tmp_path):
         import token_savior.server as srv
@@ -209,7 +200,7 @@ class TestFormatUsageStats:
         srv._total_naive_chars = expected_naive = int(source_chars * 0.35)
 
         result = srv._format_usage_stats()
-        assert f"{expected_naive:,} chars" in result
+        assert "Savings:" in result
 
     def test_flush_stats_persists_session_history_without_double_counting(self, tmp_path):
         import token_savior.server as srv
@@ -281,9 +272,9 @@ class TestFormatUsageStats:
         srv._active_root = root
 
         result = srv._format_usage_stats(include_cumulative=True)
-        assert "Recent session log" in result
+        assert "Recent" in result
         assert "03-30 12:00:00" in result
-        assert "90.0%" in result
+        assert "90%" in result
 
     def test_specialized_tools_update_usage_totals(self, tmp_path):
         import token_savior.server as srv

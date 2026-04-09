@@ -378,53 +378,36 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     total_calls = sum(_tool_call_counts.values())
     query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
 
-    # Aggregate source size across all loaded projects
     source_chars = 0
     for slot in _projects.values():
         if slot.indexer and slot.indexer._project_index:
             source_chars += sum(m.total_chars for m in slot.indexer._project_index.files.values())
 
-    lines = [
-        f"Session duration: {_format_duration(elapsed)}",
-        f"Total queries: {query_calls}",
-    ]
+    lines = [f"Session: {_format_duration(elapsed)}, {query_calls} queries"]
 
     if len(_projects) > 1:
-        loaded = [s.root for s in _projects.values() if s.indexer is not None]
-        lines.append(f"Projects loaded: {len(loaded)}/{len(_projects)}")
-        for root in loaded:
-            lines.append(f"  • {os.path.basename(root)} ({root})")
-        if _active_root:
-            lines.append(f"Active project: {os.path.basename(_active_root)}")
+        loaded = sum(1 for s in _projects.values() if s.indexer is not None)
+        lines.append(f"Projects: {loaded}/{len(_projects)} loaded, active: {os.path.basename(_active_root)}")
 
     if _tool_call_counts:
-        lines.append("")
-        lines.append("Queries by tool:")
-        for tool_name, count in sorted(_tool_call_counts.items(), key=lambda x: -x[1]):
-            if tool_name == "get_usage_stats":
-                continue
-            lines.append(f"  {tool_name}: {count}")
+        top_tools = sorted(
+            ((t, c) for t, c in _tool_call_counts.items() if t != "get_usage_stats"),
+            key=lambda x: -x[1],
+        )
+        tool_str = ", ".join(f"{t}:{c}" for t, c in top_tools[:8])
+        if len(top_tools) > 8:
+            tool_str += f" +{len(top_tools) - 8} more"
+        lines.append(f"Tools: {tool_str}")
 
-    lines.append("")
-    lines.append(f"Total chars returned: {_total_chars_returned:,}")
-
-    if source_chars > 0:
-        lines.append(f"Total source in index: {source_chars:,} chars")
-        if query_calls > 0 and _total_naive_chars > _total_chars_returned:
-            naive_chars = _total_naive_chars
-            reduction = (1 - _total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0
-            lines.append(
-                f"Estimated without indexer: {naive_chars:,} chars "
-                f"({naive_chars // 4:,} tokens) over {query_calls} queries"
-            )
-            lines.append(
-                f"Estimated with indexer: {_total_chars_returned:,} chars "
-                f"({_total_chars_returned // 4:,} tokens)"
-            )
-            lines.append(f"Estimated token savings: {reduction:.1f}%")
+    lines.append(f"Chars returned: {_total_chars_returned:,}")
+    if source_chars > 0 and query_calls > 0 and _total_naive_chars > _total_chars_returned:
+        reduction = (1 - _total_chars_returned / _total_naive_chars) * 100
+        lines.append(
+            f"Savings: {reduction:.1f}% "
+            f"({_total_chars_returned // 4:,} vs {_total_naive_chars // 4:,} tokens)"
+        )
 
     if include_cumulative:
-        # Collect cumulative stats for ALL projects with data
         all_project_stats = []
         for root, slot in _projects.items():
             sf = slot.stats_file or _get_stats_file(root)
@@ -434,61 +417,35 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
 
         if all_project_stats:
             lines.append("")
-            lines.append("─── Cumulative token savings per project ───")
-
-            # Header
-            lines.append(f"  {'Project':<26} {'Sessions':>8} {'Queries':>8} {'Tokens used':>12} {'Tokens naive':>13} {'Savings':>8}")
-            lines.append(f"  {'─'*26} {'─'*8} {'─'*8} {'─'*12} {'─'*13} {'─'*8}")
-
-            total_chars = 0
-            total_naive = 0
-            total_calls = 0
-            total_sessions = 0
+            lines.append("Project | Sessions | Queries | Used | Naive | Savings")
+            total_chars = total_naive = total_calls_cum = total_sessions = 0
 
             for name, cum in sorted(all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)):
-                cum_chars = cum.get("total_chars_returned", 0)
-                cum_naive = cum.get("total_naive_chars", 0)
-                cum_calls = cum.get("total_calls", 0)
-                cum_sessions = cum.get("sessions", 0)
-                savings = (1 - cum_chars / cum_naive) * 100 if cum_naive > cum_chars > 0 else 0
-                tokens_used = cum_chars // 4
-                tokens_naive = cum_naive // 4
-                savings_str = f"{savings:.0f}%" if cum_naive > 0 else "—"
-                lines.append(
-                    f"  {name:<26} {cum_sessions:>8} {cum_calls:>8} {tokens_used:>12,} {tokens_naive:>13,} {savings_str:>8}"
-                )
-                total_chars += cum_chars
-                total_naive += cum_naive
-                total_calls += cum_calls
-                total_sessions += cum_sessions
+                c = cum.get("total_chars_returned", 0)
+                n = cum.get("total_naive_chars", 0)
+                s = cum.get("sessions", 0)
+                q = cum.get("total_calls", 0)
+                pct = f"{(1 - c / n) * 100:.0f}%" if n > c > 0 else "--"
+                lines.append(f"{name} | {s} | {q} | {c // 4:,} | {n // 4:,} | {pct}")
+                total_chars += c
+                total_naive += n
+                total_calls_cum += q
+                total_sessions += s
 
-            # Total row
-            total_savings = (1 - total_chars / total_naive) * 100 if total_naive > total_chars > 0 else 0
-            lines.append(f"  {'─'*26} {'─'*8} {'─'*8} {'─'*12} {'─'*13} {'─'*8}")
-            lines.append(
-                f"  {'TOTAL':<26} {total_sessions:>8} {total_calls:>8} {total_chars//4:>12,} {total_naive//4:>13,} {total_savings:.0f}%"
-            )
+            pct = f"{(1 - total_chars / total_naive) * 100:.0f}%" if total_naive > total_chars > 0 else "--"
+            lines.append(f"TOTAL | {total_sessions} | {total_calls_cum} | {total_chars // 4:,} | {total_naive // 4:,} | {pct}")
 
-            latest_project_name, latest_project_stats = max(
-                all_project_stats,
-                key=lambda item: item[1].get("last_session", ""),
-            )
-            history = latest_project_stats.get("history", [])[-5:]
+            latest_name, latest_stats = max(all_project_stats, key=lambda x: x[1].get("last_session", ""))
+            history = latest_stats.get("history", [])[-3:]
             if history:
                 lines.append("")
-                lines.append(f"─── Recent session log ({latest_project_name}) ───")
-                lines.append(
-                    f"  {'When':<20} {'Queries':>8} {'Used':>10} {'Naive':>10} {'Savings':>8}"
-                )
-                lines.append(f"  {'─'*20} {'─'*8} {'─'*10} {'─'*10} {'─'*8}")
+                lines.append(f"Recent ({latest_name}):")
                 for entry in history:
                     when = entry.get("timestamp", "")[5:19].replace("T", " ")
                     lines.append(
-                        f"  {when:<20} "
-                        f"{entry.get('query_calls', 0):>8} "
-                        f"{entry.get('tokens_used', 0):>10,} "
-                        f"{entry.get('tokens_naive', 0):>10,} "
-                        f"{entry.get('savings_pct', 0):>7.1f}%"
+                        f"  {when} | {entry.get('query_calls', 0)} queries | "
+                        f"{entry.get('tokens_used', 0):,} / {entry.get('tokens_naive', 0):,} | "
+                        f"{entry.get('savings_pct', 0):.0f}%"
                     )
 
     return "\n".join(lines)
