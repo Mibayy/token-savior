@@ -49,6 +49,45 @@ _EXTENSION_MAP: dict[str, str] = {
 }
 
 
+
+_ANNOTATOR_MAP = {
+    "python": annotate_python,
+    "text": annotate_text,
+    "typescript": annotate_typescript,
+    "javascript": annotate_typescript,
+    "go": annotate_go,
+    "rust": annotate_rust,
+    "csharp": annotate_csharp,
+    "json": annotate_json,
+    "yaml": annotate_yaml,
+    "ini": annotate_ini,
+    "xml": annotate_xml,
+    "hcl": annotate_hcl,
+    "toml": annotate_toml,
+    "env": annotate_env,
+    "conf": annotate_conf,
+    "dockerfile": annotate_dockerfile,
+}
+
+_ANNOTATOR_MAP: dict[str, object] = {
+    "python": annotate_python,
+    "text": annotate_text,
+    "typescript": annotate_typescript,
+    "javascript": annotate_typescript,
+    "go": annotate_go,
+    "rust": annotate_rust,
+    "csharp": annotate_csharp,
+    "json": annotate_json,
+    "yaml": annotate_yaml,
+    "ini": annotate_ini,
+    "xml": annotate_xml,
+    "hcl": annotate_hcl,
+    "toml": annotate_toml,
+    "env": annotate_env,
+    "conf": annotate_conf,
+    "dockerfile": annotate_dockerfile,
+}
+
 def annotate(
     text: str,
     source_name: str = "<source>",
@@ -58,16 +97,11 @@ def annotate(
 
     Dispatch rules:
     - file_type overrides extension-based detection
-    - .py -> python annotator
-    - .md, .txt, .rst -> text annotator
-    - .ts, .tsx -> typescript annotator
-    - .js, .jsx -> typescript annotator (close enough for regex-based parsing)
-    - .go -> go annotator
-    - .rs -> rust annotator
+    - Extension -> _EXTENSION_MAP -> language name -> _ANNOTATOR_MAP -> annotator
+    - Dockerfile detected by filename pattern
     - Otherwise -> generic annotator (line-only)
     """
     if file_type is None:
-        # Detect Dockerfile by filename (no extension)
         import os as _os
         _basename = _os.path.basename(source_name)
         if (
@@ -78,41 +112,10 @@ def annotate(
         ):
             file_type = "dockerfile"
         else:
-            # Detect from source_name extension
             dot_idx = source_name.rfind(".")
             if dot_idx >= 0:
                 ext = source_name[dot_idx:].lower()
                 file_type = _EXTENSION_MAP.get(ext)
 
-    if file_type == "python":
-        return annotate_python(text, source_name)
-    elif file_type == "text":
-        return annotate_text(text, source_name)
-    elif file_type in ("typescript", "javascript"):
-        return annotate_typescript(text, source_name)
-    elif file_type == "go":
-        return annotate_go(text, source_name)
-    elif file_type == "rust":
-        return annotate_rust(text, source_name)
-    elif file_type == "csharp":
-        return annotate_csharp(text, source_name)
-    elif file_type == "json":
-        return annotate_json(text, source_name)
-    elif file_type == "yaml":
-        return annotate_yaml(text, source_name)
-    elif file_type == "ini":
-        return annotate_ini(text, source_name)
-    elif file_type == "xml":
-        return annotate_xml(text, source_name)
-    elif file_type == "hcl":
-        return annotate_hcl(text, source_name)
-    elif file_type == "toml":
-        return annotate_toml(text, source_name)
-    elif file_type == "env":
-        return annotate_env(text, source_name)
-    elif file_type == "conf":
-        return annotate_conf(text, source_name)
-    elif file_type == "dockerfile":
-        return annotate_dockerfile(text, source_name)
-    else:
-        return annotate_generic(text, source_name)
+    annotator = _ANNOTATOR_MAP.get(file_type, annotate_generic)
+    return annotator(text, source_name)
