@@ -8,10 +8,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-DEFAULT_STATS_DIR = Path(os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")).expanduser()
+DEFAULT_STATS_DIR = Path(
+    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+).expanduser()
 HOST = os.environ.get("TOKEN_SAVIOR_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TOKEN_SAVIOR_DASHBOARD_PORT", "8921"))
-INCLUDE_TMP_PROJECTS = os.environ.get("TOKEN_SAVIOR_INCLUDE_TMP_PROJECTS", "").lower() in {"1", "true", "yes"}
+INCLUDE_TMP_PROJECTS = os.environ.get("TOKEN_SAVIOR_INCLUDE_TMP_PROJECTS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 STARTED_AT = datetime.now(timezone.utc)
 
 
@@ -134,7 +140,9 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
             "tokens_saved": max(chars_naive - chars_used, 0) // 4,
             "savings_pct": savings_pct,
             "last_session": payload.get("last_session"),
-            "last_client": _client_name(payload.get("last_client") or next(iter(project_client_counts), "")),
+            "last_client": _client_name(
+                payload.get("last_client") or next(iter(project_client_counts), "")
+            ),
             "tool_counts": payload.get("tool_counts", {}),
             "client_counts": project_client_counts,
         }
@@ -188,8 +196,12 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
             "tokens_naive": total_chars_naive // 4,
             "chars_saved": max(total_chars_naive - total_chars_used, 0),
             "tokens_saved": max(total_chars_naive - total_chars_used, 0) // 4,
-            "savings_pct": round((1 - total_chars_used / total_chars_naive) * 100, 2) if total_chars_naive > 0 else 0.0,
-            "estimated_savings_usd": round(max(total_chars_naive - total_chars_used, 0) / 4 * 3.0 / 1_000_000, 2),
+            "savings_pct": round((1 - total_chars_used / total_chars_naive) * 100, 2)
+            if total_chars_naive > 0
+            else 0.0,
+            "estimated_savings_usd": round(
+                max(total_chars_naive - total_chars_used, 0) / 4 * 3.0 / 1_000_000, 2
+            ),
         },
     }
     for client_name, session_count in client_totals.items():

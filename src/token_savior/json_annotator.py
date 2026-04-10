@@ -81,8 +81,13 @@ def _walk_structure(
                 )
             )
             _walk_structure(
-                value, lines, f"{path}.{key}", depth + 1,
-                sections, imports, max(0, key_line - 1),
+                value,
+                lines,
+                f"{path}.{key}",
+                depth + 1,
+                sections,
+                imports,
+                max(0, key_line - 1),
             )
 
     elif isinstance(obj, list):
@@ -107,14 +112,24 @@ def _walk_structure(
                         )
                     )
                     _walk_structure(
-                        item, lines, f"{path}[{i}]", depth + 1,
-                        sections, imports, max(0, entry_line - 1),
+                        item,
+                        lines,
+                        f"{path}[{i}]",
+                        depth + 1,
+                        sections,
+                        imports,
+                        max(0, entry_line - 1),
                     )
                 else:
                     # No label — still recurse but don't create a section entry
                     _walk_structure(
-                        item, lines, f"{path}[{i}]", depth + 1,
-                        sections, imports, line_hint,
+                        item,
+                        lines,
+                        f"{path}[{i}]",
+                        depth + 1,
+                        sections,
+                        imports,
+                        line_hint,
                     )
 
 

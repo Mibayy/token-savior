@@ -110,16 +110,17 @@ def get_changed_files(root_path: str, since_ref: str | None) -> GitChangeSet:
     deleted: set[str] = set()
 
     # 1. Committed changes since the ref
-    _parse_diff_output(root_path, ["git", "diff", "--name-status", since_ref, "HEAD"],
-                       modified, added, deleted)
+    _parse_diff_output(
+        root_path, ["git", "diff", "--name-status", since_ref, "HEAD"], modified, added, deleted
+    )
 
     # 2. Unstaged changes
-    _parse_diff_output(root_path, ["git", "diff", "--name-status"],
-                       modified, added, deleted)
+    _parse_diff_output(root_path, ["git", "diff", "--name-status"], modified, added, deleted)
 
     # 3. Staged changes
-    _parse_diff_output(root_path, ["git", "diff", "--name-status", "--cached"],
-                       modified, added, deleted)
+    _parse_diff_output(
+        root_path, ["git", "diff", "--name-status", "--cached"], modified, added, deleted
+    )
 
     # 4. Untracked files
     try:
@@ -213,7 +214,11 @@ def _parse_status_porcelain(output: str) -> GitStatus:
             status.untracked.append(path)
             continue
 
-        if index_status == "U" or worktree_status == "U" or (index_status == "A" and worktree_status == "A"):
+        if (
+            index_status == "U"
+            or worktree_status == "U"
+            or (index_status == "A" and worktree_status == "A")
+        ):
             status.conflicted.append(path)
             continue
 

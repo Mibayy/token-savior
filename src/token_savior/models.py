@@ -120,7 +120,7 @@ class ConfigIssue:
     file: str
     key: str
     line: int
-    severity: str   # "error" | "warning" | "info"
-    check: str      # "duplicate" | "secret" | "orphan"
+    severity: str  # "error" | "warning" | "info"
+    check: str  # "duplicate" | "secret" | "orphan"
     message: str
     detail: str | None = None

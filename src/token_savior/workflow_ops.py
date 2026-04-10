@@ -97,7 +97,9 @@ def apply_symbol_change_validate_with_rollback(
     )
     if result.get("ok"):
         changed_file = location_file
-        commit_summary = build_commit_summary(indexer._project_index, [changed_file], compact=compact)
+        commit_summary = build_commit_summary(
+            indexer._project_index, [changed_file], compact=compact
+        )
         if compact:
             return {
                 "ok": True,

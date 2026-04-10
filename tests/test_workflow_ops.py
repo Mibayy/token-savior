@@ -124,4 +124,10 @@ class TestApplySymbolChangeValidateWithRollback:
                 compact=True,
             )
 
-        assert set(result.keys()) == {"ok", "summary", "checkpoint_id", "rollback_ok", "commit_summary"}
+        assert set(result.keys()) == {
+            "ok",
+            "summary",
+            "checkpoint_id",
+            "rollback_ok",
+            "commit_summary",
+        }

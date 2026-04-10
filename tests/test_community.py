@@ -1,4 +1,5 @@
 """Tests for community detection."""
+
 import tempfile
 from pathlib import Path
 from token_savior.project_indexer import ProjectIndexer
@@ -43,8 +44,9 @@ class TestCommunityDetection:
         assert isinstance(self.communities, dict)
 
     def test_all_symbols_have_community(self):
-        all_syms = set(self._index.global_dependency_graph.keys()) | \
-                   set(self._index.reverse_dependency_graph.keys())
+        all_syms = set(self._index.global_dependency_graph.keys()) | set(
+            self._index.reverse_dependency_graph.keys()
+        )
         for sym in all_syms:
             assert sym in self.communities, f"{sym} missing from communities"
 

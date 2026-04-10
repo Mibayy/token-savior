@@ -50,7 +50,9 @@ def list_checkpoints(index: ProjectIndex) -> dict:
         checkpoints.append(
             {
                 "checkpoint_id": checkpoint_id,
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(os.path.getmtime(checkpoint_dir))),
+                "created_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(os.path.getmtime(checkpoint_dir))
+                ),
                 "file_count": file_count,
             }
         )
@@ -169,10 +171,7 @@ def _compare_metadata(before_meta, after_meta) -> dict:
     after_names = set(after)
     added = sorted(after_names - before_names)
     removed = sorted(before_names - after_names)
-    changed = sorted(
-        name for name in before_names & after_names
-        if before[name] != after[name]
-    )
+    changed = sorted(name for name in before_names & after_names if before[name] != after[name])
     return {"added": added, "removed": removed, "changed": changed}
 
 
@@ -182,7 +181,9 @@ def _symbol_map(meta) -> dict[str, str]:
         return {}
     symbols: dict[str, str] = {}
     for func in meta.functions:
-        symbols[func.qualified_name] = "\n".join(meta.lines[func.line_range.start - 1 : func.line_range.end])
+        symbols[func.qualified_name] = "\n".join(
+            meta.lines[func.line_range.start - 1 : func.line_range.end]
+        )
     for cls in meta.classes:
         symbols[cls.name] = "\n".join(meta.lines[cls.line_range.start - 1 : cls.line_range.end])
     for sec in meta.sections:

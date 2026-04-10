@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 # Levenshtein edit distance
 # ---------------------------------------------------------------------------
 
+
 def _levenshtein(s1: str, s2: str) -> int:
     """Return the Levenshtein edit distance between *s1* and *s2*."""
     if s1 == s2:
@@ -45,9 +46,9 @@ def _levenshtein(s1: str, s2: str) -> int:
         for j in range(1, len2 + 1):
             cost = 0 if s1[i - 1] == s2[j - 1] else 1
             curr[j] = min(
-                curr[j - 1] + 1,       # insertion
-                prev[j] + 1,           # deletion
-                prev[j - 1] + cost,    # substitution
+                curr[j - 1] + 1,  # insertion
+                prev[j] + 1,  # deletion
+                prev[j - 1] + cost,  # substitution
             )
         prev = curr
     return prev[len2]
@@ -56,6 +57,7 @@ def _levenshtein(s1: str, s2: str) -> int:
 # ---------------------------------------------------------------------------
 # Main check
 # ---------------------------------------------------------------------------
+
 
 def check_duplicates(
     config_files: dict[str, StructuralMetadata],
@@ -92,39 +94,40 @@ def check_duplicates(
                     a, b = sections[i], sections[j]
                     if a.title == b.title:
                         # Exact duplicate
-                        issues.append(ConfigIssue(
-                            file=source_name,
-                            key=a.title,
-                            line=b.line_range.start,
-                            severity="error",
-                            check="duplicate",
-                            message=f"Exact duplicate key '{a.title}' at level {level}",
-                            detail=(
-                                f"First occurrence at line {a.line_range.start}, "
-                                f"duplicate at line {b.line_range.start}"
-                            ),
-                        ))
+                        issues.append(
+                            ConfigIssue(
+                                file=source_name,
+                                key=a.title,
+                                line=b.line_range.start,
+                                severity="error",
+                                check="duplicate",
+                                message=f"Exact duplicate key '{a.title}' at level {level}",
+                                detail=(
+                                    f"First occurrence at line {a.line_range.start}, "
+                                    f"duplicate at line {b.line_range.start}"
+                                ),
+                            )
+                        )
                     elif (
                         len(a.title) > 4
                         and len(b.title) > 4
                         and _levenshtein(a.title, b.title) <= 2
                     ):
                         # Similar key — likely typo
-                        issues.append(ConfigIssue(
-                            file=source_name,
-                            key=a.title,
-                            line=b.line_range.start,
-                            severity="warning",
-                            check="duplicate",
-                            message=(
-                                f"Similar keys (possible typo) '{a.title}' and "
-                                f"'{b.title}' at level {level}"
-                            ),
-                            detail=(
-                                f"Levenshtein distance = "
-                                f"{_levenshtein(a.title, b.title)}"
-                            ),
-                        ))
+                        issues.append(
+                            ConfigIssue(
+                                file=source_name,
+                                key=a.title,
+                                line=b.line_range.start,
+                                severity="warning",
+                                check="duplicate",
+                                message=(
+                                    f"Similar keys (possible typo) '{a.title}' and "
+                                    f"'{b.title}' at level {level}"
+                                ),
+                                detail=(f"Levenshtein distance = {_levenshtein(a.title, b.title)}"),
+                            )
+                        )
 
     # ------------------------------------------------------------------
     # Cross-file conflicts — level-1 keys with differing line content
@@ -157,22 +160,24 @@ def check_duplicates(
                 continue
             # Different content across files → conflict
             for source_name, content in occurrences:
-                issues.append(ConfigIssue(
-                    file=source_name,
-                    key=key,
-                    line=next(
-                        sec.line_range.start
-                        for sec in config_files[source_name].sections
-                        if sec.title == key and sec.level == 1
-                    ),
-                    severity="warning",
-                    check="duplicate",
-                    message=(
-                        f"Cross-file conflict: key '{key}' has different values "
-                        f"across config files"
-                    ),
-                    detail=f"Value in this file: {content!r}",
-                ))
+                issues.append(
+                    ConfigIssue(
+                        file=source_name,
+                        key=key,
+                        line=next(
+                            sec.line_range.start
+                            for sec in config_files[source_name].sections
+                            if sec.title == key and sec.level == 1
+                        ),
+                        severity="warning",
+                        check="duplicate",
+                        message=(
+                            f"Cross-file conflict: key '{key}' has different values "
+                            f"across config files"
+                        ),
+                        detail=f"Value in this file: {content!r}",
+                    )
+                )
 
     return issues
 
@@ -183,11 +188,17 @@ def check_duplicates(
 
 # Known secret prefixes that directly identify a credential
 _KNOWN_PREFIXES: tuple[str, ...] = (
-    "sk-", "sk_live_", "sk_test_",
-    "ghp_", "gho_", "ghu_", "ghs_",
+    "sk-",
+    "sk_live_",
+    "sk_test_",
+    "ghp_",
+    "gho_",
+    "ghu_",
+    "ghs_",
     "AKIA",
     "-----BEGIN",
-    "xox", "xapp-",
+    "xox",
+    "xapp-",
     "eyJ",  # JWT
 )
 
@@ -268,6 +279,7 @@ def _is_non_secret_pattern(value: str) -> bool:
 # check_secrets
 # ---------------------------------------------------------------------------
 
+
 def check_secrets(
     config_files: dict[str, StructuralMetadata],
 ) -> list[ConfigIssue]:
@@ -307,30 +319,34 @@ def check_secrets(
             if value:
                 for prefix in _KNOWN_PREFIXES:
                     if value.startswith(prefix):
-                        issues.append(ConfigIssue(
-                            file=source_name,
-                            key=key,
-                            line=line_no,
-                            severity="error",
-                            check="secret",
-                            message=f"Hardcoded secret detected in '{key}' (known prefix '{prefix}')",
-                            detail=f"Value: {_mask_value(value)}",
-                        ))
+                        issues.append(
+                            ConfigIssue(
+                                file=source_name,
+                                key=key,
+                                line=line_no,
+                                severity="error",
+                                check="secret",
+                                message=f"Hardcoded secret detected in '{key}' (known prefix '{prefix}')",
+                                detail=f"Value: {_mask_value(value)}",
+                            )
+                        )
                         break  # one issue per line for known-prefix
 
             # ----------------------------------------------------------------
             # Engine 3 – URL with embedded credentials
             # ----------------------------------------------------------------
             if _CRED_URL_RE.search(stripped):
-                issues.append(ConfigIssue(
-                    file=source_name,
-                    key=key,
-                    line=line_no,
-                    severity="warning",
-                    check="secret",
-                    message=f"URL with embedded credentials in '{key}'",
-                    detail=f"Value: {_mask_value(value) if value else '(see line)'}",
-                ))
+                issues.append(
+                    ConfigIssue(
+                        file=source_name,
+                        key=key,
+                        line=line_no,
+                        severity="warning",
+                        check="secret",
+                        message=f"URL with embedded credentials in '{key}'",
+                        detail=f"Value: {_mask_value(value) if value else '(see line)'}",
+                    )
+                )
 
             if not value:
                 continue
@@ -343,15 +359,17 @@ def check_secrets(
                 # (not a placeholder like ${...}, %(...), or an empty string)
                 placeholder_re = re.compile(r"^\$\{.*\}$|^%\(.*\)s?$|^<.*>$")
                 if value and not placeholder_re.match(value) and not _is_non_secret_pattern(value):
-                    issues.append(ConfigIssue(
-                        file=source_name,
-                        key=key,
-                        line=line_no,
-                        severity="warning",
-                        check="secret",
-                        message=f"Suspicious key name '{key}' with hardcoded value",
-                        detail=f"Value: {_mask_value(value)}",
-                    ))
+                    issues.append(
+                        ConfigIssue(
+                            file=source_name,
+                            key=key,
+                            line=line_no,
+                            severity="warning",
+                            check="secret",
+                            message=f"Suspicious key name '{key}' with hardcoded value",
+                            detail=f"Value: {_mask_value(value)}",
+                        )
+                    )
 
             # ----------------------------------------------------------------
             # Engine 4 – High entropy
@@ -359,15 +377,17 @@ def check_secrets(
             if len(value) >= 16 and not _is_non_secret_pattern(value):
                 entropy = _shannon_entropy(value)
                 if entropy > 4.5:
-                    issues.append(ConfigIssue(
-                        file=source_name,
-                        key=key,
-                        line=line_no,
-                        severity="warning",
-                        check="secret",
-                        message=f"High-entropy value in '{key}' (possible hardcoded secret)",
-                        detail=f"Entropy={entropy:.2f}, Value: {_mask_value(value)}",
-                    ))
+                    issues.append(
+                        ConfigIssue(
+                            file=source_name,
+                            key=key,
+                            line=line_no,
+                            severity="warning",
+                            check="secret",
+                            message=f"High-entropy value in '{key}' (possible hardcoded secret)",
+                            detail=f"Entropy={entropy:.2f}, Value: {_mask_value(value)}",
+                        )
+                    )
 
     return issues
 
@@ -383,9 +403,9 @@ _ACCESS_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'os\.environ\.get\((["\'])(.+?)\1'),
     ],
     "typescript": [
-        re.compile(r'process\.env\.([A-Z_][A-Z0-9_]*)'),
+        re.compile(r"process\.env\.([A-Z_][A-Z0-9_]*)"),
         re.compile(r'process\.env\[(["\'])(.+?)\1\]'),
-        re.compile(r'import\.meta\.env\.([A-Z_][A-Z0-9_]*)'),
+        re.compile(r"import\.meta\.env\.([A-Z_][A-Z0-9_]*)"),
     ],
     "go": [
         re.compile(r'os\.Getenv\((["\'])(.+?)\1\)'),
@@ -499,15 +519,17 @@ def check_orphans(
             continue
         # Not referenced anywhere → orphan
         for source_name, line_no in occurrences:
-            issues.append(ConfigIssue(
-                file=source_name,
-                key=key,
-                line=line_no,
-                severity="warning",
-                check="orphan",
-                message=f"Orphan config key '{key}' is not referenced in any code file",
-                detail=None,
-            ))
+            issues.append(
+                ConfigIssue(
+                    file=source_name,
+                    key=key,
+                    line=line_no,
+                    severity="warning",
+                    check="orphan",
+                    message=f"Orphan config key '{key}' is not referenced in any code file",
+                    detail=None,
+                )
+            )
 
     # ------------------------------------------------------------------
     # Check 2 — Ghost keys (referenced in code but absent from config)
@@ -517,18 +539,20 @@ def check_orphans(
         if key not in defined_keys:
             # Report once per unique (file, line) reference
             for ref_file, ref_line in refs:
-                issues.append(ConfigIssue(
-                    file=ref_file,
-                    key=key,
-                    line=ref_line,
-                    severity="warning",
-                    check="ghost",
-                    message=(
-                        f"Ghost key '{key}' is referenced in code but not defined "
-                        f"in any config file"
-                    ),
-                    detail=None,
-                ))
+                issues.append(
+                    ConfigIssue(
+                        file=ref_file,
+                        key=key,
+                        line=ref_line,
+                        severity="warning",
+                        check="ghost",
+                        message=(
+                            f"Ghost key '{key}' is referenced in code but not defined "
+                            f"in any config file"
+                        ),
+                        detail=None,
+                    )
+                )
 
     # ------------------------------------------------------------------
     # Check 3 — Orphan config files (basename not found in code text)
@@ -536,17 +560,17 @@ def check_orphans(
     for source_name, meta in config_files.items():
         basename = os.path.basename(source_name)
         if not any(basename in line for line in all_code_text):
-            issues.append(ConfigIssue(
-                file=source_name,
-                key="",
-                line=0,
-                severity="warning",
-                check="orphan_file",
-                message=(
-                    f"Config file '{basename}' is not referenced in any code file"
-                ),
-                detail=None,
-            ))
+            issues.append(
+                ConfigIssue(
+                    file=source_name,
+                    key="",
+                    line=0,
+                    severity="warning",
+                    check="orphan_file",
+                    message=(f"Config file '{basename}' is not referenced in any code file"),
+                    detail=None,
+                )
+            )
 
     return issues
 
@@ -573,15 +597,17 @@ def check_loaders(
         for code_name, code_meta in code_files.items():
             for line_idx, line in enumerate(code_meta.lines):
                 if basename in line:
-                    issues.append(ConfigIssue(
-                        file=code_name,
-                        key=config_name,
-                        line=line_idx,
-                        severity="info",
-                        check="loader",
-                        message=f"loads '{basename}'",
-                        detail=line.strip()[:120],
-                    ))
+                    issues.append(
+                        ConfigIssue(
+                            file=code_name,
+                            key=config_name,
+                            line=line_idx,
+                            severity="info",
+                            check="loader",
+                            message=f"loads '{basename}'",
+                            detail=line.strip()[:120],
+                        )
+                    )
     return issues
 
 
@@ -594,10 +620,10 @@ _SCHEMA_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "python": [
         # os.getenv('KEY', 'default')  /  os.environ.get('KEY', 'default')
         re.compile(
-            r'os\.(?:getenv|environ\.get)\(\s*'
-            r'(["\'])(.+?)\1'            # key
-            r'(?:\s*,\s*(["\'])(.+?)\3)?' # optional default
-            r'\)'
+            r"os\.(?:getenv|environ\.get)\(\s*"
+            r'(["\'])(.+?)\1'  # key
+            r'(?:\s*,\s*(["\'])(.+?)\3)?'  # optional default
+            r"\)"
         ),
         # os.environ['KEY']  — required (no default)
         re.compile(r'os\.environ\[(["\'])(.+?)\1\]'),
@@ -605,16 +631,16 @@ _SCHEMA_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "typescript": [
         # process.env.KEY ?? 'default'  or  process.env.KEY || 'default'
         re.compile(
-            r'process\.env\.([A-Z_][A-Z0-9_]*)'
-            r'\s*(?:\?\?|\|\|)\s*'
+            r"process\.env\.([A-Z_][A-Z0-9_]*)"
+            r"\s*(?:\?\?|\|\|)\s*"
             r'(["\'])(.+?)\2'
         ),
         # process.env.KEY  — no default
-        re.compile(r'process\.env\.([A-Z_][A-Z0-9_]*)'),
+        re.compile(r"process\.env\.([A-Z_][A-Z0-9_]*)"),
         # process.env['KEY']
         re.compile(r'process\.env\[(["\'])(.+?)\1\]'),
         # import.meta.env.KEY
-        re.compile(r'import\.meta\.env\.([A-Z_][A-Z0-9_]*)'),
+        re.compile(r"import\.meta\.env\.([A-Z_][A-Z0-9_]*)"),
     ],
     "go": [
         re.compile(r'os\.Getenv\((["\'])(.+?)\1\)'),
@@ -628,6 +654,7 @@ _SCHEMA_PATTERNS: dict[str, list[re.Pattern[str]]] = {
 @dataclass
 class _KeyRef:
     """A reference to a config key found in code."""
+
     key: str
     file: str
     line: int
@@ -672,10 +699,14 @@ def _extract_schema_refs(
                             key = groups[1]
 
                     if key and key.strip():
-                        refs.append(_KeyRef(
-                            key=key, file=source_name,
-                            line=line_idx, default=default,
-                        ))
+                        refs.append(
+                            _KeyRef(
+                                key=key,
+                                file=source_name,
+                                line=line_idx,
+                                default=default,
+                            )
+                        )
     return refs
 
 
@@ -751,15 +782,17 @@ def check_schema(
         severity = "info" if is_defined else "warning"
         status = "defined" if is_defined else "missing"
 
-        issues.append(ConfigIssue(
-            file=unique_refs[0].file,
-            key=key,
-            line=unique_refs[0].line,
-            severity=severity,
-            check=f"schema_{status}",
-            message=f"Key '{key}'",
-            detail=" | ".join(parts),
-        ))
+        issues.append(
+            ConfigIssue(
+                file=unique_refs[0].file,
+                key=key,
+                line=unique_refs[0].line,
+                severity=severity,
+                check=f"schema_{status}",
+                message=f"Key '{key}'",
+                detail=" | ".join(parts),
+            )
+        )
 
     return issues
 
@@ -768,14 +801,36 @@ def check_schema(
 # analyze_config helpers
 # ---------------------------------------------------------------------------
 
-_CONFIG_EXTENSIONS: frozenset[str] = frozenset({
-    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".properties", ".env",
-    ".xml", ".plist", ".hcl", ".tf", ".conf", ".json",
-})
+_CONFIG_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".properties",
+        ".env",
+        ".xml",
+        ".plist",
+        ".hcl",
+        ".tf",
+        ".conf",
+        ".json",
+    }
+)
 
-_CODE_EXTENSIONS: frozenset[str] = frozenset({
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".cs",
-})
+_CODE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".cs",
+    }
+)
 
 
 def _is_config_file(filename: str) -> bool:
@@ -800,6 +855,7 @@ def _is_code_file(filename: str) -> bool:
 # ---------------------------------------------------------------------------
 # _format_issues
 # ---------------------------------------------------------------------------
+
 
 def _format_issues(all_issues: list[ConfigIssue], severity_filter: str) -> str:
     """Format *all_issues* into a human-readable report string.
@@ -851,6 +907,7 @@ def _format_issues(all_issues: list[ConfigIssue], severity_filter: str) -> str:
 # ---------------------------------------------------------------------------
 # analyze_config — main entry point
 # ---------------------------------------------------------------------------
+
 
 def analyze_config(
     index: ProjectIndex,

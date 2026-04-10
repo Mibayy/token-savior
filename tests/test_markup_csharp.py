@@ -29,7 +29,7 @@ class TestCSharpUsingDirectives:
         imp = meta.imports[0]
         assert imp.module == "System.Math"
         assert imp.is_from_import is True
-        assert imp.names == ['*']
+        assert imp.names == ["*"]
 
     def test_alias_using(self):
         src = "using Alias = MyNamespace.MyType;\n"
@@ -46,11 +46,7 @@ class TestCSharpUsingDirectives:
         assert meta.imports[0].module == "System.Linq"
 
     def test_multiple_usings(self):
-        src = (
-            "using System;\n"
-            "using System.Collections.Generic;\n"
-            "using static System.Console;\n"
-        )
+        src = "using System;\nusing System.Collections.Generic;\nusing static System.Console;\n"
         meta = annotate_csharp(src)
         assert len(meta.imports) == 3
 
@@ -189,12 +185,7 @@ class TestCSharpMethodDetection:
     """Tests for detecting method declarations."""
 
     def test_void_method(self):
-        src = (
-            "public class MyClass {\n"
-            "    public void DoWork() {\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "public class MyClass {\n    public void DoWork() {\n    }\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.functions) == 1
         f = meta.functions[0]
@@ -245,43 +236,25 @@ class TestCSharpMethodDetection:
         assert "url" in meta.functions[0].parameters
 
     def test_virtual_method(self):
-        src = (
-            "public class Base {\n"
-            "    public virtual void Run() {\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "public class Base {\n    public virtual void Run() {\n    }\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "Run"
 
     def test_override_method(self):
-        src = (
-            "public class Derived : Base {\n"
-            "    public override void Run() {\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "public class Derived : Base {\n    public override void Run() {\n    }\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "Run"
 
     def test_abstract_method_no_body(self):
-        src = (
-            "public abstract class Shape {\n"
-            "    public abstract double Area();\n"
-            "}\n"
-        )
+        src = "public abstract class Shape {\n    public abstract double Area();\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "Area"
 
     def test_expression_bodied_method(self):
-        src = (
-            "public class Circle {\n"
-            "    public double Area() => Math.PI * r * r;\n"
-            "}\n"
-        )
+        src = "public class Circle {\n    public double Area() => Math.PI * r * r;\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "Area"
@@ -315,12 +288,7 @@ class TestCSharpMethodDetection:
         assert "input" in meta.functions[0].parameters
 
     def test_qualified_name(self):
-        src = (
-            "public class Foo {\n"
-            "    public void Bar() {\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "public class Foo {\n    public void Bar() {\n    }\n}\n"
         meta = annotate_csharp(src)
         assert meta.functions[0].qualified_name == "Foo.Bar"
 
@@ -347,7 +315,7 @@ class TestCSharpAttributes:
             "public class MyClass {\n"
             "    [HttpGet]\n"
             "    public string GetValue() {\n"
-            "        return \"\";\n"
+            '        return "";\n'
             "    }\n"
             "}\n"
         )
@@ -358,9 +326,9 @@ class TestCSharpAttributes:
     def test_attribute_with_args(self):
         src = (
             "public class MyClass {\n"
-            "    [Route(\"api/values\")]\n"
+            '    [Route("api/values")]\n'
             "    public string GetAll() {\n"
-            "        return \"\";\n"
+            '        return "";\n'
             "    }\n"
             "}\n"
         )
@@ -369,12 +337,7 @@ class TestCSharpAttributes:
         assert "Route" in meta.functions[0].decorators
 
     def test_stacked_attributes(self):
-        src = (
-            "[Serializable]\n"
-            "[Obsolete]\n"
-            "public class Legacy {\n"
-            "}\n"
-        )
+        src = "[Serializable]\n[Obsolete]\npublic class Legacy {\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.classes) == 1
         assert "Serializable" in meta.classes[0].decorators
@@ -397,13 +360,7 @@ class TestCSharpDocComments:
         assert "Does work" in meta.functions[0].docstring
 
     def test_multiline_doc(self):
-        src = (
-            "/// <summary>\n"
-            "/// Represents a person.\n"
-            "/// </summary>\n"
-            "public class Person {\n"
-            "}\n"
-        )
+        src = "/// <summary>\n/// Represents a person.\n/// </summary>\npublic class Person {\n}\n"
         meta = annotate_csharp(src)
         assert meta.classes[0].docstring is not None
         assert "Represents a person" in meta.classes[0].docstring
@@ -413,34 +370,19 @@ class TestCSharpNamespace:
     """Tests for namespace handling."""
 
     def test_file_scoped_namespace(self):
-        src = (
-            "namespace MyApp.Models;\n"
-            "\n"
-            "public class User {\n"
-            "}\n"
-        )
+        src = "namespace MyApp.Models;\n\npublic class User {\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "User"
 
     def test_block_namespace(self):
-        src = (
-            "namespace MyApp.Models {\n"
-            "    public class User {\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "namespace MyApp.Models {\n    public class User {\n    }\n}\n"
         meta = annotate_csharp(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "User"
 
     def test_namespace_not_in_classes(self):
-        src = (
-            "namespace MyApp;\n"
-            "\n"
-            "public class Foo {\n"
-            "}\n"
-        )
+        src = "namespace MyApp;\n\npublic class Foo {\n}\n"
         meta = annotate_csharp(src)
         # Namespace should NOT appear as a class
         assert all(cls.name != "MyApp" for cls in meta.classes)
@@ -519,8 +461,11 @@ class TestCSharpComplexFile:
         assert "Delete" in method_names
 
         # GetUserAsync in UserService has HttpGet attribute
-        get_user = [f for f in meta.functions
-                    if f.name == "GetUserAsync" and f.parent_class == "UserService"]
+        get_user = [
+            f
+            for f in meta.functions
+            if f.name == "GetUserAsync" and f.parent_class == "UserService"
+        ]
         assert len(get_user) == 1
         assert "HttpGet" in get_user[0].decorators
         assert get_user[0].docstring is not None

@@ -3,6 +3,7 @@
 Finds functions and classes in a ProjectIndex that have no known callers and
 are not considered entry points (routes, test helpers, __init__, etc.).
 """
+
 from __future__ import annotations
 
 import os
@@ -91,11 +92,12 @@ def _is_class_entry_point(cls: ClassInfo, file_path: str) -> bool:
 # Core analysis
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _DeadSymbol:
     file_path: str
     line: int
-    kind: str   # "function" or "class"
+    kind: str  # "function" or "class"
     name: str
     signature: str  # e.g. "unused_helper(x, y)" or just "OldProcessor"
 
@@ -150,6 +152,7 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def find_dead_code(index: ProjectIndex, max_results: int = 50) -> str:
     """Analyse *index* and return a formatted dead-code report.

@@ -117,7 +117,9 @@ def run_impacted_tests(
             "selection": selection,
             "command": command,
             "duration_sec": duration_sec,
-            "summary": summarize_command_output("run_impacted_tests", stdout, stderr, result.returncode),
+            "summary": summarize_command_output(
+                "run_impacted_tests", stdout, stderr, result.returncode
+            ),
             "exit_code": result.returncode,
             "timed_out": False,
         }
@@ -126,7 +128,12 @@ def run_impacted_tests(
             payload["stderr"] = stderr
         return _compact_workflow_result(payload) if compact else payload
     except FileNotFoundError:
-        payload = {"ok": False, "selection": selection, "error": "test runner not found", "command": command}
+        payload = {
+            "ok": False,
+            "selection": selection,
+            "error": "test runner not found",
+            "command": command,
+        }
         return _compact_workflow_result(payload) if compact else payload
     except subprocess.TimeoutExpired as exc:
         stdout = _truncate_output(exc.stdout or "", max_output_chars)
@@ -163,7 +170,10 @@ def _normalize_changed_files(
             files.add(stored_path)
             continue
         for path, meta in index.files.items():
-            if any(func.name == symbol_name or func.qualified_name == symbol_name for func in meta.functions):
+            if any(
+                func.name == symbol_name or func.qualified_name == symbol_name
+                for func in meta.functions
+            ):
                 files.add(path)
                 break
             if any(cls.name == symbol_name for cls in meta.classes):
@@ -189,7 +199,12 @@ def _select_test_command(index: ProjectIndex, selection: dict) -> list[str] | No
     if any(path.endswith(".go") for path in changed_files):
         return action_ids.get("go:test")
 
-    return action_ids.get("python:test") or action_ids.get("npm:test") or action_ids.get("cargo:test") or action_ids.get("go:test")
+    return (
+        action_ids.get("python:test")
+        or action_ids.get("npm:test")
+        or action_ids.get("cargo:test")
+        or action_ids.get("go:test")
+    )
 
 
 def _resolve_file_path(index: ProjectIndex, file_path: str) -> str | None:
@@ -205,7 +220,9 @@ def _resolve_file_path(index: ProjectIndex, file_path: str) -> str | None:
 def _is_pytest_file(path: str) -> bool:
     """Whether a path looks like a pytest-style Python test file."""
     name = PurePosixPath(path).name
-    return path.endswith(".py") and ("tests/" in path or name.startswith("test_") or name.endswith("_test.py"))
+    return path.endswith(".py") and (
+        "tests/" in path or name.startswith("test_") or name.endswith("_test.py")
+    )
 
 
 def _filename_based_test_candidates(changed_file: str) -> list[str]:

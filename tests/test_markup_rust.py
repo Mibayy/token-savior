@@ -71,7 +71,7 @@ class TestRustFunctionDetection:
             "where\n"
             "    T: Display + Debug,\n"
             "{\n"
-            "    format!(\"{}\", item)\n"
+            '    format!("{}", item)\n'
             "}\n"
         )
         meta = annotate_rust(src)
@@ -80,10 +80,7 @@ class TestRustFunctionDetection:
         assert "item" in meta.functions[0].parameters
 
     def test_multiple_functions(self):
-        src = (
-            "fn foo() {\n}\n\n"
-            "fn bar() {\n}\n"
-        )
+        src = "fn foo() {\n}\n\nfn bar() {\n}\n"
         meta = annotate_rust(src)
         func_names = [f.name for f in meta.functions]
         assert "foo" in func_names
@@ -100,12 +97,7 @@ class TestRustStructDetection:
     """Tests for detecting struct declarations."""
 
     def test_regular_struct(self):
-        src = (
-            "struct Point {\n"
-            "    x: f64,\n"
-            "    y: f64,\n"
-            "}"
-        )
+        src = "struct Point {\n    x: f64,\n    y: f64,\n}"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -114,11 +106,7 @@ class TestRustStructDetection:
         assert c.line_range.end == 4
 
     def test_pub_struct(self):
-        src = (
-            "pub struct Config {\n"
-            "    pub name: String,\n"
-            "}"
-        )
+        src = "pub struct Config {\n    pub name: String,\n}"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "Config"
@@ -136,12 +124,7 @@ class TestRustStructDetection:
         assert meta.classes[0].name == "Marker"
 
     def test_struct_with_derive(self):
-        src = (
-            "#[derive(Debug, Clone)]\n"
-            "struct Item {\n"
-            "    id: u64,\n"
-            "}\n"
-        )
+        src = "#[derive(Debug, Clone)]\nstruct Item {\n    id: u64,\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -153,36 +136,19 @@ class TestRustEnumDetection:
     """Tests for detecting enum declarations."""
 
     def test_simple_enum(self):
-        src = (
-            "enum Color {\n"
-            "    Red,\n"
-            "    Green,\n"
-            "    Blue,\n"
-            "}"
-        )
+        src = "enum Color {\n    Red,\n    Green,\n    Blue,\n}"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "Color"
 
     def test_pub_enum(self):
-        src = (
-            "pub enum Option<T> {\n"
-            "    Some(T),\n"
-            "    None,\n"
-            "}"
-        )
+        src = "pub enum Option<T> {\n    Some(T),\n    None,\n}"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "Option"
 
     def test_enum_with_data(self):
-        src = (
-            "enum Message {\n"
-            "    Quit,\n"
-            "    Move { x: i32, y: i32 },\n"
-            "    Write(String),\n"
-            "}"
-        )
+        src = "enum Message {\n    Quit,\n    Move { x: i32, y: i32 },\n    Write(String),\n}"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "Message"
@@ -192,11 +158,7 @@ class TestRustTraitDetection:
     """Tests for detecting trait declarations."""
 
     def test_simple_trait(self):
-        src = (
-            "trait Drawable {\n"
-            "    fn draw(&self);\n"
-            "}\n"
-        )
+        src = "trait Drawable {\n    fn draw(&self);\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -205,11 +167,7 @@ class TestRustTraitDetection:
         assert c.methods[0].name == "draw"
 
     def test_trait_with_supertrait(self):
-        src = (
-            "trait Animal: Display + Debug {\n"
-            "    fn name(&self) -> &str;\n"
-            "}\n"
-        )
+        src = "trait Animal: Display + Debug {\n    fn name(&self) -> &str;\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -218,13 +176,7 @@ class TestRustTraitDetection:
         assert "Debug" in c.base_classes
 
     def test_trait_with_default_method(self):
-        src = (
-            "trait Greet {\n"
-            "    fn hello(&self) {\n"
-            '        println!("Hello!");\n'
-            "    }\n"
-            "}\n"
-        )
+        src = 'trait Greet {\n    fn hello(&self) {\n        println!("Hello!");\n    }\n}\n'
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -233,11 +185,7 @@ class TestRustTraitDetection:
         assert c.methods[0].name == "hello"
 
     def test_pub_trait(self):
-        src = (
-            "pub trait Service {\n"
-            "    fn call(&self, req: Request) -> Response;\n"
-            "}\n"
-        )
+        src = "pub trait Service {\n    fn call(&self, req: Request) -> Response;\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].name == "Service"
@@ -284,7 +232,7 @@ class TestRustImplBlocks:
             "struct Cat;\n"
             "\n"
             "impl Display for Cat {\n"
-            '    fn fmt(&self, f: &mut Formatter) -> Result {\n'
+            "    fn fmt(&self, f: &mut Formatter) -> Result {\n"
             '        write!(f, "Cat")\n'
             "    }\n"
             "}\n"
@@ -378,11 +326,7 @@ class TestRustUseStatements:
         assert "Error" in meta.imports[0].names
 
     def test_multiple_use_statements(self):
-        src = (
-            "use std::io;\n"
-            "use std::collections::HashMap;\n"
-            "use crate::utils::helper;\n"
-        )
+        src = "use std::io;\nuse std::collections::HashMap;\nuse crate::utils::helper;\n"
         meta = annotate_rust(src)
         assert len(meta.imports) == 3
 
@@ -411,26 +355,14 @@ class TestRustDocComments:
         assert "Adds two numbers" in meta.functions[0].docstring
 
     def test_struct_doc_comment(self):
-        src = (
-            "/// A point in 2D space.\n"
-            "struct Point {\n"
-            "    x: f64,\n"
-            "    y: f64,\n"
-            "}\n"
-        )
+        src = "/// A point in 2D space.\nstruct Point {\n    x: f64,\n    y: f64,\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].docstring is not None
         assert "point in 2D space" in meta.classes[0].docstring
 
     def test_attributes_collected(self):
-        src = (
-            "#[derive(Debug, Clone)]\n"
-            "#[cfg(test)]\n"
-            "struct TestItem {\n"
-            "    value: i32,\n"
-            "}\n"
-        )
+        src = "#[derive(Debug, Clone)]\n#[cfg(test)]\nstruct TestItem {\n    value: i32,\n}\n"
         meta = annotate_rust(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -448,13 +380,7 @@ class TestRustMacroRules:
     """Tests for macro_rules! detection."""
 
     def test_simple_macro(self):
-        src = (
-            "macro_rules! say_hello {\n"
-            "    () => {\n"
-            '        println!("Hello!");\n'
-            "    };\n"
-            "}\n"
-        )
+        src = 'macro_rules! say_hello {\n    () => {\n        println!("Hello!");\n    };\n}\n'
         meta = annotate_rust(src)
         assert len(meta.functions) == 1
         f = meta.functions[0]
@@ -564,37 +490,21 @@ class TestRustEdgeCases:
     """Edge case tests."""
 
     def test_braces_in_string(self):
-        src = (
-            'fn template() -> String {\n'
-            '    let s = "{ not a block }";\n'
-            '    s.to_string()\n'
-            '}\n'
-        )
+        src = 'fn template() -> String {\n    let s = "{ not a block }";\n    s.to_string()\n}\n'
         meta = annotate_rust(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "template"
         assert meta.functions[0].line_range.end == 4
 
     def test_raw_string_with_braces(self):
-        src = (
-            'fn raw() -> &str {\n'
-            '    r#"{"key": "value"}"#\n'
-            '}\n'
-        )
+        src = 'fn raw() -> &str {\n    r#"{"key": "value"}"#\n}\n'
         meta = annotate_rust(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "raw"
         assert meta.functions[0].line_range.end == 3
 
     def test_nested_braces(self):
-        src = (
-            "fn nested() {\n"
-            "    if true {\n"
-            "        if false {\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-        )
+        src = "fn nested() {\n    if true {\n        if false {\n        }\n    }\n}\n"
         meta = annotate_rust(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].line_range.start == 1
@@ -616,12 +526,7 @@ class TestRustEdgeCases:
         assert meta.line_char_offsets == [0, 4, 8]
 
     def test_block_comment_with_braces(self):
-        src = (
-            "fn commented() {\n"
-            "    /* { this is a comment } */\n"
-            "    let x = 1;\n"
-            "}\n"
-        )
+        src = "fn commented() {\n    /* { this is a comment } */\n    let x = 1;\n}\n"
         meta = annotate_rust(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].line_range.end == 4

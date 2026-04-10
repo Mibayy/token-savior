@@ -66,9 +66,14 @@ class TestGetChangedSymbols:
             },
         )
 
-        with patch("token_savior.compact_ops.get_head_commit", return_value="abc123"), patch(
-            "token_savior.compact_ops.get_changed_files",
-            return_value=GitChangeSet(modified=["main.py"], added=["notes.md"], deleted=["gone.py"]),
+        with (
+            patch("token_savior.compact_ops.get_head_commit", return_value="abc123"),
+            patch(
+                "token_savior.compact_ops.get_changed_files",
+                return_value=GitChangeSet(
+                    modified=["main.py"], added=["notes.md"], deleted=["gone.py"]
+                ),
+            ),
         ):
             result = get_changed_symbols(index)
 
@@ -82,11 +87,16 @@ class TestGetChangedSymbols:
         assert result["files"][2] == {"file": "gone.py", "status": "deleted", "symbols": []}
 
     def test_respects_file_and_symbol_limits(self):
-        index = ProjectIndex(root_path="/repo", files={"main.py": _metadata(), "other.py": _metadata()})
+        index = ProjectIndex(
+            root_path="/repo", files={"main.py": _metadata(), "other.py": _metadata()}
+        )
 
-        with patch("token_savior.compact_ops.get_head_commit", return_value="abc123"), patch(
-            "token_savior.compact_ops.get_changed_files",
-            return_value=GitChangeSet(modified=["main.py", "other.py"]),
+        with (
+            patch("token_savior.compact_ops.get_head_commit", return_value="abc123"),
+            patch(
+                "token_savior.compact_ops.get_changed_files",
+                return_value=GitChangeSet(modified=["main.py", "other.py"]),
+            ),
         ):
             result = get_changed_symbols(index, max_files=1, max_symbols_per_file=1)
 

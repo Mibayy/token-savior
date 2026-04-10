@@ -43,13 +43,20 @@ from token_savior.checkpoint_ops import (
     restore_checkpoint,
 )
 from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
-from token_savior.git_ops import build_commit_summary, get_changed_symbols_since_ref, summarize_patch_by_symbol
+from token_savior.git_ops import (
+    build_commit_summary,
+    get_changed_symbols_since_ref,
+    summarize_patch_by_symbol,
+)
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
 from token_savior.project_indexer import ProjectIndexer
 from token_savior.project_actions import discover_project_actions, run_project_action
 from token_savior.query_api import create_project_query_functions
-from token_savior.workflow_ops import apply_symbol_change_and_validate, apply_symbol_change_validate_with_rollback
+from token_savior.workflow_ops import (
+    apply_symbol_change_and_validate,
+    apply_symbol_change_validate_with_rollback,
+)
 from token_savior.breaking_changes import detect_breaking_changes as run_breaking_changes
 from token_savior.complexity import find_hotspots as run_hotspots
 from token_savior.config_analyzer import analyze_config as run_config_analysis
@@ -60,6 +67,7 @@ from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 # ---------------------------------------------------------------------------
 # Per-project slot — one per workspace root, fully isolated
 # ---------------------------------------------------------------------------
+
 
 @dataclasses.dataclass
 class _ProjectSlot:
@@ -123,6 +131,7 @@ _SESSION_LABEL = os.environ.get("TOKEN_SAVIOR_SESSION_LABEL", "").strip()
 # Startup: parse env vars and register roots
 # ---------------------------------------------------------------------------
 
+
 def _parse_workspace_roots() -> list[str]:
     """Parse WORKSPACE_ROOTS (comma-separated) or fall back to PROJECT_ROOT."""
     workspace_raw = os.environ.get("WORKSPACE_ROOTS", "").strip()
@@ -154,6 +163,7 @@ _register_roots(_parse_workspace_roots())
 # ---------------------------------------------------------------------------
 # Stats helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_stats_file(project_root: str) -> str:
     """Return path to the stats JSON file for this project."""
@@ -201,11 +211,15 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
     try:
         os.makedirs(_STATS_DIR, exist_ok=True)
         cum = _load_cumulative_stats(slot.stats_file)
-        session_calls = sum(_tool_call_counts.values()) - _tool_call_counts.get("get_usage_stats", 0)
+        session_calls = sum(_tool_call_counts.values()) - _tool_call_counts.get(
+            "get_usage_stats", 0
+        )
         cum["project"] = slot.root
         cum["last_session"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         cum["last_client"] = _CLIENT_NAME
-        history = [entry for entry in cum.get("history", []) if entry.get("session_id") != _session_id]
+        history = [
+            entry for entry in cum.get("history", []) if entry.get("session_id") != _session_id
+        ]
         savings_pct = (1 - _total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0.0
         session_entry = {
             "session_id": _session_id,
@@ -303,6 +317,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def _format_result(value: object) -> str:
     """Format a query result as compact text."""
     if isinstance(value, str):
@@ -312,7 +327,9 @@ def _format_result(value: object) -> str:
     return str(value)
 
 
-def _count_and_wrap_result(slot: _ProjectSlot, name: str, arguments: dict, result: object) -> list[types.TextContent]:
+def _count_and_wrap_result(
+    slot: _ProjectSlot, name: str, arguments: dict, result: object
+) -> list[types.TextContent]:
     """Update usage counters for a tool result and return it as text content."""
     global _total_chars_returned, _total_naive_chars
 
@@ -326,7 +343,9 @@ def _count_and_wrap_result(slot: _ProjectSlot, name: str, arguments: dict, resul
     return [TextContent(type="text", text=formatted)]
 
 
-def _estimate_naive_chars_for_call(slot: _ProjectSlot, tool_name: str, arguments: dict, result: object) -> int:
+def _estimate_naive_chars_for_call(
+    slot: _ProjectSlot, tool_name: str, arguments: dict, result: object
+) -> int:
     """Estimate the naive character cost of one tool call."""
     index = slot.indexer._project_index if slot.indexer else None
     if index is None:
@@ -338,7 +357,11 @@ def _estimate_naive_chars_for_call(slot: _ProjectSlot, tool_name: str, arguments
     def size_for(paths: list[str]) -> int:
         total = 0
         for path in paths:
-            resolved = path if path in file_sizes else next((p for p in file_sizes if p.endswith(path) or path.endswith(p)), None)
+            resolved = (
+                path
+                if path in file_sizes
+                else next((p for p in file_sizes if p.endswith(path) or path.endswith(p)), None)
+            )
             if resolved:
                 total += file_sizes[resolved]
         return total
@@ -357,14 +380,23 @@ def _estimate_naive_chars_for_call(slot: _ProjectSlot, tool_name: str, arguments
         changed = selection.get("changed_files", [])
         return max(size_for(impacted + changed), len(_format_result(result)))
 
-    if tool_name in {"apply_symbol_change_and_validate", "apply_symbol_change_validate_with_rollback"} and isinstance(result, dict):
+    if tool_name in {
+        "apply_symbol_change_and_validate",
+        "apply_symbol_change_validate_with_rollback",
+    } and isinstance(result, dict):
         edit = result.get("edit", {})
         file_path = edit.get("file")
         validation = result.get("validation", {})
         impacted = validation.get("selection", {}).get("impacted_tests", [])
-        return max(size_for(([file_path] if file_path else []) + impacted) * 2, len(_format_result(result)))
+        return max(
+            size_for(([file_path] if file_path else []) + impacted) * 2, len(_format_result(result))
+        )
 
-    if tool_name in {"get_changed_symbols", "get_changed_symbols_since_ref", "compare_checkpoint_by_symbol"} and isinstance(result, dict):
+    if tool_name in {
+        "get_changed_symbols",
+        "get_changed_symbols_since_ref",
+        "compare_checkpoint_by_symbol",
+    } and isinstance(result, dict):
         files = [entry.get("file") for entry in result.get("files", []) if entry.get("file")]
         return max(size_for(files), len(_format_result(result)))
 
@@ -387,7 +419,9 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
 
     if len(_projects) > 1:
         loaded = sum(1 for s in _projects.values() if s.indexer is not None)
-        lines.append(f"Projects: {loaded}/{len(_projects)} loaded, active: {os.path.basename(_active_root)}")
+        lines.append(
+            f"Projects: {loaded}/{len(_projects)} loaded, active: {os.path.basename(_active_root)}"
+        )
 
     if _tool_call_counts:
         top_tools = sorted(
@@ -420,7 +454,9 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             lines.append("Project | Sessions | Queries | Used | Naive | Savings")
             total_chars = total_naive = total_calls_cum = total_sessions = 0
 
-            for name, cum in sorted(all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)):
+            for name, cum in sorted(
+                all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)
+            ):
                 c = cum.get("total_chars_returned", 0)
                 n = cum.get("total_naive_chars", 0)
                 s = cum.get("sessions", 0)
@@ -432,10 +468,18 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
                 total_calls_cum += q
                 total_sessions += s
 
-            pct = f"{(1 - total_chars / total_naive) * 100:.0f}%" if total_naive > total_chars > 0 else "--"
-            lines.append(f"TOTAL | {total_sessions} | {total_calls_cum} | {total_chars // 4:,} | {total_naive // 4:,} | {pct}")
+            pct = (
+                f"{(1 - total_chars / total_naive) * 100:.0f}%"
+                if total_naive > total_chars > 0
+                else "--"
+            )
+            lines.append(
+                f"TOTAL | {total_sessions} | {total_calls_cum} | {total_chars // 4:,} | {total_naive // 4:,} | {pct}"
+            )
 
-            latest_name, latest_stats = max(all_project_stats, key=lambda x: x[1].get("last_session", ""))
+            latest_name, latest_stats = max(
+                all_project_stats, key=lambda x: x[1].get("last_session", "")
+            )
             history = latest_stats.get("history", [])[-3:]
             if history:
                 lines.append("")
@@ -468,6 +512,7 @@ def _format_duration(seconds: float) -> str:
 # Cache helpers
 # ---------------------------------------------------------------------------
 
+
 def _cache_path(project_root: str) -> str:
     """Return the path to the JSON cache file for this project.
     Auto-migrates legacy .codebase-index-cache.json → .token-savior-cache.json."""
@@ -477,7 +522,10 @@ def _cache_path(project_root: str) -> str:
         if os.path.exists(legacy):
             try:
                 os.rename(legacy, new_path)
-                print(f"[token-savior] Migrated cache {_LEGACY_CACHE_FILENAME} → {_CACHE_FILENAME}", file=sys.stderr)
+                print(
+                    f"[token-savior] Migrated cache {_LEGACY_CACHE_FILENAME} → {_CACHE_FILENAME}",
+                    file=sys.stderr,
+                )
             except OSError:
                 return legacy  # fallback to old name if rename fails
     return new_path
@@ -502,8 +550,13 @@ def _index_to_dict(index: "ProjectIndex") -> dict:
 def _index_from_dict(data: dict) -> "ProjectIndex":
     """Deserialize a ProjectIndex from JSON dict, restoring sets where needed."""
     from token_savior.models import (
-        ProjectIndex, StructuralMetadata, FunctionInfo, ClassInfo,
-        ImportInfo, SectionInfo, LineRange
+        ProjectIndex,
+        StructuralMetadata,
+        FunctionInfo,
+        ClassInfo,
+        ImportInfo,
+        SectionInfo,
+        LineRange,
     )
 
     def _lr(d: dict) -> LineRange:
@@ -511,23 +564,33 @@ def _index_from_dict(data: dict) -> "ProjectIndex":
 
     def _fi(d: dict) -> FunctionInfo:
         return FunctionInfo(
-            name=d["name"], qualified_name=d["qualified_name"],
-            line_range=_lr(d["line_range"]), parameters=d["parameters"],
-            decorators=d["decorators"], docstring=d.get("docstring"),
-            is_method=d["is_method"], parent_class=d.get("parent_class"),
+            name=d["name"],
+            qualified_name=d["qualified_name"],
+            line_range=_lr(d["line_range"]),
+            parameters=d["parameters"],
+            decorators=d["decorators"],
+            docstring=d.get("docstring"),
+            is_method=d["is_method"],
+            parent_class=d.get("parent_class"),
         )
 
     def _ci(d: dict) -> ClassInfo:
         return ClassInfo(
-            name=d["name"], line_range=_lr(d["line_range"]),
-            base_classes=d["base_classes"], methods=[_fi(m) for m in d["methods"]],
-            decorators=d["decorators"], docstring=d.get("docstring"),
+            name=d["name"],
+            line_range=_lr(d["line_range"]),
+            base_classes=d["base_classes"],
+            methods=[_fi(m) for m in d["methods"]],
+            decorators=d["decorators"],
+            docstring=d.get("docstring"),
         )
 
     def _ii(d: dict) -> ImportInfo:
         return ImportInfo(
-            module=d["module"], names=d["names"], alias=d.get("alias"),
-            line_number=d["line_number"], is_from_import=d["is_from_import"],
+            module=d["module"],
+            names=d["names"],
+            alias=d.get("alias"),
+            line_number=d["line_number"],
+            is_from_import=d["is_from_import"],
         )
 
     def _si(d: dict) -> SectionInfo:
@@ -535,8 +598,10 @@ def _index_from_dict(data: dict) -> "ProjectIndex":
 
     def _sm(d: dict) -> StructuralMetadata:
         return StructuralMetadata(
-            source_name=d["source_name"], total_lines=d["total_lines"],
-            total_chars=d["total_chars"], lines=d["lines"],
+            source_name=d["source_name"],
+            total_lines=d["total_lines"],
+            total_chars=d["total_chars"],
+            lines=d["lines"],
             line_char_offsets=d["line_char_offsets"],
             functions=[_fi(f) for f in d.get("functions", [])],
             classes=[_ci(c) for c in d.get("classes", [])],
@@ -600,6 +665,7 @@ def _load_cache(project_root: str) -> "ProjectIndex | None":
 # Per-slot index management
 # ---------------------------------------------------------------------------
 
+
 def _ensure_slot(slot: _ProjectSlot) -> None:
     """Lazily initialize a project slot if not yet indexed."""
     if slot.indexer is not None:
@@ -660,12 +726,16 @@ def _build_slot(slot: _ProjectSlot) -> None:
         exclude_patterns = [p.strip() for p in exclude_override_raw.split(":") if p.strip()]
     elif extra_excludes_raw:
         tmp = ProjectIndexer(root)
-        exclude_patterns = tmp.exclude_patterns + [p.strip() for p in extra_excludes_raw.split(":") if p.strip()]
+        exclude_patterns = tmp.exclude_patterns + [
+            p.strip() for p in extra_excludes_raw.split(":") if p.strip()
+        ]
 
     if include_override_raw:
         include_patterns = [p.strip() for p in include_override_raw.split(":") if p.strip()]
 
-    slot.indexer = ProjectIndexer(root, include_patterns=include_patterns, exclude_patterns=exclude_patterns)
+    slot.indexer = ProjectIndexer(
+        root, include_patterns=include_patterns, exclude_patterns=exclude_patterns
+    )
     index = slot.indexer.index()
     slot.query_fns = create_project_query_functions(index)
 
@@ -763,6 +833,7 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
 # ---------------------------------------------------------------------------
 # Resolve which slot to use for a given tool call
 # ---------------------------------------------------------------------------
+
 
 def _resolve_slot(project_hint: Optional[str] = None) -> tuple[Optional[_ProjectSlot], str]:
     """
@@ -1600,8 +1671,14 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "keyword": {"type": "string", "description": "Feature keyword (e.g. 'contrat', 'paiement', 'auth')."},
-                "max_results": {"type": "integer", "description": "Max files to return (0 = all, default 0)."},
+                "keyword": {
+                    "type": "string",
+                    "description": "Feature keyword (e.g. 'contrat', 'paiement', 'auth').",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max files to return (0 = all, default 0).",
+                },
                 **_PROJECT_PARAM,
             },
             "required": ["keyword"],
@@ -1619,7 +1696,10 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "max_results": {"type": "integer", "description": "Max routes to return (0 = all, default 0)."},
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max routes to return (0 = all, default 0).",
+                },
                 **_PROJECT_PARAM,
             },
         },
@@ -1630,8 +1710,14 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "var_name": {"type": "string", "description": "Environment variable name (e.g. HELLOASSO_CLIENT_ID)."},
-                "max_results": {"type": "integer", "description": "Max results (0 = all, default 0)."},
+                "var_name": {
+                    "type": "string",
+                    "description": "Environment variable name (e.g. HELLOASSO_CLIENT_ID).",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max results (0 = all, default 0).",
+                },
                 **_PROJECT_PARAM,
             },
             "required": ["var_name"],
@@ -1643,8 +1729,14 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "Optional file to scan (default: all .tsx/.jsx)."},
-                "max_results": {"type": "integer", "description": "Max results (0 = all, default 0)."},
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file to scan (default: all .tsx/.jsx).",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max results (0 = all, default 0).",
+                },
                 **_PROJECT_PARAM,
             },
         },
@@ -1661,7 +1753,10 @@ TOOLS = [
             "properties": {
                 "checks": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"]},
+                    "items": {
+                        "type": "string",
+                        "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"],
+                    },
                     "description": 'Checks to run (default: duplicates,secrets,orphans). Options: "duplicates", "secrets", "orphans", "loaders", "schema".',
                 },
                 "file_path": {
@@ -1820,8 +1915,10 @@ def _prep(slot: _ProjectSlot) -> None:
 
 # ── Index-level handlers (slot + ensure + update → result) ────────────────
 
+
 def _h_get_git_status(slot, args):
     return get_git_status(slot.root)
+
 
 def _h_get_changed_symbols(slot, args):
     _prep(slot)
@@ -1831,13 +1928,16 @@ def _h_get_changed_symbols(slot, args):
         max_symbols_per_file=args.get("max_symbols_per_file", 20),
     )
 
+
 def _h_get_changed_symbols_since_ref(slot, args):
     _prep(slot)
     return get_changed_symbols_since_ref(
-        slot.indexer._project_index, args["since_ref"],
+        slot.indexer._project_index,
+        args["since_ref"],
         max_files=args.get("max_files", 20),
         max_symbols_per_file=args.get("max_symbols_per_file", 20),
     )
+
 
 def _h_summarize_patch_by_symbol(slot, args):
     _prep(slot)
@@ -1848,6 +1948,7 @@ def _h_summarize_patch_by_symbol(slot, args):
         max_symbols_per_file=args.get("max_symbols_per_file", 20),
     )
 
+
 def _h_build_commit_summary(slot, args):
     _prep(slot)
     return build_commit_summary(
@@ -1857,21 +1958,26 @@ def _h_build_commit_summary(slot, args):
         max_symbols_per_file=args.get("max_symbols_per_file", 20),
     )
 
+
 def _h_create_checkpoint(slot, args):
     _prep(slot)
     return create_checkpoint(slot.indexer._project_index, args["file_paths"])
+
 
 def _h_list_checkpoints(slot, args):
     _prep(slot)
     return list_checkpoints(slot.indexer._project_index)
 
+
 def _h_delete_checkpoint(slot, args):
     _prep(slot)
     return delete_checkpoint(slot.indexer._project_index, args["checkpoint_id"])
 
+
 def _h_prune_checkpoints(slot, args):
     _prep(slot)
     return prune_checkpoints(slot.indexer._project_index, keep_last=args.get("keep_last", 10))
+
 
 def _h_restore_checkpoint(slot, args):
     _prep(slot)
@@ -1881,32 +1987,42 @@ def _h_restore_checkpoint(slot, args):
             slot.indexer.reindex_file(f)
     return result
 
+
 def _h_compare_checkpoint_by_symbol(slot, args):
     _prep(slot)
     return compare_checkpoint_by_symbol(
-        slot.indexer._project_index, args["checkpoint_id"],
+        slot.indexer._project_index,
+        args["checkpoint_id"],
         max_files=args.get("max_files", 20),
     )
+
 
 def _h_replace_symbol_source(slot, args):
     _prep(slot)
     result = replace_symbol_source(
-        slot.indexer._project_index, args["symbol_name"], args["new_source"],
+        slot.indexer._project_index,
+        args["symbol_name"],
+        args["new_source"],
         file_path=args.get("file_path"),
     )
     if result.get("ok"):
         slot.indexer.reindex_file(result["file"])
     return result
 
+
 def _h_insert_near_symbol(slot, args):
     _prep(slot)
     result = insert_near_symbol(
-        slot.indexer._project_index, args["symbol_name"], args["content"],
-        position=args.get("position", "after"), file_path=args.get("file_path"),
+        slot.indexer._project_index,
+        args["symbol_name"],
+        args["content"],
+        position=args.get("position", "after"),
+        file_path=args.get("file_path"),
     )
     if result.get("ok"):
         slot.indexer.reindex_file(result["file"])
     return result
+
 
 def _h_find_impacted_test_files(slot, args):
     _prep(slot)
@@ -1916,6 +2032,7 @@ def _h_find_impacted_test_files(slot, args):
         symbol_names=args.get("symbol_names"),
         max_tests=args.get("max_tests", 20),
     )
+
 
 def _h_run_impacted_tests(slot, args):
     _prep(slot)
@@ -1930,10 +2047,13 @@ def _h_run_impacted_tests(slot, args):
         compact=args.get("compact", False),
     )
 
+
 def _h_apply_symbol_change_and_validate(slot, args):
     _prep(slot)
     return apply_symbol_change_and_validate(
-        slot.indexer, args["symbol_name"], args["new_source"],
+        slot.indexer,
+        args["symbol_name"],
+        args["new_source"],
         file_path=args.get("file_path"),
         max_tests=args.get("max_tests", 20),
         timeout_sec=args.get("timeout_sec", 120),
@@ -1941,11 +2061,14 @@ def _h_apply_symbol_change_and_validate(slot, args):
         include_output=args.get("include_output", False),
         compact=args.get("compact", False),
     )
+
 
 def _h_apply_symbol_change_validate_with_rollback(slot, args):
     _prep(slot)
     return apply_symbol_change_validate_with_rollback(
-        slot.indexer, args["symbol_name"], args["new_source"],
+        slot.indexer,
+        args["symbol_name"],
+        args["new_source"],
         file_path=args.get("file_path"),
         max_tests=args.get("max_tests", 20),
         timeout_sec=args.get("timeout_sec", 120),
@@ -1954,28 +2077,35 @@ def _h_apply_symbol_change_validate_with_rollback(slot, args):
         compact=args.get("compact", False),
     )
 
+
 def _h_discover_project_actions(slot, args):
     return discover_project_actions(slot.root)
 
+
 def _h_run_project_action(slot, args):
     return run_project_action(
-        slot.root, args["action_id"],
+        slot.root,
+        args["action_id"],
         timeout_sec=args.get("timeout_sec", 120),
         max_output_chars=args.get("max_output_chars", 12000),
         include_output=args.get("include_output", False),
     )
+
 
 def _h_analyze_config(slot, args):
     _prep(slot)
     return run_config_analysis(
         slot.indexer._project_index,
-        checks=args.get("checks"), file_path=args.get("file_path"),
+        checks=args.get("checks"),
+        file_path=args.get("file_path"),
         severity=args.get("severity", "all"),
     )
+
 
 def _h_find_dead_code(slot, args):
     _prep(slot)
     return run_dead_code(slot.indexer._project_index, max_results=args.get("max_results", 50))
+
 
 def _h_find_hotspots(slot, args):
     _prep(slot)
@@ -1985,11 +2115,14 @@ def _h_find_hotspots(slot, args):
         min_score=args.get("min_score", 0.0),
     )
 
+
 def _h_detect_breaking_changes(slot, args):
     _prep(slot)
     return run_breaking_changes(
-        slot.indexer._project_index, since_ref=args.get("since_ref", "HEAD~1"),
+        slot.indexer._project_index,
+        since_ref=args.get("since_ref", "HEAD~1"),
     )
+
 
 def _h_find_cross_project_deps(slot, args):
     loaded: dict[str, ProjectIndex] = {}
@@ -1998,6 +2131,7 @@ def _h_find_cross_project_deps(slot, args):
         if s.indexer and s.indexer._project_index:
             loaded[os.path.basename(root)] = s.indexer._project_index
     return run_cross_project(loaded)
+
 
 def _h_analyze_docker(slot, args):
     _prep(slot)
@@ -2036,6 +2170,7 @@ _SLOT_HANDLERS: dict[str, object] = {
 
 # ── Query-function handlers (qfns dict + arguments → result) ─────────────
 
+
 def _q_get_edit_context(qfns, args):
     sym_name = args["name"]
     max_deps = args.get("max_deps", 10)
@@ -2066,28 +2201,60 @@ def _q_get_edit_context(qfns, args):
 # Dispatch table: tool name → handler(qfns, arguments) → result
 _QFN_HANDLERS: dict[str, object] = {
     "get_project_summary": lambda q, a: q["get_project_summary"](),
-    "list_files": lambda q, a: q["list_files"](a.get("pattern"), max_results=a.get("max_results", 0)),
+    "list_files": lambda q, a: q["list_files"](
+        a.get("pattern"), max_results=a.get("max_results", 0)
+    ),
     "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
-    "get_function_source": lambda q, a: q["get_function_source"](a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)),
-    "get_class_source": lambda q, a: q["get_class_source"](a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)),
-    "get_functions": lambda q, a: q["get_functions"](a.get("file_path"), max_results=a.get("max_results", 0)),
-    "get_classes": lambda q, a: q["get_classes"](a.get("file_path"), max_results=a.get("max_results", 0)),
-    "get_imports": lambda q, a: q["get_imports"](a.get("file_path"), max_results=a.get("max_results", 0)),
+    "get_function_source": lambda q, a: q["get_function_source"](
+        a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)
+    ),
+    "get_class_source": lambda q, a: q["get_class_source"](
+        a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)
+    ),
+    "get_functions": lambda q, a: q["get_functions"](
+        a.get("file_path"), max_results=a.get("max_results", 0)
+    ),
+    "get_classes": lambda q, a: q["get_classes"](
+        a.get("file_path"), max_results=a.get("max_results", 0)
+    ),
+    "get_imports": lambda q, a: q["get_imports"](
+        a.get("file_path"), max_results=a.get("max_results", 0)
+    ),
     "find_symbol": lambda q, a: q["find_symbol"](a["name"]),
-    "get_dependencies": lambda q, a: q["get_dependencies"](a["name"], max_results=a.get("max_results", 0)),
-    "get_dependents": lambda q, a: q["get_dependents"](a["name"], max_results=a.get("max_results", 0)),
-    "get_change_impact": lambda q, a: q["get_change_impact"](a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0)),
+    "get_dependencies": lambda q, a: q["get_dependencies"](
+        a["name"], max_results=a.get("max_results", 0)
+    ),
+    "get_dependents": lambda q, a: q["get_dependents"](
+        a["name"], max_results=a.get("max_results", 0)
+    ),
+    "get_change_impact": lambda q, a: q["get_change_impact"](
+        a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0)
+    ),
     "get_call_chain": lambda q, a: q["get_call_chain"](a["from_name"], a["to_name"]),
     "get_edit_context": _q_get_edit_context,
-    "get_file_dependencies": lambda q, a: q["get_file_dependencies"](a["file_path"], max_results=a.get("max_results", 0)),
-    "get_file_dependents": lambda q, a: q["get_file_dependents"](a["file_path"], max_results=a.get("max_results", 0)),
-    "search_codebase": lambda q, a: q["search_codebase"](a["pattern"], max_results=a.get("max_results", 100)),
+    "get_file_dependencies": lambda q, a: q["get_file_dependencies"](
+        a["file_path"], max_results=a.get("max_results", 0)
+    ),
+    "get_file_dependents": lambda q, a: q["get_file_dependents"](
+        a["file_path"], max_results=a.get("max_results", 0)
+    ),
+    "search_codebase": lambda q, a: q["search_codebase"](
+        a["pattern"], max_results=a.get("max_results", 100)
+    ),
     "get_routes": lambda q, a: q["get_routes"](max_results=a.get("max_results", 0)),
-    "get_env_usage": lambda q, a: q["get_env_usage"](a["var_name"], max_results=a.get("max_results", 0)),
-    "get_components": lambda q, a: q["get_components"](file_path=a.get("file_path"), max_results=a.get("max_results", 0)),
-    "get_feature_files": lambda q, a: q["get_feature_files"](a["keyword"], max_results=a.get("max_results", 0)),
+    "get_env_usage": lambda q, a: q["get_env_usage"](
+        a["var_name"], max_results=a.get("max_results", 0)
+    ),
+    "get_components": lambda q, a: q["get_components"](
+        file_path=a.get("file_path"), max_results=a.get("max_results", 0)
+    ),
+    "get_feature_files": lambda q, a: q["get_feature_files"](
+        a["keyword"], max_results=a.get("max_results", 0)
+    ),
     "get_entry_points": lambda q, a: q["get_entry_points"](max_results=a.get("max_results", 20)),
-    "get_symbol_cluster": lambda q, a: q["get_symbol_cluster"](a["name"], max_members=a.get("max_members", 30)),
+    "get_symbol_cluster": lambda q, a: q["get_symbol_cluster"](
+        a["name"], max_members=a.get("max_members", 30)
+    ),
 }
 
 
@@ -2105,7 +2272,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         if name == "list_projects":
             if not _projects:
-                return [TextContent(type="text", text="No projects registered. Call set_project_root('/path') first.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="No projects registered. Call set_project_root('/path') first.",
+                    )
+                ]
             lines = [f"Workspace projects ({len(_projects)}):"]
             for root, slot in _projects.items():
                 status = "indexed" if slot.indexer is not None else "not yet loaded"
@@ -2113,7 +2285,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 name_part = os.path.basename(root)
                 if slot.indexer and slot.indexer._project_index:
                     idx = slot.indexer._project_index
-                    lines.append(f"  {name_part}{active} -- {idx.total_files} files, {idx.total_functions} functions ({root})")
+                    lines.append(
+                        f"  {name_part}{active} -- {idx.total_files} files, {idx.total_functions} functions ({root})"
+                    )
                 else:
                     lines.append(f"  {name_part}{active} -- {status} ({root})")
             return [TextContent(type="text", text="\n".join(lines))]
@@ -2127,7 +2301,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             _ensure_slot(slot)
             idx = slot.indexer._project_index if slot.indexer else None
             info = f"{idx.total_files} files" if idx else "index not built"
-            return [TextContent(type="text", text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.")]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
+                )
+            ]
 
         if name == "set_project_root":
             new_root = os.path.abspath(arguments["path"])
@@ -2150,7 +2329,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             slot.indexer = None
             slot.query_fns = None
             _build_slot(slot)
-            return [TextContent(type="text", text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.")]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.",
+                )
+            ]
 
         # ── All other tools need a resolved slot ──────────────────────────
 
@@ -2170,7 +2354,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         if qfn_handler is not None:
             _prep(slot)
             if slot.query_fns is None:
-                return [TextContent(type="text", text=f"Error: index not built for '{slot.root}'. Call reindex first.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Error: index not built for '{slot.root}'. Call reindex first.",
+                    )
+                ]
             result = qfn_handler(slot.query_fns, arguments)
             return _count_and_wrap_result(slot, name, arguments, result)
 
@@ -2199,6 +2388,7 @@ async def main():
 def main_sync():
     """Synchronous entry point for console_scripts."""
     import asyncio
+
     asyncio.run(main())
 
 

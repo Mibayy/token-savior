@@ -102,7 +102,9 @@ class TestRunImpactedTests:
         index = _sample_index(tmp_path)
 
         with patch("token_savior.impacted_tests.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=". [100%]\n1 passed in 0.10s\n", stderr="")
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=". [100%]\n1 passed in 0.10s\n", stderr=""
+            )
             result = run_impacted_tests(index, changed_files=["src/core.py"], compact=True)
 
         assert set(result.keys()) == {"ok", "command", "summary", "selection"}

@@ -19,7 +19,9 @@ def replace_symbol_source(
         return location
 
     target_file = os.path.normpath(os.path.join(index.root_path, location["file"]))
-    if os.path.commonpath([target_file, os.path.normpath(index.root_path)]) != os.path.normpath(index.root_path):
+    if os.path.commonpath([target_file, os.path.normpath(index.root_path)]) != os.path.normpath(
+        index.root_path
+    ):
         return {"error": f"Unsafe file path: {location['file']}"}
     file_result = _replace_line_range(
         target_file,
@@ -56,7 +58,9 @@ def insert_near_symbol(
 
     insertion_line = location["line"] if position == "before" else location["end_line"] + 1
     target_file = os.path.normpath(os.path.join(index.root_path, location["file"]))
-    if os.path.commonpath([target_file, os.path.normpath(index.root_path)]) != os.path.normpath(index.root_path):
+    if os.path.commonpath([target_file, os.path.normpath(index.root_path)]) != os.path.normpath(
+        index.root_path
+    ):
         return {"error": f"Unsafe file path: {location['file']}"}
     file_result = _insert_at_line(target_file, insertion_line, content)
     return {

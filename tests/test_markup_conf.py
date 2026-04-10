@@ -1,4 +1,5 @@
 """Tests for the .conf config file annotator."""
+
 from token_savior.conf_annotator import annotate_conf
 
 
@@ -64,26 +65,14 @@ class TestConfBlocks:
         assert "server" in titles
 
     def test_nested_blocks(self):
-        text = (
-            "http {\n"
-            "    server {\n"
-            "        listen 80;\n"
-            "    }\n"
-            "}\n"
-        )
+        text = "http {\n    server {\n        listen 80;\n    }\n}\n"
         meta = annotate_conf(text)
         titles = [s.title for s in meta.sections]
         assert "http" in titles
         assert "server" in titles
 
     def test_block_level(self):
-        text = (
-            "http {\n"
-            "    server {\n"
-            "        listen 80;\n"
-            "    }\n"
-            "}\n"
-        )
+        text = "http {\n    server {\n        listen 80;\n    }\n}\n"
         meta = annotate_conf(text)
         by_title = {s.title: s for s in meta.sections}
         assert by_title["http"].level == 1
@@ -140,16 +129,7 @@ class TestConfDepthCap:
 
     def test_depth_capped_at_4(self):
         text = (
-            "l1 {\n"
-            "  l2 {\n"
-            "    l3 {\n"
-            "      l4 {\n"
-            "        l5 {\n"
-            "        }\n"
-            "      }\n"
-            "    }\n"
-            "  }\n"
-            "}\n"
+            "l1 {\n  l2 {\n    l3 {\n      l4 {\n        l5 {\n        }\n      }\n    }\n  }\n}\n"
         )
         meta = annotate_conf(text)
         titles = [s.title for s in meta.sections]

@@ -1,6 +1,5 @@
 """Tests for the Python file annotator."""
 
-
 from token_savior.python_annotator import annotate_python
 from token_savior.models import (
     StructuralMetadata,
@@ -94,7 +93,7 @@ class AsyncService:
         return "sync"
 '''
 
-SOURCE_SYNTAX_ERROR = '''\
+SOURCE_SYNTAX_ERROR = """\
 def valid_func():
     pass
 
@@ -103,7 +102,7 @@ class Broken
 
 def another():
     pass
-'''
+"""
 
 SOURCE_DECORATORS_COMPLEX = '''\
 from functools import wraps
@@ -134,23 +133,24 @@ class MyClass:
         return decorated_func(y, z)
 '''
 
-SOURCE_STAR_IMPORT_AND_ALIAS = '''\
+SOURCE_STAR_IMPORT_AND_ALIAS = """\
 from os.path import join, exists
 import numpy as np
 from . import utils
-'''
+"""
 
-SOURCE_EMPTY = ''
+SOURCE_EMPTY = ""
 
-SOURCE_MINIMAL = '''\
+SOURCE_MINIMAL = """\
 x = 1
 y = 2
-'''
+"""
 
 
 # ---------------------------------------------------------------------------
 # Tests: classes, decorators, imports
 # ---------------------------------------------------------------------------
+
 
 class TestClassesDecoratorsImports:
     def test_imports_extracted(self):
@@ -259,6 +259,7 @@ class TestClassesDecoratorsImports:
 # Tests: nested functions
 # ---------------------------------------------------------------------------
 
+
 class TestNestedFunctions:
     def test_top_level_functions_only_at_module_level(self):
         meta = annotate_python(SOURCE_NESTED_FUNCTIONS, "nested.py")
@@ -285,6 +286,7 @@ class TestNestedFunctions:
 # ---------------------------------------------------------------------------
 # Tests: async functions
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncFunctions:
     def test_async_functions_detected(self):
@@ -323,6 +325,7 @@ class TestAsyncFunctions:
 # Tests: syntax errors (graceful fallback)
 # ---------------------------------------------------------------------------
 
+
 class TestSyntaxErrorFallback:
     def test_syntax_error_returns_metadata(self):
         meta = annotate_python(SOURCE_SYNTAX_ERROR, "broken.py")
@@ -346,6 +349,7 @@ class TestSyntaxErrorFallback:
 # ---------------------------------------------------------------------------
 # Tests: complex decorators and classmethod/staticmethod
 # ---------------------------------------------------------------------------
+
 
 class TestComplexDecorators:
     def test_classmethod_skips_cls(self):
@@ -376,6 +380,7 @@ class TestComplexDecorators:
 # ---------------------------------------------------------------------------
 # Tests: edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_source(self):

@@ -179,7 +179,9 @@ class TestGetGitStatus:
 
     def test_returns_error_when_git_fails(self):
         with patch("token_savior.git_tracker.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repo")
+            mock_run.return_value = MagicMock(
+                returncode=128, stdout="", stderr="fatal: not a git repo"
+            )
             result = get_git_status("/some/path")
 
         assert result == {"ok": False, "error": "fatal: not a git repo"}

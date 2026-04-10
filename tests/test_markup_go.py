@@ -7,7 +7,7 @@ class TestGoFunctionDetection:
     """Tests for detecting function declarations."""
 
     def test_simple_function(self):
-        src = "func greet(name string) string {\n\treturn \"Hello \" + name\n}"
+        src = 'func greet(name string) string {\n\treturn "Hello " + name\n}'
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         f = meta.functions[0]
@@ -27,7 +27,7 @@ class TestGoFunctionDetection:
         assert "b" in meta.functions[0].parameters
 
     def test_no_params(self):
-        src = "func hello() {\n\tfmt.Println(\"hello\")\n}"
+        src = 'func hello() {\n\tfmt.Println("hello")\n}'
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].parameters == []
@@ -38,10 +38,7 @@ class TestGoFunctionDetection:
         assert len(meta.functions) == 1
 
     def test_multiple_functions(self):
-        src = (
-            "func foo() {\n}\n\n"
-            "func bar() {\n}\n"
-        )
+        src = "func foo() {\n}\n\nfunc bar() {\n}\n"
         meta = annotate_go(src)
         assert len(meta.functions) == 2
         names = [f.name for f in meta.functions]
@@ -49,15 +46,7 @@ class TestGoFunctionDetection:
         assert "bar" in names
 
     def test_function_line_range(self):
-        src = (
-            "package main\n"
-            "\n"
-            "func foo() {\n"
-            "\tx := 1\n"
-            "\ty := 2\n"
-            "\treturn x + y\n"
-            "}\n"
-        )
+        src = "package main\n\nfunc foo() {\n\tx := 1\n\ty := 2\n\treturn x + y\n}\n"
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         f = meta.functions[0]
@@ -126,12 +115,7 @@ class TestGoTypeDetection:
     """Tests for detecting type declarations."""
 
     def test_simple_struct(self):
-        src = (
-            "type Point struct {\n"
-            "\tX float64\n"
-            "\tY float64\n"
-            "}"
-        )
+        src = "type Point struct {\n\tX float64\n\tY float64\n}"
         meta = annotate_go(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -140,12 +124,7 @@ class TestGoTypeDetection:
         assert c.line_range.end == 4
 
     def test_struct_with_embedding(self):
-        src = (
-            "type Admin struct {\n"
-            "\tUser\n"
-            "\tRole string\n"
-            "}"
-        )
+        src = "type Admin struct {\n\tUser\n\tRole string\n}"
         meta = annotate_go(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -153,11 +132,7 @@ class TestGoTypeDetection:
         assert "User" in c.base_classes
 
     def test_simple_interface(self):
-        src = (
-            "type Reader interface {\n"
-            "\tRead(p []byte) (int, error)\n"
-            "}"
-        )
+        src = "type Reader interface {\n\tRead(p []byte) (int, error)\n}"
         meta = annotate_go(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -166,12 +141,7 @@ class TestGoTypeDetection:
         assert c.methods[0].name == "Read"
 
     def test_interface_with_embedding(self):
-        src = (
-            "type ReadWriter interface {\n"
-            "\tReader\n"
-            "\tWriter\n"
-            "}"
-        )
+        src = "type ReadWriter interface {\n\tReader\n\tWriter\n}"
         meta = annotate_go(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -206,12 +176,7 @@ class TestGoImportDetection:
         assert "fmt" in imp.names
 
     def test_grouped_imports(self):
-        src = (
-            'import (\n'
-            '\t"fmt"\n'
-            '\t"os"\n'
-            ')'
-        )
+        src = 'import (\n\t"fmt"\n\t"os"\n)'
         meta = annotate_go(src)
         assert len(meta.imports) == 2
         modules = [imp.module for imp in meta.imports]
@@ -232,11 +197,7 @@ class TestGoImportDetection:
         assert meta.imports[0].alias == "_"
 
     def test_dot_import(self):
-        src = (
-            'import (\n'
-            '\t. "fmt"\n'
-            ')'
-        )
+        src = 'import (\n\t. "fmt"\n)'
         meta = annotate_go(src)
         assert len(meta.imports) == 1
         assert meta.imports[0].alias == "."
@@ -266,12 +227,7 @@ class TestGoDocComments:
         assert "Greet returns a greeting message" in meta.functions[0].docstring
 
     def test_struct_doc_comment(self):
-        src = (
-            "// Server represents an HTTP server.\n"
-            "type Server struct {\n"
-            "\tPort int\n"
-            "}"
-        )
+        src = "// Server represents an HTTP server.\ntype Server struct {\n\tPort int\n}"
         meta = annotate_go(src)
         assert len(meta.classes) == 1
         assert meta.classes[0].docstring is not None
@@ -284,11 +240,7 @@ class TestGoDocComments:
         assert meta.functions[0].docstring is None
 
     def test_non_adjacent_comment_not_doc(self):
-        src = (
-            "// This is a general comment\n"
-            "\n"
-            "func foo() {}\n"
-        )
+        src = "// This is a general comment\n\nfunc foo() {}\n"
         meta = annotate_go(src)
         # The blank line breaks the doc comment chain
         assert meta.functions[0].docstring is None
@@ -299,33 +251,33 @@ class TestGoComplexFile:
 
     def test_full_file(self):
         src = (
-            'package main\n'
-            '\n'
-            'import (\n'
+            "package main\n"
+            "\n"
+            "import (\n"
             '\t"fmt"\n'
             '\t"net/http"\n'
-            ')\n'
-            '\n'
-            '// Handler defines request handling.\n'
-            'type Handler interface {\n'
-            '\tServeHTTP(w http.ResponseWriter, r *http.Request)\n'
-            '}\n'
-            '\n'
-            '// App is the main application.\n'
-            'type App struct {\n'
-            '\tName string\n'
-            '\tPort int\n'
-            '}\n'
-            '\n'
-            '// Run starts the application.\n'
-            'func (a *App) Run() error {\n'
+            ")\n"
+            "\n"
+            "// Handler defines request handling.\n"
+            "type Handler interface {\n"
+            "\tServeHTTP(w http.ResponseWriter, r *http.Request)\n"
+            "}\n"
+            "\n"
+            "// App is the main application.\n"
+            "type App struct {\n"
+            "\tName string\n"
+            "\tPort int\n"
+            "}\n"
+            "\n"
+            "// Run starts the application.\n"
+            "func (a *App) Run() error {\n"
             '\treturn http.ListenAndServe(fmt.Sprintf(":%d", a.Port), nil)\n'
-            '}\n'
-            '\n'
-            'func main() {\n'
+            "}\n"
+            "\n"
+            "func main() {\n"
             '\tapp := &App{Name: "myapp", Port: 8080}\n'
-            '\tapp.Run()\n'
-            '}\n'
+            "\tapp.Run()\n"
+            "}\n"
         )
         meta = annotate_go(src, source_name="main.go")
 
@@ -358,11 +310,7 @@ class TestGoEdgeCases:
     """Edge case tests."""
 
     def test_backtick_string_with_braces(self):
-        src = (
-            'func tmpl() string {\n'
-            '\treturn `{"key": "value"}`\n'
-            '}\n'
-        )
+        src = 'func tmpl() string {\n\treturn `{"key": "value"}`\n}\n'
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "tmpl"
@@ -396,16 +344,7 @@ class TestGoEdgeCases:
         assert meta.line_char_offsets == [0, 4, 8]
 
     def test_multiline_backtick_string(self):
-        src = (
-            'func query() string {\n'
-            '\treturn `\n'
-            'SELECT *\n'
-            'FROM {\n'
-            '  table\n'
-            '}\n'
-            '`\n'
-            '}\n'
-        )
+        src = "func query() string {\n\treturn `\nSELECT *\nFROM {\n  table\n}\n`\n}\n"
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "query"

@@ -11,10 +11,7 @@ from token_savior.project_actions import discover_project_actions, run_project_a
 class TestDiscoverProjectActions:
     def test_detects_python_actions_from_pyproject(self, tmp_path):
         (tmp_path / "pyproject.toml").write_text(
-            "[tool.pytest.ini_options]\n"
-            "testpaths = ['tests']\n\n"
-            "[tool.ruff]\n"
-            "line-length = 100\n",
+            "[tool.pytest.ini_options]\ntestpaths = ['tests']\n\n[tool.ruff]\nline-length = 100\n",
             encoding="utf-8",
         )
         (tmp_path / "src").mkdir()
@@ -96,7 +93,9 @@ class TestRunProjectAction:
         )
         with patch("token_savior.project_actions.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="x" * 50, stderr="")
-            result = run_project_action(str(tmp_path), "npm:test", max_output_chars=10, include_output=True)
+            result = run_project_action(
+                str(tmp_path), "npm:test", max_output_chars=10, include_output=True
+            )
 
         assert result["ok"] is True
         assert "... [truncated" in result["stdout"]

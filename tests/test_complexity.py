@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from token_savior.complexity import find_hotspots, _compute_nesting_depth, _count_branches, _score_function
+from token_savior.complexity import (
+    find_hotspots,
+    _compute_nesting_depth,
+    _count_branches,
+    _score_function,
+)
 from token_savior.models import (
     FunctionInfo,
     LineRange,
@@ -162,31 +167,35 @@ class TestFindHotspots:
     def test_complex_ranks_higher_than_simple(self):
         # Simple: 3 lines, 0 branches, depth 1, 0 params
         simple_lines = [
-            "def simple():\n",           # line 1
-            "    x = 1\n",               # line 2
-            "    return x\n",            # line 3
+            "def simple():\n",  # line 1
+            "    x = 1\n",  # line 2
+            "    return x\n",  # line 3
         ]
         simple_func = _make_func("simple", start=1, end=3, params=[])
 
         # Complex: 10 lines, 4 branches, deeper nesting, 6 params
         complex_lines = [
-            "def complex(a, b, c, d, e, f):\n",   # line 1
-            "    if a:\n",                          # line 2
-            "        for i in range(b):\n",         # line 3
-            "            if i > c:\n",              # line 4
-            "                while d:\n",           # line 5
-            "                    x = i\n",          # line 6
-            "    elif b:\n",                        # line 7
-            "        pass\n",                       # line 8
-            "    else:\n",                          # line 9
-            "        return f\n",                   # line 10
+            "def complex(a, b, c, d, e, f):\n",  # line 1
+            "    if a:\n",  # line 2
+            "        for i in range(b):\n",  # line 3
+            "            if i > c:\n",  # line 4
+            "                while d:\n",  # line 5
+            "                    x = i\n",  # line 6
+            "    elif b:\n",  # line 7
+            "        pass\n",  # line 8
+            "    else:\n",  # line 9
+            "        return f\n",  # line 10
         ]
-        complex_func = _make_func("complex_fn", start=1, end=10, params=["a", "b", "c", "d", "e", "f"])
+        complex_func = _make_func(
+            "complex_fn", start=1, end=10, params=["a", "b", "c", "d", "e", "f"]
+        )
 
-        index = _make_index({
-            "src/simple.py": (simple_lines, [simple_func]),
-            "src/complex.py": (complex_lines, [complex_func]),
-        })
+        index = _make_index(
+            {
+                "src/simple.py": (simple_lines, [simple_func]),
+                "src/complex.py": (complex_lines, [complex_func]),
+            }
+        )
         result = find_hotspots(index)
         # complex_fn should appear before simple
         assert result.index("complex_fn") < result.index("simple")
@@ -198,7 +207,8 @@ class TestFindHotspots:
         result = find_hotspots(index, max_results=3)
         # Count data rows (lines with | that aren't the header separator)
         data_rows = [
-            line for line in result.splitlines()
+            line
+            for line in result.splitlines()
             if "|" in line and "---" not in line and "Score" not in line
         ]
         assert len(data_rows) == 3
@@ -228,10 +238,12 @@ class TestFindHotspots:
         func_many = _make_func("func_many", 1, 2, params=["a", "b", "c", "d", "e", "f", "g", "h"])
         func_few = _make_func("func_few", 1, 2, params=["x"])
 
-        index = _make_index({
-            "src/many.py": (lines, [func_many]),
-            "src/few.py": (lines, [func_few]),
-        })
+        index = _make_index(
+            {
+                "src/many.py": (lines, [func_many]),
+                "src/few.py": (lines, [func_few]),
+            }
+        )
         result = find_hotspots(index)
         assert result.index("func_many") < result.index("func_few")
 
@@ -257,24 +269,26 @@ class TestFindHotspots:
     def test_nesting_depth_affects_score(self):
         # deep: deeply nested → higher nesting score
         deep_lines = [
-            "def deep():\n",                    # line 1
-            "    if True:\n",                   # line 2
-            "        if True:\n",               # line 3
-            "            if True:\n",           # line 4
-            "                if True:\n",       # line 5
-            "                    pass\n",       # line 6
+            "def deep():\n",  # line 1
+            "    if True:\n",  # line 2
+            "        if True:\n",  # line 3
+            "            if True:\n",  # line 4
+            "                if True:\n",  # line 5
+            "                    pass\n",  # line 6
         ]
         deep_func = _make_func("deep_fn", 1, 6)
 
         flat_lines = [
             "def flat():\n",  # line 1
-            "    pass\n",     # line 2
+            "    pass\n",  # line 2
         ]
         flat_func = _make_func("flat_fn", 1, 2)
 
-        index = _make_index({
-            "src/deep.py": (deep_lines, [deep_func]),
-            "src/flat.py": (flat_lines, [flat_func]),
-        })
+        index = _make_index(
+            {
+                "src/deep.py": (deep_lines, [deep_func]),
+                "src/flat.py": (flat_lines, [flat_func]),
+            }
+        )
         result = find_hotspots(index)
         assert result.index("deep_fn") < result.index("flat_fn")

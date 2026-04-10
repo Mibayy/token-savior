@@ -36,33 +36,33 @@ def _find_brace_end(lines: list[str], start_line_0: int) -> int:
         while i < len(line):
             ch = line[i]
             if in_block_comment:
-                if ch == '*' and i + 1 < len(line) and line[i + 1] == '/':
+                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
                     in_block_comment = False
                     i += 2
                     continue
                 i += 1
                 continue
-            if ch == '/' and i + 1 < len(line):
-                if line[i + 1] == '/':
+            if ch == "/" and i + 1 < len(line):
+                if line[i + 1] == "/":
                     break  # rest is line comment
-                if line[i + 1] == '*':
+                if line[i + 1] == "*":
                     in_block_comment = True
                     i += 2
                     continue
             if ch == '"':
                 i += 1
                 while i < len(line) and line[i] != '"':
-                    if line[i] == '\\':
+                    if line[i] == "\\":
                         i += 1
                     i += 1
                 i += 1
                 continue
-            if ch == '`':
+            if ch == "`":
                 # raw string can span lines - scan to end
                 i += 1
                 while True:
                     while i < len(line):
-                        if line[i] == '`':
+                        if line[i] == "`":
                             i += 1
                             break
                         i += 1
@@ -76,10 +76,10 @@ def _find_brace_end(lines: list[str], start_line_0: int) -> int:
                         continue
                     break
                 continue
-            if ch == '{':
+            if ch == "{":
                 depth += 1
                 found_open = True
-            elif ch == '}':
+            elif ch == "}":
                 depth -= 1
                 if found_open and depth == 0:
                     return idx
@@ -92,16 +92,16 @@ def _find_brace_end(lines: list[str], start_line_0: int) -> int:
 # ---------------------------------------------------------------------------
 
 _SINGLE_IMPORT_RE = re.compile(
-    r'^\s*import\s+'
-    r'(?:(\w+)\s+)?'       # optional alias
+    r"^\s*import\s+"
+    r"(?:(\w+)\s+)?"  # optional alias
     r'"([^"]+)"'
 )
 
-_IMPORT_GROUP_START_RE = re.compile(r'^\s*import\s*\(')
+_IMPORT_GROUP_START_RE = re.compile(r"^\s*import\s*\(")
 
 _IMPORT_LINE_RE = re.compile(
-    r'^\s*'
-    r'(?:(\.|_|\w+)\s+)?'   # optional alias (., _, or name)
+    r"^\s*"
+    r"(?:(\.|_|\w+)\s+)?"  # optional alias (., _, or name)
     r'"([^"]+)"'
 )
 
@@ -114,18 +114,20 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
 
         # Single-line import
         m = _SINGLE_IMPORT_RE.match(stripped)
-        if m and '(' not in stripped.split('"')[0]:
+        if m and "(" not in stripped.split('"')[0]:
             alias = m.group(1)
             module = m.group(2)
             # Extract short name from module path
-            short_name = module.rsplit('/', 1)[-1] if '/' in module else module
-            imports.append(ImportInfo(
-                module=module,
-                names=[short_name] if not alias else [],
-                alias=alias,
-                line_number=i + 1,
-                is_from_import=False,
-            ))
+            short_name = module.rsplit("/", 1)[-1] if "/" in module else module
+            imports.append(
+                ImportInfo(
+                    module=module,
+                    names=[short_name] if not alias else [],
+                    alias=alias,
+                    line_number=i + 1,
+                    is_from_import=False,
+                )
+            )
             i += 1
             continue
 
@@ -134,30 +136,32 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
             i += 1
             while i < len(lines):
                 line = lines[i].strip()
-                if line == ')':
+                if line == ")":
                     i += 1
                     break
                 im = _IMPORT_LINE_RE.match(line)
                 if im:
                     alias = im.group(1)
                     module = im.group(2)
-                    short_name = module.rsplit('/', 1)[-1] if '/' in module else module
+                    short_name = module.rsplit("/", 1)[-1] if "/" in module else module
                     # dot import: alias='.'
                     # blank import: alias='_'
                     effective_alias: Optional[str] = None
-                    if alias and alias not in ('.', '_'):
+                    if alias and alias not in (".", "_"):
                         effective_alias = alias
-                    elif alias == '.':
-                        effective_alias = '.'
-                    elif alias == '_':
-                        effective_alias = '_'
-                    imports.append(ImportInfo(
-                        module=module,
-                        names=[short_name] if not effective_alias else [],
-                        alias=effective_alias,
-                        line_number=i + 1,
-                        is_from_import=False,
-                    ))
+                    elif alias == ".":
+                        effective_alias = "."
+                    elif alias == "_":
+                        effective_alias = "_"
+                    imports.append(
+                        ImportInfo(
+                            module=module,
+                            names=[short_name] if not effective_alias else [],
+                            alias=effective_alias,
+                            line_number=i + 1,
+                            is_from_import=False,
+                        )
+                    )
                 i += 1
             continue
 
@@ -171,16 +175,16 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
 
 # func Name(params) returnType {
 _FUNC_RE = re.compile(
-    r'^\s*func\s+(\w+)\s*'
-    r'(?:\[([^\]]*)\]\s*)?'    # optional type params
-    r'\(([^)]*)\)'
+    r"^\s*func\s+(\w+)\s*"
+    r"(?:\[([^\]]*)\]\s*)?"  # optional type params
+    r"\(([^)]*)\)"
 )
 
 # func (r *Type) Name(params) returnType {
 _METHOD_RE = re.compile(
-    r'^\s*func\s+\(\s*(\w+)\s+\*?(\w+)\s*\)\s*(\w+)\s*'
-    r'(?:\[([^\]]*)\]\s*)?'    # optional type params
-    r'\(([^)]*)\)'
+    r"^\s*func\s+\(\s*(\w+)\s+\*?(\w+)\s*\)\s*(\w+)\s*"
+    r"(?:\[([^\]]*)\]\s*)?"  # optional type params
+    r"\(([^)]*)\)"
 )
 
 
@@ -189,7 +193,7 @@ def _extract_params(raw: str) -> list[str]:
     params: list[str] = []
     if not raw.strip():
         return params
-    for part in raw.split(','):
+    for part in raw.split(","):
         part = part.strip()
         if not part:
             continue
@@ -198,13 +202,18 @@ def _extract_params(raw: str) -> list[str]:
         tokens = part.split()
         if len(tokens) >= 2:
             name = tokens[0]
-            if name == '...':
+            if name == "...":
                 continue
             # Check if the first token looks like a name (not a type)
-            if not name[0].isupper() and not name.startswith('*') and not name.startswith('[]') and not name.startswith('...'):
+            if (
+                not name[0].isupper()
+                and not name.startswith("*")
+                and not name.startswith("[]")
+                and not name.startswith("...")
+            ):
                 params.append(name)
-            elif name.startswith('...'):
-                params.append(name.lstrip('.'))
+            elif name.startswith("..."):
+                params.append(name.lstrip("."))
         elif len(tokens) == 1:
             # Could be just a type (unnamed param) or a name
             # In Go, unnamed params are common in interfaces, skip them
@@ -216,27 +225,28 @@ def _extract_params(raw: str) -> list[str]:
 # Doc comment collection
 # ---------------------------------------------------------------------------
 
+
 def _collect_doc_comment(lines: list[str], decl_line_0: int) -> Optional[str]:
     """Collect consecutive // comment lines immediately before decl_line_0."""
     doc_lines: list[str] = []
     j = decl_line_0 - 1
     while j >= 0:
         stripped = lines[j].strip()
-        if stripped.startswith('//'):
+        if stripped.startswith("//"):
             doc_lines.insert(0, stripped[2:].strip())
             j -= 1
         else:
             break
-    return '\n'.join(doc_lines) if doc_lines else None
+    return "\n".join(doc_lines) if doc_lines else None
 
 
 # ---------------------------------------------------------------------------
 # Type detection
 # ---------------------------------------------------------------------------
 
-_STRUCT_RE = re.compile(r'^\s*type\s+(\w+)\s+struct\s*\{?')
-_INTERFACE_RE = re.compile(r'^\s*type\s+(\w+)\s+interface\s*\{?')
-_TYPE_ALIAS_RE = re.compile(r'^\s*type\s+(\w+)\s*=\s*(\w+)')
+_STRUCT_RE = re.compile(r"^\s*type\s+(\w+)\s+struct\s*\{?")
+_INTERFACE_RE = re.compile(r"^\s*type\s+(\w+)\s+interface\s*\{?")
+_TYPE_ALIAS_RE = re.compile(r"^\s*type\s+(\w+)\s*=\s*(\w+)")
 
 
 def _extract_embedded_types(lines: list[str], start_0: int, end_0: int) -> list[str]:
@@ -244,13 +254,13 @@ def _extract_embedded_types(lines: list[str], start_0: int, end_0: int) -> list[
     bases: list[str] = []
     for idx in range(start_0 + 1, end_0):
         stripped = lines[idx].strip()
-        if not stripped or stripped.startswith('//') or stripped == '}':
+        if not stripped or stripped.startswith("//") or stripped == "}":
             continue
         # Embedded types: just a type name on its own line (possibly with *)
         # Fields have "name type" pattern, embedded types are a single token
         tokens = stripped.split()
         if len(tokens) == 1:
-            name = tokens[0].lstrip('*')
+            name = tokens[0].lstrip("*")
             if name and name[0].isupper():
                 bases.append(name)
     return bases
@@ -259,7 +269,7 @@ def _extract_embedded_types(lines: list[str], start_0: int, end_0: int) -> list[
 def _extract_interface_methods(lines: list[str], start_0: int, end_0: int) -> list[FunctionInfo]:
     """Extract method signatures from an interface body."""
     methods: list[FunctionInfo] = []
-    iface_name = ''
+    iface_name = ""
     # Get interface name from start line
     m = _INTERFACE_RE.match(lines[start_0].strip())
     if m:
@@ -267,29 +277,32 @@ def _extract_interface_methods(lines: list[str], start_0: int, end_0: int) -> li
 
     for idx in range(start_0 + 1, end_0):
         stripped = lines[idx].strip()
-        if not stripped or stripped.startswith('//') or stripped == '}':
+        if not stripped or stripped.startswith("//") or stripped == "}":
             continue
         # Method sig: Name(params) returnType
-        mm = re.match(r'(\w+)\s*\(([^)]*)\)', stripped)
+        mm = re.match(r"(\w+)\s*\(([^)]*)\)", stripped)
         if mm:
             name = mm.group(1)
             params = _extract_params(mm.group(2))
-            methods.append(FunctionInfo(
-                name=name,
-                qualified_name=f"{iface_name}.{name}" if iface_name else name,
-                line_range=LineRange(start=idx + 1, end=idx + 1),
-                parameters=params,
-                decorators=[],
-                docstring=None,
-                is_method=True,
-                parent_class=iface_name,
-            ))
+            methods.append(
+                FunctionInfo(
+                    name=name,
+                    qualified_name=f"{iface_name}.{name}" if iface_name else name,
+                    line_range=LineRange(start=idx + 1, end=idx + 1),
+                    parameters=params,
+                    decorators=[],
+                    docstring=None,
+                    is_method=True,
+                    parent_class=iface_name,
+                )
+            )
     return methods
 
 
 # ---------------------------------------------------------------------------
 # Main annotator
 # ---------------------------------------------------------------------------
+
 
 def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadata:
     """Parse Go source and extract structural metadata using regex.
@@ -325,14 +338,14 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         stripped = lines[i].strip()
 
         # Skip empty lines and comments
-        if not stripped or stripped.startswith('//') or stripped.startswith('/*'):
+        if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
             i += 1
             continue
 
         # Skip import blocks (already parsed)
-        if stripped.startswith('import'):
-            if '(' in stripped:
-                while i < total_lines and ')' not in lines[i]:
+        if stripped.startswith("import"):
+            if "(" in stripped:
+                while i < total_lines and ")" not in lines[i]:
                     i += 1
             i += 1
             continue
@@ -345,7 +358,7 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
             params = _extract_params(mm.group(5))
             docstring = _collect_doc_comment(lines, i)
 
-            if '{' in stripped or (i + 1 < total_lines and '{' in lines[i + 1].strip()):
+            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
                 end_0 = _find_brace_end(lines, i)
             else:
                 end_0 = i
@@ -369,12 +382,12 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
 
         # Function declaration
         fm = _FUNC_RE.match(stripped)
-        if fm and not stripped.startswith('type'):
+        if fm and not stripped.startswith("type"):
             name = fm.group(1)
             params = _extract_params(fm.group(3))
             docstring = _collect_doc_comment(lines, i)
 
-            if '{' in stripped or (i + 1 < total_lines and '{' in lines[i + 1].strip()):
+            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
                 end_0 = _find_brace_end(lines, i)
             else:
                 end_0 = i
@@ -401,21 +414,23 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         if sm:
             name = sm.group(1)
             docstring = _collect_doc_comment(lines, i)
-            if '{' in stripped or (i + 1 < total_lines and '{' in lines[i + 1].strip()):
+            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
                 end_0 = _find_brace_end(lines, i)
                 bases = _extract_embedded_types(lines, i, end_0)
             else:
                 end_0 = i
                 bases = []
 
-            classes.append(ClassInfo(
-                name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                base_classes=bases,
-                methods=[],
-                decorators=[],
-                docstring=docstring,
-            ))
+            classes.append(
+                ClassInfo(
+                    name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    base_classes=bases,
+                    methods=[],
+                    decorators=[],
+                    docstring=docstring,
+                )
+            )
 
             for j in range(i, end_0 + 1):
                 consumed.add(j)
@@ -427,7 +442,7 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         if im:
             name = im.group(1)
             docstring = _collect_doc_comment(lines, i)
-            if '{' in stripped or (i + 1 < total_lines and '{' in lines[i + 1].strip()):
+            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
                 end_0 = _find_brace_end(lines, i)
                 bases = _extract_embedded_types(lines, i, end_0)
                 iface_methods = _extract_interface_methods(lines, i, end_0)
@@ -436,14 +451,16 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
                 bases = []
                 iface_methods = []
 
-            classes.append(ClassInfo(
-                name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                base_classes=bases,
-                methods=iface_methods,
-                decorators=[],
-                docstring=docstring,
-            ))
+            classes.append(
+                ClassInfo(
+                    name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    base_classes=bases,
+                    methods=iface_methods,
+                    decorators=[],
+                    docstring=docstring,
+                )
+            )
             functions.extend(iface_methods)
 
             for j in range(i, end_0 + 1):
@@ -458,14 +475,16 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
             alias_target = ta.group(2)
             docstring = _collect_doc_comment(lines, i)
 
-            classes.append(ClassInfo(
-                name=name,
-                line_range=LineRange(start=i + 1, end=i + 1),
-                base_classes=[alias_target],
-                methods=[],
-                decorators=[],
-                docstring=docstring,
-            ))
+            classes.append(
+                ClassInfo(
+                    name=name,
+                    line_range=LineRange(start=i + 1, end=i + 1),
+                    base_classes=[alias_target],
+                    methods=[],
+                    decorators=[],
+                    docstring=docstring,
+                )
+            )
             consumed.add(i)
             i += 1
             continue
@@ -482,14 +501,16 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
     for cls in classes:
         if cls.name in method_map and not cls.methods:
             # struct with methods defined via receivers
-            updated_classes.append(ClassInfo(
-                name=cls.name,
-                line_range=cls.line_range,
-                base_classes=cls.base_classes,
-                methods=cls.methods + method_map[cls.name],
-                decorators=cls.decorators,
-                docstring=cls.docstring,
-            ))
+            updated_classes.append(
+                ClassInfo(
+                    name=cls.name,
+                    line_range=cls.line_range,
+                    base_classes=cls.base_classes,
+                    methods=cls.methods + method_map[cls.name],
+                    decorators=cls.decorators,
+                    docstring=cls.docstring,
+                )
+            )
         else:
             updated_classes.append(cls)
 

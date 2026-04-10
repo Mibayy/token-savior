@@ -79,16 +79,16 @@ def _join_until_paren_close(lines: list[str], start_0: int) -> tuple[str, int]:
 _IMPORT_RE = re.compile(
     r"""^import\s+"""
     r"""(?:"""
-    r"""(?:type\s+)?"""           # optional 'type' keyword
+    r"""(?:type\s+)?"""  # optional 'type' keyword
     r"""\{([^}]*)\}\s+from\s+"""  # named imports  { A, B }
     r"""|"""
     r"""(\*\s+as\s+\w+)\s+from\s+"""  # namespace import  * as X
     r"""|"""
-    r"""(\w+)\s+from\s+"""        # default import   Foo
+    r"""(\w+)\s+from\s+"""  # default import   Foo
     r"""|"""
     r"""(\w+)\s*,\s*\{([^}]*)\}\s+from\s+"""  # default + named
     r""")"""
-    r"""['"]([^'"]+)['"]""",      # module path
+    r"""['"]([^'"]+)['"]""",  # module path
     re.MULTILINE,
 )
 
@@ -119,7 +119,9 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
             alias: Optional[str] = None
 
             if named_group is not None:
-                names = [n.strip().split(" as ")[0].strip() for n in named_group.split(",") if n.strip()]
+                names = [
+                    n.strip().split(" as ")[0].strip() for n in named_group.split(",") if n.strip()
+                ]
             elif namespace_group is not None:
                 # * as X
                 alias = namespace_group.split("as")[-1].strip()
@@ -128,26 +130,34 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
             elif default_plus_named_default is not None:
                 alias = default_plus_named_default
                 if default_plus_named_names is not None:
-                    names = [n.strip().split(" as ")[0].strip() for n in default_plus_named_names.split(",") if n.strip()]
+                    names = [
+                        n.strip().split(" as ")[0].strip()
+                        for n in default_plus_named_names.split(",")
+                        if n.strip()
+                    ]
 
-            imports.append(ImportInfo(
-                module=module,
-                names=names,
-                alias=alias,
-                line_number=line_0 + 1,
-                is_from_import=True,
-            ))
+            imports.append(
+                ImportInfo(
+                    module=module,
+                    names=names,
+                    alias=alias,
+                    line_number=line_0 + 1,
+                    is_from_import=True,
+                )
+            )
             continue
 
         m2 = _SIDE_EFFECT_IMPORT_RE.match(stripped)
         if m2:
-            imports.append(ImportInfo(
-                module=m2.group(1),
-                names=[],
-                alias=None,
-                line_number=line_0 + 1,
-                is_from_import=False,
-            ))
+            imports.append(
+                ImportInfo(
+                    module=m2.group(1),
+                    names=[],
+                    alias=None,
+                    line_number=line_0 + 1,
+                    is_from_import=False,
+                )
+            )
 
     return imports
 
@@ -157,14 +167,10 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
 # ---------------------------------------------------------------------------
 
 # Patterns for standalone / exported / default-exported functions
-_FUNC_DECL_RE = re.compile(
-    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\("
-)
+_FUNC_DECL_RE = re.compile(r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(")
 
 # Anonymous default export: export default function(
-_FUNC_DEFAULT_ANON_RE = re.compile(
-    r"^export\s+default\s+(?:async\s+)?function\s*\("
-)
+_FUNC_DEFAULT_ANON_RE = re.compile(r"^export\s+default\s+(?:async\s+)?function\s*\(")
 
 # Arrow function assigned to const/let/var — with optional type annotation
 # Handles: const foo = () =>, const foo: Type = () =>, export const foo = async () =>
@@ -253,18 +259,15 @@ _CLASS_RE = re.compile(
     r"^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w.,\s]+))?"
 )
 
-_INTERFACE_RE = re.compile(
-    r"^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\w.,\s]+))?"
-)
+_INTERFACE_RE = re.compile(r"^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\w.,\s]+))?")
 
-_TYPE_ALIAS_RE = re.compile(
-    r"^(?:export\s+)?type\s+(\w+)\s*(?:<[^>]*>)?\s*="
-)
+_TYPE_ALIAS_RE = re.compile(r"^(?:export\s+)?type\s+(\w+)\s*(?:<[^>]*>)?\s*=")
 
 
 # ---------------------------------------------------------------------------
 # Main annotator
 # ---------------------------------------------------------------------------
+
 
 def annotate_typescript(source: str, source_name: str = "<source>") -> StructuralMetadata:
     """Parse TypeScript source and extract structural metadata using regex.
@@ -341,7 +344,11 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                 # Scan until we find a line ending with ';' or a non-continuation
                 end_0 = i
                 for j in range(i, total_lines):
-                    if ";" in lines[j] or (j > i and not lines[j].strip().startswith("|") and not lines[j].strip().startswith("&")):
+                    if ";" in lines[j] or (
+                        j > i
+                        and not lines[j].strip().startswith("|")
+                        and not lines[j].strip().startswith("&")
+                    ):
                         end_0 = j
                         break
                 else:
@@ -362,13 +369,29 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
             if mm:
                 method_name = mm.group(1)
                 # Skip things that look like keywords used as property names
-                if method_name in ("if", "else", "for", "while", "switch", "return", "new", "throw", "import", "export", "const", "let", "var"):
+                if method_name in (
+                    "if",
+                    "else",
+                    "for",
+                    "while",
+                    "switch",
+                    "return",
+                    "new",
+                    "throw",
+                    "import",
+                    "export",
+                    "const",
+                    "let",
+                    "var",
+                ):
                     continue
                 # Join multi-line params
                 joined, last_line = _join_until_paren_close(lines, j)
                 params = _extract_params_from_joined(joined)
                 # Find end of method via brace counting
-                if "{" in lines[j] or (last_line > j and any("{" in lines[k] for k in range(j, last_line + 1))):
+                if "{" in lines[j] or (
+                    last_line > j and any("{" in lines[k] for k in range(j, last_line + 1))
+                ):
                     mend_0 = _find_brace_end(lines, j)
                 else:
                     mend_0 = last_line  # abstract method or interface member
@@ -388,14 +411,16 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
 
     # Build ClassInfo objects
     for class_name, cls_start_0, cls_end_0, bases in class_ranges:
-        classes.append(ClassInfo(
-            name=class_name,
-            line_range=LineRange(start=cls_start_0 + 1, end=cls_end_0 + 1),
-            base_classes=bases,
-            methods=class_methods[class_name],
-            decorators=[],
-            docstring=None,
-        ))
+        classes.append(
+            ClassInfo(
+                name=class_name,
+                line_range=LineRange(start=cls_start_0 + 1, end=cls_end_0 + 1),
+                base_classes=bases,
+                methods=class_methods[class_name],
+                decorators=[],
+                docstring=None,
+            )
+        )
 
     # Build a set of line ranges consumed by classes for excluding top-level functions
     class_line_set: set[int] = set()
@@ -424,16 +449,18 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                     brace_start = k
                     break
             end_0 = _find_brace_end(lines, brace_start)
-            functions.append(FunctionInfo(
-                name=name,
-                qualified_name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                parameters=params,
-                decorators=[],
-                docstring=None,
-                is_method=False,
-                parent_class=None,
-            ))
+            functions.append(
+                FunctionInfo(
+                    name=name,
+                    qualified_name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    parameters=params,
+                    decorators=[],
+                    docstring=None,
+                    is_method=False,
+                    parent_class=None,
+                )
+            )
             i = end_0 + 1
             continue
 
@@ -449,16 +476,18 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                     brace_start = k
                     break
             end_0 = _find_brace_end(lines, brace_start)
-            functions.append(FunctionInfo(
-                name=name,
-                qualified_name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                parameters=params,
-                decorators=[],
-                docstring=None,
-                is_method=False,
-                parent_class=None,
-            ))
+            functions.append(
+                FunctionInfo(
+                    name=name,
+                    qualified_name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    parameters=params,
+                    decorators=[],
+                    docstring=None,
+                    is_method=False,
+                    parent_class=None,
+                )
+            )
             i = end_0 + 1
             continue
 
@@ -490,16 +519,18 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                     if ";" in lines[j]:
                         end_0 = j
                         break
-            functions.append(FunctionInfo(
-                name=name,
-                qualified_name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                parameters=params,
-                decorators=[],
-                docstring=None,
-                is_method=False,
-                parent_class=None,
-            ))
+            functions.append(
+                FunctionInfo(
+                    name=name,
+                    qualified_name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    parameters=params,
+                    decorators=[],
+                    docstring=None,
+                    is_method=False,
+                    parent_class=None,
+                )
+            )
             i = end_0 + 1
             continue
 
@@ -516,16 +547,18 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
                     if ";" in lines[j]:
                         end_0 = j
                         break
-            functions.append(FunctionInfo(
-                name=name,
-                qualified_name=name,
-                line_range=LineRange(start=i + 1, end=end_0 + 1),
-                parameters=params,
-                decorators=[],
-                docstring=None,
-                is_method=False,
-                parent_class=None,
-            ))
+            functions.append(
+                FunctionInfo(
+                    name=name,
+                    qualified_name=name,
+                    line_range=LineRange(start=i + 1, end=end_0 + 1),
+                    parameters=params,
+                    decorators=[],
+                    docstring=None,
+                    is_method=False,
+                    parent_class=None,
+                )
+            )
             i = end_0 + 1
             continue
 

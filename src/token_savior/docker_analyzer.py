@@ -195,12 +195,8 @@ def analyze_docker(index: ProjectIndex) -> str:
 
     Returns a formatted string report.
     """
-    dockerfile_files = {
-        path: meta for path, meta in index.files.items() if _is_dockerfile(path)
-    }
-    compose_files = {
-        path: meta for path, meta in index.files.items() if _is_compose_file(path)
-    }
+    dockerfile_files = {path: meta for path, meta in index.files.items() if _is_dockerfile(path)}
+    compose_files = {path: meta for path, meta in index.files.items() if _is_compose_file(path)}
 
     total = len(dockerfile_files) + len(compose_files)
 
@@ -255,9 +251,7 @@ def analyze_docker(index: ProjectIndex) -> str:
         for var in env_vars:
             if env_keys and var not in env_keys:
                 if not _code_contains(index, var):
-                    issues.append(
-                        f"[warning] ENV/ARG var '{var}' not found in any .env file"
-                    )
+                    issues.append(f"[warning] ENV/ARG var '{var}' not found in any .env file")
 
         # COPY/ADD source existence
         for src in copy_sources:

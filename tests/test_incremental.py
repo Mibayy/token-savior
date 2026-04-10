@@ -16,11 +16,15 @@ def git_repo():
         subprocess.run(["git", "init"], cwd=tmpdir, capture_output=True, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=tmpdir, capture_output=True, check=True,
+            cwd=tmpdir,
+            capture_output=True,
+            check=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=tmpdir, capture_output=True, check=True,
+            cwd=tmpdir,
+            capture_output=True,
+            check=True,
         )
 
         # Create initial files
@@ -33,7 +37,9 @@ def git_repo():
         subprocess.run(["git", "add", "."], cwd=tmpdir, capture_output=True, check=True)
         subprocess.run(
             ["git", "commit", "-m", "initial"],
-            cwd=tmpdir, capture_output=True, check=True,
+            cwd=tmpdir,
+            capture_output=True,
+            check=True,
         )
 
         yield tmpdir

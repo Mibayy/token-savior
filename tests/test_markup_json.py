@@ -237,9 +237,7 @@ class TestJsonN8NWorkflow:
             ],
             "connections": {
                 "Start": {"main": [[{"node": "HTTP Request", "type": "main"}]]},
-                "HTTP Request": {
-                    "main": [[{"node": "Set Variable", "type": "main"}]]
-                },
+                "HTTP Request": {"main": [[{"node": "Set Variable", "type": "main"}]]},
             },
             "settings": {"executionOrder": "v1"},
         }

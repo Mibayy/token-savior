@@ -5,7 +5,9 @@ from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.models import ProjectIndex, StructuralMetadata
 
 
-def _make_index(files: dict[str, StructuralMetadata], root_path: str = "/fake/project") -> ProjectIndex:
+def _make_index(
+    files: dict[str, StructuralMetadata], root_path: str = "/fake/project"
+) -> ProjectIndex:
     return ProjectIndex(
         root_path=root_path,
         files=files,

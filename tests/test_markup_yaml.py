@@ -71,34 +71,20 @@ class TestYamlArrays:
     """Tests for arrays of named objects."""
 
     def test_named_array_items(self):
-        text = (
-            "services:\n"
-            "  - name: web\n"
-            "    port: 80\n"
-            "  - name: db\n"
-            "    port: 5432\n"
-        )
+        text = "services:\n  - name: web\n    port: 80\n  - name: db\n    port: 5432\n"
         meta = annotate_yaml(text)
         titles = [s.title for s in meta.sections]
         assert any("web" in t for t in titles)
         assert any("db" in t for t in titles)
 
     def test_named_array_items_id_field(self):
-        text = (
-            "items:\n"
-            "  - id: abc123\n"
-            "    value: 42\n"
-        )
+        text = "items:\n  - id: abc123\n    value: 42\n"
         meta = annotate_yaml(text)
         titles = [s.title for s in meta.sections]
         assert any("abc123" in t for t in titles)
 
     def test_array_without_distinguishing_field(self):
-        text = (
-            "coords:\n"
-            "  - x: 1\n"
-            "    y: 2\n"
-        )
+        text = "coords:\n  - x: 1\n    y: 2\n"
         meta = annotate_yaml(text)
         titles = [s.title for s in meta.sections]
         assert "coords" in titles

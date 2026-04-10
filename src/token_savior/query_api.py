@@ -124,18 +124,14 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
         """Source of a function by name (searches top-level and methods)."""
         for f in metadata.functions:
             if f.name == name or f.qualified_name == name:
-                return "\n".join(
-                    metadata.lines[f.line_range.start - 1 : f.line_range.end]
-                )
+                return "\n".join(metadata.lines[f.line_range.start - 1 : f.line_range.end])
         return f"Error: function '{name}' not found"
 
     def get_class_source(name: str) -> str:
         """Source of a class by name."""
         for cls in metadata.classes:
             if cls.name == name:
-                return "\n".join(
-                    metadata.lines[cls.line_range.start - 1 : cls.line_range.end]
-                )
+                return "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
         return f"Error: class '{name}' not found"
 
     def get_sections() -> list[dict]:
@@ -153,9 +149,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
         """Content of a section by title."""
         for sec in metadata.sections:
             if sec.title == title:
-                return "\n".join(
-                    metadata.lines[sec.line_range.start - 1 : sec.line_range.end]
-                )
+                return "\n".join(metadata.lines[sec.line_range.start - 1 : sec.line_range.end])
         return f"Error: section '{title}' not found"
 
     def _resolve_file_symbol(name: str) -> dict:
@@ -258,11 +252,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         ]
 
         # Top-level packages only (deduplicated)
-        top_packages = sorted({
-            p.split("/")[0]
-            for p in index.files
-            if "/" in p
-        })
+        top_packages = sorted({p.split("/")[0] for p in index.files if "/" in p})
         if top_packages:
             parts.append(f"Packages ({len(top_packages)}): {', '.join(top_packages[:15])}")
             if len(top_packages) > 15:
@@ -271,8 +261,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         # Counts per type, no individual names
         class_count = sum(len(meta.classes) for meta in index.files.values())
         func_count = sum(
-            sum(1 for f in meta.functions if not f.is_method)
-            for meta in index.files.values()
+            sum(1 for f in meta.functions if not f.is_method) for meta in index.files.values()
         )
         if class_count:
             parts.append(f"Classes: {class_count} total")
@@ -321,15 +310,17 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = []
             for path, meta in sorted(index.files.items()):
                 for f in meta.functions:
-                    result.append({
-                        "name": f.name,
-                        "qualified_name": f.qualified_name,
-                        "lines": [f.line_range.start, f.line_range.end],
-                        "params": f.parameters,
-                        "is_method": f.is_method,
-                        "parent_class": f.parent_class,
-                        "file": path,
-                    })
+                    result.append(
+                        {
+                            "name": f.name,
+                            "qualified_name": f.qualified_name,
+                            "lines": [f.line_range.start, f.line_range.end],
+                            "params": f.parameters,
+                            "is_method": f.is_method,
+                            "parent_class": f.parent_class,
+                            "file": path,
+                        }
+                    )
         if max_results > 0:
             result = result[:max_results]
         return result
@@ -346,13 +337,15 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = []
             for path, meta in sorted(index.files.items()):
                 for cls in meta.classes:
-                    result.append({
-                        "name": cls.name,
-                        "lines": [cls.line_range.start, cls.line_range.end],
-                        "methods": [m.name for m in cls.methods],
-                        "bases": cls.base_classes,
-                        "file": path,
-                    })
+                    result.append(
+                        {
+                            "name": cls.name,
+                            "lines": [cls.line_range.start, cls.line_range.end],
+                            "methods": [m.name for m in cls.methods],
+                            "bases": cls.base_classes,
+                            "file": path,
+                        }
+                    )
         if max_results > 0:
             result = result[:max_results]
         return result
@@ -369,13 +362,15 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = []
             for path, meta in sorted(index.files.items()):
                 for imp in meta.imports:
-                    result.append({
-                        "module": imp.module,
-                        "names": imp.names,
-                        "line": imp.line_number,
-                        "is_from_import": imp.is_from_import,
-                        "file": path,
-                    })
+                    result.append(
+                        {
+                            "module": imp.module,
+                            "names": imp.names,
+                            "line": imp.line_number,
+                            "is_from_import": imp.is_from_import,
+                            "file": path,
+                        }
+                    )
         if max_results > 0:
             result = result[:max_results]
         return result
@@ -434,15 +429,11 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 source += f"\n... (truncated to {max_lines} lines)"
         return source
 
-    def get_function_source(
-        name: str, file_path: str | None = None, max_lines: int = 0
-    ) -> str:
+    def get_function_source(name: str, file_path: str | None = None, max_lines: int = 0) -> str:
         """Source of a function, uses symbol_table to find file if not specified."""
         return _get_symbol_source(name, "function", file_path, max_lines)
 
-    def get_class_source(
-        name: str, file_path: str | None = None, max_lines: int = 0
-    ) -> str:
+    def get_class_source(name: str, file_path: str | None = None, max_lines: int = 0) -> str:
         """Source of a class, uses symbol_table to find file if not specified."""
         return _get_symbol_source(name, "class", file_path, max_lines)
 
@@ -609,18 +600,18 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             meta = index.files[path]
             for i, line in enumerate(meta.lines):
                 if regex.search(line):
-                    results.append({
-                        "file": path,
-                        "line_number": i + 1,
-                        "content": line,
-                    })
+                    results.append(
+                        {
+                            "file": path,
+                            "line_number": i + 1,
+                            "content": line,
+                        }
+                    )
                     if limit and len(results) >= limit:
                         return results
         return results
 
-    def get_change_impact(
-        name: str, max_direct: int = 0, max_transitive: int = 0
-    ) -> dict:
+    def get_change_impact(name: str, max_direct: int = 0, max_transitive: int = 0) -> dict:
         """Direct and transitive dependents of a symbol, each with confidence and depth."""
         resolved_name, direct = _resolve_dep_name(name)
         if direct is None:
@@ -691,12 +682,14 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 route_path = route_path.rsplit("/route.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append({
-                    "route": route_path,
-                    "file": path,
-                    "methods": methods or ["GET"],
-                    "type": "api",
-                })
+                routes.append(
+                    {
+                        "route": route_path,
+                        "file": path,
+                        "methods": methods or ["GET"],
+                        "type": "api",
+                    }
+                )
             # Next.js App Router: app/**/page.tsx → Page
             elif "/page." in path and "app/" in path:
                 route_path = path
@@ -707,12 +700,14 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 route_path = route_path.rsplit("/page.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append({
-                    "route": route_path,
-                    "file": path,
-                    "methods": [],
-                    "type": "page",
-                })
+                routes.append(
+                    {
+                        "route": route_path,
+                        "file": path,
+                        "methods": [],
+                        "type": "page",
+                    }
+                )
             # Next.js App Router: app/**/layout.tsx → Layout
             elif "/layout." in path and "app/" in path:
                 route_path = path
@@ -723,12 +718,14 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 route_path = route_path.rsplit("/layout.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append({
-                    "route": route_path,
-                    "file": path,
-                    "methods": [],
-                    "type": "layout",
-                })
+                routes.append(
+                    {
+                        "route": route_path,
+                        "file": path,
+                        "methods": [],
+                        "type": "layout",
+                    }
+                )
         routes.sort(key=lambda r: (r["type"], r["route"]))
         if max_results > 0:
             routes = routes[:max_results]
@@ -754,16 +751,20 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                         usage_type = "os.environ"
                     elif "secrets." in line:
                         usage_type = "github_secret"
-                    elif line.strip().startswith(var_name + "=") or line.strip().startswith(f'"{var_name}"'):
+                    elif line.strip().startswith(var_name + "=") or line.strip().startswith(
+                        f'"{var_name}"'
+                    ):
                         usage_type = "definition"
                     elif "printf" in line and var_name in line:
                         usage_type = "env_write"
-                    results.append({
-                        "file": path,
-                        "line": line_idx + 1,
-                        "usage_type": usage_type,
-                        "content": context[:200],
-                    })
+                    results.append(
+                        {
+                            "file": path,
+                            "line": line_idx + 1,
+                            "usage_type": usage_type,
+                            "content": context[:200],
+                        }
+                    )
         results.sort(key=lambda r: (r["usage_type"], r["file"]))
         if max_results > 0:
             results = results[:max_results]
@@ -809,13 +810,15 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                     else:
                         comp_type = "default_export"
                 if is_component:
-                    components.append({
-                        "name": func.name,
-                        "file": path,
-                        "line_range": f"{func.line_range.start}-{func.line_range.end}",
-                        "params": func.parameters,
-                        "type": comp_type,
-                    })
+                    components.append(
+                        {
+                            "name": func.name,
+                            "file": path,
+                            "line_range": f"{func.line_range.start}-{func.line_range.end}",
+                            "params": func.parameters,
+                            "type": comp_type,
+                        }
+                    )
         components.sort(key=lambda c: (c["type"], c["file"], c["name"]))
         if max_results > 0:
             components = components[:max_results]
@@ -879,13 +882,15 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                 role = "test"
             symbols = [f.name for f in meta.functions[:5]]
             symbols += [c.name for c in meta.classes[:3]]
-            results.append({
-                "file": path,
-                "role": role,
-                "seed": path in seeds,
-                "symbols": symbols,
-                "lines": meta.total_lines,
-            })
+            results.append(
+                {
+                    "file": path,
+                    "role": role,
+                    "seed": path in seeds,
+                    "symbols": symbols,
+                    "lines": meta.total_lines,
+                }
+            )
         results.sort(key=lambda r: (0 if r["seed"] else 1, r["role"], r["file"]))
         if max_results > 0:
             results = results[:max_results]

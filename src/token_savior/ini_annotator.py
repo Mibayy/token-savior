@@ -136,9 +136,7 @@ def annotate_ini(text: str, source_name: str = "<ini>") -> StructuralMetadata:
             )
         )
         # Keys specific to this section (excluding defaults)
-        section_keys = [
-            k for k in parser.options(section) if k not in parser.defaults()
-        ]
+        section_keys = [k for k in parser.options(section) if k not in parser.defaults()]
         for key in section_keys:
             key_line = find_key_line(key, sec_line)
             sections.append(

@@ -77,13 +77,7 @@ class TestClassDetection:
         assert "speak" in method_names
 
     def test_class_with_extends(self):
-        src = (
-            "export class Dog extends Animal {\n"
-            "  bark() {\n"
-            "    return 'woof';\n"
-            "  }\n"
-            "}"
-        )
+        src = "export class Dog extends Animal {\n  bark() {\n    return 'woof';\n  }\n}"
         meta = annotate_typescript(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -96,13 +90,7 @@ class TestClassDetection:
         assert c.methods[0].qualified_name == "Dog.bark"
 
     def test_class_with_implements(self):
-        src = (
-            "class Service extends Base {\n"
-            "  run() {\n"
-            "    console.log('running');\n"
-            "  }\n"
-            "}"
-        )
+        src = "class Service extends Base {\n  run() {\n    console.log('running');\n  }\n}"
         meta = annotate_typescript(src)
         assert len(meta.classes) == 1
         assert "Base" in meta.classes[0].base_classes
@@ -112,12 +100,7 @@ class TestInterfaceDetection:
     """Interfaces are treated as ClassInfo."""
 
     def test_simple_interface(self):
-        src = (
-            "interface User {\n"
-            "  id: number;\n"
-            "  name: string;\n"
-            "}"
-        )
+        src = "interface User {\n  id: number;\n  name: string;\n}"
         meta = annotate_typescript(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -126,11 +109,7 @@ class TestInterfaceDetection:
         assert c.line_range.end == 4
 
     def test_export_interface_extends(self):
-        src = (
-            "export interface Admin extends User {\n"
-            "  role: string;\n"
-            "}"
-        )
+        src = "export interface Admin extends User {\n  role: string;\n}"
         meta = annotate_typescript(src)
         assert len(meta.classes) == 1
         c = meta.classes[0]
@@ -181,11 +160,7 @@ class TestImportDetection:
         assert meta.imports[0].module == "./styles.css"
 
     def test_multiple_imports(self):
-        src = (
-            "import { A } from 'mod-a';\n"
-            "import B from 'mod-b';\n"
-            "import './side-effect';"
-        )
+        src = "import { A } from 'mod-a';\nimport B from 'mod-b';\nimport './side-effect';"
         meta = annotate_typescript(src)
         assert len(meta.imports) == 3
 

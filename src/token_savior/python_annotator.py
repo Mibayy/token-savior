@@ -249,7 +249,9 @@ def annotate_python(source: str, source_name: str = "<source>") -> StructuralMet
     try:
         tree = ast.parse(source, filename=source_name)
     except SyntaxError as e:
-        logger.warning("Syntax error in %s: %s. Falling back to line-only annotation.", source_name, e)
+        logger.warning(
+            "Syntax error in %s: %s. Falling back to line-only annotation.", source_name, e
+        )
         return StructuralMetadata(
             source_name=source_name,
             total_lines=total_lines,

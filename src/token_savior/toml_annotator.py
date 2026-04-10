@@ -37,9 +37,7 @@ def _find_key_line(lines: list[str], key: str, start_from: int = 0) -> int:
     """
     escaped = re.escape(key)
     # Match "key =" (assignment) or "[...key]" / "[key..." style table headers
-    pattern = re.compile(
-        rf"(?:(?:^|\s){escaped}\s*=|^\s*\[.*?{escaped}.*?\])"
-    )
+    pattern = re.compile(rf"(?:(?:^|\s){escaped}\s*=|^\s*\[.*?{escaped}.*?\])")
     for i in range(start_from, len(lines)):
         if pattern.search(lines[i]):
             return i + 1  # 1-indexed

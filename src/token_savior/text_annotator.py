@@ -51,11 +51,7 @@ def annotate_text(text: str, source_name: str = "<text>") -> StructuralMetadata:
         # Rule 2: check if *next* line is an underline for *this* line.
         # Must check before other rules so the underline line itself isn't
         # misidentified as something else.
-        if (
-            i + 1 < total_lines
-            and stripped
-            and not stripped.startswith("#")
-        ):
+        if i + 1 < total_lines and stripped and not stripped.startswith("#"):
             next_stripped = lines[i + 1].strip()
             if len(next_stripped) >= 3 and re.fullmatch(r"=+", next_stripped):
                 headings.append((i, stripped, 1))
@@ -90,11 +86,7 @@ def annotate_text(text: str, source_name: str = "<text>") -> StructuralMetadata:
         # Rule 4: ALL-CAPS lines of 4+ words
         if stripped:
             words = stripped.split()
-            if (
-                len(words) >= 4
-                and stripped == stripped.upper()
-                and re.search(r"[A-Z]", stripped)
-            ):
+            if len(words) >= 4 and stripped == stripped.upper() and re.search(r"[A-Z]", stripped):
                 headings.append((i, stripped, 2))
                 i += 1
                 continue

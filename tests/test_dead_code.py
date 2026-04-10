@@ -1,4 +1,5 @@
 """Tests for the dead_code module."""
+
 from __future__ import annotations
 
 from token_savior.models import (
@@ -14,6 +15,7 @@ from token_savior.dead_code import find_dead_code
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_func(
     name: str,
@@ -84,6 +86,7 @@ def _make_index(
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestBasicDeadCode:
     def test_function_with_no_dependents_is_dead(self):
         func = _make_func("unused_helper", line_start=15)
@@ -120,7 +123,13 @@ class TestEntryPoints:
         assert "0 unreferenced symbols" in result
 
     def test_dunder_init_not_flagged(self):
-        func = _make_func("__init__", qualified_name="MyClass.__init__", line_start=5, is_method=True, parent_class="MyClass")
+        func = _make_func(
+            "__init__",
+            qualified_name="MyClass.__init__",
+            line_start=5,
+            is_method=True,
+            parent_class="MyClass",
+        )
         meta = _make_meta("src/myclass.py", functions=[func])
         index = _make_index({"src/myclass.py": meta})
         result = find_dead_code(index)

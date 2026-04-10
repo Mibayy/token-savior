@@ -1,4 +1,5 @@
 """Tests for entry point detection."""
+
 import tempfile
 from token_savior.project_indexer import ProjectIndexer
 
@@ -17,6 +18,7 @@ class TestEntryPoints:
     def setup_method(self):
         self.tmp = tempfile.mkdtemp()
         from pathlib import Path
+
         tmp = Path(self.tmp)
         (tmp / "main.py").write_text(
             "def main():\n    run()\n\ndef run():\n    pass\n\ndef helper():\n    pass\n"
@@ -28,6 +30,7 @@ class TestEntryPoints:
         idx = ProjectIndexer(self.tmp)
         project_index = idx.index()
         from token_savior.query_api import create_project_query_functions
+
         self.funcs = create_project_query_functions(project_index)
 
     def test_returns_list(self):

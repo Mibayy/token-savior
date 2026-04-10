@@ -1,4 +1,5 @@
 """Tests for breaking change detection module."""
+
 from __future__ import annotations
 
 import os
@@ -49,6 +50,7 @@ def _commit_all(tmpdir: str, message: str) -> None:
 # Test: parameter removed → BREAKING
 # ---------------------------------------------------------------------------
 
+
 def test_parameter_removed_is_breaking(git_repo):
     api_file = os.path.join(git_repo, "api.py")
     with open(api_file, "w") as f:
@@ -70,6 +72,7 @@ def test_parameter_removed_is_breaking(git_repo):
 # ---------------------------------------------------------------------------
 # Test: function removed entirely → BREAKING
 # ---------------------------------------------------------------------------
+
 
 def test_function_removed_is_breaking(git_repo):
     api_file = os.path.join(git_repo, "api.py")
@@ -94,6 +97,7 @@ def test_function_removed_is_breaking(git_repo):
 # Test: parameter added without default → BREAKING
 # ---------------------------------------------------------------------------
 
+
 def test_parameter_added_no_default_is_breaking(git_repo):
     api_file = os.path.join(git_repo, "api.py")
     with open(api_file, "w") as f:
@@ -115,6 +119,7 @@ def test_parameter_added_no_default_is_breaking(git_repo):
 # ---------------------------------------------------------------------------
 # Test: parameter added with default → WARNING (safe)
 # ---------------------------------------------------------------------------
+
 
 def test_parameter_added_with_default_is_warning(git_repo):
     api_file = os.path.join(git_repo, "api.py")
@@ -139,6 +144,7 @@ def test_parameter_added_with_default_is_warning(git_repo):
 # Test: no changes → no issues
 # ---------------------------------------------------------------------------
 
+
 def test_no_changes_reports_clean(git_repo):
     api_file = os.path.join(git_repo, "api.py")
     with open(api_file, "w") as f:
@@ -155,6 +161,7 @@ def test_no_changes_reports_clean(git_repo):
 # ---------------------------------------------------------------------------
 # Test: new function added → not flagged
 # ---------------------------------------------------------------------------
+
 
 def test_new_function_not_flagged(git_repo):
     api_file = os.path.join(git_repo, "api.py")
@@ -178,6 +185,7 @@ def test_new_function_not_flagged(git_repo):
 # Test: class method removed → BREAKING
 # ---------------------------------------------------------------------------
 
+
 def test_class_method_removed_is_breaking(git_repo):
     models_file = os.path.join(git_repo, "models.py")
     with open(models_file, "w") as f:
@@ -192,11 +200,7 @@ def test_class_method_removed_is_breaking(git_repo):
 
     # Remove the 'validate' method
     with open(models_file, "w") as f:
-        f.write(
-            "class UserModel:\n"
-            "    def save(self):\n"
-            "        pass\n"
-        )
+        f.write("class UserModel:\n    def save(self):\n        pass\n")
 
     index = _make_index(git_repo)
     result = detect_breaking_changes(index, since_ref="HEAD")
@@ -209,6 +213,7 @@ def test_class_method_removed_is_breaking(git_repo):
 # ---------------------------------------------------------------------------
 # Test: entire file deleted → BREAKING for all functions
 # ---------------------------------------------------------------------------
+
 
 def test_file_deleted_reports_breaking(git_repo):
     utils_file = os.path.join(git_repo, "utils.py")
@@ -229,6 +234,7 @@ def test_file_deleted_reports_breaking(git_repo):
 # ---------------------------------------------------------------------------
 # Test: return type annotation changed → WARNING
 # ---------------------------------------------------------------------------
+
 
 def test_return_type_changed_is_warning(git_repo):
     api_file = os.path.join(git_repo, "api.py")

@@ -1,5 +1,6 @@
 """Dispatch layer that selects the appropriate annotator by file type."""
 
+from token_savior.c_annotator import annotate_c
 from token_savior.conf_annotator import annotate_conf
 from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.csharp_annotator import annotate_csharp
@@ -19,6 +20,12 @@ from token_savior.xml_annotator import annotate_xml
 from token_savior.yaml_annotator import annotate_yaml
 
 _EXTENSION_MAP: dict[str, str] = {
+    ".c": "c",
+    ".h": "c",
+    ".glsl": "c",
+    ".vert": "c",
+    ".frag": "c",
+    ".comp": "c",
     ".py": "python",
     ".pyw": "python",
     ".md": "text",
@@ -49,8 +56,8 @@ _EXTENSION_MAP: dict[str, str] = {
 }
 
 
-
 _ANNOTATOR_MAP = {
+    "c": annotate_c,
     "python": annotate_python,
     "text": annotate_text,
     "typescript": annotate_typescript,
@@ -70,6 +77,7 @@ _ANNOTATOR_MAP = {
 }
 
 _ANNOTATOR_MAP: dict[str, object] = {
+    "c": annotate_c,
     "python": annotate_python,
     "text": annotate_text,
     "typescript": annotate_typescript,
@@ -88,6 +96,7 @@ _ANNOTATOR_MAP: dict[str, object] = {
     "dockerfile": annotate_dockerfile,
 }
 
+
 def annotate(
     text: str,
     source_name: str = "<source>",
@@ -103,6 +112,7 @@ def annotate(
     """
     if file_type is None:
         import os as _os
+
         _basename = _os.path.basename(source_name)
         if (
             _basename == "Dockerfile"

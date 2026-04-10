@@ -3,6 +3,7 @@
 Compares the current working tree against a git ref and reports functions/
 methods whose signatures changed in a backward-incompatible way.
 """
+
 from __future__ import annotations
 
 import ast
@@ -42,6 +43,7 @@ class _ParamInfo:
 @dataclass
 class _FuncSig:
     """Richer function signature extracted directly via AST."""
+
     name: str
     qualified_name: str
     line: int
@@ -81,9 +83,7 @@ def _extract_signatures(source: str) -> tuple[list[_FuncSig], list[_ClassSig]]:
             for item in ast.iter_child_nodes(node):
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     methods.append(_sig_from_func(item, parent_class=node.name))
-            classes.append(
-                _ClassSig(name=node.name, line=node.lineno, methods=methods)
-            )
+            classes.append(_ClassSig(name=node.name, line=node.lineno, methods=methods))
 
     return top_funcs, classes
 
@@ -263,9 +263,7 @@ def _compare_functions(
         changes.extend(
             _diff_params(old_func.params, new_func.params, name, new_func.line, file_path)
         )
-        changes.extend(
-            _diff_return_type(old_func, new_func, file_path)
-        )
+        changes.extend(_diff_return_type(old_func, new_func, file_path))
 
     return changes
 
@@ -414,8 +412,7 @@ def _diff_return_type(
 def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
     if not changes:
         return (
-            f"Breaking Change Analysis ({since_ref}..working tree) "
-            f"-- no breaking changes detected"
+            f"Breaking Change Analysis ({since_ref}..working tree) -- no breaking changes detected"
         )
 
     breaking = [c for c in changes if c.severity == "breaking"]

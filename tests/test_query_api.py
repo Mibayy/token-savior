@@ -1,6 +1,5 @@
 """Tests for the structural query API (single-file and project-wide)."""
 
-
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -658,7 +657,9 @@ class TestProjectQueryFunctions:
     def test_get_change_impact(self):
         impact = self.funcs["get_change_impact"]("helper")
         direct_names = [d.get("name", d) if isinstance(d, dict) else d for d in impact["direct"]]
-        transitive_names = [d.get("name", d) if isinstance(d, dict) else d for d in impact["transitive"]]
+        transitive_names = [
+            d.get("name", d) if isinstance(d, dict) else d for d in impact["transitive"]
+        ]
         assert "Engine.run" in direct_names
         # Transitive: Runner.execute depends on Engine.run
         assert "Runner.execute" in transitive_names
@@ -670,7 +671,9 @@ class TestProjectQueryFunctions:
         # Each transitive entry must have confidence < 1.0 and depth >= 2
         for entry in impact["transitive"]:
             assert isinstance(entry, dict), "transitive entry should be a dict"
-            assert entry["confidence"] < 1.0, f"expected confidence < 1.0, got {entry['confidence']}"
+            assert entry["confidence"] < 1.0, (
+                f"expected confidence < 1.0, got {entry['confidence']}"
+            )
             assert entry["depth"] >= 2, f"expected depth >= 2, got {entry['depth']}"
 
     def test_get_change_impact_no_dependents(self):

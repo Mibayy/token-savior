@@ -1,4 +1,5 @@
 """Best-effort regex parser for generic .conf files."""
+
 import re
 from token_savior.generic_annotator import annotate_generic
 from token_savior.models import LineRange, SectionInfo, StructuralMetadata

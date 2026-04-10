@@ -9,7 +9,13 @@ from token_savior.config_analyzer import (
     _is_config_file,
     _is_code_file,
 )
-from token_savior.models import ConfigIssue, LineRange, ProjectIndex, SectionInfo, StructuralMetadata
+from token_savior.models import (
+    ConfigIssue,
+    LineRange,
+    ProjectIndex,
+    SectionInfo,
+    StructuralMetadata,
+)
 
 
 def _make_meta(source_name, sections, lines=None):
@@ -28,6 +34,7 @@ def _make_meta(source_name, sections, lines=None):
 # ---------------------------------------------------------------------------
 # Exact duplicate keys at the same nesting level
 # ---------------------------------------------------------------------------
+
 
 class TestExactDuplicates:
     def test_exact_duplicate_same_file_same_level(self):
@@ -74,6 +81,7 @@ class TestExactDuplicates:
 # ---------------------------------------------------------------------------
 # Similar keys (typos) via Levenshtein distance
 # ---------------------------------------------------------------------------
+
 
 class TestSimilarKeys:
     def test_similar_key_typo_same_file(self):
@@ -125,6 +133,7 @@ class TestSimilarKeys:
 # Different levels → NOT flagged
 # ---------------------------------------------------------------------------
 
+
 class TestDifferentLevels:
     def test_same_key_different_levels_not_flagged(self):
         """server.host and db.host share 'host' but at different levels → NOT flagged."""
@@ -150,6 +159,7 @@ class TestDifferentLevels:
 # ---------------------------------------------------------------------------
 # Cross-file conflicts
 # ---------------------------------------------------------------------------
+
 
 class TestCrossFileConflicts:
     def test_cross_file_conflict_different_line_content(self):
@@ -189,6 +199,7 @@ class TestCrossFileConflicts:
 # ---------------------------------------------------------------------------
 # TestCheckSecrets
 # ---------------------------------------------------------------------------
+
 
 def _make_simple_meta(source_name: str, lines: list[str]):
     """Build a minimal StructuralMetadata from a list of raw lines.
@@ -307,8 +318,7 @@ class TestCheckSecrets:
         issues = check_secrets({"app.env": meta})
         # UUID must not trigger high-entropy warning
         entropy_issues = [
-            i for i in issues
-            if i.check == "secret" and "entropy" in i.message.lower()
+            i for i in issues if i.check == "secret" and "entropy" in i.message.lower()
         ]
         assert len(entropy_issues) == 0
 
@@ -334,6 +344,7 @@ class TestCheckSecrets:
 # TestCheckOrphans
 # ---------------------------------------------------------------------------
 
+
 def _make_code_meta(source_name: str, lines: list[str]) -> StructuralMetadata:
     """Build a minimal StructuralMetadata for a code file (no sections)."""
     return StructuralMetadata(
@@ -357,11 +368,10 @@ def _make_config_with_key(source_name: str, key: str, line_no: int = 1) -> Struc
 
 
 class TestCheckOrphans:
-
     def test_orphan_key_not_in_code_is_flagged(self):
         """A config key absent from all code → orphan warning."""
         config = {"app.env": _make_config_with_key("app.env", "DB_HOST")}
-        code = {"main.py": _make_code_meta("main.py", ['x = 1', 'print("hello")'])}
+        code = {"main.py": _make_code_meta("main.py", ["x = 1", 'print("hello")'])}
         issues = check_orphans(config, code)
         orphans = [i for i in issues if i.check == "orphan"]
         assert any(i.key == "DB_HOST" for i in orphans), (
@@ -379,11 +389,7 @@ class TestCheckOrphans:
     def test_ghost_key_in_code_not_in_config_flagged(self):
         """STRIPE_KEY referenced via os.getenv but absent from config → ghost."""
         config: dict = {}
-        code = {
-            "billing.py": _make_code_meta(
-                "billing.py", ["key = os.getenv('STRIPE_KEY', '')"]
-            )
-        }
+        code = {"billing.py": _make_code_meta("billing.py", ["key = os.getenv('STRIPE_KEY', '')"])}
         issues = check_orphans(config, code)
         ghosts = [i for i in issues if i.check == "ghost"]
         assert any(i.key == "STRIPE_KEY" for i in ghosts), (
@@ -393,11 +399,7 @@ class TestCheckOrphans:
     def test_process_env_key_recognized_as_used(self):
         """process.env.API_KEY in TS code → key should NOT be an orphan."""
         config = {"app.env": _make_config_with_key("app.env", "API_KEY")}
-        code = {
-            "server.ts": _make_code_meta(
-                "server.ts", ["const key = process.env.API_KEY;"]
-            )
-        }
+        code = {"server.ts": _make_code_meta("server.ts", ["const key = process.env.API_KEY;"])}
         issues = check_orphans(config, code)
         orphans = [i for i in issues if i.check == "orphan" and i.key == "API_KEY"]
         assert orphans == [], f"API_KEY should not be orphan, got: {orphans}"
@@ -406,11 +408,7 @@ class TestCheckOrphans:
         """Config file whose basename never appears in code → orphan_file."""
         config = {"secrets.env": _make_config_with_key("secrets.env", "MY_KEY")}
         # Code mentions MY_KEY but never "secrets.env"
-        code = {
-            "app.py": _make_code_meta(
-                "app.py", ['val = os.environ["MY_KEY"]']
-            )
-        }
+        code = {"app.py": _make_code_meta("app.py", ['val = os.environ["MY_KEY"]'])}
         issues = check_orphans(config, code)
         file_issues = [i for i in issues if i.check == "orphan_file"]
         assert any("secrets.env" in i.message for i in file_issues), (
@@ -448,6 +446,7 @@ class TestCheckOrphans:
 # Helpers for analyze_config tests
 # ---------------------------------------------------------------------------
 
+
 def _make_simple_struct(source_name: str, lines: list[str]) -> StructuralMetadata:
     return StructuralMetadata(
         source_name=source_name,
@@ -471,6 +470,7 @@ def _make_index(files: dict[str, StructuralMetadata]) -> ProjectIndex:
 # ---------------------------------------------------------------------------
 # TestIsConfigFile / TestIsCodeFile
 # ---------------------------------------------------------------------------
+
 
 class TestIsConfigFile:
     def test_yaml_is_config(self):
@@ -509,6 +509,7 @@ class TestIsCodeFile:
 # ---------------------------------------------------------------------------
 # TestFormatIssues
 # ---------------------------------------------------------------------------
+
 
 class TestFormatIssues:
     def _make_issue(self, severity: str, check: str) -> ConfigIssue:
@@ -565,9 +566,13 @@ class TestFormatIssues:
 
     def test_detail_included_in_line(self):
         issue = ConfigIssue(
-            file="app.env", key="SECRET", line=5,
-            severity="error", check="secret",
-            message="Hardcoded secret", detail="Value: sk-***",
+            file="app.env",
+            key="SECRET",
+            line=5,
+            severity="error",
+            check="secret",
+            message="Hardcoded secret",
+            detail="Value: sk-***",
         )
         result = _format_issues([issue], "all")
         assert "(Value: sk-***)" in result
@@ -576,6 +581,7 @@ class TestFormatIssues:
 # ---------------------------------------------------------------------------
 # TestAnalyzeConfig
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyzeConfig:
     """Tests for the main analyze_config() entry point."""
@@ -604,10 +610,12 @@ class TestAnalyzeConfig:
 
     def test_default_checks_result_contains_header(self):
         """With a config file present the result always starts with 'Config Analysis'."""
-        index = _make_index({
-            "config.env": self._env_meta(),
-            "app.py": self._py_meta(),
-        })
+        index = _make_index(
+            {
+                "config.env": self._env_meta(),
+                "app.py": self._py_meta(),
+            }
+        )
         result = analyze_config(index)
         assert result.startswith("Config Analysis")
 
@@ -616,9 +624,13 @@ class TestAnalyzeConfig:
     def test_only_duplicates_check_runs(self):
         """Requesting ['duplicates'] does not run secrets or orphans."""
         # Insert a known-secret value so we can confirm secrets check didn't run
-        secret_meta = _make_simple_struct("secrets.env", [
-            "", "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
-        ])
+        secret_meta = _make_simple_struct(
+            "secrets.env",
+            [
+                "",
+                "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
+            ],
+        )
         index = _make_index({"secrets.env": secret_meta})
         result = analyze_config(index, checks=["duplicates"])
         # secrets check not requested — its output group shouldn't appear
@@ -626,9 +638,13 @@ class TestAnalyzeConfig:
 
     def test_only_secrets_check_runs(self):
         """Requesting ['secrets'] surfaces a hardcoded secret."""
-        secret_meta = _make_simple_struct("creds.env", [
-            "", "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
-        ])
+        secret_meta = _make_simple_struct(
+            "creds.env",
+            [
+                "",
+                "API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890",
+            ],
+        )
         index = _make_index({"creds.env": secret_meta})
         result = analyze_config(index, checks=["secrets"])
         assert "-- secret" in result
@@ -638,9 +654,13 @@ class TestAnalyzeConfig:
     def test_severity_error_filter_hides_warnings(self):
         """severity='error' keeps only error-level issues."""
         # orphan issues are warning-level; inject no error issues
-        orphan_meta = _make_simple_struct("settings.yaml", [
-            "", "UNUSED_KEY: value",
-        ])
+        orphan_meta = _make_simple_struct(
+            "settings.yaml",
+            [
+                "",
+                "UNUSED_KEY: value",
+            ],
+        )
         index = _make_index({"settings.yaml": orphan_meta})
         result = analyze_config(index, checks=["orphans"], severity="error")
         # All orphan issues are warnings → filtered out
@@ -648,9 +668,13 @@ class TestAnalyzeConfig:
 
     def test_severity_error_still_shows_error_issues(self):
         """severity='error' preserves genuine error-level secrets."""
-        secret_meta = _make_simple_struct("prod.env", [
-            "", "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        ])
+        secret_meta = _make_simple_struct(
+            "prod.env",
+            [
+                "",
+                "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ],
+        )
         index = _make_index({"prod.env": secret_meta})
         result = analyze_config(index, checks=["secrets"], severity="error")
         assert "-- secret" in result
@@ -659,9 +683,13 @@ class TestAnalyzeConfig:
 
     def test_file_path_restricts_to_one_file(self):
         """When file_path is given, only that file is analysed."""
-        secret_meta = _make_simple_struct("prod.env", [
-            "", "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        ])
+        secret_meta = _make_simple_struct(
+            "prod.env",
+            [
+                "",
+                "TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ],
+        )
         clean_meta = _make_simple_struct("dev.env", ["", "PORT=3000"])
         index = _make_index({"prod.env": secret_meta, "dev.env": clean_meta})
         result = analyze_config(index, checks=["secrets"], file_path="prod.env")

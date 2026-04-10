@@ -15,7 +15,9 @@ def discover_project_actions(root_path: str) -> list[dict]:
     actions: list[dict] = []
     seen_ids: set[str] = set()
 
-    def add_action(action_id: str, kind: str, command: list[str], source: str, description: str) -> None:
+    def add_action(
+        action_id: str, kind: str, command: list[str], source: str, description: str
+    ) -> None:
         if action_id in seen_ids:
             return
         seen_ids.add(action_id)
@@ -96,9 +98,13 @@ def discover_project_actions(root_path: str) -> list[dict]:
 
     cargo_toml = os.path.join(root_path, "Cargo.toml")
     if os.path.exists(cargo_toml):
-        add_action("cargo:test", "test", ["cargo", "test"], "Cargo.toml", "Run the Rust test suite.")
+        add_action(
+            "cargo:test", "test", ["cargo", "test"], "Cargo.toml", "Run the Rust test suite."
+        )
         add_action("cargo:check", "check", ["cargo", "check"], "Cargo.toml", "Run cargo check.")
-        add_action("cargo:build", "build", ["cargo", "build"], "Cargo.toml", "Build the Rust project.")
+        add_action(
+            "cargo:build", "build", ["cargo", "build"], "Cargo.toml", "Build the Rust project."
+        )
 
     go_mod = os.path.join(root_path, "go.mod")
     if os.path.exists(go_mod):
@@ -210,7 +216,9 @@ def _truncate_output(value: str, max_output_chars: int) -> str:
     return value[:max_output_chars] + f"\n... [truncated {omitted} chars]"
 
 
-def summarize_command_output(action_id: str, stdout: str, stderr: str, exit_code: int | None) -> dict:
+def summarize_command_output(
+    action_id: str, stdout: str, stderr: str, exit_code: int | None
+) -> dict:
     """Build a compact result summary suitable for token-efficient agent loops."""
     stdout_lines = [line for line in stdout.splitlines() if line.strip()]
     stderr_lines = [line for line in stderr.splitlines() if line.strip()]
@@ -230,7 +238,9 @@ def summarize_command_output(action_id: str, stdout: str, stderr: str, exit_code
     return summary
 
 
-def _select_headline(stdout_lines: list[str], stderr_lines: list[str], exit_code: int | None) -> str:
+def _select_headline(
+    stdout_lines: list[str], stderr_lines: list[str], exit_code: int | None
+) -> str:
     """Pick a single-line headline for the command result."""
     for line in reversed(stdout_lines):
         if line.strip():

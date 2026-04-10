@@ -37,7 +37,9 @@ def get_changed_symbols(
         append_entry(file_path, "deleted")
 
     total_symbol_count = sum(len(entry["symbols"]) for entry in file_entries)
-    remaining_files = max(0, len(changes.modified) + len(changes.added) + len(changes.deleted) - len(file_entries))
+    remaining_files = max(
+        0, len(changes.modified) + len(changes.added) + len(changes.deleted) - len(file_entries)
+    )
 
     return {
         "modified_files": len(changes.modified),

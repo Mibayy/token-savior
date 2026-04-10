@@ -36,7 +36,7 @@ def _find_key_line(lines: list[str], key: str, start_from: int = 0) -> int:
     (0-indexed). Returns 1 if not found (safe fallback).
     """
     escaped_key = re.escape(key)
-    pattern = re.compile(rf'^\s*{escaped_key}\s*:')
+    pattern = re.compile(rf"^\s*{escaped_key}\s*:")
     for i in range(start_from, len(lines)):
         if pattern.search(lines[i]):
             return i + 1  # 1-indexed
@@ -67,8 +67,12 @@ def _walk_structure(
                 )
             )
             _walk_structure(
-                value, lines, f"{path}.{key_str}", depth + 1,
-                sections, max(0, key_line - 1),
+                value,
+                lines,
+                f"{path}.{key_str}",
+                depth + 1,
+                sections,
+                max(0, key_line - 1),
             )
 
     elif isinstance(obj, list):
@@ -92,14 +96,22 @@ def _walk_structure(
                         )
                     )
                     _walk_structure(
-                        item, lines, f"{path}[{i}]", depth + 1,
-                        sections, max(0, entry_line - 1),
+                        item,
+                        lines,
+                        f"{path}[{i}]",
+                        depth + 1,
+                        sections,
+                        max(0, entry_line - 1),
                     )
                 else:
                     # No label — still recurse but don't create a section entry
                     _walk_structure(
-                        item, lines, f"{path}[{i}]", depth + 1,
-                        sections, line_hint,
+                        item,
+                        lines,
+                        f"{path}[{i}]",
+                        depth + 1,
+                        sections,
+                        line_hint,
                     )
 
 

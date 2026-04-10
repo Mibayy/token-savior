@@ -63,12 +63,7 @@ def _count_branches(lines: list[str]) -> int:
 
 def _score_function(line_count: int, branch_count: int, nesting: int, param_count: int) -> float:
     """Compute weighted complexity score."""
-    return (
-        line_count * 0.3
-        + branch_count * 2.0
-        + nesting * 1.5
-        + max(0, param_count - 4) * 1.0
-    )
+    return line_count * 0.3 + branch_count * 2.0 + nesting * 1.5 + max(0, param_count - 4) * 1.0
 
 
 def find_hotspots(
@@ -92,7 +87,7 @@ def find_hotspots(
     for file_path, meta in index.files.items():
         for func in meta.functions:
             start = func.line_range.start  # 1-indexed
-            end = func.line_range.end      # 1-indexed
+            end = func.line_range.end  # 1-indexed
 
             # Extract the source lines (lines list is 0-indexed)
             func_lines = meta.lines[start - 1 : end]
@@ -106,7 +101,15 @@ def find_hotspots(
 
             if score >= min_score:
                 results.append(
-                    (score, line_count, branch_count, nesting, func.qualified_name, start, file_path)
+                    (
+                        score,
+                        line_count,
+                        branch_count,
+                        nesting,
+                        func.qualified_name,
+                        start,
+                        file_path,
+                    )
                 )
 
     if not results:

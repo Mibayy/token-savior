@@ -79,6 +79,8 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 | Go | `.go` | Functions, methods (receiver), structs, interfaces, type aliases |
 | Rust | `.rs` | Functions, structs, enums, traits, impl blocks, macro_rules |
 | C# | `.cs` | Classes, interfaces, structs, enums, methods, XML doc comments |
+| C / C99 / C11 | `.c`, `.h` | Functions (static/inline/extern), structs/unions/enums, typedefs, `#define` macros, `#include`, Doxygen comments, dependency graph |
+| GLSL | `.glsl`, `.vert`, `.frag`, `.comp` | Functions, structs, uniforms (via C annotator) |
 | Markdown / Text | `.md`, `.txt`, `.rst` | Sections via heading detection |
 | JSON | `.json` | Nested key structure up to depth 4, `$ref` cross-references |
 | YAML | `.yaml`, `.yml` | Nested key hierarchy, array markers, depth cap 4 |
@@ -203,7 +205,7 @@ LSP answers "where is this defined?" — `token-savior` answers "what breaks if 
 
 LSP is point queries: one symbol, one file, one position. It can find where `LLMClient` is defined and who references it directly. Ask "what breaks transitively if I refactor `LLMClient`?" and LSP has nothing — the AI would need to chain dozens of find-reference calls recursively, reading files at every step.
 
-`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. And unlike LSP, it requires zero language servers — one binary covers Python + TS/JS + Go + Rust + C# + config files + Dockerfiles out of the box.
+`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. And unlike LSP, it requires zero language servers — one binary covers Python + TS/JS + Go + Rust + C# + C/GLSL + config files + Dockerfiles out of the box.
 
 ---
 

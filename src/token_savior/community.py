@@ -3,6 +3,7 @@
 Uses label propagation on the bidirectional dependency graph to group
 closely related symbols into functional clusters.
 """
+
 from __future__ import annotations
 import random
 from collections import defaultdict
@@ -114,20 +115,24 @@ def get_cluster_for_symbol(
             if meta:
                 for func in meta.functions:
                     if func.name == sym or func.qualified_name == sym:
-                        entry.update({
-                            "file": file_path,
-                            "line": func.line_range.start,
-                            "type": "method" if func.is_method else "function",
-                        })
+                        entry.update(
+                            {
+                                "file": file_path,
+                                "line": func.line_range.start,
+                                "type": "method" if func.is_method else "function",
+                            }
+                        )
                         break
                 else:
                     for cls in meta.classes:
                         if cls.name == sym:
-                            entry.update({
-                                "file": file_path,
-                                "line": cls.line_range.start,
-                                "type": "class",
-                            })
+                            entry.update(
+                                {
+                                    "file": file_path,
+                                    "line": cls.line_range.start,
+                                    "type": "class",
+                                }
+                            )
                             break
         members.append(entry)
 

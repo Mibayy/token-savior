@@ -104,9 +104,7 @@ def find_cross_project_deps(indices: dict[str, ProjectIndex]) -> str:
                 module_users[mod].append(proj_name)
 
     shared_deps = {
-        mod: sorted(users)
-        for mod, users in sorted(module_users.items())
-        if len(users) >= 2
+        mod: sorted(users) for mod, users in sorted(module_users.items()) if len(users) >= 2
     }
 
     # ------------------------------------------------------------------ #

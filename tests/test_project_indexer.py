@@ -661,9 +661,7 @@ class TestRustProject:
 class TestIntegration:
     def test_index_token_savior_source(self):
         """Index the actual token-savior src directory as an integration test."""
-        project_root = os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))
-        )
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         src_dir = os.path.join(project_root, "src")
 
         if not os.path.isdir(src_dir):

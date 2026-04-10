@@ -23,7 +23,7 @@ _BLOCK_RE = re.compile(r'^(\s*)(\w+)\s+((?:"[^"]*"\s*)*)\{')
 
 # Matches key-value pairs like: ami = "value" or count = 3
 # Group 1: indent, Group 2: key name
-_KV_RE = re.compile(r'^(\s*)(\w[\w-]*)\s*=\s*(.*)')
+_KV_RE = re.compile(r"^(\s*)(\w[\w-]*)\s*=\s*(.*)")
 
 
 def _build_line_offsets(lines: list[str]) -> list[int]:
@@ -89,11 +89,13 @@ def annotate_hcl(text: str, source_name: str = "<hcl>") -> StructuralMetadata:
             title = " ".join(title_parts)
 
             level = min(current_depth + 1, _MAX_DEPTH)
-            sections.append(SectionInfo(
-                title=title,
-                level=level,
-                line_range=LineRange(start=lineno, end=lineno),
-            ))
+            sections.append(
+                SectionInfo(
+                    title=title,
+                    level=level,
+                    line_range=LineRange(start=lineno, end=lineno),
+                )
+            )
 
             # Opening brace: push current depth and increase
             depth_stack.append(current_depth)
@@ -102,11 +104,13 @@ def annotate_hcl(text: str, source_name: str = "<hcl>") -> StructuralMetadata:
         elif kv_m:
             key = kv_m.group(2)
             level = min(current_depth + 1, _MAX_DEPTH)
-            sections.append(SectionInfo(
-                title=key,
-                level=level,
-                line_range=LineRange(start=lineno, end=lineno),
-            ))
+            sections.append(
+                SectionInfo(
+                    title=key,
+                    level=level,
+                    line_range=LineRange(start=lineno, end=lineno),
+                )
+            )
 
         # Handle closing braces (may appear on lines without a block match)
         # Count all '}' on the line that are not inside strings

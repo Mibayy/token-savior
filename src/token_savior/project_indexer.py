@@ -37,6 +37,12 @@ class ProjectIndexer:
             "**/*.jsx",
             "**/*.go",
             "**/*.rs",
+            "**/*.c",
+            "**/*.h",
+            "**/*.glsl",
+            "**/*.vert",
+            "**/*.frag",
+            "**/*.comp",
             "**/*.cs",
             "**/*.md",
             "**/*.txt",
@@ -79,6 +85,8 @@ class ProjectIndexer:
             # Coverage / test artifacts
             "**/coverage/**",
             "**/.nyc_output/**",
+            # C/C++ build artifacts
+            "**/_deps/**",
             # Claude Code worktrees (duplicates of the project)
             "**/.claude/worktrees/**",
         ]
@@ -173,7 +181,9 @@ class ProjectIndexer:
             total_functions=total_functions,
             total_classes=total_classes,
             index_build_time_seconds=elapsed,
-            index_memory_bytes=sum(sys.getsizeof(m) + sys.getsizeof(m.lines) for m in files.values()),
+            index_memory_bytes=sum(
+                sys.getsizeof(m) + sys.getsizeof(m.lines) for m in files.values()
+            ),
         )
 
         logger.info(
@@ -277,9 +287,7 @@ class ProjectIndexer:
             idx.global_dependency_graph = self._build_global_dependency_graph(
                 idx.files, idx.symbol_table
             )
-            idx.reverse_dependency_graph = self._build_reverse_graph(
-                idx.global_dependency_graph
-            )
+            idx.reverse_dependency_graph = self._build_reverse_graph(idx.global_dependency_graph)
 
     def remove_file(self, file_path: str) -> None:
         """Remove a file from the index. Does NOT rebuild cross-file graphs.
@@ -344,9 +352,7 @@ class ProjectIndexer:
         idx.global_dependency_graph = self._build_global_dependency_graph(
             idx.files, idx.symbol_table
         )
-        idx.reverse_dependency_graph = self._build_reverse_graph(
-            idx.global_dependency_graph
-        )
+        idx.reverse_dependency_graph = self._build_reverse_graph(idx.global_dependency_graph)
 
     # ------------------------------------------------------------------
     # File discovery
@@ -378,7 +384,8 @@ class ProjectIndexer:
 
             # Prune excluded directories in-place — os.walk won't descend into them.
             dirnames[:] = [
-                d for d in dirnames
+                d
+                for d in dirnames
                 if not self._is_excluded(os.path.join(rel_dir, d) if rel_dir else d)
             ]
 
@@ -397,7 +404,9 @@ class ProjectIndexer:
                 except OSError:
                     continue
                 if size > self.max_file_size_bytes:
-                    logger.debug("Skipping %s (size %d > %d)", rel_path, size, self.max_file_size_bytes)
+                    logger.debug(
+                        "Skipping %s (size %d > %d)", rel_path, size, self.max_file_size_bytes
+                    )
                     continue
 
                 matched.add(abs_path)
@@ -433,9 +442,7 @@ class ProjectIndexer:
     # Symbol table
     # ------------------------------------------------------------------
 
-    def _build_symbol_table(
-        self, files: dict[str, StructuralMetadata]
-    ) -> dict[str, str]:
+    def _build_symbol_table(self, files: dict[str, StructuralMetadata]) -> dict[str, str]:
         """Build global symbol table: symbol_name -> file_path where defined.
 
         For methods, use qualified_name (e.g., "MyClass.run" -> "src/engine.py").
@@ -462,9 +469,7 @@ class ProjectIndexer:
     # Import graph
     # ------------------------------------------------------------------
 
-    def _build_import_graph(
-        self, files: dict[str, StructuralMetadata]
-    ) -> dict[str, set[str]]:
+    def _build_import_graph(self, files: dict[str, StructuralMetadata]) -> dict[str, set[str]]:
         """Build file-level import graph: file -> set of files it imports from."""
         import_graph: dict[str, set[str]] = {}
 
@@ -528,9 +533,7 @@ class ProjectIndexer:
 
         return None
 
-    def _resolve_python_import(
-        self, module_path: str, all_files: set[str]
-    ) -> str | None:
+    def _resolve_python_import(self, module_path: str, all_files: set[str]) -> str | None:
         """Resolve a Python module path to a project file."""
         # Convert dots to path separators
         rel_module = module_path.replace(".", "/")
@@ -608,49 +611,47 @@ class ProjectIndexer:
             return None
 
         # Skip external crates (std, third-party)
-        if not module_path.startswith(('crate', 'super', 'self')):
+        if not module_path.startswith(("crate", "super", "self")):
             return None
 
         importing_dir = os.path.dirname(importing_file)
 
-        if module_path.startswith('crate::'):
+        if module_path.startswith("crate::"):
             # crate:: maps to src/
-            rel_module = module_path[len('crate::'):].replace('::', '/')
-            search_prefixes = ['src/', '']
-        elif module_path.startswith('super::'):
-            rel_module = module_path[len('super::'):].replace('::', '/')
+            rel_module = module_path[len("crate::") :].replace("::", "/")
+            search_prefixes = ["src/", ""]
+        elif module_path.startswith("super::"):
+            rel_module = module_path[len("super::") :].replace("::", "/")
             parent = os.path.dirname(importing_dir)
-            search_prefixes = [parent + '/' if parent else '']
-        elif module_path.startswith('self::'):
-            rel_module = module_path[len('self::'):].replace('::', '/')
-            search_prefixes = [importing_dir + '/' if importing_dir else '']
+            search_prefixes = [parent + "/" if parent else ""]
+        elif module_path.startswith("self::"):
+            rel_module = module_path[len("self::") :].replace("::", "/")
+            search_prefixes = [importing_dir + "/" if importing_dir else ""]
         else:
             return None
 
         for prefix in search_prefixes:
             # Try as .rs file
-            candidate = (prefix + rel_module + '.rs').replace(os.sep, '/')
+            candidate = (prefix + rel_module + ".rs").replace(os.sep, "/")
             if candidate in all_files:
                 return candidate
             # Try as mod.rs
-            candidate = (prefix + rel_module + '/mod.rs').replace(os.sep, '/')
+            candidate = (prefix + rel_module + "/mod.rs").replace(os.sep, "/")
             if candidate in all_files:
                 return candidate
             # Try parent module (e.g., use crate::module::Item -> src/module.rs)
-            parts = rel_module.rsplit('/', 1)
+            parts = rel_module.rsplit("/", 1)
             if len(parts) == 2:
-                candidate = (prefix + parts[0] + '.rs').replace(os.sep, '/')
+                candidate = (prefix + parts[0] + ".rs").replace(os.sep, "/")
                 if candidate in all_files:
                     return candidate
-                candidate = (prefix + parts[0] + '/mod.rs').replace(os.sep, '/')
+                candidate = (prefix + parts[0] + "/mod.rs").replace(os.sep, "/")
                 if candidate in all_files:
                     return candidate
 
         return None
 
-    def _resolve_go_import(
-        self, module_path: str, all_files: set[str]
-    ) -> str | None:
+    def _resolve_go_import(self, module_path: str, all_files: set[str]) -> str | None:
         """Resolve a Go import path to a project directory's .go files.
 
         Matches import path suffixes against project directories containing .go files.
@@ -661,26 +662,24 @@ class ProjectIndexer:
         # Build a mapping of directory -> any .go file in that dir
         dir_to_file: dict[str, str] = {}
         for f in all_files:
-            if f.endswith('.go'):
+            if f.endswith(".go"):
                 d = os.path.dirname(f)
                 if d not in dir_to_file:
                     dir_to_file[d] = f
 
         # Try matching the import path suffix against directory paths
         # e.g., "github.com/user/repo/pkg/utils" -> look for dirs ending with "pkg/utils"
-        path_parts = module_path.split('/')
+        path_parts = module_path.split("/")
         for length in range(len(path_parts), 0, -1):
-            suffix = '/'.join(path_parts[-length:])
+            suffix = "/".join(path_parts[-length:])
             for d, f in dir_to_file.items():
-                normalized = d.replace(os.sep, '/')
-                if normalized == suffix or normalized.endswith('/' + suffix):
+                normalized = d.replace(os.sep, "/")
+                if normalized == suffix or normalized.endswith("/" + suffix):
                     return f
 
         return None
 
-    def _resolve_csharp_import(
-        self, module_path: str, all_files: set[str]
-    ) -> str | None:
+    def _resolve_csharp_import(self, module_path: str, all_files: set[str]) -> str | None:
         """Resolve a C# using directive to a project file.
 
         Best-effort: converts namespace segments to path (Ns.Sub -> Ns/Sub.cs).
@@ -690,24 +689,23 @@ class ProjectIndexer:
             return None
 
         # Skip external namespaces
-        if module_path.startswith(('System', 'Microsoft', 'Newtonsoft',
-                                   'NUnit', 'Xunit', 'Moq')):
+        if module_path.startswith(("System", "Microsoft", "Newtonsoft", "NUnit", "Xunit", "Moq")):
             return None
 
         # Convert Namespace.Sub to path: Namespace/Sub.cs
-        rel_module = module_path.replace('.', '/')
+        rel_module = module_path.replace(".", "/")
 
         # Search in common locations
-        search_prefixes = ['', 'src/', 'lib/']
+        search_prefixes = ["", "src/", "lib/"]
         for prefix in search_prefixes:
-            candidate = (prefix + rel_module + '.cs').replace(os.sep, '/')
+            candidate = (prefix + rel_module + ".cs").replace(os.sep, "/")
             if candidate in all_files:
                 return candidate
             # Try as directory with matching file
             # e.g., Models/User.cs for Models.User
-            parts = rel_module.rsplit('/', 1)
+            parts = rel_module.rsplit("/", 1)
             if len(parts) == 2:
-                candidate = (prefix + parts[0] + '/' + parts[1] + '.cs').replace(os.sep, '/')
+                candidate = (prefix + parts[0] + "/" + parts[1] + ".cs").replace(os.sep, "/")
                 if candidate in all_files:
                     return candidate
 
@@ -778,14 +776,12 @@ class ProjectIndexer:
 
             # Precompile one regex per imported name (reused across all bodies in this file)
             compiled_patterns: dict[str, re.Pattern] = {
-                local_name: re.compile(r'\b' + re.escape(local_name) + r'\b')
+                local_name: re.compile(r"\b" + re.escape(local_name) + r"\b")
                 for local_name in imported_names
             }
 
             for func in metadata.functions:
-                func_qualified = self._qualify_name(
-                    func.qualified_name, file_path, symbol_table
-                )
+                func_qualified = self._qualify_name(func.qualified_name, file_path, symbol_table)
                 if func_qualified not in global_graph:
                     global_graph[func_qualified] = set()
 
@@ -820,9 +816,7 @@ class ProjectIndexer:
 
         return global_graph
 
-    def _qualify_name(
-        self, name: str, file_path: str, symbol_table: dict[str, str]
-    ) -> str:
+    def _qualify_name(self, name: str, file_path: str, symbol_table: dict[str, str]) -> str:
         """Given a local name and file path, find the qualified name in the symbol table."""
         # If the name is already a qualified name in the symbol table, use it
         if name in symbol_table and symbol_table[name] == file_path:
