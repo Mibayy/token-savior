@@ -125,7 +125,7 @@ def _parse_includes(lines: list[str]) -> list[ImportInfo]:
 # C storage-class specifiers and qualifiers that can appear before a return type
 _STORAGE_QUALS = (
     r"(?:(?:static|extern|inline|_Noreturn|_Thread_local|register"
-    r"|const|volatile|restrict|__attribute__\s*\([^)]*\))\s+)*"
+    r"|const|volatile|restrict|__attribute__\s*\(\s*\([^)]*\)\s*\))\s+)*"
 )
 
 # Function declaration regex — uses a different strategy:
@@ -223,15 +223,20 @@ def _collect_doc_comment(lines: list[str], decl_line_0: int) -> Optional[str]:
         if stripped.startswith("///"):
             doc_lines.insert(0, stripped[3:].strip())
             j -= 1
-        elif stripped.startswith("*") or stripped.startswith("/**"):
-            # Part of a block doc comment
+        elif stripped.startswith("/**"):
+            # Start of block doc comment — collect and stop
             clean = stripped.lstrip("/* ").rstrip("*/").strip()
             if clean:
                 doc_lines.insert(0, clean)
-            if stripped.startswith("/**"):
-                break  # Found start of block
+            break
+        elif stripped == "*/" or stripped.endswith("*/"):
+            # Closing of block comment — skip
             j -= 1
-        elif stripped == "*/":
+        elif stripped.startswith("*"):
+            # Interior line of a block doc comment
+            clean = stripped.lstrip("* ").strip()
+            if clean:
+                doc_lines.insert(0, clean)
             j -= 1
         else:
             break

@@ -56,26 +56,6 @@ _EXTENSION_MAP: dict[str, str] = {
 }
 
 
-_ANNOTATOR_MAP = {
-    "c": annotate_c,
-    "python": annotate_python,
-    "text": annotate_text,
-    "typescript": annotate_typescript,
-    "javascript": annotate_typescript,
-    "go": annotate_go,
-    "rust": annotate_rust,
-    "csharp": annotate_csharp,
-    "json": annotate_json,
-    "yaml": annotate_yaml,
-    "ini": annotate_ini,
-    "xml": annotate_xml,
-    "hcl": annotate_hcl,
-    "toml": annotate_toml,
-    "env": annotate_env,
-    "conf": annotate_conf,
-    "dockerfile": annotate_dockerfile,
-}
-
 _ANNOTATOR_MAP: dict[str, object] = {
     "c": annotate_c,
     "python": annotate_python,
