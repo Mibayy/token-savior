@@ -15,6 +15,19 @@
 
 ---
 
+### What's new in v1.0.0
+
+- `server.py`: 2,439 -> 1,002 lines (-59%), split into focused modules
+- Cache size: -57% via LazyLines (file content lazy-loaded from disk)
+- 865 tests (up from 856)
+- `ProjectQueryEngine` class replaces 705-line closure
+- Automated benchmarks (`benchmarks/run_benchmarks.py`)
+- Path traversal fix in `create_checkpoint`
+- Output cap on `get_change_impact` / `get_dependents` (default 50,000 chars)
+- 2 deprecated tool aliases with migration path (removal in v1.1.0)
+
+---
+
 An MCP server that indexes your codebase structurally and exposes surgical query tools — so your AI agent reads 200 characters instead of 200 files.
 
 ```
@@ -24,7 +37,7 @@ get_function_source("compile")        →  4.5K chars  (exact source, no grep, n
 analyze_config()                      →  finds duplicates, secrets, orphan keys
 ```
 
-**Measured across 782 real sessions: 99% token reduction.**
+**Measured across 5,074 queries in 137 real sessions: 97% token reduction.**
 
 ---
 
@@ -40,14 +53,17 @@ Every AI coding session starts the same way: the agent grabs `cat` or `grep`, re
 
 ### Token savings across real sessions
 
-| Project | Sessions | Queries | Chars used | Chars (naive) | Saving |
-|---------|----------|---------|------------|---------------|--------|
-| project-alpha | 35 | 360 | 4,801,108 | 639,560,872 | **99%** |
-| project-beta | 26 | 189 | 766,508 | 20,936,204 | **96%** |
-| project-gamma | 30 | 232 | 410,816 | 3,679,868 | **89%** |
-| **TOTAL** | **92** | **782** | **5,981,476** | **664,229,092** | **99%** |
+| Project | Sessions | Queries | Tokens used | Tokens (naive) | Saving |
+|---------|----------|---------|-------------|----------------|--------|
+| improvence | 51 | 2,223 | 1,731,335 | 62,676,343 | **97%** |
+| estalle | 44 | 1,897 | 1,132,604 | 43,183,352 | **97%** |
+| token-savior | 14 | 808 | 1,128,734 | 11,908,629 | **91%** |
+| hermes-agent | 3 | 22 | 121,177 | 4,359,176 | **97%** |
+| hermes-pc-mcp | 1 | 38 | 15,207 | 684,942 | **98%** |
+| claude-code | 24 | 86 | 46,912 | 384,476 | **88%** |
+| **TOTAL** | **137** | **5,074** | **4,175,972** | **123,196,921** | **97%** |
 
-> "Chars (naive)" = total source size of all files the agent would have read with `cat`/`grep`. These savings are model-agnostic — the index reduces context window pressure regardless of provider.
+> "Tokens (naive)" = estimated tokens the agent would have consumed with `cat`/`grep`. These savings are model-agnostic -- the index reduces context window pressure regardless of provider. Updated at each release via automated benchmarks.
 
 ### Query response time (sub-millisecond at 1.1M lines)
 
@@ -60,14 +76,14 @@ Every AI coding session starts the same way: the agent grabs `cat` or `grep`, re
 
 ### Index build performance
 
-| Project | Files | Lines | Index time | Memory |
-|---------|------:|------:|-----------:|-------:|
-| Small project | 36 | 7,762 | 0.9s | 2.4 MB |
-| FastAPI | 2,556 | 332,160 | 5.7s | 55 MB |
-| Django | 3,714 | 707,493 | 36.2s | 126 MB |
-| **CPython** | **2,464** | **1,115,334** | **55.9s** | **197 MB** |
+| Project | Files | Lines | Index time | Memory | Cache size |
+|---------|------:|------:|-----------:|-------:|-----------:|
+| Small project | 36 | 7,762 | 0.9s | 2.4 MB | 0.3 MB |
+| FastAPI | 2,556 | 332,160 | 5.7s | 55 MB | 6 MB |
+| Django | 3,714 | 707,493 | 36.2s | 126 MB | 14 MB |
+| **CPython** | **2,464** | **1,115,334** | **55.9s** | **197 MB** | **22 MB** |
 
-With the persistent cache, subsequent restarts skip the full build. CPython goes from 56s → under 1s on cache hit.
+Since v1.0.0, file content is **not** stored in the cache (lazy-loaded from disk via `LazyLines`), reducing cache size by ~57%. With the persistent cache, subsequent restarts skip the full build. CPython goes from 56s -> under 1s on cache hit.
 
 ---
 
@@ -139,7 +155,7 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 |------|-------------|
 | `get_git_status` | Branch, ahead/behind, staged, unstaged, untracked |
 | `get_changed_symbols` | Changed files as symbol-level summaries, not diffs. Optional `ref` param for changes since any git ref |
-| `get_changed_symbols_since_ref` | **Deprecated** -- use `get_changed_symbols(ref=...)` instead |
+| `get_changed_symbols_since_ref` | **Deprecated** -- use `get_changed_symbols(ref=...)` instead. Removal in v1.1.0 |
 | `summarize_patch_by_symbol` | Compact review view — symbols instead of textual diffs |
 | `build_commit_summary` | Compact commit summary from changed files |
 
@@ -159,7 +175,7 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 | `find_impacted_test_files` | Infer likely impacted pytest files from changed symbols |
 | `run_impacted_tests` | Run only impacted tests — compact summary, not raw logs |
 | `apply_symbol_change_and_validate` | Edit + run impacted tests in one call. Optional `rollback_on_failure` for auto-rollback |
-| `apply_symbol_change_validate_with_rollback` | **Deprecated** -- use `apply_symbol_change_and_validate(rollback_on_failure=true)` |
+| `apply_symbol_change_validate_with_rollback` | **Deprecated** -- use `apply_symbol_change_and_validate(rollback_on_failure=true)`. Removal in v1.1.0 |
 | `discover_project_actions` | Detect test/lint/build/run commands from project files |
 | `run_project_action` | Execute a discovered action with bounded output |
 
@@ -219,6 +235,16 @@ LSP is point queries: one symbol, one file, one position. It can find where `LLM
 
 ## Install
 
+### Quick start (uvx)
+
+```bash
+uvx token-savior
+```
+
+No venv, no clone. Runs directly from PyPI.
+
+### Advanced (venv for development)
+
 ```bash
 git clone https://github.com/Mibayy/token-savior
 cd token-savior
@@ -238,7 +264,8 @@ Add to `.mcp.json` in your project root:
 {
   "mcpServers": {
     "token-savior": {
-      "command": "/path/to/.local/token-savior-venv/bin/token-savior",
+      "command": "uvx",
+      "args": ["token-savior"],
       "env": {
         "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2",
         "TOKEN_SAVIOR_CLIENT": "claude-code"
@@ -317,7 +344,7 @@ from token_savior.query_api import ProjectQueryEngine
 
 indexer = ProjectIndexer("/path/to/project")
 index = indexer.index()
-engine = ProjectQueryEngine(index)
+engine: ProjectQueryEngine = ProjectQueryEngine(index)
 
 print(engine.get_project_summary())
 print(engine.find_symbol("MyClass"))
@@ -334,16 +361,16 @@ print(query["find_symbol"]("MyClass"))
 
 ```
 src/token_savior/
-  server.py            ~1,000 lines — MCP routing, stats, tool dispatch
-  tool_schemas.py       53 tool schemas (extracted from server)
-  slot_manager.py       Multi-project slot lifecycle
-  cache_ops.py          CacheManager — JSON cache persistence
-  query_api.py          ProjectQueryEngine — 22 query methods
-  models.py             Data models, LazyLines, AnnotatorProtocol
-  project_indexer.py    File discovery + structural indexing
-  brace_matcher.py      Shared brace matching (C, C#, Rust, Go)
-  annotator.py          Language dispatch
-  *_annotator.py        Per-language annotators (Python, TS, Go, Rust, C#, C)
+  server.py            MCP transport, tool routing, usage stats (~1,000 lines)
+  tool_schemas.py       53 tool definitions, DEPRECATED_TOOLS set (extracted v1.0.0)
+  slot_manager.py       Multi-project lifecycle, incremental mtime updates
+  cache_ops.py          JSON persistence, legacy cache migration
+  query_api.py          ProjectQueryEngine -- 22 query methods + as_dict()
+  models.py             ProjectIndex, LazyLines, AnnotatorProtocol
+  project_indexer.py    File discovery, structural indexing, dependency graphs
+  brace_matcher.py      Shared brace matching for C/C#/Rust/Go (factored v1.0.0)
+  annotator.py          Language dispatch via _ANNOTATOR_MAP
+  *_annotator.py        Per-language annotators (Python, TS, Go, Rust, C#, C/GLSL)
 ```
 
 ## Development
@@ -361,6 +388,9 @@ ruff check src/ tests/
 - **Live-editing window:** The index is git-aware and updates on query, not on save. If you edit a file and immediately call `get_function_source`, you may get the pre-edit version. The next git-tracked change triggers a re-index.
 - **Cross-language tracing:** `get_change_impact` stops at language boundaries. Python calling a shell script calling a JSON config — the chain breaks after Python.
 - **JSON value semantics:** The JSON annotator indexes key structure, not value meaning. Tracing what a config value propagates to across files is still manual.
+- **Windows paths:** Not tested. Contributions welcome.
+- **Max files:** Default 10,000 per project (configurable via `TOKEN_SAVIOR_MAX_FILES` env var).
+- **Max file size:** Default 1 MB (configurable via `TOKEN_SAVIOR_MAX_FILE_SIZE_MB` env var).
 
 ---
 
