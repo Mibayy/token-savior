@@ -112,6 +112,9 @@ class ProjectIndex:
     # Git tracking
     last_indexed_git_ref: str | None = None
 
+    # File modification times for change detection (rel_path -> mtime)
+    file_mtimes: dict[str, float] = field(default_factory=dict)
+
 
 @dataclass
 class ConfigIssue:

@@ -628,6 +628,7 @@ def _index_from_dict(data: dict) -> "ProjectIndex":
         index_build_time_seconds=data.get("index_build_time_seconds", 0.0),
         index_memory_bytes=data.get("index_memory_bytes", 0),
         last_indexed_git_ref=data.get("last_indexed_git_ref"),
+        file_mtimes=data.get("file_mtimes", {}),
     )
 
 
@@ -763,24 +764,57 @@ def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
     return False
 
 
+def _check_mtime_changes(slot: _ProjectSlot) -> list[str]:
+    """Fast mtime scan: return list of rel_paths whose mtime changed since last index."""
+    idx = slot.indexer._project_index
+    changed = []
+    for rel_path, old_mtime in idx.file_mtimes.items():
+        abs_path = os.path.join(slot.root, rel_path)
+        try:
+            current_mtime = os.path.getmtime(abs_path)
+        except OSError:
+            # File deleted — will be caught by git check
+            continue
+        if current_mtime != old_mtime:
+            changed.append(rel_path)
+    return changed
+
+
 def _maybe_incremental_update(slot: _ProjectSlot) -> None:
-    """Check git for changes and incrementally update the slot index if needed."""
-    if not slot.is_git or slot.indexer is None or slot.indexer._project_index is None:
+    """Incrementally update the slot index using mtime detection + periodic git check."""
+    if slot.indexer is None or slot.indexer._project_index is None:
         return
 
-    # Throttle: check at most once every 30s per slot
+    idx = slot.indexer._project_index
     now = time.time()
+
+    # ── Phase 1: mtime check (near-zero cost, every call) ─────────────
+    mtime_changed = _check_mtime_changes(slot)
+    if mtime_changed:
+        for rel_path in mtime_changed:
+            abs_path = os.path.join(slot.root, rel_path)
+            if not os.path.isfile(abs_path):
+                continue
+            slot.indexer.reindex_file(rel_path, skip_graph_rebuild=True)
+
+        slot.indexer.rebuild_graphs()
+        print(
+            f"[token-savior] Mtime update: {len(mtime_changed)} file(s) — {slot.root}",
+            file=sys.stderr,
+        )
+        _save_cache(idx)
+        # Reset the git throttle so we don't double-detect these
+        slot._last_update_check = now
+
+    # ── Phase 2: git check for new/deleted/branch changes (throttled) ─
+    if not slot.is_git:
+        return
+
     if now - slot._last_update_check < 30:
         return
     slot._last_update_check = now
 
-    idx = slot.indexer._project_index
     if idx.last_indexed_git_ref is None:
-        # No git ref was recorded at index time (e.g. initial index ran before
-        # the first commit, or the cache was written by an older version).
-        # Stamp HEAD now so future incremental checks have a baseline.
-        # If HEAD is also None (empty repo, no commits yet) do nothing —
-        # avoids a full-rebuild loop that would fire every 30 seconds.
         head = get_head_commit(slot.root)
         if head is not None:
             idx.last_indexed_git_ref = head
@@ -802,11 +836,17 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
         _build_slot(slot)
         return
 
+    # Filter out files already handled by mtime phase
+    already_handled = set(mtime_changed) if mtime_changed else set()
+
     for path in changeset.deleted:
         if path in idx.files:
             slot.indexer.remove_file(path)
 
+    needs_rebuild = False
     for path in changeset.modified + changeset.added:
+        if path in already_handled:
+            continue
         if slot.indexer._is_excluded(path):
             continue
         if not _matches_include_patterns(path, slot.indexer.include_patterns):
@@ -815,8 +855,11 @@ def _maybe_incremental_update(slot: _ProjectSlot) -> None:
         if not os.path.isfile(abs_path):
             continue
         slot.indexer.reindex_file(path, skip_graph_rebuild=True)
+        needs_rebuild = True
 
-    slot.indexer.rebuild_graphs()
+    if needs_rebuild or changeset.deleted:
+        slot.indexer.rebuild_graphs()
+
     idx.last_indexed_git_ref = get_head_commit(slot.root)
 
     n_mod = len(changeset.modified)

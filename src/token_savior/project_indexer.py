@@ -125,18 +125,20 @@ class ProjectIndexer:
 
         # Step 2: annotate each file (parallel I/O + annotation)
         files: dict[str, StructuralMetadata] = {}
+        file_mtimes: dict[str, float] = {}
         total_lines = 0
         total_functions = 0
         total_classes = 0
 
-        def _annotate_file(fpath: str) -> tuple[str, StructuralMetadata] | None:
+        def _annotate_file(fpath: str) -> tuple[str, StructuralMetadata, float] | None:
             rel_path = os.path.relpath(fpath, self.root_path)
             try:
+                mtime = os.path.getmtime(fpath)
                 source = self._read_file(fpath)
             except (OSError, UnicodeDecodeError) as e:
                 logger.warning("Skipping %s: %s", rel_path, e)
                 return None
-            return rel_path, annotate(source, source_name=rel_path)
+            return rel_path, annotate(source, source_name=rel_path), mtime
 
         max_workers = min(32, (os.cpu_count() or 1) * 4)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -145,8 +147,9 @@ class ProjectIndexer:
                 result = future.result()
                 if result is None:
                     continue
-                rel_path, metadata = result
+                rel_path, metadata, mtime = result
                 files[rel_path] = metadata
+                file_mtimes[rel_path] = mtime
                 total_lines += metadata.total_lines
                 total_functions += len(metadata.functions)
                 total_classes += len(metadata.classes)
@@ -184,6 +187,7 @@ class ProjectIndexer:
             index_memory_bytes=sum(
                 sys.getsizeof(m) + sys.getsizeof(m.lines) for m in files.values()
             ),
+            file_mtimes=file_mtimes,
         )
 
         logger.info(
@@ -247,16 +251,19 @@ class ProjectIndexer:
 
         # Read and annotate the updated file
         try:
+            mtime = os.path.getmtime(abs_path)
             source = self._read_file(abs_path)
         except (OSError, UnicodeDecodeError) as e:
             logger.warning("Cannot reindex %s: %s", rel_path, e)
             if rel_path in idx.files:
                 del idx.files[rel_path]
+                idx.file_mtimes.pop(rel_path, None)
                 idx.total_files = len(idx.files)
             return
 
         metadata = annotate(source, source_name=rel_path)
         idx.files[rel_path] = metadata
+        idx.file_mtimes[rel_path] = mtime
         idx.total_files = len(idx.files)
         idx.total_lines += metadata.total_lines
         idx.total_functions += len(metadata.functions)
@@ -335,6 +342,7 @@ class ProjectIndexer:
 
         # Remove the file entry
         del idx.files[rel_path]
+        idx.file_mtimes.pop(rel_path, None)
         idx.total_files = len(idx.files)
 
     def rebuild_graphs(self) -> None:
