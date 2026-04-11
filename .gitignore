@@ -55,6 +55,7 @@ htmlcov/
 # ── Codebase index cache ─────────────────────
 .codebase-index-cache.pkl
 .codebase-index-cache.json
+.token-savior-cache.json
 
 # ── MCP local config ─────────────────────────
 .mcp.json
@@ -67,3 +68,4 @@ benchmarks/report.md
 *.log
 *.bak
 *.tmp
+.token-savior-checkpoints/
