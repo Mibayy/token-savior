@@ -6,10 +6,8 @@ import asyncio
 import os
 import time
 
-import pytest
 
 from token_savior.server import call_tool, _slot_mgr
-from token_savior.slot_manager import _ProjectSlot, SlotManager
 from token_savior.cache_ops import CacheManager
 
 

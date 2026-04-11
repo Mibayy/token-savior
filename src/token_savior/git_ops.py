@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from token_savior.compact_ops import _extract_symbols
-from token_savior.git_tracker import get_changed_files
 from token_savior.models import ProjectIndex
 
 

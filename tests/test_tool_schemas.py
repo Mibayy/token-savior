@@ -1,6 +1,5 @@
 """Tests for tool schema definitions and deprecation handling."""
 
-import asyncio
 from unittest.mock import patch
 
 from token_savior.tool_schemas import TOOL_SCHEMAS, DEPRECATED_TOOLS

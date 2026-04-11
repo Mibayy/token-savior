@@ -3,7 +3,6 @@
 import os
 import time
 
-import pytest
 
 from token_savior.slot_manager import SlotManager, _ProjectSlot
 

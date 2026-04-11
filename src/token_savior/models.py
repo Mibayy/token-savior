@@ -208,7 +208,7 @@ class ConfigIssue:
     detail: str | None = None
 
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable  # noqa: E402
 
 
 @runtime_checkable

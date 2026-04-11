@@ -129,7 +129,7 @@ def benchmark_repo(name: str, root: Path) -> dict:
     log(f"{name}: warm index ...")
     t0 = time.perf_counter()
     indexer2 = ProjectIndexer(root_str)
-    index2 = indexer2.index()
+    indexer2.index()
     warm_time = time.perf_counter() - t0
     result["warm_index_seconds"] = round(warm_time, 3)
     log(f"{name}: warm index done in {warm_time:.2f}s")

@@ -16,7 +16,6 @@ graph pollution, no shared RAM between unrelated projects.
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import json
 import os
@@ -24,7 +23,6 @@ import sys
 import time
 import traceback
 import uuid
-from typing import Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -44,7 +42,6 @@ from token_savior.checkpoint_ops import (
 from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
 from token_savior.git_ops import (
     build_commit_summary,
-    get_changed_symbols_since_ref,
     summarize_patch_by_symbol,
 )
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
@@ -52,7 +49,6 @@ from token_savior.models import ProjectIndex
 from token_savior.project_actions import discover_project_actions, run_project_action
 from token_savior.workflow_ops import (
     apply_symbol_change_and_validate,
-    apply_symbol_change_validate_with_rollback,
 )
 from token_savior.breaking_changes import detect_breaking_changes as run_breaking_changes
 from token_savior.complexity import find_hotspots as run_hotspots
@@ -495,7 +491,7 @@ def _prep(slot: _ProjectSlot) -> None:
 # Tool definitions (schemas live in tool_schemas.py)
 # ---------------------------------------------------------------------------
 
-from token_savior.tool_schemas import TOOL_SCHEMAS, DEPRECATED_TOOLS
+from token_savior.tool_schemas import TOOL_SCHEMAS  # noqa: E402
 
 TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchema"])
          for name, s in TOOL_SCHEMAS.items()]
