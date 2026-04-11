@@ -9,6 +9,7 @@
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
+[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/Mibayy/token-savior/releases/tag/v1.0.0)
 
 </div>
 
@@ -95,7 +96,7 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 
 ---
 
-## 51 tools
+## 53 tools
 
 ### Navigation
 | Tool | What it does |
@@ -137,8 +138,8 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 | Tool | What it does |
 |------|-------------|
 | `get_git_status` | Branch, ahead/behind, staged, unstaged, untracked |
-| `get_changed_symbols` | Changed files as symbol-level summaries, not diffs |
-| `get_changed_symbols_since_ref` | Symbol-level changes since any git ref |
+| `get_changed_symbols` | Changed files as symbol-level summaries, not diffs. Optional `ref` param for changes since any git ref |
+| `get_changed_symbols_since_ref` | **Deprecated** -- use `get_changed_symbols(ref=...)` instead |
 | `summarize_patch_by_symbol` | Compact review view — symbols instead of textual diffs |
 | `build_commit_summary` | Compact commit summary from changed files |
 
@@ -157,8 +158,8 @@ With the persistent cache, subsequent restarts skip the full build. CPython goes
 |------|-------------|
 | `find_impacted_test_files` | Infer likely impacted pytest files from changed symbols |
 | `run_impacted_tests` | Run only impacted tests — compact summary, not raw logs |
-| `apply_symbol_change_and_validate` | Edit + run impacted tests in one call |
-| `apply_symbol_change_validate_with_rollback` | Edit + validate + auto-rollback on failure |
+| `apply_symbol_change_and_validate` | Edit + run impacted tests in one call. Optional `rollback_on_failure` for auto-rollback |
+| `apply_symbol_change_validate_with_rollback` | **Deprecated** -- use `apply_symbol_change_and_validate(rollback_on_failure=true)` |
 | `discover_project_actions` | Detect test/lint/build/run commands from project files |
 | `run_project_action` | Execute a discovered action with bounded output |
 
@@ -196,6 +197,13 @@ Supported formats: `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.properties`, `.en
 | Tool | What it does |
 |------|-------------|
 | `get_usage_stats` | Cumulative token savings per project across sessions |
+
+### Project management
+| Tool | What it does |
+|------|-------------|
+| `list_projects` | All registered projects and their index state |
+| `switch_project` | Set the active project for subsequent calls |
+| `set_project_root` | Register a new project root and trigger indexing |
 
 ---
 
@@ -290,9 +298,14 @@ Each root gets its own isolated index, loaded lazily on first use. `list_project
 
 ## How it stays in sync
 
-The server checks `git diff` and `git status` before every query (~1-2ms). Changed files are re-parsed incrementally. No manual `reindex` after edits, branch switches, or pulls.
+The server detects changes via two mechanisms:
 
-The index is saved to `.codebase-index-cache.json` after every build — human-readable JSON, inspectable when things go wrong, safe across Python versions.
+1. **mtime scanning** -- `os.scandir()` checks directory modification times before every query (~1-2ms). Changed files are re-parsed incrementally.
+2. **git tracking** -- `git diff` and `git status` for symbol-level change detection.
+
+No manual `reindex` after edits, branch switches, or pulls.
+
+The index is saved to `.token-savior-cache.json` after every build -- human-readable JSON, inspectable when things go wrong, safe across Python versions. File content is **not** stored in the cache (lazy-loaded from disk on demand), reducing cache size by ~57%.
 
 ---
 
@@ -300,24 +313,44 @@ The index is saved to `.codebase-index-cache.json` after every build — human-r
 
 ```python
 from token_savior.project_indexer import ProjectIndexer
-from token_savior.query_api import create_project_query_functions
+from token_savior.query_api import ProjectQueryEngine
 
 indexer = ProjectIndexer("/path/to/project")
 index = indexer.index()
-query = create_project_query_functions(index)
+engine = ProjectQueryEngine(index)
 
-print(query["get_project_summary"]())
+print(engine.get_project_summary())
+print(engine.find_symbol("MyClass"))
+print(engine.get_change_impact("send_message"))
+
+# Dict-based access (backward compatible)
+query = engine.as_dict()
 print(query["find_symbol"]("MyClass"))
-print(query["get_change_impact"]("send_message"))
 ```
 
 ---
+
+## Architecture (v1.0.0)
+
+```
+src/token_savior/
+  server.py            ~1,000 lines — MCP routing, stats, tool dispatch
+  tool_schemas.py       53 tool schemas (extracted from server)
+  slot_manager.py       Multi-project slot lifecycle
+  cache_ops.py          CacheManager — JSON cache persistence
+  query_api.py          ProjectQueryEngine — 22 query methods
+  models.py             Data models, LazyLines, AnnotatorProtocol
+  project_indexer.py    File discovery + structural indexing
+  brace_matcher.py      Shared brace matching (C, C#, Rust, Go)
+  annotator.py          Language dispatch
+  *_annotator.py        Per-language annotators (Python, TS, Go, Rust, C#, C)
+```
 
 ## Development
 
 ```bash
 pip install -e ".[dev,mcp]"
-pytest tests/ -v
+pytest tests/ -v          # 865 tests
 ruff check src/ tests/
 ```
 
