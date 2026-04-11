@@ -18,9 +18,15 @@ def create_checkpoint(index: ProjectIndex, file_paths: list[str]) -> dict:
     checkpoint_dir = _checkpoint_dir(index.root_path, checkpoint_id)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
+    root_norm = os.path.normpath(index.root_path)
     saved_files: list[str] = []
     for file_path in sorted(set(file_paths)):
-        abs_path = os.path.join(index.root_path, file_path)
+        abs_path = os.path.normpath(os.path.join(index.root_path, file_path))
+        # Guard against path traversal (e.g. "../../etc/passwd")
+        if os.path.commonpath([abs_path, root_norm]) != root_norm:
+            # Roll back the partial checkpoint directory
+            shutil.rmtree(checkpoint_dir, ignore_errors=True)
+            return {"error": f"Unsafe file path: {file_path}"}
         if not os.path.exists(abs_path):
             continue
         dst = os.path.join(checkpoint_dir, file_path)

@@ -8,12 +8,17 @@ from token_savior.models import ProjectIndex, StructuralMetadata
 
 def get_changed_symbols(
     index: ProjectIndex,
+    ref: str | None = None,
     max_files: int = 20,
     max_symbols_per_file: int = 20,
 ) -> dict:
-    """Return a compact symbol-oriented summary of current worktree changes."""
-    head_ref = get_head_commit(index.root_path)
-    changes = get_changed_files(index.root_path, head_ref)
+    """Return a compact symbol-oriented summary of changes.
+
+    If *ref* is None, compares worktree against HEAD (current uncommitted changes).
+    If *ref* is provided, compares HEAD against that ref (e.g. "HEAD~3", a branch name).
+    """
+    effective_ref = ref if ref is not None else get_head_commit(index.root_path)
+    changes = get_changed_files(index.root_path, effective_ref)
 
     file_entries: list[dict] = []
 
@@ -37,19 +42,20 @@ def get_changed_symbols(
         append_entry(file_path, "deleted")
 
     total_symbol_count = sum(len(entry["symbols"]) for entry in file_entries)
-    remaining_files = max(
-        0, len(changes.modified) + len(changes.added) + len(changes.deleted) - len(file_entries)
-    )
+    total_files = len(changes.modified) + len(changes.added) + len(changes.deleted)
 
-    return {
+    result = {
         "modified_files": len(changes.modified),
         "added_files": len(changes.added),
         "deleted_files": len(changes.deleted),
         "reported_files": len(file_entries),
-        "remaining_files": remaining_files,
+        "remaining_files": max(0, total_files - len(file_entries)),
         "reported_symbols": total_symbol_count,
         "files": file_entries,
     }
+    if ref is not None:
+        result["since_ref"] = ref
+    return result
 
 
 def _extract_symbols(metadata: StructuralMetadata | None, max_symbols: int) -> list[dict]:

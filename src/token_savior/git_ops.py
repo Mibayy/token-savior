@@ -13,38 +13,12 @@ def get_changed_symbols_since_ref(
     max_files: int = 20,
     max_symbols_per_file: int = 20,
 ) -> dict:
-    """Return a compact symbol-oriented summary of changes since a git ref."""
-    changes = get_changed_files(index.root_path, since_ref)
-    entries: list[dict] = []
+    """Deprecated alias -- use get_changed_symbols(ref=...) instead."""
+    from token_savior.compact_ops import get_changed_symbols
 
-    def append_entry(file_path: str, status: str) -> None:
-        if len(entries) >= max_files:
-            return
-        entries.append(
-            {
-                "file": file_path,
-                "status": status,
-                "symbols": _extract_symbols(index.files.get(file_path), max_symbols_per_file),
-            }
-        )
-
-    for file_path in changes.modified:
-        append_entry(file_path, "modified")
-    for file_path in changes.added:
-        append_entry(file_path, "added")
-    for file_path in changes.deleted:
-        append_entry(file_path, "deleted")
-
-    total_files = len(changes.modified) + len(changes.added) + len(changes.deleted)
-    return {
-        "since_ref": since_ref,
-        "modified_files": len(changes.modified),
-        "added_files": len(changes.added),
-        "deleted_files": len(changes.deleted),
-        "reported_files": len(entries),
-        "remaining_files": max(0, total_files - len(entries)),
-        "files": entries,
-    }
+    return get_changed_symbols(
+        index, ref=since_ref, max_files=max_files, max_symbols_per_file=max_symbols_per_file
+    )
 
 
 def summarize_patch_by_symbol(

@@ -59,8 +59,9 @@ htmlcov/
 # ── MCP local config ─────────────────────────
 .mcp.json
 
-# ── Benchmarks (local only) ──────────────────────
-benchmarks/
+# ── Benchmark output (scripts are tracked) ──────
+benchmarks/results.json
+benchmarks/report.md
 
 # ── Misc ───────────────────────────────────────
 *.log

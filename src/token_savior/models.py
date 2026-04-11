@@ -1,5 +1,8 @@
 """Structural metadata models for Token Savior."""
 
+from __future__ import annotations
+
+import os
 from dataclasses import dataclass, field
 
 
@@ -57,6 +60,82 @@ class SectionInfo:
     line_range: LineRange
 
 
+class LazyLines:
+    """A list-like object that lazily reads file lines from disk.
+
+    When constructed with ``data``, behaves like a plain list (used during
+    fresh indexing).  When constructed with ``root_path`` + ``rel_path`` and
+    no data, defers reading until first access — saving ~80 % idle RAM for
+    cached indexes.
+    """
+
+    __slots__ = ("_data", "_root_path", "_rel_path")
+
+    def __init__(
+        self,
+        data: list[str] | None = None,
+        *,
+        root_path: str = "",
+        rel_path: str = "",
+    ):
+        self._data = data
+        self._root_path = root_path
+        self._rel_path = rel_path
+
+    # -- lazy loading --------------------------------------------------------
+
+    @property
+    def _loaded(self) -> list[str]:
+        if self._data is None:
+            full_path = os.path.join(self._root_path, self._rel_path)
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                    self._data = f.read().splitlines()
+            except OSError:
+                self._data = []
+        return self._data
+
+    # -- sequence protocol ---------------------------------------------------
+
+    def __getitem__(self, key):  # type: ignore[override]
+        return self._loaded[key]
+
+    def __iter__(self):
+        return iter(self._loaded)
+
+    def __len__(self):
+        return len(self._loaded)
+
+    def __contains__(self, item):
+        return item in self._loaded
+
+    def __bool__(self):
+        return True
+
+    def __repr__(self):
+        if self._data is not None:
+            return f"LazyLines({len(self._data)} lines, loaded)"
+        return f"LazyLines('{self._rel_path}', deferred)"
+
+    # -- mutation helpers (used by extend patterns) --------------------------
+
+    def extend(self, other):
+        self._loaded.extend(other)
+
+    def append(self, item):
+        self._loaded.append(item)
+
+    # -- cache management ----------------------------------------------------
+
+    def invalidate(self) -> None:
+        """Drop cached data so the next access re-reads from disk."""
+        self._data = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._data is not None
+
+
 @dataclass
 class StructuralMetadata:
     """Complete structural metadata for a single file or text document."""
@@ -66,8 +145,8 @@ class StructuralMetadata:
     total_lines: int
     total_chars: int
 
-    # Line data (always populated)
-    lines: list[str]  # All lines (0-indexed internally, but API uses 1-indexed)
+    # Line data — may be a LazyLines (deferred disk read) or plain list
+    lines: list[str] | LazyLines  # All lines (0-indexed internally, API is 1-indexed)
     line_char_offsets: list[int]  # Character offset of each line start
 
     # Code structure (populated for code files)
@@ -127,3 +206,11 @@ class ConfigIssue:
     check: str  # "duplicate" | "secret" | "orphan"
     message: str
     detail: str | None = None
+
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class AnnotatorProtocol(Protocol):
+    def __call__(self, source_text: str, source_name: str) -> StructuralMetadata: ...

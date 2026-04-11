@@ -65,7 +65,7 @@ class TestGetChangedSymbolsSinceRef:
         index = _index()
 
         with patch(
-            "token_savior.git_ops.get_changed_files",
+            "token_savior.compact_ops.get_changed_files",
             return_value=GitChangeSet(modified=["src/core.py"], added=["tests/test_core.py"]),
         ):
             result = get_changed_symbols_since_ref(index, "HEAD~1")

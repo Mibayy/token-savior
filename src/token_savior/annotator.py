@@ -10,7 +10,7 @@ from token_savior.go_annotator import annotate_go
 from token_savior.hcl_annotator import annotate_hcl
 from token_savior.ini_annotator import annotate_ini
 from token_savior.json_annotator import annotate_json
-from token_savior.models import StructuralMetadata
+from token_savior.models import AnnotatorProtocol, StructuralMetadata
 from token_savior.python_annotator import annotate_python
 from token_savior.rust_annotator import annotate_rust
 from token_savior.text_annotator import annotate_text
@@ -56,7 +56,7 @@ _EXTENSION_MAP: dict[str, str] = {
 }
 
 
-_ANNOTATOR_MAP: dict[str, object] = {
+_ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "c": annotate_c,
     "python": annotate_python,
     "text": annotate_text,
@@ -108,4 +108,6 @@ def annotate(
                 file_type = _EXTENSION_MAP.get(ext)
 
     annotator = _ANNOTATOR_MAP.get(file_type, annotate_generic)
+    if not callable(annotator):
+        raise TypeError(f"Annotator for '{file_type}' is not callable: {annotator!r}")
     return annotator(text, source_name)

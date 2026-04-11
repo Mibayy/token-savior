@@ -16,14 +16,14 @@ def _reset_server_state():
     srv._tool_call_counts.clear()
     srv._total_chars_returned = 0
     srv._total_naive_chars = 0
-    srv._projects.clear()
-    srv._active_root = ""
+    srv._slot_mgr.projects.clear()
+    srv._slot_mgr.active_root = ""
     yield
     srv._tool_call_counts.clear()
     srv._total_chars_returned = 0
     srv._total_naive_chars = 0
-    srv._projects.clear()
-    srv._active_root = ""
+    srv._slot_mgr.projects.clear()
+    srv._slot_mgr.active_root = ""
 
 
 class TestFormatDuration:
@@ -86,8 +86,8 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._projects[root] = slot
-        srv._active_root = root
+        srv._slot_mgr.projects[root] = slot
+        srv._slot_mgr.active_root = root
 
         srv._tool_call_counts["find_symbol"] = 5
         srv._total_chars_returned = 200
@@ -109,8 +109,8 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._projects[root] = slot
-        srv._active_root = root
+        srv._slot_mgr.projects[root] = slot
+        srv._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
@@ -134,8 +134,8 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._projects[root] = slot
-        srv._active_root = root
+        srv._slot_mgr.projects[root] = slot
+        srv._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
@@ -191,8 +191,8 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._projects[root] = slot
-        srv._active_root = root
+        srv._slot_mgr.projects[root] = slot
+        srv._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
         srv._tool_call_counts["apply_symbol_change_and_validate"] = 1
@@ -268,8 +268,8 @@ class TestFormatUsageStats:
 
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, stats_file=str(stats_file))
-        srv._projects[root] = slot
-        srv._active_root = root
+        srv._slot_mgr.projects[root] = slot
+        srv._slot_mgr.active_root = root
 
         result = srv._format_usage_stats(include_cumulative=True)
         assert "Recent" in result

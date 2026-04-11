@@ -236,15 +236,59 @@ def _resolve_file(index: ProjectIndex, file_path: str) -> StructuralMetadata | N
     return None
 
 
-def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
-    """Create query functions bound to a project-wide index.
+class ProjectQueryEngine:
+    """Query engine bound to a project-wide index.
 
-    Returns a dict mapping function names to callables. Each function returns
-    plain dicts or strings suitable for printing in a REPL.
+    Each public method corresponds to a tool exposed by the MCP server.
+    Use ``as_dict()`` for backward compatibility with code that expects
+    the old ``create_project_query_functions`` dict interface.
     """
 
-    def get_project_summary() -> str:
+    _tools = [
+        "get_project_summary",
+        "list_files",
+        "get_structure_summary",
+        "get_lines",
+        "get_functions",
+        "get_classes",
+        "get_imports",
+        "get_function_source",
+        "get_class_source",
+        "find_symbol",
+        "get_dependencies",
+        "get_dependents",
+        "get_call_chain",
+        "get_file_dependencies",
+        "get_file_dependents",
+        "search_codebase",
+        "get_change_impact",
+        "get_routes",
+        "get_env_usage",
+        "get_components",
+        "get_feature_files",
+        "get_entry_points",
+        "get_symbol_cluster",
+    ]
+
+    def __init__(self, index: ProjectIndex):
+        self.index = index
+        self._communities: dict[str, str] | None = None
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def as_dict(self) -> dict[str, Callable]:
+        """Retrocompatibility: returns the same dict as the old closure."""
+        return {name: getattr(self, name) for name in self._tools}
+
+    # ------------------------------------------------------------------
+    # Tools
+    # ------------------------------------------------------------------
+
+    def get_project_summary(self) -> str:
         """Compact project overview: counts + top packages only."""
+        index = self.index
         parts = [
             f"Project: {index.root_path}",
             f"Files: {index.total_files}, Lines: {index.total_lines}, "
@@ -270,37 +314,37 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
 
         return "\n".join(parts)
 
-    def list_files(pattern: str | None = None, max_results: int = 0) -> list[str]:
+    def list_files(self, pattern: str | None = None, max_results: int = 0) -> list[str]:
         """List indexed files, optional glob filter (using fnmatch)."""
-        paths = sorted(index.files.keys())
+        paths = sorted(self.index.files.keys())
         if pattern:
             paths = [p for p in paths if fnmatch.fnmatch(p, pattern)]
         if max_results > 0:
             paths = paths[:max_results]
         return paths
 
-    def get_structure_summary(file_path: str | None = None) -> str:
+    def get_structure_summary(self, file_path: str | None = None) -> str:
         """Per-file or project-level summary."""
         if file_path is None:
-            return get_project_summary()
-        meta = _resolve_file(index, file_path)
+            return self.get_project_summary()
+        meta = _resolve_file(self.index, file_path)
         if meta is None:
             return f"Error: file '{file_path}' not found in index"
         file_funcs = create_file_query_functions(meta)
         return file_funcs["get_structure_summary"]()
 
-    def get_lines(file_path: str, start: int, end: int) -> str:
+    def get_lines(self, file_path: str, start: int, end: int) -> str:
         """Lines from a specific file."""
-        meta = _resolve_file(index, file_path)
+        meta = _resolve_file(self.index, file_path)
         if meta is None:
             return f"Error: file '{file_path}' not found in index"
         file_funcs = create_file_query_functions(meta)
         return file_funcs["get_lines"](start, end)
 
-    def get_functions(file_path: str | None = None, max_results: int = 0) -> list[dict]:
+    def get_functions(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Functions in a file, or all functions across the project."""
         if file_path is not None:
-            meta = _resolve_file(index, file_path)
+            meta = _resolve_file(self.index, file_path)
             if meta is None:
                 return [{"error": f"file '{file_path}' not found in index"}]
             file_funcs = create_file_query_functions(meta)
@@ -308,7 +352,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         else:
             # All functions across project
             result = []
-            for path, meta in sorted(index.files.items()):
+            for path, meta in sorted(self.index.files.items()):
                 for f in meta.functions:
                     result.append(
                         {
@@ -325,17 +369,17 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def get_classes(file_path: str | None = None, max_results: int = 0) -> list[dict]:
+    def get_classes(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Classes in a file or across the project."""
         if file_path is not None:
-            meta = _resolve_file(index, file_path)
+            meta = _resolve_file(self.index, file_path)
             if meta is None:
                 return [{"error": f"file '{file_path}' not found in index"}]
             file_funcs = create_file_query_functions(meta)
             result = file_funcs["get_classes"]()
         else:
             result = []
-            for path, meta in sorted(index.files.items()):
+            for path, meta in sorted(self.index.files.items()):
                 for cls in meta.classes:
                     result.append(
                         {
@@ -350,17 +394,17 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def get_imports(file_path: str | None = None, max_results: int = 0) -> list[dict]:
+    def get_imports(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Imports in a file or across the project."""
         if file_path is not None:
-            meta = _resolve_file(index, file_path)
+            meta = _resolve_file(self.index, file_path)
             if meta is None:
                 return [{"error": f"file '{file_path}' not found in index"}]
             file_funcs = create_file_query_functions(meta)
             result = file_funcs["get_imports"]()
         else:
             result = []
-            for path, meta in sorted(index.files.items()):
+            for path, meta in sorted(self.index.files.items()):
                 for imp in meta.imports:
                     result.append(
                         {
@@ -375,166 +419,68 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def _get_symbol_source(
-        name: str, kind: str, file_path: str | None = None, max_lines: int = 0
-    ) -> str:
-        """Shared helper for get_function_source / get_class_source.
-
-        kind is "function" or "class", controlling which file-level query
-        and which symbol collection to search.
-        """
-        file_qfn_key = f"get_{kind}_source"
-        source: str | None = None
-
-        if file_path is not None:
-            meta = _resolve_file(index, file_path)
-            if meta is None:
-                return f"Error: file '{file_path}' not found in index"
-            file_funcs = create_file_query_functions(meta)
-            source = file_funcs[file_qfn_key](name)
-        else:
-            # Try symbol table first
-            if name in index.symbol_table:
-                resolved_path = index.symbol_table[name]
-                meta = _resolve_file(index, resolved_path)
-                if meta is not None:
-                    file_funcs = create_file_query_functions(meta)
-                    result = file_funcs[file_qfn_key](name)
-                    if not result.startswith("Error:"):
-                        source = result
-            # Fallback: linear search
-            if source is None:
-                for path, meta in sorted(index.files.items()):
-                    symbols = meta.functions if kind == "function" else meta.classes
-                    for sym in symbols:
-                        match = (
-                            (sym.name == name or getattr(sym, "qualified_name", None) == name)
-                            if kind == "function"
-                            else sym.name == name
-                        )
-                        if match:
-                            source = "\n".join(
-                                meta.lines[sym.line_range.start - 1 : sym.line_range.end]
-                            )
-                            break
-                    if source is not None:
-                        break
-
-        if source is None:
-            return f"Error: {kind} '{name}' not found in project"
-        if max_lines > 0:
-            lines = source.split("\n")
-            if len(lines) > max_lines:
-                source = "\n".join(lines[:max_lines])
-                source += f"\n... (truncated to {max_lines} lines)"
-        return source
-
-    def get_function_source(name: str, file_path: str | None = None, max_lines: int = 0) -> str:
+    def get_function_source(self, name: str, file_path: str | None = None, max_lines: int = 0) -> str:
         """Source of a function, uses symbol_table to find file if not specified."""
-        return _get_symbol_source(name, "function", file_path, max_lines)
+        return self._get_symbol_source(name, "function", file_path, max_lines)
 
-    def get_class_source(name: str, file_path: str | None = None, max_lines: int = 0) -> str:
+    def get_class_source(self, name: str, file_path: str | None = None, max_lines: int = 0) -> str:
         """Source of a class, uses symbol_table to find file if not specified."""
-        return _get_symbol_source(name, "class", file_path, max_lines)
+        return self._get_symbol_source(name, "class", file_path, max_lines)
 
-    def _func_result(func, path, meta):
-        preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
-        return {
-            "name": func.qualified_name,
-            "file": path,
-            "line": func.line_range.start,
-            "end_line": func.line_range.end,
-            "type": "method" if func.is_method else "function",
-            "signature": f"def {func.name}({', '.join(func.parameters)})",
-            "source_preview": "\n".join(preview_lines),
-        }
-
-    def _class_result(cls, path, meta):
-        preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
-        return {
-            "name": cls.name,
-            "file": path,
-            "line": cls.line_range.start,
-            "end_line": cls.line_range.end,
-            "type": "class",
-            "methods": [m.name for m in cls.methods],
-            "bases": cls.base_classes,
-            "source_preview": "\n".join(preview_lines),
-        }
-
-    def _resolve_symbol_info(name: str) -> dict:
-        """Resolve a symbol name to rich info (file, line, signature, preview)."""
-        # Try symbol table first
-        if name in index.symbol_table:
-            path = index.symbol_table[name]
-            meta = _resolve_file(index, path)
-            if meta is not None:
-                for func in meta.functions:
-                    if func.name == name or func.qualified_name == name:
-                        return _func_result(func, path, meta)
-                for cls in meta.classes:
-                    if cls.name == name:
-                        return _class_result(cls, path, meta)
-        # Fallback: search all files
-        for path, meta in sorted(index.files.items()):
-            for func in meta.functions:
-                if func.name == name or func.qualified_name == name:
-                    return _func_result(func, path, meta)
-            for cls in meta.classes:
-                if cls.name == name:
-                    return _class_result(cls, path, meta)
-        return {"name": name}
-
-    def find_symbol(name: str) -> dict:
+    def find_symbol(self, name: str) -> dict:
         """Find where a symbol is defined: {file, line, type, signature, source_preview}."""
-        result = _resolve_symbol_info(name)
+        result = self._resolve_symbol_info(name)
         if "file" not in result:
             return {"error": f"symbol '{name}' not found"}
         return result
 
-    def get_dependencies(name: str, max_results: int = 0) -> list[dict]:
+    def get_dependencies(self, name: str, max_results: int = 0) -> list[dict]:
         """What this function/class references (from global_dependency_graph)."""
-        deps = index.global_dependency_graph.get(name)
+        deps = self.index.global_dependency_graph.get(name)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         result = sorted(deps)
         if max_results > 0:
             result = result[:max_results]
-        return [_resolve_symbol_info(dep) for dep in result]
+        return [self._resolve_symbol_info(dep) for dep in result]
 
-    def _resolve_dep_name(name: str) -> tuple[str, set | None]:
-        """Look up name in reverse dependency graph, falling back to class name for dotted methods."""
-        deps = index.reverse_dependency_graph.get(name)
-        if deps is not None:
-            return name, deps
-        # For "Class.method", fall back to dependents of "Class"
-        if "." in name:
-            class_name = name.split(".")[0]
-            deps = index.reverse_dependency_graph.get(class_name)
-            if deps is not None:
-                return class_name, deps
-        return name, None
-
-    def get_dependents(name: str, max_results: int = 0) -> list[dict]:
+    def get_dependents(self, name: str, max_results: int = 0, max_total_chars: int = 50_000) -> list[dict]:
         """What references this function/class (from reverse_dependency_graph)."""
-        resolved_name, deps = _resolve_dep_name(name)
+        resolved_name, deps = self._resolve_dep_name(name)
         if deps is None:
             return [{"error": f"'{name}' not found in reverse dependency graph"}]
         result = sorted(deps)
         if max_results > 0:
             result = result[:max_results]
-        return [_resolve_symbol_info(dep) for dep in result]
+        entries = []
+        chars_used = 0
+        for dep in result:
+            entry = self._resolve_symbol_info(dep)
+            entry_len = len(str(entry))
+            if max_total_chars > 0 and chars_used + entry_len > max_total_chars:
+                entries.append({
+                    "truncated": True,
+                    "message": f"... output truncated at {max_total_chars} chars. "
+                    "Use max_results to narrow the scope.",
+                    "shown": len(entries),
+                    "total": len(result),
+                })
+                break
+            chars_used += entry_len
+            entries.append(entry)
+        return entries
 
-    def get_call_chain(from_name: str, to_name: str) -> dict:
+    def get_call_chain(self, from_name: str, to_name: str) -> dict:
         """Shortest path in dependency graph (BFS).
 
         Returns {chain: [{name, file, line, end_line, type, signature, source_preview}, ...]}
         with rich info for each hop, so callers don't need follow-up lookups.
         """
+        index = self.index
         if from_name not in index.global_dependency_graph:
             return {"error": f"'{from_name}' not found in dependency graph"}
         if from_name == to_name:
-            info = _resolve_symbol_info(from_name)
+            info = self._resolve_symbol_info(from_name)
             info.setdefault("name", from_name)
             return {"chain": [info]}
 
@@ -562,15 +508,15 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         # Enrich each hop with file, line, signature, source preview
         chain = []
         for name in path_names:
-            info = _resolve_symbol_info(name)
+            info = self._resolve_symbol_info(name)
             info.setdefault("name", name)
             chain.append(info)
 
         return {"chain": chain}
 
-    def get_file_dependencies(file_path: str, max_results: int = 0) -> list[str]:
+    def get_file_dependencies(self, file_path: str, max_results: int = 0) -> list[str]:
         """What files this file imports from (from import_graph)."""
-        deps = index.import_graph.get(file_path)
+        deps = self.index.import_graph.get(file_path)
         if deps is None:
             return [f"Error: '{file_path}' not found in import graph"]
         result = sorted(deps)
@@ -578,9 +524,9 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def get_file_dependents(file_path: str, max_results: int = 0) -> list[str]:
+    def get_file_dependents(self, file_path: str, max_results: int = 0) -> list[str]:
         """What files import from this file (from reverse_import_graph)."""
-        deps = index.reverse_import_graph.get(file_path)
+        deps = self.index.reverse_import_graph.get(file_path)
         if deps is None:
             return [f"Error: '{file_path}' not found in reverse import graph"]
         result = sorted(deps)
@@ -588,7 +534,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             result = result[:max_results]
         return result
 
-    def search_codebase(pattern: str, max_results: int = 100) -> list[dict]:
+    def search_codebase(self, pattern: str, max_results: int = 100) -> list[dict]:
         """Regex across all files, returns [{file, line_number, content}]."""
         try:
             regex = re.compile(pattern)
@@ -596,8 +542,8 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             return [{"error": f"Invalid regex: {e}"}]
         limit = max_results if max_results > 0 else 0
         results = []
-        for path in sorted(index.files.keys()):
-            meta = index.files[path]
+        for path in sorted(self.index.files.keys()):
+            meta = self.index.files[path]
             for i, line in enumerate(meta.lines):
                 if regex.search(line):
                     results.append(
@@ -611,9 +557,12 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                         return results
         return results
 
-    def get_change_impact(name: str, max_direct: int = 0, max_transitive: int = 0) -> dict:
+    def get_change_impact(
+        self, name: str, max_direct: int = 0, max_transitive: int = 0, max_total_chars: int = 50_000
+    ) -> dict:
         """Direct and transitive dependents of a symbol, each with confidence and depth."""
-        resolved_name, direct = _resolve_dep_name(name)
+        index = self.index
+        resolved_name, direct = self._resolve_dep_name(name)
         if direct is None:
             return {"error": f"'{name}' not found in reverse dependency graph"}
 
@@ -636,7 +585,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         def _make_entry(sym: str) -> dict:
             d = depth_map[sym]
             confidence = max(0.05, 0.6 ** (d - 1))
-            info = _resolve_symbol_info(sym)
+            info = self._resolve_symbol_info(sym)
             return {**info, "confidence": confidence, "depth": d}
 
         direct_set = set(direct)
@@ -650,22 +599,43 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         if max_transitive > 0:
             transitive_entries = transitive_entries[:max_transitive]
 
-        return {
+        result = {
             "direct": direct_entries,
             "transitive": transitive_entries,
         }
+
+        if max_total_chars > 0:
+            import json as _json
+            serialized = _json.dumps(result, separators=(",", ":"), default=str)
+            if len(serialized) > max_total_chars:
+                # Trim transitive first, then direct if still too large
+                while transitive_entries and len(serialized) > max_total_chars:
+                    transitive_entries.pop()
+                    result["transitive"] = transitive_entries
+                    serialized = _json.dumps(result, separators=(",", ":"), default=str)
+                while direct_entries and len(serialized) > max_total_chars:
+                    direct_entries.pop()
+                    result["direct"] = direct_entries
+                    serialized = _json.dumps(result, separators=(",", ":"), default=str)
+                result["truncated"] = True
+                result["message"] = (
+                    f"... output truncated at {max_total_chars} chars. "
+                    "Use max_direct / max_transitive to narrow the scope."
+                )
+
+        return result
 
     # ------------------------------------------------------------------
     # v3: Route Map (Next.js App Router + Express-style)
     # ------------------------------------------------------------------
 
-    def get_routes(max_results: int = 0) -> list[dict]:
+    def get_routes(self, max_results: int = 0) -> list[dict]:
         """Detect API routes and pages from the project structure.
         Returns [{route, file, methods, type}] for Next.js App Router,
         Express, and similar frameworks."""
         routes: list[dict] = []
-        for path, meta in index.files.items():
-            # Next.js App Router: app/**/route.ts → API route
+        for path, meta in self.index.files.items():
+            # Next.js App Router: app/**/route.ts -> API route
             if "/route." in path and ("app/" in path or "pages/api/" in path):
                 # Extract HTTP methods from exported functions
                 methods = []
@@ -690,7 +660,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                         "type": "api",
                     }
                 )
-            # Next.js App Router: app/**/page.tsx → Page
+            # Next.js App Router: app/**/page.tsx -> Page
             elif "/page." in path and "app/" in path:
                 route_path = path
                 for prefix in ("app/", "src/app/"):
@@ -708,7 +678,7 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
                         "type": "page",
                     }
                 )
-            # Next.js App Router: app/**/layout.tsx → Layout
+            # Next.js App Router: app/**/layout.tsx -> Layout
             elif "/layout." in path and "app/" in path:
                 route_path = path
                 for prefix in ("app/", "src/app/"):
@@ -735,12 +705,12 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
     # v3: Env var cross-reference
     # ------------------------------------------------------------------
 
-    def get_env_usage(var_name: str, max_results: int = 0) -> list[dict]:
+    def get_env_usage(self, var_name: str, max_results: int = 0) -> list[dict]:
         """Find all references to an environment variable across the codebase.
         Searches for process.env.VAR, os.environ["VAR"], os.getenv("VAR"),
         and ${{ secrets.VAR }} patterns."""
         results: list[dict] = []
-        for path, meta in index.files.items():
+        for path, meta in self.index.files.items():
             for line_idx, line in enumerate(meta.lines):
                 if var_name in line:
                     context = line.strip()
@@ -774,14 +744,14 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
     # v3: React component detection
     # ------------------------------------------------------------------
 
-    def get_components(file_path: str | None = None, max_results: int = 0) -> list[dict]:
+    def get_components(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Detect React components (functions returning JSX).
         Heuristic: exported functions whose name starts with uppercase
         or are default exports in page/layout/component files."""
         components: list[dict] = []
-        targets = index.files.items()
+        targets = self.index.files.items()
         if file_path:
-            meta = index.files.get(file_path)
+            meta = self.index.files.get(file_path)
             if meta:
                 targets = [(file_path, meta)]
             else:
@@ -825,18 +795,19 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
         return components
 
     # ------------------------------------------------------------------
-    # v3: Feature file discovery (keyword → all related files via imports)
+    # v3: Feature file discovery (keyword -> all related files via imports)
     # ------------------------------------------------------------------
 
-    def get_feature_files(keyword: str, max_results: int = 0) -> list[dict]:
+    def get_feature_files(self, keyword: str, max_results: int = 0) -> list[dict]:
         """Find all files related to a feature keyword, then trace their imports
         transitively to build the complete feature file set.
 
         Example: get_feature_files("contrat") returns route files, components,
-        lib helpers, types — everything connected to contracts."""
+        lib helpers, types -- everything connected to contracts."""
+        index = self.index
         kw_lower = keyword.lower()
 
-        # Step 1: Seed files — paths or symbols containing the keyword
+        # Step 1: Seed files -- paths or symbols containing the keyword
         seeds: set[str] = set()
         for path in index.files:
             if kw_lower in path.lower():
@@ -896,51 +867,153 @@ def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
             results = results[:max_results]
         return results
 
-    def get_entry_points(max_results: int = 20) -> list[dict]:
+    def get_entry_points(self, max_results: int = 20) -> list[dict]:
         """Score functions by likelihood of being execution entry points.
         Returns [{name, file, line, score, reasons, params}] sorted by score desc."""
-        return score_entry_points(index, max_results=max_results)
+        return score_entry_points(self.index, max_results=max_results)
 
-    # Lazy-computed communities (computed once on first call)
-    _communities: dict[str, str] | None = None
-
-    def _get_communities() -> dict[str, str]:
-        nonlocal _communities
-        if _communities is None:
-            _communities = compute_communities(index)
-        return _communities
-
-    def get_symbol_cluster(name: str, max_members: int = 30) -> dict:
-        """Get the functional cluster for a symbol — all closely related symbols
+    def get_symbol_cluster(self, name: str, max_members: int = 30) -> dict:
+        """Get the functional cluster for a symbol -- all closely related symbols
         grouped by community detection on the dependency graph.
         Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
-        return get_cluster_for_symbol(name, _get_communities(), index, max_members=max_members)
+        return get_cluster_for_symbol(name, self._get_communities(), self.index, max_members=max_members)
 
-    return {
-        "get_project_summary": get_project_summary,
-        "list_files": list_files,
-        "get_structure_summary": get_structure_summary,
-        "get_lines": get_lines,
-        "get_functions": get_functions,
-        "get_classes": get_classes,
-        "get_imports": get_imports,
-        "get_function_source": get_function_source,
-        "get_class_source": get_class_source,
-        "find_symbol": find_symbol,
-        "get_dependencies": get_dependencies,
-        "get_dependents": get_dependents,
-        "get_call_chain": get_call_chain,
-        "get_file_dependencies": get_file_dependencies,
-        "get_file_dependents": get_file_dependents,
-        "search_codebase": search_codebase,
-        "get_change_impact": get_change_impact,
-        "get_routes": get_routes,
-        "get_env_usage": get_env_usage,
-        "get_components": get_components,
-        "get_feature_files": get_feature_files,
-        "get_entry_points": get_entry_points,
-        "get_symbol_cluster": get_symbol_cluster,
-    }
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _get_symbol_source(
+        self, name: str, kind: str, file_path: str | None = None, max_lines: int = 0
+    ) -> str:
+        """Shared helper for get_function_source / get_class_source.
+
+        kind is "function" or "class", controlling which file-level query
+        and which symbol collection to search.
+        """
+        index = self.index
+        file_qfn_key = f"get_{kind}_source"
+        source: str | None = None
+
+        if file_path is not None:
+            meta = _resolve_file(index, file_path)
+            if meta is None:
+                return f"Error: file '{file_path}' not found in index"
+            file_funcs = create_file_query_functions(meta)
+            source = file_funcs[file_qfn_key](name)
+        else:
+            # Try symbol table first
+            if name in index.symbol_table:
+                resolved_path = index.symbol_table[name]
+                meta = _resolve_file(index, resolved_path)
+                if meta is not None:
+                    file_funcs = create_file_query_functions(meta)
+                    result = file_funcs[file_qfn_key](name)
+                    if not result.startswith("Error:"):
+                        source = result
+            # Fallback: linear search
+            if source is None:
+                for path, meta in sorted(index.files.items()):
+                    symbols = meta.functions if kind == "function" else meta.classes
+                    for sym in symbols:
+                        match = (
+                            (sym.name == name or getattr(sym, "qualified_name", None) == name)
+                            if kind == "function"
+                            else sym.name == name
+                        )
+                        if match:
+                            source = "\n".join(
+                                meta.lines[sym.line_range.start - 1 : sym.line_range.end]
+                            )
+                            break
+                    if source is not None:
+                        break
+
+        if source is None:
+            return f"Error: {kind} '{name}' not found in project"
+        if max_lines > 0:
+            lines = source.split("\n")
+            if len(lines) > max_lines:
+                source = "\n".join(lines[:max_lines])
+                source += f"\n... (truncated to {max_lines} lines)"
+        return source
+
+    def _func_result(self, func, path, meta):
+        preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
+        return {
+            "name": func.qualified_name,
+            "file": path,
+            "line": func.line_range.start,
+            "end_line": func.line_range.end,
+            "type": "method" if func.is_method else "function",
+            "signature": f"def {func.name}({', '.join(func.parameters)})",
+            "source_preview": "\n".join(preview_lines),
+        }
+
+    def _class_result(self, cls, path, meta):
+        preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
+        return {
+            "name": cls.name,
+            "file": path,
+            "line": cls.line_range.start,
+            "end_line": cls.line_range.end,
+            "type": "class",
+            "methods": [m.name for m in cls.methods],
+            "bases": cls.base_classes,
+            "source_preview": "\n".join(preview_lines),
+        }
+
+    def _resolve_symbol_info(self, name: str) -> dict:
+        """Resolve a symbol name to rich info (file, line, signature, preview)."""
+        index = self.index
+        # Try symbol table first
+        if name in index.symbol_table:
+            path = index.symbol_table[name]
+            meta = _resolve_file(index, path)
+            if meta is not None:
+                for func in meta.functions:
+                    if func.name == name or func.qualified_name == name:
+                        return self._func_result(func, path, meta)
+                for cls in meta.classes:
+                    if cls.name == name:
+                        return self._class_result(cls, path, meta)
+        # Fallback: search all files
+        for path, meta in sorted(index.files.items()):
+            for func in meta.functions:
+                if func.name == name or func.qualified_name == name:
+                    return self._func_result(func, path, meta)
+            for cls in meta.classes:
+                if cls.name == name:
+                    return self._class_result(cls, path, meta)
+        return {"name": name}
+
+    def _resolve_dep_name(self, name: str) -> tuple[str, set | None]:
+        """Look up name in reverse dependency graph, falling back to class name for dotted methods."""
+        deps = self.index.reverse_dependency_graph.get(name)
+        if deps is not None:
+            return name, deps
+        # For "Class.method", fall back to dependents of "Class"
+        if "." in name:
+            class_name = name.split(".")[0]
+            deps = self.index.reverse_dependency_graph.get(class_name)
+            if deps is not None:
+                return class_name, deps
+        return name, None
+
+    def _get_communities(self) -> dict[str, str]:
+        if self._communities is None:
+            self._communities = compute_communities(self.index)
+        return self._communities
+
+
+def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
+    """Create query functions bound to a project-wide index.
+
+    Returns a dict mapping function names to callables. Each function returns
+    plain dicts or strings suitable for printing in a REPL.
+
+    This is a thin wrapper around ``ProjectQueryEngine`` for backward compatibility.
+    """
+    return ProjectQueryEngine(index).as_dict()
 
 
 # ---------------------------------------------------------------------------

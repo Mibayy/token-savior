@@ -8,6 +8,7 @@ functions, and forward declarations.
 import re
 from typing import Optional
 
+from token_savior.brace_matcher import find_brace_end_c as _find_brace_end
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -24,71 +25,6 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
         offsets.append(pos)
         pos += len(line) + 1
     return offsets
-
-
-# ---------------------------------------------------------------------------
-# Brace matching — handles strings, char literals, comments
-# ---------------------------------------------------------------------------
-
-
-def _find_brace_end(lines: list[str], start_line_0: int) -> int:
-    """Find the 0-based line where the outermost brace closes,
-    skipping strings, char literals, and comments."""
-    depth = 0
-    found_open = False
-    in_block_comment = False
-    for idx in range(start_line_0, len(lines)):
-        line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            # Block comment handling (C does NOT nest /* */)
-            if in_block_comment:
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment = False
-                    i += 2
-                    continue
-                i += 1
-                continue
-            # Line comment
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment = True
-                    i += 2
-                    continue
-            # String literal
-            if ch == '"':
-                i += 1
-                while i < len(line):
-                    if line[i] == "\\":
-                        i += 2
-                        continue
-                    if line[i] == '"':
-                        i += 1
-                        break
-                    i += 1
-                continue
-            # Char literal
-            if ch == "'":
-                i += 1
-                if i < len(line) and line[i] == "\\":
-                    i += 2  # skip escaped char
-                elif i < len(line):
-                    i += 1  # skip char
-                if i < len(line) and line[i] == "'":
-                    i += 1
-                continue
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
-    return len(lines) - 1
 
 
 # ---------------------------------------------------------------------------

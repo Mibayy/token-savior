@@ -8,6 +8,7 @@ method and constructor detection, using directives, [Attributes], and
 import re
 from typing import Optional
 
+from token_savior.brace_matcher import find_brace_end_csharp as _find_brace_end
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -24,149 +25,6 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
         offsets.append(pos)
         pos += len(line) + 1
     return offsets
-
-
-def _find_brace_end(lines: list[str], start_line_0: int) -> int:
-    """Find the 0-based line where the outermost brace closes,
-    skipping strings, verbatim strings, interpolated strings, char literals, and comments."""
-    depth = 0
-    found_open = False
-    in_block_comment = False
-    for idx in range(start_line_0, len(lines)):
-        line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            # Block comment handling
-            if in_block_comment:
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment = False
-                    i += 2
-                    continue
-                i += 1
-                continue
-            # Line comment
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment = True
-                    i += 2
-                    continue
-            # Verbatim/interpolated strings: $@"...", @$"...", @"...", $"..."
-            if ch in ("@", "$") and i + 1 < len(line):
-                # Check for $@" or @$" (interpolated verbatim)
-                if (
-                    ch == "$" and line[i + 1] == "@" and i + 2 < len(line) and line[i + 2] == '"'
-                ) or (
-                    ch == "@" and line[i + 1] == "$" and i + 2 < len(line) and line[i + 2] == '"'
-                ):
-                    # Interpolated verbatim string — "" for escaped quote
-                    i += 3
-                    while i < len(line):
-                        if line[i] == '"':
-                            if i + 1 < len(line) and line[i + 1] == '"':
-                                i += 2
-                                continue
-                            i += 1
-                            break
-                        i += 1
-                    else:
-                        # Multi-line verbatim string
-                        idx += 1
-                        while idx < len(lines):
-                            line = lines[idx]
-                            i = 0
-                            while i < len(line):
-                                if line[i] == '"':
-                                    if i + 1 < len(line) and line[i + 1] == '"':
-                                        i += 2
-                                        continue
-                                    i += 1
-                                    break
-                                i += 1
-                            else:
-                                idx += 1
-                                continue
-                            break
-                        else:
-                            return len(lines) - 1
-                    continue
-                # Verbatim string: @"..."
-                if ch == "@" and line[i + 1] == '"':
-                    i += 2
-                    while i < len(line):
-                        if line[i] == '"':
-                            if i + 1 < len(line) and line[i + 1] == '"':
-                                i += 2
-                                continue
-                            i += 1
-                            break
-                        i += 1
-                    else:
-                        # Multi-line verbatim
-                        idx += 1
-                        while idx < len(lines):
-                            line = lines[idx]
-                            i = 0
-                            while i < len(line):
-                                if line[i] == '"':
-                                    if i + 1 < len(line) and line[i + 1] == '"':
-                                        i += 2
-                                        continue
-                                    i += 1
-                                    break
-                                i += 1
-                            else:
-                                idx += 1
-                                continue
-                            break
-                        else:
-                            return len(lines) - 1
-                    continue
-                # Interpolated string: $"..."
-                if ch == "$" and line[i + 1] == '"':
-                    i += 2
-                    while i < len(line):
-                        if line[i] == "\\":
-                            i += 2
-                            continue
-                        if line[i] == '"':
-                            i += 1
-                            break
-                        i += 1
-                    continue
-            # Regular string
-            if ch == '"':
-                i += 1
-                while i < len(line):
-                    if line[i] == "\\":
-                        i += 2
-                        continue
-                    if line[i] == '"':
-                        i += 1
-                        break
-                    i += 1
-                continue
-            # Char literal
-            if ch == "'" and i + 1 < len(line):
-                if i + 2 < len(line) and line[i + 1] == "\\":
-                    end = line.find("'", i + 2)
-                    if end >= 0 and end <= i + 4:
-                        i = end + 1
-                        continue
-                elif i + 2 < len(line) and line[i + 2] == "'":
-                    i += 3
-                    continue
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
-    return len(lines) - 1
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +308,307 @@ def _is_method_line(stripped: str, class_name: str | None) -> re.Match | None:
 
 
 # ---------------------------------------------------------------------------
+# Handler: namespace (skip, not emitted)
+# ---------------------------------------------------------------------------
+
+
+def _handle_csharp_namespace(lines: list[str], i: int, total_lines: int) -> Optional[int]:
+    """Handle a namespace declaration. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    ns_m = _NAMESPACE_RE.match(stripped)
+    if not ns_m:
+        return None
+    if stripped.rstrip().endswith(";"):
+        return i + 1
+    if "{" in stripped:
+        return i + 1
+    if i + 1 < total_lines and "{" in lines[i + 1].strip():
+        return i + 2
+    return i + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: find method end
+# ---------------------------------------------------------------------------
+
+
+def _find_method_end(lines: list[str], j: int, boundary: int) -> int:
+    """Find the end line of a method starting at j, bounded by boundary."""
+    rest_after_paren = ""
+    scan_end = min(j + 3, boundary)
+    for scan_j in range(j, scan_end + 1):
+        rest_after_paren += lines[scan_j]
+
+    if "{" in rest_after_paren:
+        brace_line = j
+        while brace_line <= scan_end and "{" not in lines[brace_line]:
+            brace_line += 1
+        return _find_brace_end(lines, brace_line)
+
+    if "=>" in rest_after_paren:
+        method_end = j
+        while method_end < boundary and ";" not in lines[method_end]:
+            method_end += 1
+        return method_end
+
+    # Abstract/interface method: ends at semicolon
+    method_end = j
+    while method_end < boundary and ";" not in lines[method_end]:
+        method_end += 1
+    return method_end
+
+
+# ---------------------------------------------------------------------------
+# Handler: extract methods from type body
+# ---------------------------------------------------------------------------
+
+
+def _extract_type_methods(
+    lines: list[str],
+    type_name: str,
+    body_start: int,
+    type_end: int,
+    total_lines: int,
+    consumed: set[int],
+    functions: list[FunctionInfo],
+) -> list[FunctionInfo]:
+    """Extract method declarations from inside a type body. Returns list of methods found."""
+    type_methods: list[FunctionInfo] = []
+    j = body_start
+    while j < type_end:
+        if j in consumed:
+            j += 1
+            continue
+
+        mline = lines[j].strip()
+
+        # Skip nested types
+        nested_type_m = _TYPE_RE.match(mline)
+        if nested_type_m:
+            if "{" in mline or (j + 1 < total_lines and "{" in lines[j + 1].strip()):
+                nested_end = _find_brace_end(lines, j)
+                for k in range(j, nested_end + 1):
+                    consumed.add(k)
+                j = nested_end + 1
+                continue
+            j += 1
+            continue
+
+        # Skip empty, comments, attributes, doc comments
+        if (
+            not mline
+            or mline.startswith("//")
+            or mline.startswith("/*")
+            or mline.startswith("[")
+            or mline.startswith("///")
+        ):
+            j += 1
+            continue
+
+        method_m = _is_method_line(mline, type_name)
+        if method_m:
+            method_name = method_m.group(1)
+            method_attrs, method_doc = _collect_attrs_and_docs(lines, j)
+            param_str, _ = _find_method_params(lines, j)
+            params = _extract_params(param_str)
+            method_end = _find_method_end(lines, j, type_end)
+
+            func_info = FunctionInfo(
+                name=method_name,
+                qualified_name=f"{type_name}.{method_name}",
+                line_range=LineRange(start=j + 1, end=method_end + 1),
+                parameters=params,
+                decorators=method_attrs,
+                docstring=method_doc,
+                is_method=True,
+                parent_class=type_name,
+            )
+            functions.append(func_info)
+            type_methods.append(func_info)
+
+            for k in range(j, method_end + 1):
+                consumed.add(k)
+            j = method_end + 1
+            continue
+
+        j += 1
+
+    return type_methods
+
+
+# ---------------------------------------------------------------------------
+# Handler: type declaration (class, interface, struct, enum, record)
+# ---------------------------------------------------------------------------
+
+
+def _handle_csharp_type(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    functions: list[FunctionInfo],
+    classes: list[ClassInfo],
+) -> Optional[int]:
+    """Handle a type declaration at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    type_m = _TYPE_RE.match(stripped)
+    if not type_m:
+        return None
+
+    type_kind = type_m.group(1)
+    type_name = type_m.group(2)
+    base_str = type_m.group(3)
+
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+
+    base_classes = _parse_base_classes(base_str)
+
+    # Find body end
+    type_end = _find_type_end(lines, i, stripped, total_lines)
+    if type_end is None:
+        # Brace further down (after where clause) but ends with ;
+        scan = i + 1
+        while scan < total_lines and "{" not in lines[scan] and ";" not in lines[scan]:
+            scan += 1
+        if scan < total_lines and "{" in lines[scan]:
+            type_end = _find_brace_end(lines, scan)
+        else:
+            type_end = scan if scan < total_lines else i
+            for k in range(i, type_end + 1):
+                consumed.add(k)
+            classes.append(
+                ClassInfo(
+                    name=type_name,
+                    line_range=LineRange(start=i + 1, end=type_end + 1),
+                    base_classes=base_classes,
+                    methods=[],
+                    decorators=attrs,
+                    docstring=docstring,
+                )
+            )
+            return type_end + 1
+
+    # Extract methods within the type body (skip enums)
+    type_methods: list[FunctionInfo] = []
+    if type_kind != "enum":
+        type_methods = _extract_type_methods(
+            lines, type_name, i + 1, type_end, total_lines, consumed, functions
+        )
+
+    classes.append(
+        ClassInfo(
+            name=type_name,
+            line_range=LineRange(start=i + 1, end=type_end + 1),
+            base_classes=base_classes,
+            methods=type_methods,
+            decorators=attrs,
+            docstring=docstring,
+        )
+    )
+
+    for k in range(i, type_end + 1):
+        consumed.add(k)
+    return type_end + 1
+
+
+def _parse_base_classes(base_str: Optional[str]) -> list[str]:
+    """Parse base classes/interfaces from a type declaration's base list string."""
+    base_classes: list[str] = []
+    if not base_str:
+        return base_classes
+    for base in base_str.split(","):
+        base = base.strip()
+        base = re.sub(r"<.*>", "", base).strip()
+        if base.startswith("where ") or not base:
+            continue
+        if base and base[0].isupper():
+            base_classes.append(base)
+    return base_classes
+
+
+def _find_type_end(
+    lines: list[str], i: int, stripped: str, total_lines: int
+) -> Optional[int]:
+    """Find the end line of a type body. Returns line index or None if needs further scanning."""
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        return _find_brace_end(lines, i)
+    if stripped.rstrip().endswith(";"):
+        return i
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Handler: top-level function (C# 9+)
+# ---------------------------------------------------------------------------
+
+
+def _handle_csharp_toplevel_fn(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    functions: list[FunctionInfo],
+) -> Optional[int]:
+    """Handle a top-level function at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    method_m = _is_method_line(stripped, None)
+    if not method_m:
+        return None
+
+    name = method_m.group(1)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+    param_str, _ = _find_method_params(lines, i)
+    params = _extract_params(param_str)
+
+    end_0 = _find_method_end(lines, i, total_lines - 1)
+
+    functions.append(
+        FunctionInfo(
+            name=name,
+            qualified_name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            parameters=params,
+            decorators=attrs,
+            docstring=docstring,
+            is_method=False,
+            parent_class=None,
+        )
+    )
+
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
+# Skip predicates
+# ---------------------------------------------------------------------------
+
+
+def _should_skip_pass1(stripped: str) -> bool:
+    """Return True if line should be skipped in pass 1."""
+    if not stripped:
+        return True
+    if stripped.startswith("//") or stripped.startswith("/*"):
+        return True
+    if stripped.startswith("using ") or stripped.startswith("global using "):
+        return True
+    if stripped.startswith("[") or stripped.startswith("///"):
+        return True
+    return False
+
+
+def _should_skip_pass2(stripped: str) -> bool:
+    """Return True if line should be skipped in pass 2."""
+    if not stripped:
+        return True
+    for prefix in ("//", "/*", "[", "///", "using ", "global using ", "namespace "):
+        if stripped.startswith(prefix):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Main annotator
 # ---------------------------------------------------------------------------
 
@@ -485,190 +644,20 @@ def annotate_csharp(source: str, source_name: str = "<source>") -> StructuralMet
 
         stripped = lines[i].strip()
 
-        # Skip empty lines, comments, using directives
-        if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
-            i += 1
-            continue
-        if stripped.startswith("using ") or stripped.startswith("global using "):
+        if _should_skip_pass1(stripped):
             i += 1
             continue
 
-        # Skip attributes and doc comments (will be collected by _collect_attrs_and_docs)
-        if stripped.startswith("[") or stripped.startswith("///"):
-            i += 1
-            continue
-
-        # Skip namespace declarations (not emitted as ClassInfo)
-        ns_m = _NAMESPACE_RE.match(stripped)
-        if ns_m:
-            # File-scoped namespace (ends with ;)
-            if stripped.rstrip().endswith(";"):
-                i += 1
-                continue
-            # Block namespace — just skip the declaration line, don't consume contents
-            if "{" in stripped:
-                i += 1
-                continue
-            # Opening brace on next line
-            if i + 1 < total_lines and "{" in lines[i + 1].strip():
-                i += 2
-                continue
-            i += 1
+        # Skip namespace declarations
+        next_i = _handle_csharp_namespace(lines, i, total_lines)
+        if next_i is not None:
+            i = next_i
             continue
 
         # Type declaration
-        type_m = _TYPE_RE.match(stripped)
-        if type_m:
-            type_kind = type_m.group(1)  # class, interface, struct, enum, record
-            type_name = type_m.group(2)
-            base_str = type_m.group(3)
-
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-
-            # Parse base classes / interfaces
-            base_classes: list[str] = []
-            if base_str:
-                for base in base_str.split(","):
-                    base = base.strip()
-                    # Remove generic params for clean names
-                    base = re.sub(r"<.*>", "", base).strip()
-                    # Remove where clause remnants
-                    if base.startswith("where ") or not base:
-                        continue
-                    if base and base[0].isupper():
-                        base_classes.append(base)
-
-            # Find body end
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                type_end = _find_brace_end(lines, i)
-            elif stripped.rstrip().endswith(";"):
-                # enum or record with no body
-                type_end = i
-            else:
-                # Brace might be further down (after where clause)
-                scan = i + 1
-                while scan < total_lines and "{" not in lines[scan] and ";" not in lines[scan]:
-                    scan += 1
-                if scan < total_lines and "{" in lines[scan]:
-                    type_end = _find_brace_end(lines, scan)
-                else:
-                    type_end = scan if scan < total_lines else i
-                    for k in range(i, type_end + 1):
-                        consumed.add(k)
-                    classes.append(
-                        ClassInfo(
-                            name=type_name,
-                            line_range=LineRange(start=i + 1, end=type_end + 1),
-                            base_classes=base_classes,
-                            methods=[],
-                            decorators=attrs,
-                            docstring=docstring,
-                        )
-                    )
-                    i = type_end + 1
-                    continue
-
-            # Extract methods within the type body (skip enums)
-            type_methods: list[FunctionInfo] = []
-            if type_kind != "enum":
-                j = i + 1
-                while j < type_end:
-                    if j in consumed:
-                        j += 1
-                        continue
-
-                    mline = lines[j].strip()
-
-                    # Skip nested types — detect and consume them
-                    nested_type_m = _TYPE_RE.match(mline)
-                    if nested_type_m:
-                        if "{" in mline or (j + 1 < total_lines and "{" in lines[j + 1].strip()):
-                            nested_end = _find_brace_end(lines, j)
-                            for k in range(j, nested_end + 1):
-                                consumed.add(k)
-                            j = nested_end + 1
-                            continue
-                        j += 1
-                        continue
-
-                    # Skip empty, comments, attributes, doc comments
-                    if (
-                        not mline
-                        or mline.startswith("//")
-                        or mline.startswith("/*")
-                        or mline.startswith("[")
-                        or mline.startswith("///")
-                    ):
-                        j += 1
-                        continue
-
-                    method_m = _is_method_line(mline, type_name)
-                    if method_m:
-                        method_name = method_m.group(1)
-                        method_attrs, method_doc = _collect_attrs_and_docs(lines, j)
-
-                        param_str, _ = _find_method_params(lines, j)
-                        params = _extract_params(param_str)
-
-                        # Determine method end
-                        # Check for body: {, =>, or ; (abstract/interface)
-                        rest_after_paren = ""
-                        # Scan forward from declaration to find {, =>, or ;
-                        scan_end = min(j + 3, type_end)
-                        for scan_j in range(j, scan_end + 1):
-                            rest_after_paren += lines[scan_j]
-
-                        if "{" in rest_after_paren:
-                            # Find the line with the opening brace
-                            brace_line = j
-                            while brace_line <= scan_end and "{" not in lines[brace_line]:
-                                brace_line += 1
-                            method_end = _find_brace_end(lines, brace_line)
-                        elif "=>" in rest_after_paren:
-                            # Expression-bodied: find the semicolon
-                            method_end = j
-                            while method_end < type_end and ";" not in lines[method_end]:
-                                method_end += 1
-                        else:
-                            # Abstract/interface method: ends at semicolon
-                            method_end = j
-                            while method_end < type_end and ";" not in lines[method_end]:
-                                method_end += 1
-
-                        func_info = FunctionInfo(
-                            name=method_name,
-                            qualified_name=f"{type_name}.{method_name}",
-                            line_range=LineRange(start=j + 1, end=method_end + 1),
-                            parameters=params,
-                            decorators=method_attrs,
-                            docstring=method_doc,
-                            is_method=True,
-                            parent_class=type_name,
-                        )
-                        functions.append(func_info)
-                        type_methods.append(func_info)
-
-                        for k in range(j, method_end + 1):
-                            consumed.add(k)
-                        j = method_end + 1
-                        continue
-
-                    j += 1
-
-            classes.append(
-                ClassInfo(
-                    name=type_name,
-                    line_range=LineRange(start=i + 1, end=type_end + 1),
-                    base_classes=base_classes,
-                    methods=type_methods,
-                    decorators=attrs,
-                    docstring=docstring,
-                )
-            )
-
-            for k in range(i, type_end + 1):
-                consumed.add(k)
-            i = type_end + 1
+        next_i = _handle_csharp_type(lines, i, total_lines, consumed, functions, classes)
+        if next_i is not None:
+            i = next_i
             continue
 
         i += 1
@@ -681,62 +670,13 @@ def annotate_csharp(source: str, source_name: str = "<source>") -> StructuralMet
             continue
 
         stripped = lines[i].strip()
-        if (
-            not stripped
-            or stripped.startswith("//")
-            or stripped.startswith("/*")
-            or stripped.startswith("[")
-            or stripped.startswith("///")
-            or stripped.startswith("using ")
-            or stripped.startswith("global using ")
-            or stripped.startswith("namespace ")
-        ):
+        if _should_skip_pass2(stripped):
             i += 1
             continue
 
-        method_m = _is_method_line(stripped, None)
-        if method_m:
-            name = method_m.group(1)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-            param_str, _ = _find_method_params(lines, i)
-            params = _extract_params(param_str)
-
-            # Find end
-            rest = ""
-            scan_end = min(i + 3, total_lines - 1)
-            for scan_j in range(i, scan_end + 1):
-                rest += lines[scan_j]
-
-            if "{" in rest:
-                brace_line = i
-                while brace_line <= scan_end and "{" not in lines[brace_line]:
-                    brace_line += 1
-                end_0 = _find_brace_end(lines, brace_line)
-            elif "=>" in rest:
-                end_0 = i
-                while end_0 < total_lines - 1 and ";" not in lines[end_0]:
-                    end_0 += 1
-            else:
-                end_0 = i
-                while end_0 < total_lines - 1 and ";" not in lines[end_0]:
-                    end_0 += 1
-
-            functions.append(
-                FunctionInfo(
-                    name=name,
-                    qualified_name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    parameters=params,
-                    decorators=attrs,
-                    docstring=docstring,
-                    is_method=False,
-                    parent_class=None,
-                )
-            )
-
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        next_i = _handle_csharp_toplevel_fn(lines, i, total_lines, consumed, functions)
+        if next_i is not None:
+            i = next_i
             continue
 
         i += 1

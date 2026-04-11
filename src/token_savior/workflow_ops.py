@@ -19,11 +19,27 @@ def apply_symbol_change_and_validate(
     max_output_chars: int = 12000,
     include_output: bool = False,
     compact: bool = False,
+    rollback_on_failure: bool = False,
 ) -> dict:
-    """Replace a symbol and run impacted tests with a compact combined summary."""
+    """Replace a symbol, run impacted tests, optionally rollback on failure.
+
+    When *rollback_on_failure* is True, a checkpoint is created before the edit
+    and restored automatically if validation fails (previous behaviour of
+    apply_symbol_change_validate_with_rollback).
+    """
     index = indexer._project_index
     if index is None:
         return {"error": "Project index is not initialized"}
+
+    # Optional checkpoint for rollback
+    checkpoint = None
+    location_file = None
+    if rollback_on_failure:
+        location = resolve_symbol_location(index, symbol_name, file_path=file_path)
+        if "error" in location:
+            return location
+        location_file = location["file"]
+        checkpoint = create_checkpoint(index, [location_file])
 
     edit_result = replace_symbol_source(index, symbol_name, new_source, file_path=file_path)
     if not edit_result.get("ok"):
@@ -53,6 +69,45 @@ def apply_symbol_change_and_validate(
             "validation_ok": validation.get("ok"),
         },
     }
+
+    # Rollback path
+    if rollback_on_failure and checkpoint and not payload["ok"]:
+        rollback = restore_checkpoint(indexer._project_index, checkpoint["checkpoint_id"])
+        if rollback.get("ok"):
+            for restored_file in rollback.get("restored_files", []):
+                indexer.reindex_file(restored_file)
+        commit_summary = build_commit_summary(
+            indexer._project_index, [location_file], compact=compact
+        )
+        if compact:
+            return {
+                "ok": False,
+                "summary": payload["summary"],
+                "checkpoint_id": checkpoint["checkpoint_id"],
+                "rollback_ok": rollback.get("ok"),
+                "commit_summary": commit_summary,
+            }
+        payload["checkpoint"] = checkpoint
+        payload["rollback"] = rollback
+        payload["commit_summary"] = commit_summary
+        return payload
+
+    # Success path (with optional checkpoint info)
+    if rollback_on_failure and checkpoint and payload["ok"]:
+        commit_summary = build_commit_summary(
+            indexer._project_index, [location_file or edit_result.get("file")], compact=compact
+        )
+        if compact:
+            return {
+                "ok": True,
+                "summary": payload["summary"],
+                "checkpoint_id": checkpoint["checkpoint_id"],
+                "commit_summary": commit_summary,
+            }
+        payload["checkpoint"] = checkpoint
+        payload["commit_summary"] = commit_summary
+        return payload
+
     if compact:
         return {
             "ok": payload["ok"],
@@ -73,18 +128,8 @@ def apply_symbol_change_validate_with_rollback(
     include_output: bool = False,
     compact: bool = False,
 ) -> dict:
-    """Replace a symbol, validate impacted tests, and rollback automatically on failure."""
-    index = indexer._project_index
-    if index is None:
-        return {"error": "Project index is not initialized"}
-
-    location = resolve_symbol_location(index, symbol_name, file_path=file_path)
-    if "error" in location:
-        return location
-    location_file = location["file"]
-
-    checkpoint = create_checkpoint(index, [location_file])
-    result = apply_symbol_change_and_validate(
+    """Deprecated alias -- use apply_symbol_change_and_validate(rollback_on_failure=True)."""
+    return apply_symbol_change_and_validate(
         indexer,
         symbol_name,
         new_source,
@@ -94,37 +139,5 @@ def apply_symbol_change_validate_with_rollback(
         max_output_chars=max_output_chars,
         include_output=include_output,
         compact=compact,
+        rollback_on_failure=True,
     )
-    if result.get("ok"):
-        changed_file = location_file
-        commit_summary = build_commit_summary(
-            indexer._project_index, [changed_file], compact=compact
-        )
-        if compact:
-            return {
-                "ok": True,
-                "summary": result["summary"],
-                "checkpoint_id": checkpoint["checkpoint_id"],
-                "commit_summary": commit_summary,
-            }
-        result["checkpoint"] = checkpoint
-        result["commit_summary"] = commit_summary
-        return result
-
-    rollback = restore_checkpoint(indexer._project_index, checkpoint["checkpoint_id"])
-    if rollback.get("ok"):
-        for restored_file in rollback.get("restored_files", []):
-            indexer.reindex_file(restored_file)
-    commit_summary = build_commit_summary(indexer._project_index, [location_file], compact=compact)
-    if compact:
-        return {
-            "ok": False,
-            "summary": result.get("summary", {}),
-            "checkpoint_id": checkpoint["checkpoint_id"],
-            "rollback_ok": rollback.get("ok"),
-            "commit_summary": commit_summary,
-        }
-    result["checkpoint"] = checkpoint
-    result["rollback"] = rollback
-    result["commit_summary"] = commit_summary
-    return result

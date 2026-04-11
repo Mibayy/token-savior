@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior"
-version = "0.9.1"
+version = "1.0.0"
 description = "Compact structural codebase MCP server for token-efficient AI development"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["mcp", "codebase", "indexer", "code-navigation", "structural-analysis", "c", "glsl", "python", "typescript", "go", "rust"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -31,6 +31,7 @@ benchmark = ["aiohttp>=3.9"]
 [project.scripts]
 token-savior = "token_savior.server:main_sync"
 token-savior-dashboard = "token_savior.dashboard:main"
+token-savior-bench = "benchmarks.run_benchmarks:main"
 
 [project.urls]
 Homepage = "https://github.com/Mibayy/token-savior"

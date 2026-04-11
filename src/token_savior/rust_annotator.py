@@ -7,6 +7,7 @@ impl blocks, use statements, attributes, doc comments, and macro_rules.
 import re
 from typing import Optional
 
+from token_savior.brace_matcher import find_brace_end_rust as _find_brace_end
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -23,98 +24,6 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
         offsets.append(pos)
         pos += len(line) + 1
     return offsets
-
-
-def _find_brace_end(lines: list[str], start_line_0: int) -> int:
-    """Find the 0-based line where the outermost brace closes,
-    skipping strings, raw strings, char literals, and comments."""
-    depth = 0
-    found_open = False
-    in_block_comment = 0  # nesting depth for /* */
-    for idx in range(start_line_0, len(lines)):
-        line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            # Block comment handling (Rust supports nested /* */)
-            if in_block_comment > 0:
-                if ch == "/" and i + 1 < len(line) and line[i + 1] == "*":
-                    in_block_comment += 1
-                    i += 2
-                    continue
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment -= 1
-                    i += 2
-                    continue
-                i += 1
-                continue
-            # Line comment
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment += 1
-                    i += 2
-                    continue
-            # Raw string: r#"..."#, r##"..."##, etc.
-            if ch == "r" and i + 1 < len(line) and line[i + 1] in ('"', "#"):
-                hash_count = 0
-                j = i + 1
-                while j < len(line) and line[j] == "#":
-                    hash_count += 1
-                    j += 1
-                if j < len(line) and line[j] == '"':
-                    j += 1
-                    # Find closing "###
-                    closing = '"' + "#" * hash_count
-                    while True:
-                        pos = line.find(closing, j)
-                        if pos >= 0:
-                            i = pos + len(closing)
-                            break
-                        # Span to next line
-                        idx += 1
-                        if idx >= len(lines):
-                            return len(lines) - 1
-                        line = lines[idx]
-                        j = 0
-                    continue
-            # Regular string
-            if ch == '"':
-                i += 1
-                while i < len(line):
-                    if line[i] == "\\":
-                        i += 2
-                        continue
-                    if line[i] == '"':
-                        i += 1
-                        break
-                    i += 1
-                continue
-            # Char literal (skip 'a', '\n', etc. but not lifetime 'a)
-            if ch == "'" and i + 1 < len(line):
-                # Lifetime check: 'a where next is alpha and followed by non-'
-                # Char literal: 'x' or '\n'
-                if i + 2 < len(line) and line[i + 1] == "\\":
-                    # Escaped char literal like '\n'
-                    end = line.find("'", i + 2)
-                    if end >= 0 and end <= i + 4:
-                        i = end + 1
-                        continue
-                elif i + 2 < len(line) and line[i + 2] == "'":
-                    # Simple char literal like 'a'
-                    i += 3
-                    continue
-                # Otherwise it's a lifetime, skip
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
-    return len(lines) - 1
 
 
 def _find_semicolon_end(lines: list[str], start_line_0: int) -> int:
@@ -378,6 +287,356 @@ def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[st
 
 
 # ---------------------------------------------------------------------------
+# Impl block regex (used by _handle_rust_impl)
+# ---------------------------------------------------------------------------
+
+_IMPL_RE = re.compile(
+    r"^\s*impl"
+    r"(?:<[^>]*>)?\s+"  # optional generic params
+    r"(?:([\w:]+)\s+for\s+)?"  # optional Trait for (supports qualified paths like fmt::Display)
+    r"(\w+)"  # Type
+)
+
+_STRUCT_RE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)")
+_ENUM_RE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)")
+_TRAIT_RE_STRICT = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?trait\s+(\w+)"
+    r"(?:\s*:\s*(.+?))?"  # optional supertraits
+    r"\s*(?:\{|where)",
+)
+_TRAIT_RE_LOOSE = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?trait\s+(\w+)"
+    r"(?:\s*:\s*([^{]+?))?"
+    r"\s*\{?",
+)
+
+
+# ---------------------------------------------------------------------------
+# Handler: impl blocks (first pass)
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_impl(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    functions: list[FunctionInfo],
+    impl_methods: dict[str, list[FunctionInfo]],
+) -> int:
+    """Handle an impl block starting at line i. Returns the next line index."""
+    stripped = lines[i].strip()
+    check = stripped
+    if check.startswith("pub "):
+        check = check[4:].strip()
+
+    m = _IMPL_RE.match(check)
+    if not m:
+        return i + 1
+
+    trait_name = m.group(1)
+    type_name = m.group(2)
+
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        impl_end = _find_brace_end(lines, i)
+    else:
+        return i + 1
+
+    # Scan impl body for fn declarations
+    for j in range(i + 1, impl_end):
+        if j in consumed:
+            continue
+        fn_stripped = lines[j].strip()
+        fn_m = _FN_RE.match(fn_stripped)
+        if not fn_m:
+            continue
+
+        fn_name = fn_m.group(2)
+        attrs, docstring = _collect_attrs_and_docs(lines, j)
+        if trait_name:
+            attrs.append(f"impl:{trait_name}")
+        param_str, _ = _find_fn_params(lines, j)
+        params = _extract_fn_params(param_str)
+
+        if "{" in fn_stripped or (j + 1 < len(lines) and "{" in lines[j + 1].strip()):
+            fn_end = _find_brace_end(lines, j)
+        else:
+            fn_end = j
+
+        func_info = FunctionInfo(
+            name=fn_name,
+            qualified_name=f"{type_name}.{fn_name}",
+            line_range=LineRange(start=j + 1, end=fn_end + 1),
+            parameters=params,
+            decorators=attrs,
+            docstring=docstring,
+            is_method=True,
+            parent_class=type_name,
+        )
+        functions.append(func_info)
+        impl_methods.setdefault(type_name, []).append(func_info)
+
+        for k in range(j, fn_end + 1):
+            consumed.add(k)
+
+    for k in range(i, impl_end + 1):
+        consumed.add(k)
+    return impl_end + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: macro_rules!
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_macro(
+    lines: list[str], i: int, total_lines: int, consumed: set[int], functions: list[FunctionInfo]
+) -> Optional[int]:
+    """Try to handle a macro_rules! at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    macro_m = _MACRO_RULES_RE.match(stripped)
+    if not macro_m:
+        return None
+
+    name = macro_m.group(1)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        end_0 = _find_brace_end(lines, i)
+    else:
+        end_0 = i
+    functions.append(
+        FunctionInfo(
+            name=name,
+            qualified_name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            parameters=[],
+            decorators=attrs + ["macro"],
+            docstring=docstring,
+            is_method=False,
+            parent_class=None,
+        )
+    )
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: struct
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_struct(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    classes: list[ClassInfo],
+    impl_methods: dict[str, list[FunctionInfo]],
+) -> Optional[int]:
+    """Try to handle a struct at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    struct_m = _STRUCT_RE.match(stripped)
+    if not struct_m:
+        return None
+
+    name = struct_m.group(1)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        end_0 = _find_brace_end(lines, i)
+    elif "(" in stripped:
+        end_0 = _find_semicolon_end(lines, i)
+    else:
+        end_0 = i
+
+    methods = impl_methods.get(name, [])
+    classes.append(
+        ClassInfo(
+            name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            base_classes=[],
+            methods=methods,
+            decorators=attrs,
+            docstring=docstring,
+        )
+    )
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: enum
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_enum(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    classes: list[ClassInfo],
+    impl_methods: dict[str, list[FunctionInfo]],
+) -> Optional[int]:
+    """Try to handle an enum at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    enum_m = _ENUM_RE.match(stripped)
+    if not enum_m:
+        return None
+
+    name = enum_m.group(1)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        end_0 = _find_brace_end(lines, i)
+    else:
+        end_0 = i
+
+    methods = impl_methods.get(name, [])
+    classes.append(
+        ClassInfo(
+            name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            base_classes=[],
+            methods=methods,
+            decorators=attrs,
+            docstring=docstring,
+        )
+    )
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: trait
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_trait(
+    lines: list[str],
+    i: int,
+    total_lines: int,
+    consumed: set[int],
+    functions: list[FunctionInfo],
+    classes: list[ClassInfo],
+    impl_methods: dict[str, list[FunctionInfo]],
+) -> Optional[int]:
+    """Try to handle a trait at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    if "trait" not in stripped:
+        return None
+
+    trait_m = _TRAIT_RE_STRICT.match(stripped)
+    if not trait_m:
+        trait_m = _TRAIT_RE_LOOSE.match(stripped)
+    if not trait_m:
+        return None
+
+    name = trait_m.group(1)
+    supers_str = trait_m.group(2)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+
+    bases: list[str] = []
+    if supers_str:
+        for s in supers_str.split("+"):
+            s = s.strip().rstrip("{").strip()
+            if s and s != "where":
+                s = re.sub(r"<.*>", "", s).strip()
+                if s:
+                    bases.append(s)
+
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        end_0 = _find_brace_end(lines, i)
+    else:
+        end_0 = i
+
+    trait_methods: list[FunctionInfo] = []
+    for j in range(i + 1, end_0):
+        fn_stripped = lines[j].strip()
+        fn_m = _FN_RE.match(fn_stripped)
+        if not fn_m:
+            continue
+        fn_name = fn_m.group(2)
+        param_str, _ = _find_fn_params(lines, j)
+        params = _extract_fn_params(param_str)
+        if "{" in fn_stripped or (j + 1 < len(lines) and "{" in lines[j + 1].strip()):
+            fn_end = _find_brace_end(lines, j)
+        elif ";" in fn_stripped:
+            fn_end = j
+        else:
+            fn_end = _find_semicolon_end(lines, j)
+
+        func_info = FunctionInfo(
+            name=fn_name,
+            qualified_name=f"{name}.{fn_name}",
+            line_range=LineRange(start=j + 1, end=fn_end + 1),
+            parameters=params,
+            decorators=[],
+            docstring=None,
+            is_method=True,
+            parent_class=name,
+        )
+        trait_methods.append(func_info)
+        functions.append(func_info)
+
+    methods = impl_methods.get(name, [])
+    classes.append(
+        ClassInfo(
+            name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            base_classes=bases,
+            methods=trait_methods + methods,
+            decorators=attrs,
+            docstring=docstring,
+        )
+    )
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
+# Handler: top-level function
+# ---------------------------------------------------------------------------
+
+
+def _handle_rust_fn(
+    lines: list[str], i: int, total_lines: int, consumed: set[int], functions: list[FunctionInfo]
+) -> Optional[int]:
+    """Try to handle a top-level fn at line i. Returns next line index or None if not a match."""
+    stripped = lines[i].strip()
+    fn_m = _FN_RE.match(stripped)
+    if not fn_m:
+        return None
+
+    name = fn_m.group(2)
+    attrs, docstring = _collect_attrs_and_docs(lines, i)
+    param_str, _ = _find_fn_params(lines, i)
+    params = _extract_fn_params(param_str)
+
+    if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
+        end_0 = _find_brace_end(lines, i)
+    else:
+        end_0 = _find_semicolon_end(lines, i)
+
+    functions.append(
+        FunctionInfo(
+            name=name,
+            qualified_name=name,
+            line_range=LineRange(start=i + 1, end=end_0 + 1),
+            parameters=params,
+            decorators=attrs,
+            docstring=docstring,
+            is_method=False,
+            parent_class=None,
+        )
+    )
+    for k in range(i, end_0 + 1):
+        consumed.add(k)
+    return end_0 + 1
+
+
+# ---------------------------------------------------------------------------
 # Main annotator
 # ---------------------------------------------------------------------------
 
@@ -410,75 +669,13 @@ def annotate_rust(source: str, source_name: str = "<source>") -> StructuralMetad
     # First pass: detect impl blocks and extract methods
     impl_methods: dict[str, list[FunctionInfo]] = {}  # type_name -> methods
 
-    _IMPL_RE = re.compile(
-        r"^\s*impl"
-        r"(?:<[^>]*>)?\s+"  # optional generic params
-        r"(?:([\w:]+)\s+for\s+)?"  # optional Trait for (supports qualified paths like fmt::Display)
-        r"(\w+)"  # Type
-    )
-
     i = 0
     while i < total_lines:
         stripped = lines[i].strip()
         if stripped.startswith("impl") or (stripped.startswith("pub") and " impl" in stripped):
-            # Remove pub prefix for matching
-            check = stripped
-            if check.startswith("pub "):
-                check = check[4:].strip()
-
-            m = _IMPL_RE.match(check)
-            if m:
-                trait_name = m.group(1)  # None for inherent impl
-                type_name = m.group(2)
-
-                if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                    impl_end = _find_brace_end(lines, i)
-                else:
-                    i += 1
-                    continue
-
-                # Scan impl body for fn declarations
-                for j in range(i + 1, impl_end):
-                    if j in consumed:
-                        continue
-                    fn_stripped = lines[j].strip()
-                    fn_m = _FN_RE.match(fn_stripped)
-                    if fn_m:
-                        fn_name = fn_m.group(2)
-                        attrs, docstring = _collect_attrs_and_docs(lines, j)
-                        if trait_name:
-                            attrs.append(f"impl:{trait_name}")
-                        param_str, _ = _find_fn_params(lines, j)
-                        params = _extract_fn_params(param_str)
-
-                        if "{" in fn_stripped or (
-                            j + 1 < len(lines) and "{" in lines[j + 1].strip()
-                        ):
-                            fn_end = _find_brace_end(lines, j)
-                        else:
-                            fn_end = j
-
-                        func_info = FunctionInfo(
-                            name=fn_name,
-                            qualified_name=f"{type_name}.{fn_name}",
-                            line_range=LineRange(start=j + 1, end=fn_end + 1),
-                            parameters=params,
-                            decorators=attrs,
-                            docstring=docstring,
-                            is_method=True,
-                            parent_class=type_name,
-                        )
-                        functions.append(func_info)
-                        impl_methods.setdefault(type_name, []).append(func_info)
-
-                        for k in range(j, fn_end + 1):
-                            consumed.add(k)
-
-                for k in range(i, impl_end + 1):
-                    consumed.add(k)
-                i = impl_end + 1
-                continue
-        i += 1
+            i = _handle_rust_impl(lines, i, total_lines, consumed, functions, impl_methods)
+        else:
+            i += 1
 
     # Second pass: detect top-level items
     i = 0
@@ -507,197 +704,32 @@ def annotate_rust(source: str, source_name: str = "<source>") -> StructuralMetad
             i += 1
             continue
 
-        # macro_rules!
-        macro_m = _MACRO_RULES_RE.match(stripped)
-        if macro_m:
-            name = macro_m.group(1)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            else:
-                end_0 = i
-            functions.append(
-                FunctionInfo(
-                    name=name,
-                    qualified_name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    parameters=[],
-                    decorators=attrs + ["macro"],
-                    docstring=docstring,
-                    is_method=False,
-                    parent_class=None,
-                )
-            )
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        # Try each handler in order; first match wins
+        next_i = _handle_rust_macro(lines, i, total_lines, consumed, functions)
+        if next_i is not None:
+            i = next_i
             continue
 
-        # Struct
-        struct_m = re.match(r"^\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)", stripped)
-        if struct_m:
-            name = struct_m.group(1)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            elif "(" in stripped:
-                # Tuple struct: struct Name(T);
-                end_0 = _find_semicolon_end(lines, i)
-            else:
-                # Unit struct: struct Name;
-                end_0 = i
-
-            methods = impl_methods.get(name, [])
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    base_classes=[],
-                    methods=methods,
-                    decorators=attrs,
-                    docstring=docstring,
-                )
-            )
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        next_i = _handle_rust_struct(lines, i, total_lines, consumed, classes, impl_methods)
+        if next_i is not None:
+            i = next_i
             continue
 
-        # Enum
-        enum_m = re.match(r"^\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)", stripped)
-        if enum_m:
-            name = enum_m.group(1)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            else:
-                end_0 = i
-
-            methods = impl_methods.get(name, [])
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    base_classes=[],
-                    methods=methods,
-                    decorators=attrs,
-                    docstring=docstring,
-                )
-            )
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        next_i = _handle_rust_enum(lines, i, total_lines, consumed, classes, impl_methods)
+        if next_i is not None:
+            i = next_i
             continue
 
-        # Trait
-        trait_m = re.match(
-            r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?trait\s+(\w+)"
-            r"(?:\s*:\s*(.+?))?"  # optional supertraits
-            r"\s*(?:\{|where)",
-            stripped,
+        next_i = _handle_rust_trait(
+            lines, i, total_lines, consumed, functions, classes, impl_methods
         )
-        if not trait_m:
-            # Try simpler match without where/brace requirement
-            trait_m = re.match(
-                r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?trait\s+(\w+)"
-                r"(?:\s*:\s*([^{]+?))?"
-                r"\s*\{?",
-                stripped,
-            )
-        if trait_m and "trait" in stripped:
-            name = trait_m.group(1)
-            supers_str = trait_m.group(2)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-
-            bases: list[str] = []
-            if supers_str:
-                for s in supers_str.split("+"):
-                    s = s.strip().rstrip("{").strip()
-                    if s and s != "where":
-                        # Strip generic params
-                        s = re.sub(r"<.*>", "", s).strip()
-                        if s:
-                            bases.append(s)
-
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            else:
-                end_0 = i
-
-            # Extract trait method signatures
-            trait_methods: list[FunctionInfo] = []
-            for j in range(i + 1, end_0):
-                fn_stripped = lines[j].strip()
-                fn_m = _FN_RE.match(fn_stripped)
-                if fn_m:
-                    fn_name = fn_m.group(2)
-                    param_str, _ = _find_fn_params(lines, j)
-                    params = _extract_fn_params(param_str)
-                    # Find end: either brace end or semicolon
-                    if "{" in fn_stripped or (j + 1 < len(lines) and "{" in lines[j + 1].strip()):
-                        fn_end = _find_brace_end(lines, j)
-                    elif ";" in fn_stripped:
-                        fn_end = j
-                    else:
-                        fn_end = _find_semicolon_end(lines, j)
-
-                    func_info = FunctionInfo(
-                        name=fn_name,
-                        qualified_name=f"{name}.{fn_name}",
-                        line_range=LineRange(start=j + 1, end=fn_end + 1),
-                        parameters=params,
-                        decorators=[],
-                        docstring=None,
-                        is_method=True,
-                        parent_class=name,
-                    )
-                    trait_methods.append(func_info)
-                    functions.append(func_info)
-
-            methods = impl_methods.get(name, [])
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    base_classes=bases,
-                    methods=trait_methods + methods,
-                    decorators=attrs,
-                    docstring=docstring,
-                )
-            )
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        if next_i is not None:
+            i = next_i
             continue
 
-        # Top-level function
-        fn_m = _FN_RE.match(stripped)
-        if fn_m:
-            name = fn_m.group(2)
-            attrs, docstring = _collect_attrs_and_docs(lines, i)
-            param_str, _ = _find_fn_params(lines, i)
-            params = _extract_fn_params(param_str)
-
-            if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
-                end_0 = _find_brace_end(lines, i)
-            else:
-                end_0 = _find_semicolon_end(lines, i)
-
-            functions.append(
-                FunctionInfo(
-                    name=name,
-                    qualified_name=name,
-                    line_range=LineRange(start=i + 1, end=end_0 + 1),
-                    parameters=params,
-                    decorators=attrs,
-                    docstring=docstring,
-                    is_method=False,
-                    parent_class=None,
-                )
-            )
-            for k in range(i, end_0 + 1):
-                consumed.add(k)
-            i = end_0 + 1
+        next_i = _handle_rust_fn(lines, i, total_lines, consumed, functions)
+        if next_i is not None:
+            i = next_i
             continue
 
         i += 1

@@ -17,6 +17,16 @@ from token_savior.models import ProjectIndex, StructuralMetadata
 
 logger = logging.getLogger(__name__)
 
+_WORD_BOUNDARY_CACHE: dict[str, re.Pattern] = {}
+
+
+def _word_boundary_re(name: str) -> re.Pattern:
+    pat = _WORD_BOUNDARY_CACHE.get(name)
+    if pat is None:
+        pat = re.compile(r"\b" + re.escape(name) + r"\b")
+        _WORD_BOUNDARY_CACHE[name] = pat
+    return pat
+
 
 class ProjectIndexer:
     """Indexes an entire codebase for structural navigation."""
@@ -27,6 +37,7 @@ class ProjectIndexer:
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
         max_file_size_bytes: int = 500_000,
+        max_files: int = 10_000,
     ):
         self.root_path = os.path.abspath(root_path)
         self.include_patterns = include_patterns or [
@@ -90,7 +101,12 @@ class ProjectIndexer:
             # Claude Code worktrees (duplicates of the project)
             "**/.claude/worktrees/**",
         ]
-        self.max_file_size_bytes = max_file_size_bytes
+        self.max_file_size_bytes = max_file_size_bytes or int(
+            os.environ.get("TOKEN_SAVIOR_MAX_FILE_SIZE", "500000")
+        )
+        self.max_files = max_files or int(
+            os.environ.get("TOKEN_SAVIOR_MAX_FILES", "10000")
+        )
         self._project_index: ProjectIndex | None = None
 
     # ------------------------------------------------------------------
@@ -418,6 +434,17 @@ class ProjectIndexer:
                     continue
 
                 matched.add(abs_path)
+
+                if len(matched) >= self.max_files:
+                    logger.warning(
+                        "Project has %d+ files, stopping at MAX_FILES=%d. "
+                        "Set TOKEN_SAVIOR_MAX_FILES env var to increase.",
+                        len(matched), self.max_files,
+                    )
+                    break
+
+            if len(matched) >= self.max_files:
+                break
 
         return sorted(matched)
 
@@ -782,11 +809,8 @@ class ProjectIndexer:
             if not imported_names:
                 continue
 
-            # Precompile one regex per imported name (reused across all bodies in this file)
-            compiled_patterns: dict[str, re.Pattern] = {
-                local_name: re.compile(r"\b" + re.escape(local_name) + r"\b")
-                for local_name in imported_names
-            }
+            # Look up cached regex per imported name (shared across all files)
+            compiled_patterns = {name: _word_boundary_re(name) for name in imported_names}
 
             for func in metadata.functions:
                 func_qualified = self._qualify_name(func.qualified_name, file_path, symbol_table)

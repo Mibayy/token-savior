@@ -7,6 +7,7 @@ types, import statements, and doc comments using regex and brace counting.
 import re
 from typing import Optional
 
+from token_savior.brace_matcher import find_brace_end_go as _find_brace_end
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -23,68 +24,6 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
         offsets.append(pos)
         pos += len(line) + 1
     return offsets
-
-
-def _find_brace_end(lines: list[str], start_line_0: int) -> int:
-    """Find the 0-based line where the outermost brace closes, skipping strings/comments."""
-    depth = 0
-    found_open = False
-    in_block_comment = False
-    for idx in range(start_line_0, len(lines)):
-        line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if in_block_comment:
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment = False
-                    i += 2
-                    continue
-                i += 1
-                continue
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment = True
-                    i += 2
-                    continue
-            if ch == '"':
-                i += 1
-                while i < len(line) and line[i] != '"':
-                    if line[i] == "\\":
-                        i += 1
-                    i += 1
-                i += 1
-                continue
-            if ch == "`":
-                # raw string can span lines - scan to end
-                i += 1
-                while True:
-                    while i < len(line):
-                        if line[i] == "`":
-                            i += 1
-                            break
-                        i += 1
-                    else:
-                        # continue to next line
-                        idx += 1
-                        if idx >= len(lines):
-                            return len(lines) - 1
-                        line = lines[idx]
-                        i = 0
-                        continue
-                    break
-                continue
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
-    return len(lines) - 1
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,6 @@ graph pollution, no shared RAM between unrelated projects.
 from __future__ import annotations
 
 import dataclasses
-import fnmatch
 import hashlib
 import json
 import os
@@ -32,7 +31,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files, get_git_status
+from token_savior.git_tracker import get_git_status
 from token_savior.compact_ops import get_changed_symbols
 from token_savior.checkpoint_ops import (
     compare_checkpoint_by_symbol,
@@ -50,9 +49,7 @@ from token_savior.git_ops import (
 )
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
-from token_savior.project_indexer import ProjectIndexer
 from token_savior.project_actions import discover_project_actions, run_project_action
-from token_savior.query_api import create_project_query_functions
 from token_savior.workflow_ops import (
     apply_symbol_change_and_validate,
     apply_symbol_change_validate_with_rollback,
@@ -63,22 +60,7 @@ from token_savior.config_analyzer import analyze_config as run_config_analysis
 from token_savior.cross_project import find_cross_project_deps as run_cross_project
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
-
-# ---------------------------------------------------------------------------
-# Per-project slot — one per workspace root, fully isolated
-# ---------------------------------------------------------------------------
-
-
-@dataclasses.dataclass
-class _ProjectSlot:
-    root: str
-    indexer: Optional[ProjectIndexer] = None
-    query_fns: Optional[dict] = None
-    is_git: bool = False
-    stats_file: str = ""
-    # Incremental update tracking
-    _last_update_check: float = 0.0
-
+from token_savior.slot_manager import SlotManager, _ProjectSlot
 
 # ---------------------------------------------------------------------------
 # Module-level state
@@ -86,16 +68,11 @@ class _ProjectSlot:
 
 server = Server("token-savior")
 
-# Dict of abs_path -> slot. Populated from WORKSPACE_ROOTS or PROJECT_ROOT.
-_projects: dict[str, _ProjectSlot] = {}
-
-# Currently active project root (used by tools that don't specify a project).
-_active_root: str = ""
-
 # Persistent cache
-_CACHE_FILENAME = ".token-savior-cache.json"
-_LEGACY_CACHE_FILENAME = ".codebase-index-cache.json"  # auto-migrate
 _CACHE_VERSION = 2  # Bumped: switched from pickle to JSON
+
+# Slot manager encapsulates _projects dict and _active_root
+_slot_mgr = SlotManager(_CACHE_VERSION)
 
 # Session usage stats (aggregated across all projects in this session)
 _session_start: float = time.time()
@@ -148,12 +125,7 @@ def _parse_workspace_roots() -> list[str]:
 
 def _register_roots(roots: list[str]) -> None:
     """Create slots for each root. Index is built lazily on first use."""
-    global _active_root
-    for root in roots:
-        if root not in _projects:
-            _projects[root] = _ProjectSlot(root=root)
-    if roots and not _active_root:
-        _active_root = roots[0]
+    _slot_mgr.register_roots(roots)
 
 
 # Called once at module import so slots exist before any tool call.
@@ -411,16 +383,16 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
 
     source_chars = 0
-    for slot in _projects.values():
+    for slot in _slot_mgr.projects.values():
         if slot.indexer and slot.indexer._project_index:
             source_chars += sum(m.total_chars for m in slot.indexer._project_index.files.values())
 
     lines = [f"Session: {_format_duration(elapsed)}, {query_calls} queries"]
 
-    if len(_projects) > 1:
-        loaded = sum(1 for s in _projects.values() if s.indexer is not None)
+    if len(_slot_mgr.projects) > 1:
+        loaded = sum(1 for s in _slot_mgr.projects.values() if s.indexer is not None)
         lines.append(
-            f"Projects: {loaded}/{len(_projects)} loaded, active: {os.path.basename(_active_root)}"
+            f"Projects: {loaded}/{len(_slot_mgr.projects)} loaded, active: {os.path.basename(_slot_mgr.active_root)}"
         )
 
     if _tool_call_counts:
@@ -443,7 +415,7 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
 
     if include_cumulative:
         all_project_stats = []
-        for root, slot in _projects.items():
+        for root, slot in _slot_mgr.projects.items():
             sf = slot.stats_file or _get_stats_file(root)
             cum = _load_cumulative_stats(sf)
             if cum.get("total_calls", 0) > 0:
@@ -509,1430 +481,25 @@ def _format_duration(seconds: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Cache helpers
+# Slot management — delegated to SlotManager (token_savior.slot_manager)
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(project_root: str) -> str:
-    """Return the path to the JSON cache file for this project.
-    Auto-migrates legacy .codebase-index-cache.json → .token-savior-cache.json."""
-    new_path = os.path.join(project_root, _CACHE_FILENAME)
-    if not os.path.exists(new_path):
-        legacy = os.path.join(project_root, _LEGACY_CACHE_FILENAME)
-        if os.path.exists(legacy):
-            try:
-                os.rename(legacy, new_path)
-                print(
-                    f"[token-savior] Migrated cache {_LEGACY_CACHE_FILENAME} → {_CACHE_FILENAME}",
-                    file=sys.stderr,
-                )
-            except OSError:
-                return legacy  # fallback to old name if rename fails
-    return new_path
-
-
-def _index_to_dict(index: "ProjectIndex") -> dict:
-    """Serialize a ProjectIndex to a JSON-compatible dict (sets become sorted lists)."""
-    from dataclasses import asdict
-
-    def _convert(obj):
-        if isinstance(obj, set):
-            return sorted(obj)
-        if isinstance(obj, dict):
-            return {k: _convert(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_convert(i) for i in obj]
-        return obj
-
-    return _convert(asdict(index))
-
-
-def _index_from_dict(data: dict) -> "ProjectIndex":
-    """Deserialize a ProjectIndex from JSON dict, restoring sets where needed."""
-    from token_savior.models import (
-        ProjectIndex,
-        StructuralMetadata,
-        FunctionInfo,
-        ClassInfo,
-        ImportInfo,
-        SectionInfo,
-        LineRange,
-    )
-
-    def _lr(d: dict) -> LineRange:
-        return LineRange(start=d["start"], end=d["end"])
-
-    def _fi(d: dict) -> FunctionInfo:
-        return FunctionInfo(
-            name=d["name"],
-            qualified_name=d["qualified_name"],
-            line_range=_lr(d["line_range"]),
-            parameters=d["parameters"],
-            decorators=d["decorators"],
-            docstring=d.get("docstring"),
-            is_method=d["is_method"],
-            parent_class=d.get("parent_class"),
-        )
-
-    def _ci(d: dict) -> ClassInfo:
-        return ClassInfo(
-            name=d["name"],
-            line_range=_lr(d["line_range"]),
-            base_classes=d["base_classes"],
-            methods=[_fi(m) for m in d["methods"]],
-            decorators=d["decorators"],
-            docstring=d.get("docstring"),
-        )
-
-    def _ii(d: dict) -> ImportInfo:
-        return ImportInfo(
-            module=d["module"],
-            names=d["names"],
-            alias=d.get("alias"),
-            line_number=d["line_number"],
-            is_from_import=d["is_from_import"],
-        )
-
-    def _si(d: dict) -> SectionInfo:
-        return SectionInfo(title=d["title"], level=d["level"], line_range=_lr(d["line_range"]))
-
-    def _sm(d: dict) -> StructuralMetadata:
-        return StructuralMetadata(
-            source_name=d["source_name"],
-            total_lines=d["total_lines"],
-            total_chars=d["total_chars"],
-            lines=d["lines"],
-            line_char_offsets=d["line_char_offsets"],
-            functions=[_fi(f) for f in d.get("functions", [])],
-            classes=[_ci(c) for c in d.get("classes", [])],
-            imports=[_ii(i) for i in d.get("imports", [])],
-            sections=[_si(s) for s in d.get("sections", [])],
-            dependency_graph=d.get("dependency_graph", {}),
-        )
-
-    def _sets(d: dict) -> dict[str, set[str]]:
-        return {k: set(v) for k, v in d.items()}
-
-    return ProjectIndex(
-        root_path=data["root_path"],
-        files={k: _sm(v) for k, v in data["files"].items()},
-        global_dependency_graph=_sets(data.get("global_dependency_graph", {})),
-        reverse_dependency_graph=_sets(data.get("reverse_dependency_graph", {})),
-        import_graph=_sets(data.get("import_graph", {})),
-        reverse_import_graph=_sets(data.get("reverse_import_graph", {})),
-        symbol_table=data.get("symbol_table", {}),
-        total_files=data.get("total_files", 0),
-        total_lines=data.get("total_lines", 0),
-        total_functions=data.get("total_functions", 0),
-        total_classes=data.get("total_classes", 0),
-        index_build_time_seconds=data.get("index_build_time_seconds", 0.0),
-        index_memory_bytes=data.get("index_memory_bytes", 0),
-        last_indexed_git_ref=data.get("last_indexed_git_ref"),
-        file_mtimes=data.get("file_mtimes", {}),
-    )
-
-
-def _save_cache(index: "ProjectIndex") -> None:
-    """Persist the project index to a JSON cache file."""
-    try:
-        root = index.root_path
-        path = _cache_path(root)
-        payload = {"version": _CACHE_VERSION, "index": _index_to_dict(index)}
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, separators=(",", ":"))
-        print(f"[token-savior] Cache saved → {path}", file=sys.stderr)
-    except Exception as exc:
-        print(f"[token-savior] Cache save failed: {exc}", file=sys.stderr)
-
-
-def _load_cache(project_root: str) -> "ProjectIndex | None":
-    """Load a cached project index from JSON if it exists and is compatible."""
-    path = _cache_path(project_root)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        if not isinstance(payload, dict) or payload.get("version") != _CACHE_VERSION:
-            print("[token-savior] Cache version mismatch, ignoring", file=sys.stderr)
-            return None
-        return _index_from_dict(payload["index"])
-    except Exception as exc:
-        print(f"[token-savior] Cache load failed: {exc}", file=sys.stderr)
-        return None
+def _prep(slot: _ProjectSlot) -> None:
+    """Ensure slot is indexed and incrementally updated."""
+    _slot_mgr.ensure(slot)
+    _slot_mgr.maybe_update(slot)
 
 
 # ---------------------------------------------------------------------------
-# Per-slot index management
+# Tool definitions (schemas live in tool_schemas.py)
 # ---------------------------------------------------------------------------
 
+from token_savior.tool_schemas import TOOL_SCHEMAS, DEPRECATED_TOOLS
 
-def _ensure_slot(slot: _ProjectSlot) -> None:
-    """Lazily initialize a project slot if not yet indexed."""
-    if slot.indexer is not None:
-        return
+TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchema"])
+         for name, s in TOOL_SCHEMAS.items()]
 
-    root = slot.root
-    slot.is_git = is_git_repo(root)
-    if not slot.stats_file:
-        slot.stats_file = _get_stats_file(root)
-
-    cached_index = _load_cache(root)
-    if cached_index is not None and slot.is_git and cached_index.last_indexed_git_ref:
-        current_head = get_head_commit(root)
-        if current_head == cached_index.last_indexed_git_ref:
-            print(f"[token-savior] Cache hit (git ref matches) — {root}", file=sys.stderr)
-            slot.indexer = ProjectIndexer(root)
-            slot.indexer._project_index = cached_index
-            slot.query_fns = create_project_query_functions(cached_index)
-            return
-
-        changeset = get_changed_files(root, cached_index.last_indexed_git_ref)
-        total_changes = len(changeset.modified) + len(changeset.added) + len(changeset.deleted)
-        if not changeset.is_empty and total_changes <= 20:
-            print(
-                f"[token-savior] Cache hit with {total_changes} changed files, "
-                f"applying incremental update — {root}",
-                file=sys.stderr,
-            )
-            slot.indexer = ProjectIndexer(root)
-            slot.indexer._project_index = cached_index
-            slot.query_fns = create_project_query_functions(cached_index)
-            return
-
-        print(
-            f"[token-savior] Cache stale ({total_changes} changes), full rebuild — {root}",
-            file=sys.stderr,
-        )
-
-    _build_slot(slot)
-
-
-def _build_slot(slot: _ProjectSlot) -> None:
-    """Full index build for a project slot."""
-    root = slot.root
-    if not slot.stats_file:
-        slot.stats_file = _get_stats_file(root)
-
-    print(f"[token-savior] Indexing project: {root}", file=sys.stderr)
-
-    extra_excludes_raw = os.environ.get("EXCLUDE_EXTRA", "")
-    exclude_override_raw = os.environ.get("EXCLUDE_PATTERNS", "")
-    include_override_raw = os.environ.get("INCLUDE_PATTERNS", "")
-
-    exclude_patterns = None
-    include_patterns = None
-
-    if exclude_override_raw:
-        exclude_patterns = [p.strip() for p in exclude_override_raw.split(":") if p.strip()]
-    elif extra_excludes_raw:
-        tmp = ProjectIndexer(root)
-        exclude_patterns = tmp.exclude_patterns + [
-            p.strip() for p in extra_excludes_raw.split(":") if p.strip()
-        ]
-
-    if include_override_raw:
-        include_patterns = [p.strip() for p in include_override_raw.split(":") if p.strip()]
-
-    slot.indexer = ProjectIndexer(
-        root, include_patterns=include_patterns, exclude_patterns=exclude_patterns
-    )
-    index = slot.indexer.index()
-    slot.query_fns = create_project_query_functions(index)
-
-    if not slot.is_git:
-        slot.is_git = is_git_repo(root)
-    if slot.is_git:
-        index.last_indexed_git_ref = get_head_commit(root)
-        _save_cache(index)
-
-    print(
-        f"[token-savior] Indexed {index.total_files} files, "
-        f"{index.total_lines} lines, "
-        f"{index.total_functions} functions, "
-        f"{index.total_classes} classes "
-        f"in {index.index_build_time_seconds:.2f}s — {root}",
-        file=sys.stderr,
-    )
-
-
-def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
-    normalized = rel_path.replace(os.sep, "/")
-    for pattern in patterns:
-        if fnmatch.fnmatch(normalized, pattern):
-            return True
-    return False
-
-
-def _check_mtime_changes(slot: _ProjectSlot) -> list[str]:
-    """Fast mtime scan: return list of rel_paths whose mtime changed since last index."""
-    idx = slot.indexer._project_index
-    changed = []
-    for rel_path, old_mtime in idx.file_mtimes.items():
-        abs_path = os.path.join(slot.root, rel_path)
-        try:
-            current_mtime = os.path.getmtime(abs_path)
-        except OSError:
-            # File deleted — will be caught by git check
-            continue
-        if current_mtime != old_mtime:
-            changed.append(rel_path)
-    return changed
-
-
-def _maybe_incremental_update(slot: _ProjectSlot) -> None:
-    """Incrementally update the slot index using mtime detection + periodic git check."""
-    if slot.indexer is None or slot.indexer._project_index is None:
-        return
-
-    idx = slot.indexer._project_index
-    now = time.time()
-
-    # ── Phase 1: mtime check (near-zero cost, every call) ─────────────
-    mtime_changed = _check_mtime_changes(slot)
-    if mtime_changed:
-        for rel_path in mtime_changed:
-            abs_path = os.path.join(slot.root, rel_path)
-            if not os.path.isfile(abs_path):
-                continue
-            slot.indexer.reindex_file(rel_path, skip_graph_rebuild=True)
-
-        slot.indexer.rebuild_graphs()
-        print(
-            f"[token-savior] Mtime update: {len(mtime_changed)} file(s) — {slot.root}",
-            file=sys.stderr,
-        )
-        _save_cache(idx)
-        # Reset the git throttle so we don't double-detect these
-        slot._last_update_check = now
-
-    # ── Phase 2: git check for new/deleted/branch changes (throttled) ─
-    if not slot.is_git:
-        return
-
-    if now - slot._last_update_check < 30:
-        return
-    slot._last_update_check = now
-
-    if idx.last_indexed_git_ref is None:
-        head = get_head_commit(slot.root)
-        if head is not None:
-            idx.last_indexed_git_ref = head
-            _save_cache(idx)
-        return
-
-    changeset = get_changed_files(slot.root, idx.last_indexed_git_ref)
-    if changeset.is_empty:
-        return
-
-    total_changes = len(changeset.modified) + len(changeset.added) + len(changeset.deleted)
-
-    if total_changes > 20 and total_changes > idx.total_files * 0.5:
-        print(
-            f"[token-savior] Large changeset ({total_changes} files), "
-            f"doing full rebuild — {slot.root}",
-            file=sys.stderr,
-        )
-        _build_slot(slot)
-        return
-
-    # Filter out files already handled by mtime phase
-    already_handled = set(mtime_changed) if mtime_changed else set()
-
-    for path in changeset.deleted:
-        if path in idx.files:
-            slot.indexer.remove_file(path)
-
-    needs_rebuild = False
-    for path in changeset.modified + changeset.added:
-        if path in already_handled:
-            continue
-        if slot.indexer._is_excluded(path):
-            continue
-        if not _matches_include_patterns(path, slot.indexer.include_patterns):
-            continue
-        abs_path = os.path.join(slot.root, path)
-        if not os.path.isfile(abs_path):
-            continue
-        slot.indexer.reindex_file(path, skip_graph_rebuild=True)
-        needs_rebuild = True
-
-    if needs_rebuild or changeset.deleted:
-        slot.indexer.rebuild_graphs()
-
-    idx.last_indexed_git_ref = get_head_commit(slot.root)
-
-    n_mod = len(changeset.modified)
-    n_add = len(changeset.added)
-    n_del = len(changeset.deleted)
-    print(
-        f"[token-savior] Incremental update: "
-        f"{n_mod} modified, {n_add} added, {n_del} deleted — {slot.root}",
-        file=sys.stderr,
-    )
-    _save_cache(idx)
-
-
-# ---------------------------------------------------------------------------
-# Resolve which slot to use for a given tool call
-# ---------------------------------------------------------------------------
-
-
-def _resolve_slot(project_hint: Optional[str] = None) -> tuple[Optional[_ProjectSlot], str]:
-    """
-    Return (slot, error_message). error_message is empty on success.
-
-    Resolution order:
-    1. explicit project_hint (basename or full path)
-    2. _active_root
-    3. only registered project (if exactly one)
-    4. error
-    """
-    global _active_root
-
-    if project_hint:
-        # Try exact match first
-        hint_abs = os.path.abspath(project_hint)
-        if hint_abs in _projects:
-            return _projects[hint_abs], ""
-        # Try basename match
-        for root, slot in _projects.items():
-            if os.path.basename(root) == project_hint:
-                return slot, ""
-        return None, (
-            f"Project '{project_hint}' not found. "
-            f"Known projects: {', '.join(os.path.basename(r) for r in _projects)}"
-        )
-
-    if _active_root and _active_root in _projects:
-        return _projects[_active_root], ""
-
-    if len(_projects) == 1:
-        root = next(iter(_projects))
-        _active_root = root
-        return _projects[root], ""
-
-    if not _projects:
-        return None, "No projects registered. Call set_project_root('/path') first."
-
-    return None, (
-        "Multiple projects loaded but no active project set. "
-        f"Call switch_project(name) with one of: {', '.join(os.path.basename(r) for r in _projects)}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Tool definitions
-# ---------------------------------------------------------------------------
-
-# Shared project parameter injected into multi-project tools
-_PROJECT_PARAM = {
-    "project": {
-        "type": "string",
-        "description": (
-            "Optional project name or path to target a specific project. "
-            "Omit to use the active project."
-        ),
-    }
-}
-
-TOOLS = [
-    Tool(
-        name="list_projects",
-        description="List all registered workspace projects with their index status.",
-        inputSchema={"type": "object", "properties": {}},
-    ),
-    Tool(
-        name="switch_project",
-        description="Switch the active project. Subsequent tool calls without explicit project target this project.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Project name (basename of path) or full path.",
-                },
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_git_status",
-        description="Return a structured git status summary for the active project: branch, ahead/behind, staged, unstaged, and untracked files.",
-        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
-    ),
-    Tool(
-        name="get_changed_symbols",
-        description="Return a compact symbol-oriented summary of current worktree changes, avoiding large textual diffs.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum changed files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_changed_symbols_since_ref",
-        description="Return a compact symbol-oriented summary of git changes since a given ref, avoiding large textual diffs.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "since_ref": {
-                    "type": "string",
-                    "description": "Git ref to compare against HEAD and current worktree.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum changed files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["since_ref"],
-        },
-    ),
-    Tool(
-        name="summarize_patch_by_symbol",
-        description="Summarize a set of changed files as symbol-level entries for compact review instead of textual diffs.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed files to summarize. Omit to summarize indexed files currently passed in by caller logic.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="build_commit_summary",
-        description="Build a compact commit/review summary from changed files using symbol-level structure instead of textual diffs.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed files to summarize.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["changed_files"],
-        },
-    ),
-    Tool(
-        name="create_checkpoint",
-        description="Create a compact checkpoint for a bounded set of files before a workflow mutation.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Project files to save into the checkpoint.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["file_paths"],
-        },
-    ),
-    Tool(
-        name="list_checkpoints",
-        description="List available checkpoints for the active project.",
-        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
-    ),
-    Tool(
-        name="delete_checkpoint",
-        description="Delete a specific checkpoint.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "checkpoint_id": {
-                    "type": "string",
-                    "description": "Checkpoint identifier to delete.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["checkpoint_id"],
-        },
-    ),
-    Tool(
-        name="prune_checkpoints",
-        description="Keep only the newest N checkpoints and delete older ones.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "keep_last": {
-                    "type": "integer",
-                    "description": "How many recent checkpoints to keep (default 10).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="restore_checkpoint",
-        description="Restore files from a previously created checkpoint.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "checkpoint_id": {
-                    "type": "string",
-                    "description": "Checkpoint identifier returned by create_checkpoint.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["checkpoint_id"],
-        },
-    ),
-    Tool(
-        name="compare_checkpoint_by_symbol",
-        description="Compare a checkpoint against current files at symbol level, returning added/removed/changed symbols without a textual diff.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "checkpoint_id": {
-                    "type": "string",
-                    "description": "Checkpoint identifier returned by create_checkpoint.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum files to compare (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["checkpoint_id"],
-        },
-    ),
-    Tool(
-        name="replace_symbol_source",
-        description="Replace an indexed symbol's full source block directly, without sending a file-wide patch.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name to replace.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Replacement source for the symbol.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
-        },
-    ),
-    Tool(
-        name="insert_near_symbol",
-        description="Insert content immediately before or after an indexed symbol, avoiding a file-wide edit payload.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name near which to insert.",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Content to insert.",
-                },
-                "position": {
-                    "type": "string",
-                    "description": "Insertion position: 'before' or 'after' (default 'after').",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "content"],
-        },
-    ),
-    Tool(
-        name="find_impacted_test_files",
-        description="Infer a compact set of likely impacted pytest files from changed files or symbols.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed project files to map to likely impacted tests.",
-                },
-                "symbol_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed symbols to map to likely impacted tests.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to return (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="run_impacted_tests",
-        description="Run only the inferred impacted pytest files and return a compact summary instead of full logs.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed project files to map to likely impacted tests.",
-                },
-                "symbol_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed symbols to map to likely impacted tests.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="apply_symbol_change_and_validate",
-        description="Replace a symbol, reindex the file, and run only the inferred impacted tests as one compact workflow.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name to replace.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Replacement source for the symbol.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
-        },
-    ),
-    Tool(
-        name="apply_symbol_change_validate_with_rollback",
-        description="Replace a symbol, validate impacted tests, and restore the previous file automatically if validation fails.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name to replace.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Replacement source for the symbol.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
-        },
-    ),
-    Tool(
-        name="discover_project_actions",
-        description="Detect conventional project actions from build files (tests, lint, build, run) without executing them.",
-        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
-    ),
-    Tool(
-        name="run_project_action",
-        description="Run a previously discovered project action by id with bounded output and timeout.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "action_id": {
-                    "type": "string",
-                    "description": "Action id returned by discover_project_actions (e.g. 'python:test', 'npm:test').",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["action_id"],
-        },
-    ),
-    Tool(
-        name="get_project_summary",
-        description="High-level overview of the project: file count, packages, top classes/functions.",
-        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
-    ),
-    Tool(
-        name="list_files",
-        description="List indexed files. Optional glob pattern to filter (e.g. '*.py', 'src/**/*.ts').",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern to filter files (uses fnmatch).",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_structure_summary",
-        description="Structure summary for a file (functions, classes, imports, line counts) or the whole project if no file specified.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to a file in the project. Omit for project-level summary.",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_function_source",
-        description="Get the full source code of a function or method by name. Uses the symbol table to locate the file automatically.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Function or method name (e.g. 'my_func' or 'MyClass.my_method').",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to narrow the search.",
-                },
-                "max_lines": {
-                    "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_class_source",
-        description="Get the full source code of a class by name. Uses the symbol table to locate the file automatically.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Class name.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to narrow the search.",
-                },
-                "max_lines": {
-                    "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_functions",
-        description="List all functions (with name, lines, params, file). Filter to a specific file or get all project functions.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project functions.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_classes",
-        description="List all classes (with name, lines, methods, bases, file). Filter to a specific file or get all project classes.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project classes.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_imports",
-        description="List all imports (with module, names, line). Filter to a specific file or get all project imports.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project imports.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="find_symbol",
-        description="Find where a symbol (function, method, class) is defined. Returns file path, line range, type, signature, and a source preview (~20 lines).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to find (e.g. 'ProjectIndexer', 'annotate', 'MyClass.run').",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_dependencies",
-        description="What does this symbol call/use? Returns list of symbols referenced by the named function or class.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to query.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_dependents",
-        description="What calls/uses this symbol? Returns list of symbols that reference the named function or class.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to query.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_change_impact",
-        description="Analyze the impact of changing a symbol. Returns direct and transitive dependents, each scored with a confidence value (1.0 = direct caller, 0.6 = 2 hops, etc.) and depth.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to analyze.",
-                },
-                "max_direct": {
-                    "type": "integer",
-                    "description": "Maximum number of direct dependents to return (0 = unlimited, default 0).",
-                },
-                "max_transitive": {
-                    "type": "integer",
-                    "description": "Maximum number of transitive dependents to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_call_chain",
-        description="Find the shortest dependency path between two symbols (BFS through the dependency graph).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "from_name": {
-                    "type": "string",
-                    "description": "Starting symbol name.",
-                },
-                "to_name": {
-                    "type": "string",
-                    "description": "Target symbol name.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["from_name", "to_name"],
-        },
-    ),
-    Tool(
-        name="get_edit_context",
-        description=(
-            "All-in-one context for editing a symbol. Returns the symbol source, "
-            "its direct dependencies (what it calls), and its callers (who uses it) "
-            "in a single response. Saves 3 separate tool calls."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to get full edit context for.",
-                },
-                "max_deps": {
-                    "type": "integer",
-                    "description": "Max dependencies to return (default 10).",
-                },
-                "max_callers": {
-                    "type": "integer",
-                    "description": "Max callers to return (default 10).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-    Tool(
-        name="get_file_dependencies",
-        description="List files that this file imports from (file-level import graph).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to the file.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["file_path"],
-        },
-    ),
-    Tool(
-        name="get_file_dependents",
-        description="List files that import from this file (reverse import graph).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to the file.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["file_path"],
-        },
-    ),
-    Tool(
-        name="search_codebase",
-        description="Regex search across all indexed files. Returns up to 100 matches with file, line number, and content.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Regular expression pattern to search for.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (default 100, 0 = unlimited).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["pattern"],
-        },
-    ),
-    Tool(
-        name="reindex",
-        description="Re-index the entire project. Use after making significant file changes to refresh the structural index.",
-        inputSchema={"type": "object", "properties": {**_PROJECT_PARAM}},
-    ),
-    Tool(
-        name="set_project_root",
-        description=(
-            "Add a new project root to the workspace and switch to it. "
-            "Triggers a full reindex of the new root. "
-            "After calling this, all other tools operate on the new project by default."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Absolute path to the project root directory.",
-                },
-            },
-            "required": ["path"],
-        },
-    ),
-    Tool(
-        name="get_feature_files",
-        description=(
-            "Find all files related to a feature keyword, then trace imports to build the "
-            "complete feature map. Example: get_feature_files('contrat') returns all routes, "
-            "components, lib, types connected to contracts. Each file is classified by role."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "keyword": {
-                    "type": "string",
-                    "description": "Feature keyword (e.g. 'contrat', 'paiement', 'auth').",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max files to return (0 = all, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["keyword"],
-        },
-    ),
-    Tool(
-        name="get_usage_stats",
-        description="Session efficiency stats: tool calls, characters returned vs total source, estimated token savings.",
-        inputSchema={"type": "object", "properties": {}},
-    ),
-    # v3: Route Map, Env Usage, Components
-    Tool(
-        name="get_routes",
-        description="Detect all API routes and pages in a Next.js App Router project. Returns route path, file, HTTP methods, and type (api/page/layout).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max routes to return (0 = all, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_env_usage",
-        description="Cross-reference an environment variable across all code, .env files, and workflow configs. Shows where it's defined, read, and written.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "var_name": {
-                    "type": "string",
-                    "description": "Environment variable name (e.g. HELLOASSO_CLIENT_ID).",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max results (0 = all, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["var_name"],
-        },
-    ),
-    Tool(
-        name="get_components",
-        description="Detect React components in .tsx/.jsx files. Identifies pages, layouts, and named components by convention (uppercase name or default export).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file to scan (default: all .tsx/.jsx).",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max results (0 = all, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="analyze_config",
-        description=(
-            "Analyze config files for issues and insights: duplicate keys, hardcoded secrets, orphan entries, "
-            "config file loaders (which code loads which config), and schema (what keys code expects with defaults). "
-            "Checks can be filtered via the 'checks' parameter."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "checks": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"],
-                    },
-                    "description": 'Checks to run (default: duplicates,secrets,orphans). Options: "duplicates", "secrets", "orphans", "loaders", "schema".',
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Specific config file to analyze. Omit to analyze all config files.",
-                },
-                "severity": {
-                    "type": "string",
-                    "enum": ["all", "error", "warning"],
-                    "description": 'Filter by severity (default: "all").',
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="find_dead_code",
-        description=(
-            "Find unreferenced functions and classes in the codebase. "
-            "Detects symbols with zero callers, excluding entry points (main, tests, route handlers, etc.)."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of dead symbols to report (default: 50).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="find_hotspots",
-        description=(
-            "Rank functions by complexity score (line count, branching, nesting depth, parameter count). "
-            "Helps identify code that needs refactoring."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of functions to report (default: 20).",
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Minimum complexity score to include (default: 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="detect_breaking_changes",
-        description=(
-            "Detect breaking API changes between the current code and a git ref. "
-            "Finds removed functions, removed parameters, added required parameters, and signature changes."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "since_ref": {
-                    "type": "string",
-                    "description": 'Git ref to compare against (default: "HEAD~1"). Can be a commit SHA, branch, or tag.',
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="find_cross_project_deps",
-        description=(
-            "Detect dependencies between indexed projects. "
-            "Shows which projects import packages from other indexed projects and shared external dependencies."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-    Tool(
-        name="analyze_docker",
-        description=(
-            "Analyze Dockerfiles in the project: base images, stages, exposed ports, ENV/ARG vars, "
-            "and cross-reference with config files. Flags issues like 'latest' tags and missing env vars."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_entry_points",
-        description="Score functions by likelihood of being execution entry points (routes, handlers, main functions, exported APIs). Returns functions with score and reasons, sorted by likelihood desc.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of entry points to return (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    ),
-    Tool(
-        name="get_symbol_cluster",
-        description=(
-            "Get the functional cluster for a symbol — all closely related symbols "
-            "grouped by community detection on the dependency graph. Useful for "
-            "understanding which symbols belong to the same functional area without "
-            "chaining multiple dependency queries."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to find the cluster for.",
-                },
-                "max_members": {
-                    "type": "integer",
-                    "description": "Maximum cluster members to return (default 30).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    ),
-]
 
 
 # ---------------------------------------------------------------------------
@@ -1950,12 +517,6 @@ async def list_tools() -> list[Tool]:
 # ---------------------------------------------------------------------------
 
 
-def _prep(slot: _ProjectSlot) -> None:
-    """Ensure slot is indexed and incrementally updated."""
-    _ensure_slot(slot)
-    _maybe_incremental_update(slot)
-
-
 # ── Index-level handlers (slot + ensure + update → result) ────────────────
 
 
@@ -1967,19 +528,21 @@ def _h_get_changed_symbols(slot, args):
     _prep(slot)
     return get_changed_symbols(
         slot.indexer._project_index,
+        ref=args.get("ref") or args.get("since_ref"),
         max_files=args.get("max_files", 20),
         max_symbols_per_file=args.get("max_symbols_per_file", 20),
     )
 
 
 def _h_get_changed_symbols_since_ref(slot, args):
-    _prep(slot)
-    return get_changed_symbols_since_ref(
-        slot.indexer._project_index,
-        args["since_ref"],
-        max_files=args.get("max_files", 20),
-        max_symbols_per_file=args.get("max_symbols_per_file", 20),
-    )
+    """Deprecated alias -- delegates to _h_get_changed_symbols."""
+    result = _h_get_changed_symbols(slot, args)
+    if isinstance(result, dict):
+        result["_deprecated"] = (
+            "[DEPRECATED] Use get_changed_symbols(ref=...) instead. "
+            "This alias will be removed in v1.1.0."
+        )
+    return result
 
 
 def _h_summarize_patch_by_symbol(slot, args):
@@ -2103,22 +666,20 @@ def _h_apply_symbol_change_and_validate(slot, args):
         max_output_chars=args.get("max_output_chars", 12000),
         include_output=args.get("include_output", False),
         compact=args.get("compact", False),
+        rollback_on_failure=args.get("rollback_on_failure", False),
     )
 
 
 def _h_apply_symbol_change_validate_with_rollback(slot, args):
-    _prep(slot)
-    return apply_symbol_change_validate_with_rollback(
-        slot.indexer,
-        args["symbol_name"],
-        args["new_source"],
-        file_path=args.get("file_path"),
-        max_tests=args.get("max_tests", 20),
-        timeout_sec=args.get("timeout_sec", 120),
-        max_output_chars=args.get("max_output_chars", 12000),
-        include_output=args.get("include_output", False),
-        compact=args.get("compact", False),
-    )
+    """Deprecated alias -- delegates with rollback_on_failure=True."""
+    args_copy = {**args, "rollback_on_failure": True}
+    result = _h_apply_symbol_change_and_validate(slot, args_copy)
+    if isinstance(result, dict):
+        result["_deprecated"] = (
+            "[DEPRECATED] Use apply_symbol_change_and_validate(rollback_on_failure=true) instead. "
+            "This alias will be removed in v1.1.0."
+        )
+    return result
 
 
 def _h_discover_project_actions(slot, args):
@@ -2169,8 +730,8 @@ def _h_detect_breaking_changes(slot, args):
 
 def _h_find_cross_project_deps(slot, args):
     loaded: dict[str, ProjectIndex] = {}
-    for root, s in _projects.items():
-        _ensure_slot(s)
+    for root, s in _slot_mgr.projects.items():
+        _slot_mgr.ensure(s)
         if s.indexer and s.indexer._project_index:
             loaded[os.path.basename(root)] = s.indexer._project_index
     return run_cross_project(loaded)
@@ -2268,10 +829,12 @@ _QFN_HANDLERS: dict[str, object] = {
         a["name"], max_results=a.get("max_results", 0)
     ),
     "get_dependents": lambda q, a: q["get_dependents"](
-        a["name"], max_results=a.get("max_results", 0)
+        a["name"], max_results=a.get("max_results", 0),
+        max_total_chars=a.get("max_total_chars", 50_000),
     ),
     "get_change_impact": lambda q, a: q["get_change_impact"](
-        a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0)
+        a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0),
+        max_total_chars=a.get("max_total_chars", 50_000),
     ),
     "get_call_chain": lambda q, a: q["get_call_chain"](a["from_name"], a["to_name"]),
     "get_edit_context": _q_get_edit_context,
@@ -2303,7 +866,7 @@ _QFN_HANDLERS: dict[str, object] = {
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    global _total_chars_returned, _total_naive_chars, _active_root
+    global _total_chars_returned, _total_naive_chars
 
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
 
@@ -2314,17 +877,17 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
 
         if name == "list_projects":
-            if not _projects:
+            if not _slot_mgr.projects:
                 return [
                     TextContent(
                         type="text",
                         text="No projects registered. Call set_project_root('/path') first.",
                     )
                 ]
-            lines = [f"Workspace projects ({len(_projects)}):"]
-            for root, slot in _projects.items():
+            lines = [f"Workspace projects ({len(_slot_mgr.projects)}):"]
+            for root, slot in _slot_mgr.projects.items():
                 status = "indexed" if slot.indexer is not None else "not yet loaded"
-                active = " [active]" if root == _active_root else ""
+                active = " [active]" if root == _slot_mgr.active_root else ""
                 name_part = os.path.basename(root)
                 if slot.indexer and slot.indexer._project_index:
                     idx = slot.indexer._project_index
@@ -2337,11 +900,11 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         if name == "switch_project":
             hint = arguments["name"]
-            slot, err = _resolve_slot(hint)
+            slot, err = _slot_mgr.resolve(hint)
             if err:
                 return [TextContent(type="text", text=f"Error: {err}")]
-            _active_root = slot.root
-            _ensure_slot(slot)
+            _slot_mgr.active_root = slot.root
+            _slot_mgr.ensure(slot)
             idx = slot.indexer._project_index if slot.indexer else None
             info = f"{idx.total_files} files" if idx else "index not built"
             return [
@@ -2355,23 +918,23 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             new_root = os.path.abspath(arguments["path"])
             if not os.path.isdir(new_root):
                 return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-            if new_root not in _projects:
-                _projects[new_root] = _ProjectSlot(root=new_root)
-            _active_root = new_root
-            slot = _projects[new_root]
+            if new_root not in _slot_mgr.projects:
+                _slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
+            _slot_mgr.active_root = new_root
+            slot = _slot_mgr.projects[new_root]
             slot.indexer = None
             slot.query_fns = None
-            _build_slot(slot)
+            _slot_mgr.build(slot)
             return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
 
         if name == "reindex":
             project_hint = arguments.get("project")
-            slot, err = _resolve_slot(project_hint)
+            slot, err = _slot_mgr.resolve(project_hint)
             if err:
                 return [TextContent(type="text", text=f"Error: {err}")]
             slot.indexer = None
             slot.query_fns = None
-            _build_slot(slot)
+            _slot_mgr.build(slot)
             return [
                 TextContent(
                     type="text",
@@ -2382,7 +945,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         # ── All other tools need a resolved slot ──────────────────────────
 
         project_hint = arguments.get("project")
-        slot, err = _resolve_slot(project_hint)
+        slot, err = _slot_mgr.resolve(project_hint)
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
 
