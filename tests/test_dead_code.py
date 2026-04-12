@@ -44,14 +44,17 @@ def _make_class(
     line_end: int = 10,
     decorators: list[str] | None = None,
     methods: list[FunctionInfo] | None = None,
+    base_classes: list[str] | None = None,
+    qualified_name: str | None = None,
 ) -> ClassInfo:
     return ClassInfo(
         name=name,
         line_range=LineRange(line_start, line_end),
-        base_classes=[],
+        base_classes=base_classes or [],
         methods=methods or [],
         decorators=decorators or [],
         docstring=None,
+        qualified_name=qualified_name,
     )
 
 
@@ -59,12 +62,14 @@ def _make_meta(
     source_name: str,
     functions: list[FunctionInfo] | None = None,
     classes: list[ClassInfo] | None = None,
+    lines: list[str] | None = None,
 ) -> StructuralMetadata:
+    content_lines = lines or []
     return StructuralMetadata(
         source_name=source_name,
-        total_lines=50,
-        total_chars=500,
-        lines=[],
+        total_lines=len(content_lines) or 50,
+        total_chars=sum(len(line) for line in content_lines) or 500,
+        lines=content_lines,
         line_char_offsets=[],
         functions=functions or [],
         classes=classes or [],
@@ -286,6 +291,379 @@ class TestClassDeadCode:
         index = _make_index({"src/main/java/com/acme/pricing/PriceEngine.java": meta})
         result = find_dead_code(index)
         assert "PriceEngine()" not in result
+
+
+class TestFrameworkAndDispatchHeuristics:
+    def test_interface_methods_are_not_reported_as_dead(self):
+        iface_method = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            line_start=2,
+            line_end=2,
+            is_method=True,
+            parent_class="TradeDecoder",
+        )
+        iface = _make_class(
+            "TradeDecoder",
+            line_start=1,
+            line_end=3,
+            methods=[iface_method],
+            qualified_name="com.acme.feed.TradeDecoder",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/feed/TradeDecoder.java",
+            functions=[iface_method],
+            classes=[iface],
+            lines=[
+                "public interface TradeDecoder {",
+                "  void decode(byte[] buf);",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/feed/TradeDecoder.java": meta})
+        result = find_dead_code(index)
+        assert "decode()" not in result
+
+    def test_signature_propagates_liveness_from_interface_method(self):
+        iface_method = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            line_start=2,
+            line_end=2,
+            is_method=True,
+            parent_class="TradeDecoder",
+        )
+        impl_method = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.FastTradeDecoder.decode(byte[])",
+            line_start=6,
+            line_end=8,
+            is_method=True,
+            parent_class="FastTradeDecoder",
+        )
+        iface = _make_class(
+            "TradeDecoder",
+            line_start=1,
+            line_end=3,
+            methods=[iface_method],
+            qualified_name="com.acme.feed.TradeDecoder",
+        )
+        impl = _make_class(
+            "FastTradeDecoder",
+            line_start=5,
+            line_end=9,
+            methods=[impl_method],
+            base_classes=["TradeDecoder"],
+            qualified_name="com.acme.feed.FastTradeDecoder",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/feed/Decoders.java",
+            functions=[iface_method, impl_method],
+            classes=[iface, impl],
+            lines=[
+                "public interface TradeDecoder {",
+                "  void decode(byte[] buf);",
+                "}",
+                "public final class FastTradeDecoder implements TradeDecoder {",
+                "}",
+            ],
+        )
+        index = _make_index(
+            {"src/main/java/com/acme/feed/Decoders.java": meta},
+            reverse_dependency_graph={"com.acme.feed.TradeDecoder.decode(byte[])": {"caller"}},
+        )
+        result = find_dead_code(index)
+        assert "FastTradeDecoder.decode" not in result
+    def test_spring_configuration_properties_class_and_accessors_not_flagged(self):
+        getter = _make_func(
+            "apiKey",
+            qualified_name="com.acme.config.AppProperties.apiKey()",
+            line_start=6,
+            line_end=7,
+            is_method=True,
+            parent_class="AppProperties",
+        )
+        setter = _make_func(
+            "setApiKey",
+            qualified_name="com.acme.config.AppProperties.setApiKey(java.lang.String)",
+            line_start=9,
+            line_end=10,
+            is_method=True,
+            parent_class="AppProperties",
+        )
+        cls = _make_class(
+            "AppProperties",
+            line_start=1,
+            line_end=12,
+            decorators=["ConfigurationProperties"],
+            methods=[getter, setter],
+            qualified_name="com.acme.config.AppProperties",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/config/AppProperties.java",
+            functions=[getter, setter],
+            classes=[cls],
+            lines=[
+                "@ConfigurationProperties",
+                "public final class AppProperties {",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/config/AppProperties.java": meta})
+        result = find_dead_code(index)
+        assert "AppProperties" not in result
+        assert "apiKey()" not in result
+        assert "setApiKey()" not in result
+
+    def test_spring_bean_and_route_methods_not_flagged(self):
+        bean = _make_func(
+            "redisHotViewReader",
+            qualified_name="com.acme.config.AppConfiguration.redisHotViewReader()",
+            line_start=6,
+            line_end=8,
+            decorators=["Bean"],
+            is_method=True,
+            parent_class="AppConfiguration",
+        )
+        route = _make_func(
+            "status",
+            qualified_name="com.acme.web.StatusController.status()",
+            line_start=16,
+            line_end=18,
+            decorators=["GetMapping"],
+            is_method=True,
+            parent_class="StatusController",
+        )
+        config_cls = _make_class(
+            "AppConfiguration",
+            line_start=1,
+            line_end=10,
+            decorators=["Configuration"],
+            methods=[bean],
+            qualified_name="com.acme.config.AppConfiguration",
+        )
+        controller_cls = _make_class(
+            "StatusController",
+            line_start=12,
+            line_end=20,
+            decorators=["RestController"],
+            methods=[route],
+            qualified_name="com.acme.web.StatusController",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/App.java",
+            functions=[bean, route],
+            classes=[config_cls, controller_cls],
+            lines=[
+                "@Configuration",
+                "class AppConfiguration {",
+                "}",
+                "@RestController",
+                "class StatusController {",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/App.java": meta})
+        result = find_dead_code(index)
+        assert "redisHotViewReader()" not in result
+        assert "status()" not in result
+
+    def test_jmh_files_are_excluded(self):
+        benchmark = _make_func(
+            "measureThroughput",
+            qualified_name="com.acme.bench.QuoteIngressBenchmark.measureThroughput()",
+            line_start=6,
+            line_end=8,
+            decorators=["Benchmark"],
+            is_method=True,
+            parent_class="QuoteIngressBenchmark",
+        )
+        state_cls = _make_class(
+            "PipelineState",
+            line_start=10,
+            line_end=15,
+            decorators=["State"],
+            qualified_name="com.acme.bench.PipelineState",
+        )
+        benchmark_cls = _make_class(
+            "QuoteIngressBenchmark",
+            line_start=1,
+            line_end=9,
+            methods=[benchmark],
+            qualified_name="com.acme.bench.QuoteIngressBenchmark",
+        )
+        meta = _make_meta(
+            "src/jmh/java/com/acme/bench/QuoteIngressBenchmark.java",
+            functions=[benchmark],
+            classes=[benchmark_cls, state_cls],
+        )
+        index = _make_index({"src/jmh/java/com/acme/bench/QuoteIngressBenchmark.java": meta})
+        result = find_dead_code(index)
+        assert "QuoteIngressBenchmark" not in result
+        assert "measureThroughput()" not in result
+        assert "PipelineState" not in result
+
+    def test_java_method_reference_target_not_flagged(self):
+        factory = _make_func(
+            "cryptoAssetAggregationFactory",
+            qualified_name="com.acme.runtime.Factories.cryptoAssetAggregationFactory()",
+            line_start=2,
+            line_end=4,
+            is_method=True,
+            parent_class="Factories",
+        )
+        cls = _make_class(
+            "Factories",
+            line_start=1,
+            line_end=6,
+            methods=[factory],
+            qualified_name="com.acme.runtime.Factories",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/runtime/Factories.java",
+            functions=[factory],
+            classes=[cls],
+            lines=[
+                "class Factories {",
+                "  GraphDefinition.register(Factories::cryptoAssetAggregationFactory);",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/runtime/Factories.java": meta})
+        result = find_dead_code(index)
+        assert "cryptoAssetAggregationFactory()" not in result
+
+    def test_java_override_and_runnable_run_not_flagged(self):
+        override = _make_func(
+            "onOpen",
+            qualified_name="com.acme.ws.BinanceConsumer.onOpen()",
+            line_start=2,
+            line_end=4,
+            decorators=["Override"],
+            is_method=True,
+            parent_class="BinanceConsumer",
+        )
+        run = _make_func(
+            "run",
+            qualified_name="com.acme.runtime.RuntimeShutdownThread.run()",
+            line_start=7,
+            line_end=9,
+            is_method=True,
+            parent_class="RuntimeShutdownThread",
+        )
+        consumer_cls = _make_class(
+            "BinanceConsumer",
+            line_start=1,
+            line_end=5,
+            methods=[override],
+            base_classes=["WebSocketFrameConsumer"],
+            qualified_name="com.acme.ws.BinanceConsumer",
+        )
+        runnable_cls = _make_class(
+            "RuntimeShutdownThread",
+            line_start=6,
+            line_end=10,
+            methods=[run],
+            base_classes=["Runnable"],
+            qualified_name="com.acme.runtime.RuntimeShutdownThread",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/runtime/RuntimeHooks.java",
+            functions=[override, run],
+            classes=[consumer_cls, runnable_cls],
+        )
+        index = _make_index({"src/main/java/com/acme/runtime/RuntimeHooks.java": meta})
+        result = find_dead_code(index)
+        assert "onOpen()" not in result
+        assert "run()" not in result
+
+    def test_callback_like_methods_without_override_are_not_flagged(self):
+        callback = _make_func(
+            "accept",
+            qualified_name="com.acme.feed.AlpacaTradeConsumer.accept()",
+            line_start=3,
+            line_end=5,
+            is_method=True,
+            parent_class="AlpacaTradeConsumer",
+        )
+        cls = _make_class(
+            "AlpacaTradeConsumer",
+            line_start=1,
+            line_end=6,
+            methods=[callback],
+            base_classes=["TradeConsumer"],
+            qualified_name="com.acme.feed.AlpacaTradeConsumer",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/feed/AlpacaTradeConsumer.java",
+            functions=[callback],
+            classes=[cls],
+        )
+        index = _make_index({"src/main/java/com/acme/feed/AlpacaTradeConsumer.java": meta})
+        result = find_dead_code(index)
+        assert "accept()" not in result
+
+    def test_value_class_accessors_and_mutable_setters_not_flagged(self):
+        accessor = _make_func(
+            "symbol",
+            qualified_name="com.acme.events.QuoteEvent.symbol()",
+            line_start=2,
+            line_end=3,
+            is_method=True,
+            parent_class="QuoteEvent",
+        )
+        setter = _make_func(
+            "set",
+            qualified_name="com.acme.events.MutableQuoteEvent.set()",
+            line_start=7,
+            line_end=9,
+            is_method=True,
+            parent_class="MutableQuoteEvent",
+        )
+        value_cls = _make_class(
+            "QuoteEvent",
+            line_start=1,
+            line_end=4,
+            methods=[accessor],
+            qualified_name="com.acme.events.QuoteEvent",
+        )
+        mutable_cls = _make_class(
+            "MutableQuoteEvent",
+            line_start=6,
+            line_end=10,
+            methods=[setter],
+            qualified_name="com.acme.events.MutableQuoteEvent",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/events/QuoteTypes.java",
+            functions=[accessor, setter],
+            classes=[value_cls, mutable_cls],
+            lines=[
+                "public final class QuoteEvent {",
+                "  public long symbol() {",
+                "    return symbol;",
+                "  }",
+                "}",
+                "public final class MutableQuoteEvent {",
+                "  public void set(long symbol) {",
+                "    this.symbol = symbol;",
+                "  }",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/events/QuoteTypes.java": meta})
+        result = find_dead_code(index)
+        assert "symbol()" not in result
+        assert "set()" not in result
+
+    def test_typescript_ui_files_are_excluded(self):
+        func = _make_func("DiagnosticsOverview", line_start=3)
+        cls = _make_class("DiagnosticsQuery", line_start=1, line_end=2)
+        meta = _make_meta("ui/src/pages/Diagnostics.tsx", functions=[func], classes=[cls])
+        index = _make_index({"ui/src/pages/Diagnostics.tsx": meta})
+        result = find_dead_code(index)
+        assert "DiagnosticsOverview" not in result
+        assert "DiagnosticsQuery" not in result
 
 
 class TestMaxResults:
