@@ -5,6 +5,7 @@ from __future__ import annotations
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
+    ImportInfo,
     LineRange,
     ProjectIndex,
     StructuralMetadata,
@@ -145,6 +146,53 @@ class TestBasicDeadCode:
         result = find_dead_code(index, sibling_indices={"sibling": sibling})
         assert "TradeDecoder" not in result
         assert "decode(" not in result
+
+    def test_cross_project_imports_keep_class_api_live(self):
+        func = _make_func(
+            "buffer",
+            qualified_name="com.acme.lvc.LvcStore.buffer()",
+            line_start=10,
+            is_method=True,
+            parent_class="LvcStore",
+        )
+        cls = _make_class(
+            "LvcStore",
+            methods=[func],
+            qualified_name="com.acme.lvc.LvcStore",
+        )
+        index = _make_index(
+            {"src/main/java/com/acme/lvc/LvcStore.java": _make_meta(
+                "src/main/java/com/acme/lvc/LvcStore.java",
+                functions=[func],
+                classes=[cls],
+            )}
+        )
+        sibling = ProjectIndex(
+            root_path="/sibling",
+            files={
+                "src/main/java/com/acme/app/UseStore.java": StructuralMetadata(
+                    source_name="src/main/java/com/acme/app/UseStore.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    imports=[],
+                )
+            },
+        )
+        sibling.files["src/main/java/com/acme/app/UseStore.java"].imports = [
+            ImportInfo(
+                module="com.acme.lvc.LvcStore",
+                names=["LvcStore"],
+                alias=None,
+                line_number=1,
+                is_from_import=False,
+            )
+        ]
+
+        result = find_dead_code(index, sibling_indices={"sibling": sibling})
+        assert "LvcStore" not in result
+        assert "buffer(" not in result
 
     def test_empty_index_returns_zero(self):
         index = _make_index({})

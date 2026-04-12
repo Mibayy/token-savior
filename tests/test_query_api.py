@@ -506,6 +506,7 @@ class TestProjectQueryFunctions:
         assert "Project Structure Summary: /project" in summary
         assert "Top directories:" in summary
         assert "src" in summary
+        assert summary != self.funcs["get_project_summary"]()
 
     def test_get_structure_summary_file(self):
         summary = self.funcs["get_structure_summary"]("src/engine_mod.py")

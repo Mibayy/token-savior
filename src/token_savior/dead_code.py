@@ -331,28 +331,76 @@ def _cross_project_live_symbols(
         return set()
 
     current_symbols: set[str] = set()
+    simple_to_qualified: dict[str, set[str]] = {}
+    class_methods: dict[str, set[str]] = {}
+    package_to_classes: dict[str, set[str]] = {}
     symbol_files = index.symbol_table
     for file_path, meta in index.files.items():
         for func in meta.functions:
             current_symbols.add(func.qualified_name)
             if symbol_files.get(func.name) == file_path:
                 current_symbols.add(func.name)
+            simple_to_qualified.setdefault(func.name, set()).add(func.qualified_name)
         for cls in meta.classes:
             qualified_name = cls.qualified_name or cls.name
             current_symbols.add(qualified_name)
             if symbol_files.get(cls.name) == file_path:
                 current_symbols.add(cls.name)
+            simple_to_qualified.setdefault(cls.name, set()).add(qualified_name)
+            class_methods.setdefault(qualified_name, set()).update(
+                method.qualified_name for method in cls.methods
+            )
+            if "." in qualified_name:
+                package_to_classes.setdefault(qualified_name.rsplit(".", 1)[0], set()).add(qualified_name)
 
     live: set[str] = set()
+
+    def _mark_symbol(symbol: str) -> None:
+        if symbol in current_symbols:
+            live.add(symbol)
+            if "." in symbol:
+                live.add(symbol.rsplit(".", 1)[0])
+            for qualified in simple_to_qualified.get(symbol, set()):
+                live.add(qualified)
+                if "." in qualified:
+                    live.add(qualified.rsplit(".", 1)[0])
+
+    def _mark_class_api(class_name: str) -> None:
+        if class_name not in current_symbols and class_name not in simple_to_qualified:
+            return
+        _mark_symbol(class_name)
+        for qualified_class in simple_to_qualified.get(class_name, {class_name}):
+            if qualified_class in class_methods:
+                live.update(class_methods[qualified_class])
+
     for sibling in sibling_indices.values():
         if sibling.root_path == index.root_path:
             continue
         for deps in sibling.global_dependency_graph.values():
             for dep in deps:
-                if dep in current_symbols:
-                    live.add(dep)
-                    if "." in dep:
-                        live.add(dep.rsplit(".", 1)[0])
+                _mark_symbol(dep)
+                base_dep = dep.rsplit(".", 1)[0] if "." in dep else dep
+                _mark_class_api(base_dep)
+
+        for meta in sibling.files.values():
+            for imp in meta.imports:
+                if imp.is_from_import:
+                    if imp.module in current_symbols:
+                        _mark_symbol(imp.module)
+                    for name in imp.names:
+                        _mark_symbol(name)
+                    continue
+
+                imported_class = imp.module
+                imported_simple = imported_class.rsplit(".", 1)[-1]
+                if imported_class in current_symbols:
+                    _mark_class_api(imported_class)
+                elif imported_simple in simple_to_qualified:
+                    _mark_class_api(imported_simple)
+
+                if imp.names == ["*"] and imported_class in package_to_classes:
+                    for qualified_class in package_to_classes[imported_class]:
+                        _mark_class_api(qualified_class)
     return live
 
 

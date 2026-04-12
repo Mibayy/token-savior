@@ -708,6 +708,10 @@ def _resolve_receiver_owner(
         return current_owner
     if object_node.type in {"this", "super"}:
         return current_owner
+    if object_node.type == "object_creation_expression":
+        type_node = object_node.child_by_field_name("type")
+        type_name = _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None
+        return _resolve_type_reference(type_name, visible_types)
 
     if object_node.type == "identifier":
         object_text = _node_text(object_node, source_bytes)

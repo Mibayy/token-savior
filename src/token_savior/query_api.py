@@ -409,9 +409,17 @@ def _is_spring_controller(cls) -> bool:
     return bool(decorators & {"RestController", "Controller", "RequestMapping"})
 
 
-def _spring_declaration_lines(meta: StructuralMetadata, line_range) -> list[str]:
+def _spring_declaration_lines(
+    meta: StructuralMetadata,
+    line_range,
+    max_lines: int | None = None,
+) -> list[str]:
     start = max(0, line_range.start - 1)
-    end = min(len(meta.lines), line_range.start + 8)
+    end = min(len(meta.lines), line_range.end)
+    if max_lines is not None:
+        end = min(end, start + max_lines)
+    if end <= start:
+        end = min(len(meta.lines), line_range.start + 1)
     return list(meta.lines[start:end])
 
 
@@ -444,7 +452,7 @@ def _combine_route_paths(prefix_paths: list[str], method_paths: list[str]) -> li
 
 
 def _extract_spring_class_paths(meta: StructuralMetadata, cls) -> list[str]:
-    lines = "\n".join(_spring_declaration_lines(meta, cls.line_range))
+    lines = "\n".join(_spring_declaration_lines(meta, cls.line_range, max_lines=8))
     match = _SPRING_REQUEST_MAPPING_RE.search(lines)
     if not match:
         return [""]
@@ -467,6 +475,16 @@ def _extract_spring_method_mappings(meta: StructuralMetadata, func) -> list[tupl
             mappings.append(_extract_spring_request_mapping(match.group(1)))
 
     return mappings
+
+
+def _spring_method_declaration_line(meta: StructuralMetadata, func) -> int:
+    start = max(0, func.line_range.start - 1)
+    end = min(len(meta.lines), func.line_range.end)
+    signature_pattern = re.compile(rf"\b{re.escape(func.name)}\s*\(")
+    for idx in range(start, end):
+        if signature_pattern.search(meta.lines[idx]):
+            return idx + 1
+    return func.line_range.start
 
 
 class ProjectQueryEngine:
@@ -851,7 +869,7 @@ class ProjectQueryEngine:
             path = queue.popleft()
             current = path[-1]
             neighbors = self._get_aggregated_dependencies(current) or set()
-            for neighbor in sorted(neighbors):
+            for neighbor in sorted(neighbors, key=self._call_chain_neighbor_key):
                 if neighbor in target_names:
                     path_names = path + [resolved_to if neighbor != resolved_to else neighbor]
                     break
@@ -1078,6 +1096,7 @@ class ProjectQueryEngine:
                         if func.parent_class != cls.name:
                             continue
                         mappings = _extract_spring_method_mappings(meta, func)
+                        decl_line = _spring_method_declaration_line(meta, func)
                         for methods, method_paths in mappings:
                             for route_path in _combine_route_paths(class_paths, method_paths):
                                 add_route(
@@ -1086,7 +1105,7 @@ class ProjectQueryEngine:
                                         "file": path,
                                         "methods": methods,
                                         "type": "api",
-                                        "line": func.line_range.start,
+                                        "line": decl_line,
                                     }
                                 )
         routes.sort(key=lambda r: (r["type"], r["route"], r["file"], r.get("line", 1)))
@@ -1800,8 +1819,14 @@ class ProjectQueryEngine:
                 if method_deps is not None:
                     found_dependency_data = True
                     aggregated.update(method_deps)
+        expanded: set[str] = set(aggregated)
+        for dep in list(aggregated):
+            class_symbol = self._find_class_by_qualified_name(dep)
+            if class_symbol is None:
+                continue
+            expanded.update(method.qualified_name for method in class_symbol.methods)
         if found_dependency_data:
-            return aggregated
+            return expanded
         return None
 
     def _get_aggregated_dependents(self, resolved_name: str) -> set[str] | None:
@@ -1851,6 +1876,12 @@ class ProjectQueryEngine:
 
     def _get_graph_target_names(self, resolved_name: str) -> set[str]:
         return self._get_symbol_graph_aliases(resolved_name)
+
+    @staticmethod
+    def _call_chain_neighbor_key(name: str) -> tuple[int, int, str]:
+        is_qualified = "." in name
+        is_method = "(" in name
+        return (0 if is_method else 1, 0 if is_qualified else 1, name)
 
     def _has_forward_graph_presence(self, qualified_name: str) -> bool:
         if qualified_name in self.index.global_dependency_graph:

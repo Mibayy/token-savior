@@ -64,6 +64,29 @@ def _join_until_paren_close(lines: list[str], start_0: int) -> tuple[str, int]:
     return " ".join(parts), start_0
 
 
+def _find_arrow_body_start(lines: list[str], start_0: int) -> tuple[int, bool]:
+    """Find the start line of an arrow-function body.
+
+    Returns (line_index, has_block_body).
+    """
+    seen_arrow = False
+    arrow_line = -1
+    for idx in range(start_0, min(start_0 + 20, len(lines))):
+        line = lines[idx]
+        if "=>" in line:
+            seen_arrow = True
+            arrow_line = idx
+        if not seen_arrow:
+            continue
+        if "{" in line:
+            return idx, True
+        if idx == arrow_line:
+            continue
+        if line.strip():
+            return idx, False
+    return start_0, False
+
+
 # ---------------------------------------------------------------------------
 # Import detection
 # ---------------------------------------------------------------------------
@@ -489,23 +512,15 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
             name = am.group(1)
             joined, last_param_line = _join_until_paren_close(lines, i)
             params = _extract_params_from_joined(joined)
-            # Find => and then the body
-            # Look for { on the same line or following lines
-            body_start = last_param_line
-            found_brace = False
-            for k in range(last_param_line, min(last_param_line + 3, total_lines)):
-                if "{" in lines[k]:
-                    body_start = k
-                    found_brace = True
-                    break
+            body_start, found_brace = _find_arrow_body_start(lines, i)
             if found_brace:
                 end_0 = _find_brace_end(lines, body_start)
             else:
                 # Single-expression arrow — find the end
-                end_0 = last_param_line
-                for j in range(last_param_line, total_lines):
+                end_0 = body_start
+                for j in range(body_start, total_lines):
                     line_s = lines[j].strip()
-                    if j > last_param_line and line_s and not line_s.endswith(","):
+                    if j > body_start and line_s and not line_s.endswith(","):
                         end_0 = j
                         break
                     if ";" in lines[j]:

@@ -112,3 +112,50 @@ class TestSpringBootQuerySupport:
             and "spring route mapping" in entry["reasons"]
             for entry in entry_points
         )
+
+    def test_adjacent_spring_methods_do_not_inherit_next_route_annotation(self, tmp_path):
+        root = tmp_path / "spring-project"
+        root.mkdir()
+        _write(
+            root / "src/main/java/com/acme/web/ConfigController.java",
+            """\
+            package com.acme.web;
+
+            import org.springframework.web.bind.annotation.GetMapping;
+            import org.springframework.web.bind.annotation.RequestMapping;
+            import org.springframework.web.bind.annotation.RestController;
+
+            @RestController
+            @RequestMapping("/api/config")
+            public class ConfigController {
+                @GetMapping("/effective")
+                public String effective() {
+                    return "effective";
+                }
+
+                @GetMapping("/history")
+                public String history() {
+                    return "history";
+                }
+
+                @GetMapping("/access")
+                public String access() {
+                    return "access";
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        routes = [
+            (route["route"], tuple(route["methods"]), route["line"])
+            for route in funcs["get_routes"]()
+        ]
+
+        assert routes == [
+            ("/api/config/access", ("GET",), 21),
+            ("/api/config/effective", ("GET",), 11),
+            ("/api/config/history", ("GET",), 16),
+        ]

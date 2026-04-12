@@ -337,6 +337,74 @@ class TestJavaProjectIndexer:
         deps = idx.global_dependency_graph[factory_symbol]
         assert node_symbol in deps
 
+    def test_get_call_chain_reaches_node_through_factory_edges(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/app/TradeResearchApiApplication.java",
+            """\
+            package com.acme.app;
+
+            public final class TradeResearchApiApplication {
+                public static void main(String[] args) {
+                    new CryptoCycleGraphs().register();
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/CryptoCycleGraphs.java",
+            """\
+            package com.acme.app;
+
+            public final class CryptoCycleGraphs {
+                public void register() {
+                    GraphDefinition.register(Factories::cryptoAssetAggregationFactory);
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/Factories.java",
+            """\
+            package com.acme.app;
+
+            import java.util.function.Supplier;
+
+            public final class Factories {
+                public static Supplier<CryptoAssetAggregationNode> cryptoAssetAggregationFactory() {
+                    return () -> new CryptoAssetAggregationNode();
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/CryptoAssetAggregationNode.java",
+            """\
+            package com.acme.app;
+
+            public final class CryptoAssetAggregationNode {
+                public CryptoAssetAggregationNode() {
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        result = funcs["get_call_chain"](
+            "TradeResearchApiApplication",
+            "CryptoAssetAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert names[0] == "com.acme.app.TradeResearchApiApplication"
+        assert "com.acme.app.CryptoCycleGraphs.register()" in names
+        assert "com.acme.app.Factories.cryptoAssetAggregationFactory()" in names
+        assert names[-1] == "com.acme.app.CryptoAssetAggregationNode"
+
     def test_adds_spring_framework_entry_edges(self, tmp_path):
         root = tmp_path / "spring-project"
         root.mkdir()
