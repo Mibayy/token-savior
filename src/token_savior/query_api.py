@@ -225,6 +225,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
     def get_dependencies(name: str) -> list[dict]:
         """What this function/class references."""
         resolved_name = name
+        resolved_class = None
         if name not in metadata.dependency_graph:
             func, error = _resolve_unique_function(metadata.functions, name)
             if error == "ambiguous":
@@ -235,8 +236,15 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
                 for cls in metadata.classes:
                     if cls.name == name or cls.qualified_name == name:
                         resolved_name = cls.qualified_name or cls.name
+                        resolved_class = cls
+                        resolved_class = cls
                         break
         deps = metadata.dependency_graph.get(resolved_name)
+        if resolved_class is not None:
+            aggregated_deps = set(deps or [])
+            for method in resolved_class.methods:
+                aggregated_deps.update(metadata.dependency_graph.get(method.qualified_name, []))
+            deps = sorted(aggregated_deps)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         return [_resolve_file_symbol(dep) for dep in sorted(deps)]
@@ -244,6 +252,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
     def get_dependents(name: str) -> list[dict]:
         """What references this function/class."""
         resolved_name = name
+        resolved_class = None
         if name not in metadata.dependency_graph:
             func, error = _resolve_unique_function(metadata.functions, name)
             if error == "ambiguous":
@@ -255,9 +264,13 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
                     if cls.name == name or cls.qualified_name == name:
                         resolved_name = cls.qualified_name or cls.name
                         break
+        resolved_targets = {resolved_name}
+        if resolved_class is not None:
+            for method in resolved_class.methods:
+                resolved_targets.add(method.qualified_name)
         result = []
         for source, targets in metadata.dependency_graph.items():
-            if resolved_name in targets:
+            if any(target in targets for target in resolved_targets):
                 result.append(source)
         return [_resolve_file_symbol(dep) for dep in sorted(result)]
 
@@ -744,7 +757,7 @@ class ProjectQueryEngine:
         resolved_name = self._resolve_graph_symbol_name(name)
         if resolved_name is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
-        deps = self.index.global_dependency_graph.get(resolved_name)
+        deps = self._get_aggregated_dependencies(resolved_name)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         result = sorted(deps)
@@ -797,16 +810,18 @@ class ProjectQueryEngine:
             return {"chain": [info]}
 
         # BFS
-        visited = {resolved_from}
+        target_names = self._get_graph_target_names(resolved_to)
+        visited = set(self._get_class_symbol_aliases(resolved_from))
+        visited.add(resolved_from)
         queue: deque[list[str]] = deque([[resolved_from]])
         path_names: list[str] | None = None
         while queue:
             path = queue.popleft()
             current = path[-1]
-            neighbors = index.global_dependency_graph.get(current, set())
+            neighbors = self._get_aggregated_dependencies(current) or set()
             for neighbor in sorted(neighbors):
-                if neighbor == resolved_to:
-                    path_names = path + [neighbor]
+                if neighbor in target_names:
+                    path_names = path + [resolved_to if neighbor != resolved_to else neighbor]
                     break
                 if neighbor not in visited:
                     visited.add(neighbor)
@@ -881,13 +896,13 @@ class ProjectQueryEngine:
         # BFS tracking depth per symbol
         depth_map: dict[str, int] = {}
         queue: deque[tuple[str, int]] = deque((sym, 1) for sym in direct)
-        visited: set[str] = set(direct) | {name}
+        visited: set[str] = set(direct) | self._get_class_symbol_aliases(resolved_name)
         for sym in direct:
             depth_map[sym] = 1
 
         while queue:
             current, depth = queue.popleft()
-            next_deps = index.reverse_dependency_graph.get(current, set())
+            next_deps = self._get_aggregated_dependents(current) or set()
             for dep in next_deps:
                 if dep not in visited:
                     visited.add(dep)
@@ -1636,21 +1651,26 @@ class ProjectQueryEngine:
 
     def _resolve_dep_name(self, name: str) -> tuple[str, set | None]:
         """Look up name in reverse dependency graph, falling back to class name for dotted methods."""
+        exact_class_name = self._resolve_exact_class_name(name)
+        if exact_class_name is not None:
+            deps = self._get_aggregated_dependents(exact_class_name)
+            if deps is not None:
+                return exact_class_name, deps
         resolved_name = self._resolve_graph_symbol_name(name)
-        deps = self.index.reverse_dependency_graph.get(resolved_name or name)
+        deps = self._get_aggregated_dependents(resolved_name or name)
         if deps is not None:
             return resolved_name or name, deps
         # For "Class.method", fall back to dependents of "Class"
         if "." in name:
             class_name = name.rsplit(".", 1)[0]
-            deps = self.index.reverse_dependency_graph.get(class_name)
+            deps = self._get_aggregated_dependents(class_name)
             if deps is not None:
                 return class_name, deps
         return name, None
 
     def _resolve_graph_symbol_name(self, name: str) -> str | None:
         exact_class_name = self._resolve_exact_class_name(name)
-        if exact_class_name and exact_class_name in self.index.global_dependency_graph:
+        if exact_class_name and self._has_forward_graph_presence(exact_class_name):
             return exact_class_name
         if name in self.index.global_dependency_graph:
             return name
@@ -1669,6 +1689,60 @@ class ProjectQueryEngine:
             self._communities = compute_communities(self.index)
         return self._communities
 
+    def _get_aggregated_dependencies(self, resolved_name: str) -> set[str] | None:
+        deps = self.index.global_dependency_graph.get(resolved_name)
+        class_symbol = self._find_class_by_qualified_name(resolved_name)
+        if class_symbol is None:
+            return deps
+
+        aggregated: set[str] = set(deps or set())
+        for method in class_symbol.methods:
+            method_name = method.qualified_name
+            method_deps = self.index.global_dependency_graph.get(method_name, set())
+            aggregated.update(method_deps)
+        return aggregated
+
+    def _get_aggregated_dependents(self, resolved_name: str) -> set[str] | None:
+        deps = self.index.reverse_dependency_graph.get(resolved_name)
+        class_symbol = self._find_class_by_qualified_name(resolved_name)
+        if class_symbol is None:
+            return deps
+
+        aggregated: set[str] = set(deps or set())
+        found_dependency_data = deps is not None
+        for method in class_symbol.methods:
+            method_deps = self.index.reverse_dependency_graph.get(method.qualified_name)
+            if method_deps is not None:
+                found_dependency_data = True
+                aggregated.update(method_deps)
+        if found_dependency_data:
+            return aggregated
+        return None
+
+    def _get_class_symbol_aliases(self, qualified_name: str) -> set[str]:
+        class_symbol = self._find_class_by_qualified_name(qualified_name)
+        if class_symbol is None:
+            return {qualified_name}
+
+        aliases = {qualified_name}
+        for method in class_symbol.methods:
+            aliases.add(method.qualified_name)
+        return aliases
+
+    def _get_graph_target_names(self, resolved_name: str) -> set[str]:
+        return self._get_class_symbol_aliases(resolved_name)
+
+    def _has_forward_graph_presence(self, qualified_name: str) -> bool:
+        if qualified_name in self.index.global_dependency_graph:
+            return True
+        class_symbol = self._find_class_by_qualified_name(qualified_name)
+        if class_symbol is None:
+            return False
+        for method in class_symbol.methods:
+            if method.qualified_name in self.index.global_dependency_graph:
+                return True
+        return False
+
     def _resolve_exact_class_info(self, name: str) -> dict | None:
         for path, meta in self._candidate_class_files(name):
             for cls in meta.classes:
@@ -1681,6 +1755,13 @@ class ProjectQueryEngine:
         if info is None:
             return None
         return info.get("qualified_name") or info.get("name")
+
+    def _find_class_by_qualified_name(self, qualified_name: str):
+        for meta in self.index.files.values():
+            for cls in meta.classes:
+                if (cls.qualified_name or cls.name) == qualified_name:
+                    return cls
+        return None
 
     def _candidate_class_files(self, name: str):
         if name in self.index.symbol_table:

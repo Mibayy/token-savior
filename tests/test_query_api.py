@@ -410,6 +410,10 @@ class TestFileQueryFunctions:
         deps = self.funcs["get_dependencies"]("Engine.run")
         assert any(d.get("name") == "helper" for d in deps)
 
+    def test_get_dependencies_for_class_aggregates_method_dependencies(self):
+        deps = self.funcs["get_dependencies"]("Engine")
+        assert any(d.get("name") == "helper" for d in deps)
+
     def test_get_dependencies_empty(self):
         deps = self.funcs["get_dependencies"]("helper")
         assert deps == []
@@ -597,6 +601,10 @@ class TestProjectQueryFunctions:
         deps = self.funcs["get_dependents"]("Engine.run")
         assert any(d.get("name") == "Runner.execute" for d in deps)
 
+    def test_get_dependents_for_class_aggregates_method_dependents(self):
+        deps = self.funcs["get_dependents"]("Engine")
+        assert any(d.get("name") == "Runner.execute" for d in deps)
+
     def test_get_call_chain(self):
         result = self.funcs["get_call_chain"]("Runner.execute", "helper")
         assert "chain" in result
@@ -608,6 +616,12 @@ class TestProjectQueryFunctions:
         assert "chain" in result
         names = [s.get("name", s) for s in result["chain"]]
         assert names == ["Engine.run", "helper"]
+
+    def test_get_call_chain_from_class_aggregates_method_dependencies(self):
+        result = self.funcs["get_call_chain"]("Engine", "helper")
+        assert "chain" in result
+        names = [s.get("name", s) for s in result["chain"]]
+        assert names == ["Engine", "helper"]
 
     def test_get_call_chain_same(self):
         result = self.funcs["get_call_chain"]("helper", "helper")
@@ -675,6 +689,11 @@ class TestProjectQueryFunctions:
                 f"expected confidence < 1.0, got {entry['confidence']}"
             )
             assert entry["depth"] >= 2, f"expected depth >= 2, got {entry['depth']}"
+
+    def test_get_change_impact_for_class_aggregates_method_dependents(self):
+        impact = self.funcs["get_change_impact"]("Engine")
+        direct_names = [d.get("name", d) if isinstance(d, dict) else d for d in impact["direct"]]
+        assert "Runner.execute" in direct_names
 
     def test_get_change_impact_no_dependents(self):
         # main has no reverse dependents in our graph

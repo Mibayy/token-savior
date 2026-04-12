@@ -159,6 +159,14 @@ class TestJavaProjectIndexer:
             dep.get("name") == "com.acme.pricing.QuotePublisher"
             for dep in class_dependency_result
         )
+        assert any(
+            dep.get("name") == "com.acme.pricing.PriceEngine.helper()"
+            for dep in class_dependency_result
+        )
+        assert any(
+            dep.get("name") == "com.acme.shared.MathUtil"
+            for dep in class_dependency_result
+        )
 
     def test_indexes_scoped_local_java_classes_without_simple_aliases(self, tmp_path):
         root = tmp_path / "java-project"
