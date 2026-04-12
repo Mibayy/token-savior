@@ -842,3 +842,42 @@ class TestIntegration:
 
         # Build time should be reasonable (< 5 seconds)
         assert idx.index_build_time_seconds < 5.0
+
+
+class TestBuildFileCoverage:
+    def test_discovers_gradle_and_maven_files(self, tmp_path):
+        root = tmp_path / "build-project"
+        root.mkdir()
+
+        (root / "build.gradle.kts").write_text(
+            "plugins {\n    id(\"java\")\n}\n",
+            encoding="utf-8",
+        )
+        (root / "settings.gradle").write_text(
+            "rootProject.name = 'demo'\ninclude(':app')\n",
+            encoding="utf-8",
+        )
+        (root / "gradle.properties").write_text(
+            "org.gradle.jvmargs=-Xmx1g\n",
+            encoding="utf-8",
+        )
+        (root / "pom.xml").write_text(
+            "<project><dependencies><dependency/></dependencies></project>",
+            encoding="utf-8",
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+
+        assert "build.gradle.kts" in idx.files
+        assert "settings.gradle" in idx.files
+        assert "gradle.properties" in idx.files
+        assert "pom.xml" in idx.files
+        assert [section.title for section in idx.files["build.gradle.kts"].sections] == [
+            "plugins",
+            "id java",
+        ]
+        assert [section.title for section in idx.files["pom.xml"].sections] == [
+            "project",
+            "dependencies",
+            "dependency",
+        ]

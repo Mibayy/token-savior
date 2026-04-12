@@ -57,6 +57,27 @@ class TestDiscoverProjectActions:
             },
         ]
 
+    def test_detects_gradle_actions_and_prefers_wrapper(self, tmp_path):
+        (tmp_path / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
+        (tmp_path / "gradlew").write_text("#!/bin/sh\n", encoding="utf-8")
+
+        actions = discover_project_actions(str(tmp_path))
+        by_id = {action["id"]: action for action in actions}
+
+        assert by_id["gradle:test"]["command"] == ["./gradlew", "test"]
+        assert by_id["gradle:check"]["command"] == ["./gradlew", "check"]
+        assert by_id["gradle:build"]["command"] == ["./gradlew", "build"]
+
+    def test_detects_maven_actions_from_pom(self, tmp_path):
+        (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
+
+        actions = discover_project_actions(str(tmp_path))
+        by_id = {action["id"]: action for action in actions}
+
+        assert by_id["maven:test"]["command"] == ["mvn", "test"]
+        assert by_id["maven:check"]["command"] == ["mvn", "verify"]
+        assert by_id["maven:build"]["command"] == ["mvn", "package"]
+
 
 class TestRunProjectAction:
     def test_runs_discovered_action(self, tmp_path):

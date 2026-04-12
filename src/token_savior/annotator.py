@@ -7,8 +7,10 @@ from token_savior.csharp_annotator import annotate_csharp
 from token_savior.env_annotator import annotate_env
 from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
+from token_savior.gradle_annotator import annotate_gradle
 from token_savior.hcl_annotator import annotate_hcl
 from token_savior.ini_annotator import annotate_ini
+from token_savior.java_annotator import annotate_java
 from token_savior.json_annotator import annotate_json
 from token_savior.models import AnnotatorProtocol, StructuralMetadata
 from token_savior.python_annotator import annotate_python
@@ -38,6 +40,7 @@ _EXTENSION_MAP: dict[str, str] = {
     ".go": "go",
     ".rs": "rust",
     ".cs": "csharp",
+    ".java": "java",
     ".json": "json",
     ".yaml": "yaml",
     ".yml": "yaml",
@@ -45,6 +48,7 @@ _EXTENSION_MAP: dict[str, str] = {
     ".ini": "ini",
     ".cfg": "ini",
     ".properties": "ini",
+    ".gradle": "gradle",
     ".env": "env",
     ".xml": "xml",
     ".plist": "xml",
@@ -63,8 +67,10 @@ _ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "typescript": annotate_typescript,
     "javascript": annotate_typescript,
     "go": annotate_go,
+    "gradle": annotate_gradle,
     "rust": annotate_rust,
     "csharp": annotate_csharp,
+    "java": annotate_java,
     "json": annotate_json,
     "yaml": annotate_yaml,
     "ini": annotate_ini,
@@ -101,6 +107,8 @@ def annotate(
             or _basename.lower().endswith(".dockerfile")
         ):
             file_type = "dockerfile"
+        elif _basename.lower().endswith(".gradle.kts"):
+            file_type = "gradle"
         else:
             dot_idx = source_name.rfind(".")
             if dot_idx >= 0:

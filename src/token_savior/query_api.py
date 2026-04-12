@@ -22,6 +22,43 @@ from token_savior.models import (
 )
 from token_savior.symbol_hash import analyze_symbol_semantics
 
+def _split_signature_suffix(name: str) -> tuple[str, str]:
+    if name.endswith(")") and "(" in name:
+        base, _, suffix = name.rpartition("(")
+        return base, f"({suffix}"
+    return name, ""
+
+
+def _function_aliases(func) -> set[str]:
+    aliases = {func.name, func.qualified_name}
+    base_name, signature_suffix = _split_signature_suffix(func.qualified_name)
+    aliases.add(base_name)
+    if func.is_method and func.parent_class:
+        aliases.add(f"{func.parent_class}.{func.name}")
+        if signature_suffix:
+            aliases.add(f"{func.parent_class}.{func.name}{signature_suffix}")
+    return aliases
+
+
+def _function_matches_name(func, name: str) -> bool:
+    return name in _function_aliases(func)
+
+
+def _find_matching_functions(functions, name: str) -> list:
+    return [func for func in functions if _function_matches_name(func, name)]
+
+
+def _resolve_unique_function(functions, name: str):
+    matches = _find_matching_functions(functions, name)
+    if not matches:
+        return None, "missing"
+    exact_matches = [func for func in matches if func.qualified_name == name]
+    if exact_matches:
+        return exact_matches[0], None
+    if len(matches) == 1:
+        return matches[0], None
+    return None, "ambiguous"
+
 
 # ---------------------------------------------------------------------------
 # Single-file query functions
@@ -104,6 +141,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
         return [
             {
                 "name": cls.name,
+                "qualified_name": cls.qualified_name or cls.name,
                 "lines": [cls.line_range.start, cls.line_range.end],
                 "methods": [m.name for m in cls.methods],
                 "bases": cls.base_classes,
@@ -125,15 +163,17 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def get_function_source(name: str) -> str:
         """Source of a function by name (searches top-level and methods)."""
-        for f in metadata.functions:
-            if f.name == name or f.qualified_name == name:
-                return "\n".join(metadata.lines[f.line_range.start - 1 : f.line_range.end])
-        return f"Error: function '{name}' not found"
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return f"Error: function '{name}' is ambiguous; use a fully qualified signature"
+        if func is None:
+            return f"Error: function '{name}' not found"
+        return "\n".join(metadata.lines[func.line_range.start - 1 : func.line_range.end])
 
     def get_class_source(name: str) -> str:
         """Source of a class by name."""
         for cls in metadata.classes:
-            if cls.name == name:
+            if cls.name == name or cls.qualified_name == name:
                 return "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
         return f"Error: class '{name}' not found"
 
@@ -157,19 +197,24 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def _resolve_file_symbol(name: str) -> dict:
         """Resolve a symbol name to rich info from the file metadata."""
-        for func in metadata.functions:
-            if func.qualified_name == name or func.name == name:
-                return {
-                    "name": func.qualified_name,
-                    "file": metadata.source_name,
-                    "line": func.line_range.start,
-                    "end_line": func.line_range.end,
-                    "type": "method" if func.is_method else "function",
-                }
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return {
+                "name": name,
+                "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+            }
+        if func is not None:
+            return {
+                "name": func.qualified_name,
+                "file": metadata.source_name,
+                "line": func.line_range.start,
+                "end_line": func.line_range.end,
+                "type": "method" if func.is_method else "function",
+            }
         for cls in metadata.classes:
-            if cls.name == name:
+            if cls.name == name or cls.qualified_name == name:
                 return {
-                    "name": cls.name,
+                    "name": cls.qualified_name or cls.name,
                     "file": metadata.source_name,
                     "line": cls.line_range.start,
                     "end_line": cls.line_range.end,
@@ -179,16 +224,40 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def get_dependencies(name: str) -> list[dict]:
         """What this function/class references."""
-        deps = metadata.dependency_graph.get(name)
+        resolved_name = name
+        if name not in metadata.dependency_graph:
+            func, error = _resolve_unique_function(metadata.functions, name)
+            if error == "ambiguous":
+                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+            if func is not None:
+                resolved_name = func.qualified_name
+            else:
+                for cls in metadata.classes:
+                    if cls.name == name or cls.qualified_name == name:
+                        resolved_name = cls.qualified_name or cls.name
+                        break
+        deps = metadata.dependency_graph.get(resolved_name)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         return [_resolve_file_symbol(dep) for dep in sorted(deps)]
 
     def get_dependents(name: str) -> list[dict]:
         """What references this function/class."""
+        resolved_name = name
+        if name not in metadata.dependency_graph:
+            func, error = _resolve_unique_function(metadata.functions, name)
+            if error == "ambiguous":
+                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+            if func is not None:
+                resolved_name = func.qualified_name
+            else:
+                for cls in metadata.classes:
+                    if cls.name == name or cls.qualified_name == name:
+                        resolved_name = cls.qualified_name or cls.name
+                        break
         result = []
         for source, targets in metadata.dependency_graph.items():
-            if name in targets:
+            if resolved_name in targets:
                 result.append(source)
         return [_resolve_file_symbol(dep) for dep in sorted(result)]
 
@@ -459,6 +528,7 @@ class ProjectQueryEngine:
                     result.append(
                         {
                             "name": cls.name,
+                            "qualified_name": cls.qualified_name or cls.name,
                             "lines": [cls.line_range.start, cls.line_range.end],
                             "methods": [m.name for m in cls.methods],
                             "bases": cls.base_classes,
@@ -593,7 +663,10 @@ class ProjectQueryEngine:
 
     def get_dependencies(self, name: str, max_results: int = 0) -> list[dict]:
         """What this function/class references (from global_dependency_graph)."""
-        deps = self.index.global_dependency_graph.get(name)
+        resolved_name = self._resolve_graph_symbol_name(name)
+        if resolved_name is None:
+            return [{"error": f"'{name}' not found in dependency graph"}]
+        deps = self.index.global_dependency_graph.get(resolved_name)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         result = sorted(deps)
@@ -634,23 +707,27 @@ class ProjectQueryEngine:
         with rich info for each hop, so callers don't need follow-up lookups.
         """
         index = self.index
-        if from_name not in index.global_dependency_graph:
+        resolved_from = self._resolve_graph_symbol_name(from_name)
+        resolved_to = self._resolve_graph_symbol_name(to_name)
+        if resolved_from is None:
             return {"error": f"'{from_name}' not found in dependency graph"}
-        if from_name == to_name:
-            info = self._resolve_symbol_info(from_name)
+        if resolved_to is None:
+            return {"error": f"'{to_name}' not found in dependency graph"}
+        if resolved_from == resolved_to:
+            info = self._resolve_symbol_info(resolved_from)
             info.setdefault("name", from_name)
             return {"chain": [info]}
 
         # BFS
-        visited = {from_name}
-        queue: deque[list[str]] = deque([[from_name]])
+        visited = {resolved_from}
+        queue: deque[list[str]] = deque([[resolved_from]])
         path_names: list[str] | None = None
         while queue:
             path = queue.popleft()
             current = path[-1]
             neighbors = index.global_dependency_graph.get(current, set())
             for neighbor in sorted(neighbors):
-                if neighbor == to_name:
+                if neighbor == resolved_to:
                     path_names = path + [neighbor]
                     break
                 if neighbor not in visited:
@@ -1354,17 +1431,24 @@ class ProjectQueryEngine:
             if source is None:
                 for path, meta in sorted(index.files.items()):
                     symbols = meta.functions if kind == "function" else meta.classes
-                    for sym in symbols:
-                        match = (
-                            (sym.name == name or getattr(sym, "qualified_name", None) == name)
-                            if kind == "function"
-                            else sym.name == name
-                        )
-                        if match:
+                    if kind == "function":
+                        sym, error = _resolve_unique_function(symbols, name)
+                        if error == "ambiguous":
+                            return (
+                                f"Error: function '{name}' is ambiguous; "
+                                "use a fully qualified signature"
+                            )
+                        if sym is not None:
                             source = "\n".join(
                                 meta.lines[sym.line_range.start - 1 : sym.line_range.end]
                             )
-                            break
+                    else:
+                        for sym in symbols:
+                            if sym.name == name or getattr(sym, "qualified_name", None) == name:
+                                source = "\n".join(
+                                    meta.lines[sym.line_range.start - 1 : sym.line_range.end]
+                                )
+                                break
                     if source is not None:
                         break
 
@@ -1392,7 +1476,8 @@ class ProjectQueryEngine:
     def _class_result(self, cls, path, meta):
         preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
         return {
-            "name": cls.name,
+            "name": cls.qualified_name or cls.name,
+            "qualified_name": cls.qualified_name or cls.name,
             "file": path,
             "line": cls.line_range.start,
             "end_line": cls.line_range.end,
@@ -1410,34 +1495,66 @@ class ProjectQueryEngine:
             path = index.symbol_table[name]
             meta = _resolve_file(index, path)
             if meta is not None:
-                for func in meta.functions:
-                    if func.name == name or func.qualified_name == name:
-                        return self._func_result(func, path, meta)
+                func, error = _resolve_unique_function(meta.functions, name)
+                if error == "ambiguous":
+                    return {
+                        "name": name,
+                        "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+                    }
+                if func is not None:
+                    return self._func_result(func, path, meta)
                 for cls in meta.classes:
-                    if cls.name == name:
+                    if cls.name == name or cls.qualified_name == name:
                         return self._class_result(cls, path, meta)
         # Fallback: search all files
+        candidate_results: list[dict] = []
         for path, meta in sorted(index.files.items()):
-            for func in meta.functions:
-                if func.name == name or func.qualified_name == name:
-                    return self._func_result(func, path, meta)
+            func, error = _resolve_unique_function(meta.functions, name)
+            if error == "ambiguous":
+                return {
+                    "name": name,
+                    "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+                }
+            if func is not None:
+                candidate_results.append(self._func_result(func, path, meta))
             for cls in meta.classes:
-                if cls.name == name:
+                if cls.name == name or cls.qualified_name == name:
                     return self._class_result(cls, path, meta)
+        if len(candidate_results) == 1:
+            return candidate_results[0]
+        if len(candidate_results) > 1:
+            return {
+                "name": name,
+                "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+            }
         return {"name": name}
 
     def _resolve_dep_name(self, name: str) -> tuple[str, set | None]:
         """Look up name in reverse dependency graph, falling back to class name for dotted methods."""
-        deps = self.index.reverse_dependency_graph.get(name)
+        resolved_name = self._resolve_graph_symbol_name(name)
+        deps = self.index.reverse_dependency_graph.get(resolved_name or name)
         if deps is not None:
-            return name, deps
+            return resolved_name or name, deps
         # For "Class.method", fall back to dependents of "Class"
         if "." in name:
-            class_name = name.split(".")[0]
+            class_name = name.rsplit(".", 1)[0]
             deps = self.index.reverse_dependency_graph.get(class_name)
             if deps is not None:
                 return class_name, deps
         return name, None
+
+    def _resolve_graph_symbol_name(self, name: str) -> str | None:
+        if name in self.index.global_dependency_graph:
+            return name
+        info = self._resolve_symbol_info(name)
+        resolved_name = info.get("name")
+        if resolved_name in self.index.global_dependency_graph:
+            return resolved_name
+        if "." in name:
+            class_name = name.rsplit(".", 1)[0]
+            if class_name in self.index.global_dependency_graph:
+                return class_name
+        return None
 
     def _get_communities(self) -> dict[str, str]:
         if self._communities is None:

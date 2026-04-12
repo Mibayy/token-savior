@@ -105,6 +105,9 @@ class ProjectIndexer:
             "**/*.frag",
             "**/*.comp",
             "**/*.cs",
+            "**/*.java",
+            "**/*.gradle",
+            "**/*.gradle.kts",
             "**/*.md",
             "**/*.txt",
             "**/*.json",
@@ -321,15 +324,6 @@ class ProjectIndexer:
         # Remove old data for this file
         old_metadata = idx.files.get(rel_path)
         if old_metadata is not None:
-            # Remove old symbols from symbol table
-            for func in old_metadata.functions:
-                if idx.symbol_table.get(func.qualified_name) == rel_path:
-                    del idx.symbol_table[func.qualified_name]
-                if idx.symbol_table.get(func.name) == rel_path:
-                    del idx.symbol_table[func.name]
-            for cls in old_metadata.classes:
-                if idx.symbol_table.get(cls.name) == rel_path:
-                    del idx.symbol_table[cls.name]
 
             # Remove old entries from import graphs
             idx.import_graph.pop(rel_path, None)
@@ -411,16 +405,7 @@ class ProjectIndexer:
         idx.total_lines += metadata.total_lines
         idx.total_functions += len(metadata.functions)
         idx.total_classes += len(metadata.classes)
-
-        # Rebuild symbol table entries for this file
-        for func in metadata.functions:
-            if func.qualified_name not in idx.symbol_table:
-                idx.symbol_table[func.qualified_name] = rel_path
-            if func.name not in idx.symbol_table:
-                idx.symbol_table[func.name] = rel_path
-        for cls in metadata.classes:
-            if cls.name not in idx.symbol_table:
-                idx.symbol_table[cls.name] = rel_path
+        idx.symbol_table = self._build_symbol_table(idx.files)
 
         # Rebuild import graph for this file
         file_imports = self._resolve_imports_for_file(rel_path, metadata, idx.files)
@@ -471,16 +456,6 @@ class ProjectIndexer:
         if old_metadata is None:
             return
 
-        # Remove old symbols from symbol table
-        for func in old_metadata.functions:
-            if idx.symbol_table.get(func.qualified_name) == rel_path:
-                del idx.symbol_table[func.qualified_name]
-            if idx.symbol_table.get(func.name) == rel_path:
-                del idx.symbol_table[func.name]
-        for cls in old_metadata.classes:
-            if idx.symbol_table.get(cls.name) == rel_path:
-                del idx.symbol_table[cls.name]
-
         # Remove from import graphs
         idx.import_graph.pop(rel_path, None)
         for targets in idx.reverse_import_graph.values():
@@ -495,6 +470,7 @@ class ProjectIndexer:
         del idx.files[rel_path]
         idx.file_mtimes.pop(rel_path, None)
         idx.total_files = len(idx.files)
+        idx.symbol_table = self._build_symbol_table(idx.files)
 
     def rebuild_graphs(self) -> None:
         """Rebuild all cross-file graphs from current file data.
@@ -506,6 +482,7 @@ class ProjectIndexer:
             raise RuntimeError("Cannot rebuild_graphs before initial index() call.")
 
         idx = self._project_index
+        idx.symbol_table = self._build_symbol_table(idx.files)
         idx.import_graph = self._build_import_graph(idx.files)
         idx.reverse_import_graph = self._build_reverse_graph(idx.import_graph)
         idx.global_dependency_graph = self._build_global_dependency_graph(
@@ -623,21 +600,64 @@ class ProjectIndexer:
         First-found wins for duplicates.
         """
         symbol_table: dict[str, str] = {}
+        alias_counts: dict[str, int] = {}
+        alias_targets: dict[str, str] = {}
 
         for file_path, metadata in files.items():
             for func in metadata.functions:
-                # Register by qualified name (e.g., "MyClass.method")
                 if func.qualified_name not in symbol_table:
                     symbol_table[func.qualified_name] = file_path
-                # Also register by simple name for top-level functions
-                if not func.is_method and func.name not in symbol_table:
-                    symbol_table[func.name] = file_path
+                for alias in self._function_symbol_aliases(func):
+                    alias_counts[alias] = alias_counts.get(alias, 0) + 1
+                    alias_targets.setdefault(alias, file_path)
 
             for cls in metadata.classes:
-                if cls.name not in symbol_table:
-                    symbol_table[cls.name] = file_path
+                qualified_name = getattr(cls, "qualified_name", None)
+                if qualified_name and qualified_name not in symbol_table:
+                    symbol_table[qualified_name] = file_path
+                for alias in self._class_symbol_aliases(cls):
+                    alias_counts[alias] = alias_counts.get(alias, 0) + 1
+                    alias_targets.setdefault(alias, file_path)
+
+        for alias, count in alias_counts.items():
+            if count == 1 and alias not in symbol_table:
+                symbol_table[alias] = alias_targets[alias]
 
         return symbol_table
+
+    @staticmethod
+    def _is_local_scoped_symbol(name: str | None) -> bool:
+        return bool(name and "::<local>." in name)
+
+    @staticmethod
+    def _function_symbol_aliases(func) -> list[str]:
+        aliases: list[str] = []
+        if not func.is_method:
+            aliases.append(func.name)
+            return aliases
+        if ProjectIndexer._is_local_scoped_symbol(func.qualified_name):
+            return aliases
+
+        qualified_name = func.qualified_name
+        base_name = qualified_name
+        signature_suffix = ""
+        if qualified_name.endswith(")") and "(" in qualified_name:
+            base_name, _, suffix = qualified_name.rpartition("(")
+            signature_suffix = f"({suffix}"
+            aliases.append(base_name)
+
+        if func.parent_class:
+            aliases.append(f"{func.parent_class}.{func.name}")
+            if signature_suffix:
+                aliases.append(f"{func.parent_class}.{func.name}{signature_suffix}")
+
+        return aliases
+
+    @staticmethod
+    def _class_symbol_aliases(cls) -> list[str]:
+        if ProjectIndexer._is_local_scoped_symbol(getattr(cls, "qualified_name", None)):
+            return []
+        return [cls.name]
 
     # ------------------------------------------------------------------
     # Import graph
@@ -665,11 +685,53 @@ class ProjectIndexer:
         all_file_set = set(all_files.keys())
 
         for imp in metadata.imports:
+            if file_path.endswith(".java"):
+                targets.update(self._resolve_java_import(file_path, imp, all_files))
+                continue
             resolved = self._resolve_import(file_path, imp.module, imp.is_from_import, all_file_set)
             if resolved and resolved != file_path:
                 targets.add(resolved)
 
         return targets
+
+    def _resolve_java_import(
+        self,
+        importing_file: str,
+        imp,
+        all_files: dict[str, StructuralMetadata],
+    ) -> set[str]:
+        targets: set[str] = set()
+        if imp.is_from_import:
+            owner_target = self._resolve_java_type_path(imp.module, all_files)
+            if owner_target and owner_target != importing_file:
+                targets.add(owner_target)
+            return targets
+
+        if imp.names == ["*"]:
+            for path, metadata in all_files.items():
+                if path == importing_file or not path.endswith(".java"):
+                    continue
+                if metadata.module_name == imp.module:
+                    targets.add(path)
+            return targets
+
+        target = self._resolve_java_type_path(imp.module, all_files)
+        if target and target != importing_file:
+            targets.add(target)
+        return targets
+
+    @staticmethod
+    def _resolve_java_type_path(
+        qualified_type: str,
+        all_files: dict[str, StructuralMetadata],
+    ) -> str | None:
+        for path, metadata in all_files.items():
+            if not path.endswith(".java"):
+                continue
+            for cls in metadata.classes:
+                if getattr(cls, "qualified_name", None) == qualified_type:
+                    return path
+        return None
 
     def _resolve_import(
         self,
@@ -907,15 +969,31 @@ class ProjectIndexer:
 
         # Set of all known qualified names in the project
         all_symbols = set(symbol_table.keys())
+        java_package_symbols: dict[str, dict[str, str]] = {}
+        for metadata in files.values():
+            if not metadata.module_name:
+                continue
+            package_symbols = java_package_symbols.setdefault(metadata.module_name, {})
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None)
+                if qualified_name:
+                    package_symbols.setdefault(cls.name, qualified_name)
 
         for file_path, metadata in files.items():
             # Collect imported names mapping: local_name -> qualified_name (symbol table key)
-            imported_names: dict[str, str] = {}
-            for imp in metadata.imports:
-                for name in imp.names:
-                    # Check if this name is a known symbol
-                    if name in symbol_table:
-                        imported_names[name] = name
+            if file_path.endswith(".java"):
+                imported_names = self._build_java_imported_names(
+                    metadata,
+                    symbol_table,
+                    java_package_symbols,
+                )
+            else:
+                imported_names: dict[str, str] = {}
+                for imp in metadata.imports:
+                    for name in imp.names:
+                        # Check if this name is a known symbol
+                        if name in symbol_table:
+                            imported_names[name] = name
 
             # Process per-file dependency graph (intra-file deps)
             for source_name, deps in metadata.dependency_graph.items():
@@ -945,6 +1023,8 @@ class ProjectIndexer:
 
             # Now handle cross-file dependencies by scanning function/class bodies
             # for references to imported names (which the per-file dep graph misses).
+            if file_path.endswith(".java"):
+                continue
             if not imported_names:
                 continue
 
@@ -986,6 +1066,41 @@ class ProjectIndexer:
                             global_graph[cls_qualified].add(resolved_name)
 
         return global_graph
+
+    def _build_java_imported_names(
+        self,
+        metadata: StructuralMetadata,
+        symbol_table: dict[str, str],
+        java_package_symbols: dict[str, dict[str, str]],
+    ) -> dict[str, str]:
+        imported_names: dict[str, str] = {}
+
+        if metadata.module_name:
+            imported_names.update(java_package_symbols.get(metadata.module_name, {}))
+
+        for cls in metadata.classes:
+            qualified_name = getattr(cls, "qualified_name", None)
+            if qualified_name:
+                imported_names.setdefault(cls.name, qualified_name)
+
+        for imp in metadata.imports:
+            if imp.is_from_import:
+                if imp.module in symbol_table:
+                    owner_simple = imp.module.rsplit(".", 1)[-1]
+                    imported_names.setdefault(owner_simple, imp.module)
+                    for name in imp.names:
+                        if name != "*":
+                            imported_names.setdefault(name, imp.module)
+                continue
+
+            if imp.names == ["*"]:
+                imported_names.update(java_package_symbols.get(imp.module, {}))
+                continue
+
+            if imp.module in symbol_table and imp.names:
+                imported_names.setdefault(imp.names[0], imp.module)
+
+        return imported_names
 
     def _qualify_name(self, name: str, file_path: str, symbol_table: dict[str, str]) -> str:
         """Given a local name and file path, find the qualified name in the symbol table."""

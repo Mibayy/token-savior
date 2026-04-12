@@ -61,6 +61,7 @@ class ClassInfo:
     decorators: list[str]
     docstring: str | None
     body_hash: str = ""  # SHA-256[:16] of full normalized class body
+    qualified_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +184,7 @@ class StructuralMetadata:
     # Dependency map (populated for code files)
     # Maps each function/class name to the names it references
     dependency_graph: dict[str, list[str]] = field(default_factory=dict)
+    module_name: str | None = None
 
 
 @dataclass
