@@ -55,11 +55,11 @@ Every AI coding session starts the same way: the agent grabs `cat` or `grep`, re
 
 | Project | Sessions | Queries | Tokens used | Tokens (naive) | Saving |
 |---------|----------|---------|-------------|----------------|--------|
-| improvence | 51 | 2,223 | 1,731,335 | 62,676,343 | **97%** |
-| estalle | 44 | 1,897 | 1,132,604 | 43,183,352 | **97%** |
+| project-a (Next.js SaaS) | 51 | 2,223 | 1,731,335 | 62,676,343 | **97%** |
+| project-b (Next.js SaaS) | 44 | 1,897 | 1,132,604 | 43,183,352 | **97%** |
 | token-savior | 14 | 808 | 1,128,734 | 11,908,629 | **91%** |
-| hermes-agent | 3 | 22 | 121,177 | 4,359,176 | **97%** |
-| hermes-pc-mcp | 1 | 38 | 15,207 | 684,942 | **98%** |
+| project-c (Python agent) | 3 | 22 | 121,177 | 4,359,176 | **97%** |
+| project-d (Python MCP) | 1 | 38 | 15,207 | 684,942 | **98%** |
 | claude-code | 24 | 86 | 46,912 | 384,476 | **88%** |
 | **TOTAL** | **137** | **5,074** | **4,175,972** | **123,196,921** | **97%** |
 
@@ -275,9 +275,7 @@ Add to `.mcp.json` in your project root:
 }
 ```
 
-### Hermes Agent
-
-Add to `~/.hermes/config.yaml`:
+### Custom MCP client (YAML config example)
 
 ```yaml
 mcp_servers:
@@ -285,7 +283,7 @@ mcp_servers:
     command: ~/.local/token-savior-venv/bin/token-savior
     env:
       WORKSPACE_ROOTS: /path/to/project1,/path/to/project2
-      TOKEN_SAVIOR_CLIENT: hermes
+      TOKEN_SAVIOR_CLIENT: my-client
     timeout: 120
     connect_timeout: 30
 ```
@@ -397,6 +395,6 @@ ruff check src/ tests/
 <div align="center">
 
 **Works with any MCP-compatible AI coding tool.**  
-Claude Code · Cursor · Windsurf · Cline · Continue · Hermes · any custom MCP client
+Claude Code · Cursor · Windsurf · Cline · Continue · any custom MCP client
 
 </div>
