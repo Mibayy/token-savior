@@ -7,7 +7,8 @@ import os
 
 
 from token_savior.cache_ops import CacheManager
-from token_savior.models import ProjectIndex
+from token_savior.cross_project import find_cross_project_deps
+from token_savior.models import ClassInfo, ImportInfo, LineRange, ProjectIndex, StructuralMetadata
 
 
 def _make_index(root: str) -> ProjectIndex:
@@ -28,6 +29,64 @@ def _make_index(root: str) -> ProjectIndex:
         index_memory_bytes=1024,
         last_indexed_git_ref="abc123",
         file_mtimes={"foo.py": 1234567890.0},
+    )
+
+
+def _make_java_index(
+    root: str,
+    *,
+    package: str,
+    qualified_name: str,
+    import_module: str | None = None,
+) -> ProjectIndex:
+    imports = []
+    if import_module is not None:
+        imports.append(
+            ImportInfo(
+                module=import_module,
+                names=[],
+                alias=None,
+                line_number=1,
+                is_from_import=False,
+            )
+        )
+
+    class_name = qualified_name.rsplit(".", 1)[-1]
+    rel_path = f"src/main/java/{qualified_name.replace('.', '/')}.java"
+
+    return ProjectIndex(
+        root_path=root,
+        files={
+            rel_path: StructuralMetadata(
+                source_name=f"{class_name}.java",
+                total_lines=1,
+                total_chars=0,
+                lines=[""],
+                line_char_offsets=[0],
+                imports=imports,
+                classes=[
+                    ClassInfo(
+                        name=class_name,
+                        line_range=LineRange(1, 1),
+                        base_classes=[],
+                        methods=[],
+                        decorators=[],
+                        docstring=None,
+                        qualified_name=qualified_name,
+                    )
+                ],
+                module_name=package,
+            )
+        },
+        global_dependency_graph={},
+        reverse_dependency_graph={},
+        import_graph={},
+        reverse_import_graph={},
+        symbol_table={qualified_name: rel_path},
+        total_files=1,
+        total_lines=1,
+        total_functions=0,
+        total_classes=1,
     )
 
 
@@ -185,3 +244,49 @@ class TestIndexSerialization:
         restored = CacheManager.index_from_dict(d)
         assert restored.global_dependency_graph["foo"] == {"bar", "baz"}
         assert restored.reverse_dependency_graph["bar"] == {"foo"}
+
+    def test_java_module_and_qualified_class_roundtrip(self):
+        idx = _make_java_index(
+            "/tmp/test",
+            package="com.acme.app",
+            qualified_name="com.acme.app.Main",
+            import_module="com.acme.shared.MathUtil",
+        )
+
+        d = CacheManager.index_to_dict(idx)
+        cached_file = d["files"]["src/main/java/com/acme/app/Main.java"]
+
+        assert cached_file["module_name"] == "com.acme.app"
+        assert cached_file["classes"][0]["qualified_name"] == "com.acme.app.Main"
+
+        restored = CacheManager.index_from_dict(d)
+        restored_file = restored.files["src/main/java/com/acme/app/Main.java"]
+
+        assert restored_file.module_name == "com.acme.app"
+        assert restored_file.classes[0].qualified_name == "com.acme.app.Main"
+
+    def test_cross_project_java_deps_survive_cache_roundtrip(self):
+        app_index = CacheManager.index_from_dict(
+            CacheManager.index_to_dict(
+                _make_java_index(
+                    "/tmp/app",
+                    package="com.acme.app",
+                    qualified_name="com.acme.app.Main",
+                    import_module="com.acme.shared.MathUtil",
+                )
+            )
+        )
+        shared_index = CacheManager.index_from_dict(
+            CacheManager.index_to_dict(
+                _make_java_index(
+                    "/tmp/shared",
+                    package="com.acme.shared",
+                    qualified_name="com.acme.shared.MathUtil",
+                )
+            )
+        )
+
+        result = find_cross_project_deps({"app": app_index, "shared": shared_index})
+
+        assert "app → shared" in result
+        assert "com.acme.shared.MathUtil" in result

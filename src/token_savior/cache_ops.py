@@ -109,6 +109,7 @@ class CacheManager:
                 "decorators": ci.decorators,
                 "docstring": ci.docstring,
                 "body_hash": ci.body_hash,
+                "qualified_name": ci.qualified_name,
             }
 
         def _ii(ii) -> dict:
@@ -136,6 +137,7 @@ class CacheManager:
                 "imports": [_ii(i) for i in sm.imports],
                 "sections": [_si(s) for s in sm.sections],
                 "dependency_graph": sm.dependency_graph,    # already dict[str, list[str]]
+                "module_name": sm.module_name,
             }
 
         def _sets_to_sorted(d: dict) -> dict:
@@ -200,6 +202,7 @@ class CacheManager:
                 decorators=d["decorators"],
                 docstring=d.get("docstring"),
                 body_hash=d.get("body_hash", ""),
+                qualified_name=d.get("qualified_name"),
             )
 
         def _ii(d: dict) -> ImportInfo:
@@ -231,6 +234,7 @@ class CacheManager:
                 imports=[_ii(i) for i in d.get("imports", [])],
                 sections=[_si(s) for s in d.get("sections", [])],
                 dependency_graph=d.get("dependency_graph", {}),
+                module_name=d.get("module_name"),
             )
 
         def _sets(d: dict) -> dict[str, set[str]]:
