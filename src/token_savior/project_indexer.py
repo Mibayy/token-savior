@@ -19,6 +19,7 @@ from token_savior.symbol_hash import fill_hashes
 logger = logging.getLogger(__name__)
 
 _WORD_BOUNDARY_CACHE: dict[str, re.Pattern] = {}
+_JAVA_METHOD_REFERENCE_PATTERN = re.compile(r"(?<![\w$])([A-Za-z_][\w.]*)::([A-Za-z_]\w*)")
 
 
 def _parse_gitignore(root_path: str) -> list[str]:
@@ -1023,9 +1024,8 @@ class ProjectIndexer:
 
             # Now handle cross-file dependencies by scanning function/class bodies
             # for references to imported names (which the per-file dep graph misses).
-            if file_path.endswith(".java"):
-                continue
-            if not imported_names:
+            is_java_file = file_path.endswith(".java")
+            if not imported_names and not is_java_file:
                 continue
 
             # Look up cached regex per imported name (shared across all files)
@@ -1047,6 +1047,18 @@ class ProjectIndexer:
                     if compiled_patterns[local_name].search(body_text):
                         if resolved_name != func_qualified:
                             global_graph[func_qualified].add(resolved_name)
+                if is_java_file:
+                    current_owner = func_qualified.rsplit(".", 1)[0] if "." in func_qualified else None
+                    global_graph[func_qualified].update(
+                        target
+                        for target in self._resolve_java_method_reference_targets(
+                            body_text,
+                            current_owner,
+                            imported_names,
+                            symbol_table,
+                        )
+                        if target != func_qualified
+                    )
 
             for cls in metadata.classes:
                 cls_qualified = self._qualify_name(cls.name, file_path, symbol_table)
@@ -1064,6 +1076,17 @@ class ProjectIndexer:
                     if compiled_patterns[local_name].search(body_text):
                         if resolved_name != cls_qualified:
                             global_graph[cls_qualified].add(resolved_name)
+                if is_java_file:
+                    global_graph[cls_qualified].update(
+                        target
+                        for target in self._resolve_java_method_reference_targets(
+                            body_text,
+                            cls_qualified,
+                            imported_names,
+                            symbol_table,
+                        )
+                        if target != cls_qualified
+                    )
 
         return global_graph
 
@@ -1101,6 +1124,44 @@ class ProjectIndexer:
                 imported_names.setdefault(imp.names[0], imp.module)
 
         return imported_names
+
+    @staticmethod
+    def _resolve_java_method_reference_owner(
+        owner_token: str,
+        current_owner: str | None,
+        imported_names: dict[str, str],
+        symbol_table: dict[str, str],
+    ) -> str | None:
+        if owner_token in {"this", "super"}:
+            return current_owner
+        if owner_token in imported_names:
+            return imported_names[owner_token]
+        if owner_token in symbol_table:
+            return owner_token
+        return None
+
+    @staticmethod
+    def _resolve_java_method_reference_targets(
+        body_text: str,
+        current_owner: str | None,
+        imported_names: dict[str, str],
+        symbol_table: dict[str, str],
+    ) -> set[str]:
+        targets: set[str] = set()
+        for owner_token, method_name in _JAVA_METHOD_REFERENCE_PATTERN.findall(body_text):
+            owner = ProjectIndexer._resolve_java_method_reference_owner(
+                owner_token, current_owner, imported_names, symbol_table
+            )
+            if not owner:
+                continue
+            prefix = owner + "."
+            for symbol in symbol_table:
+                if not symbol.startswith(prefix):
+                    continue
+                remainder = symbol[len(prefix) :]
+                if remainder == method_name or remainder.startswith(f"{method_name}("):
+                    targets.add(symbol)
+        return targets
 
     def _qualify_name(self, name: str, file_path: str, symbol_table: dict[str, str]) -> str:
         """Given a local name and file path, find the qualified name in the symbol table."""

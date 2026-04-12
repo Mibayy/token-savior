@@ -193,3 +193,49 @@ class TestJavaProjectIndexer:
 
         deps = idx.global_dependency_graph["com.acme.local.Worker.execute(int)"]
         assert local_class in deps
+
+    def test_resolves_cross_file_java_method_references_into_global_graph(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/runtime/Factories.java",
+            """\
+            package com.acme.runtime;
+
+            public final class Factories {
+                public static Object createFeed() {
+                    return new Object();
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/runtime/TradingGraphs.java",
+            """\
+            package com.acme.runtime;
+
+            public final class TradingGraphs {
+                public void register() {
+                    GraphDefinition.register(Factories::createFeed);
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        register_symbol = "com.acme.runtime.TradingGraphs.register()"
+        factory_symbol = "com.acme.runtime.Factories.createFeed()"
+
+        deps = idx.global_dependency_graph[register_symbol]
+        assert factory_symbol in deps
+
+        dependents = idx.reverse_dependency_graph[factory_symbol]
+        assert register_symbol in dependents
+
+        dependency_result = funcs["get_dependencies"]("TradingGraphs.register")
+        assert any(dep.get("name") == factory_symbol for dep in dependency_result)
+
+        dependent_result = funcs["get_dependents"]("Factories.createFeed")
+        assert any(dep.get("name") == register_symbol for dep in dependent_result)
