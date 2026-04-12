@@ -54,7 +54,7 @@ def _safe_int(payload: dict, key: str) -> int:
 
 
 def _recent_sessions(payload: dict, project_name: str) -> list[dict]:
-    entries = payload.get("recent_sessions") or []
+    entries = payload.get("recent_sessions") or payload.get("history") or []
     out = []
     for entry in entries:
         if isinstance(entry, dict):
@@ -278,6 +278,8 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
         calls = _safe_int(payload, "total_calls")
         sessions = _safe_int(payload, "sessions")
         project_client_counts = _project_client_counts(payload)
+        if not project_client_counts and _safe_int(payload, "sessions") > 0:
+            project_client_counts = {"unknown": _safe_int(payload, "sessions")}
         savings_pct = round((1 - chars_used / chars_naive) * 100, 2) if chars_naive > 0 else 0.0
 
         project_row = {

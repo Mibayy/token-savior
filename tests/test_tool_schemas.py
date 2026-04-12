@@ -1,6 +1,4 @@
-"""Tests for tool schema definitions and deprecation handling."""
-
-from unittest.mock import patch
+"""Tests for tool schema definitions."""
 
 from token_savior.tool_schemas import TOOL_SCHEMAS, DEPRECATED_TOOLS
 
@@ -29,9 +27,9 @@ class TestToolSchemas:
                     f"Tool '{name}': required field '{req}' not in properties"
                 )
 
-    def test_deprecated_tools_are_marked(self):
-        assert "get_changed_symbols_since_ref" in DEPRECATED_TOOLS
-        assert "apply_symbol_change_validate_with_rollback" in DEPRECATED_TOOLS
+    def test_deprecated_tools_removed_in_v2(self):
+        # v2.0.0: deprecated aliases from v1 were removed entirely.
+        assert DEPRECATED_TOOLS == set() or DEPRECATED_TOOLS == frozenset()
 
     def test_deprecated_descriptions_mention_deprecated(self):
         for name in DEPRECATED_TOOLS:
@@ -41,7 +39,8 @@ class TestToolSchemas:
             )
 
     def test_tool_count(self):
-        assert len(TOOL_SCHEMAS) == 53, f"Expected 53 tools, got {len(TOOL_SCHEMAS)}"
+        # v2.0.0: 53 core + 16 memory engine = 69 tools.
+        assert len(TOOL_SCHEMAS) == 69, f"Expected 69 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
@@ -50,54 +49,13 @@ class TestToolSchemas:
         assert server_names == schema_names
 
 
-class TestDeprecatedHandlers:
-    """Verify deprecated tool aliases inject deprecation messages."""
+class TestV2HandlersRemoved:
+    """Verify v1 deprecated handlers were fully removed in v2.0.0."""
 
-    def test_get_changed_symbols_since_ref_has_deprecation_message(self):
-        from token_savior.server import _h_get_changed_symbols_since_ref
+    def test_get_changed_symbols_since_ref_handler_removed(self):
+        import token_savior.server as srv
+        assert not hasattr(srv, "_h_get_changed_symbols_since_ref")
 
-        class _FakeSlot:
-            root = "/tmp"
-            is_git = True
-            indexer = None
-            query_fns = None
-            _last_update_check = 0.0
-            _dir_mtimes = {}
-            cache = None
-            stats_file = ""
-
-        fake_slot = _FakeSlot()
-        # Mock to return a simple dict
-        with patch(
-            "token_savior.server._h_get_changed_symbols",
-            return_value={"files": [], "modified_files": 0},
-        ):
-            result = _h_get_changed_symbols_since_ref(fake_slot, {"since_ref": "HEAD~1"})
-        assert "_deprecated" in result
-        assert "DEPRECATED" in result["_deprecated"]
-        assert "get_changed_symbols" in result["_deprecated"]
-
-    def test_apply_symbol_change_validate_with_rollback_has_deprecation_message(self):
-        from token_savior.server import _h_apply_symbol_change_validate_with_rollback
-
-        class _FakeSlot:
-            root = "/tmp"
-            is_git = False
-            indexer = None
-            query_fns = None
-            _last_update_check = 0.0
-            _dir_mtimes = {}
-            cache = None
-            stats_file = ""
-
-        fake_slot = _FakeSlot()
-        with patch(
-            "token_savior.server._h_apply_symbol_change_and_validate",
-            return_value={"ok": True, "workflow": "test"},
-        ):
-            result = _h_apply_symbol_change_validate_with_rollback(
-                fake_slot, {"symbol_name": "foo", "new_source": "bar"}
-            )
-        assert "_deprecated" in result
-        assert "DEPRECATED" in result["_deprecated"]
-        assert "rollback_on_failure" in result["_deprecated"]
+    def test_apply_symbol_change_validate_with_rollback_handler_removed(self):
+        import token_savior.server as srv
+        assert not hasattr(srv, "_h_apply_symbol_change_validate_with_rollback")
