@@ -1136,7 +1136,7 @@ def get_stats(project_root: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def run_decay() -> int:
+def _recalculate_relevance_scores() -> int:
     """Recalculate relevance scores based on decay config. Returns updated count."""
     try:
         conn = get_db()
@@ -1175,7 +1175,7 @@ def run_decay() -> int:
         conn.close()
         return updated
     except sqlite3.Error as exc:
-        print(f"[token-savior:memory] run_decay error: {exc}", file=sys.stderr)
+        print(f"[token-savior:memory] _recalculate_relevance_scores error: {exc}", file=sys.stderr)
         return 0
 
 

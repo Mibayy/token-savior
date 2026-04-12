@@ -1185,13 +1185,13 @@ def _mh_memory_get(args: dict) -> str:
         except Exception:
             links = {"related": [], "contradicts": [], "supersedes": []}
         if links.get("related"):
-            parts = [f"#{l['id']} [{l['type']}] {l['title']}" for l in links["related"][:5]]
+            parts = [f"#{lk['id']} [{lk['type']}] {lk['title']}" for lk in links["related"][:5]]
             b.append("\n🔗 See also: " + " · ".join(parts))
         if links.get("contradicts"):
-            parts = [f"#{l['id']} [{l['type']}] {l['title']}" for l in links["contradicts"][:5]]
+            parts = [f"#{lk['id']} [{lk['type']}] {lk['title']}" for lk in links["contradicts"][:5]]
             b.append("⚠️ Contradicts: " + " · ".join(parts))
         if links.get("supersedes"):
-            parts = [f"#{l['id']} {l['title']}" for l in links["supersedes"][:5]]
+            parts = [f"#{lk['id']} {lk['title']}" for lk in links["supersedes"][:5]]
             b.append("↳ Supersedes: " + " · ".join(parts))
         blocks.append("\n".join(b))
     return "\n\n---\n\n".join(blocks)
