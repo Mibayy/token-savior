@@ -72,6 +72,14 @@ _COMMON_JAVA_TYPES = frozenset(
         "Void",
     }
 )
+_JAVA_EXECUTOR_TYPE_SUFFIXES = (
+    "Executor",
+    "ExecutorService",
+    "ScheduledExecutor",
+    "ScheduledExecutorService",
+    "ThreadPoolExecutor",
+    "ForkJoinPool",
+)
 
 
 def _build_line_offsets(lines: list[str]) -> list[int]:
@@ -232,7 +240,7 @@ def _parse_declared_type_names(text: str) -> list[str]:
         _, _, remainder = text.partition(keyword)
         for part in remainder.split(","):
             for token in _SIMPLE_TYPE_TOKEN_RE.findall(part):
-                if token not in _COMMON_JAVA_TYPES:
+                if token not in _COMMON_JAVA_TYPES or token in {"Runnable", "Thread"}:
                     names.append(token)
                     break
     return names
@@ -240,7 +248,7 @@ def _parse_declared_type_names(text: str) -> list[str]:
 
 def _type_base_classes(node: Node, source_bytes: bytes) -> list[str]:
     pieces: list[str] = []
-    for field_name in ("superclass", "interfaces", "permits"):
+    for field_name in ("superclass", "interfaces", "super_interfaces", "permits"):
         child = node.child_by_field_name(field_name)
         if child is not None:
             pieces.append(_node_text(child, source_bytes))
@@ -396,6 +404,8 @@ def _extract_local_type_trees(
     scope_qualified_name: str,
     lines: list[str],
     source_bytes: bytes,
+    method_nodes: dict[str, Node],
+    field_types_by_class: dict[str, dict[str, str]],
 ) -> tuple[list[ClassInfo], list[FunctionInfo]]:
     if node is None:
         return [], []
@@ -414,6 +424,8 @@ def _extract_local_type_trees(
                 _local_scope_qualified_name(scope_qualified_name, child_name).rsplit(".", 1)[0],
                 lines,
                 source_bytes,
+                method_nodes,
+                field_types_by_class,
             )
             local_classes.extend(child_classes)
             local_functions.extend(child_functions)
@@ -425,6 +437,8 @@ def _extract_local_type_trees(
             scope_qualified_name,
             lines,
             source_bytes,
+            method_nodes,
+            field_types_by_class,
         )
         local_classes.extend(child_classes)
         local_functions.extend(child_functions)
@@ -438,6 +452,8 @@ def _extract_type_tree(
     parent_qualified_name: str | None,
     lines: list[str],
     source_bytes: bytes,
+    method_nodes: dict[str, Node],
+    field_types_by_class: dict[str, dict[str, str]],
 ) -> tuple[list[ClassInfo], list[FunctionInfo]]:
     name_node = node.child_by_field_name("name")
     if name_node is None:
@@ -446,6 +462,7 @@ def _extract_type_tree(
     qualified_name = f"{parent_qualified_name}.{name}" if parent_qualified_name else f"{package}.{name}" if package else name
     decorators, start_line_0, docstring = _declaration_metadata(node, lines, source_bytes)
     body_node = node.child_by_field_name("body")
+    field_types_by_class[qualified_name] = _collect_field_types(body_node, source_bytes)
 
     direct_methods: list[FunctionInfo] = []
     nested_classes: list[ClassInfo] = []
@@ -458,6 +475,8 @@ def _extract_type_tree(
                 qualified_name,
                 lines,
                 source_bytes,
+                method_nodes,
+                field_types_by_class,
             )
             nested_classes.extend(child_classes)
             nested_functions.extend(child_functions)
@@ -465,12 +484,15 @@ def _extract_type_tree(
             method = _method_info(child, name, qualified_name, lines, source_bytes)
             if method is not None:
                 direct_methods.append(method)
+                method_nodes[method.qualified_name] = child
                 child_classes, child_functions = _extract_local_type_trees(
                     _method_body_node(child),
                     package,
                     method.qualified_name,
                     lines,
                     source_bytes,
+                    method_nodes,
+                    field_types_by_class,
                 )
                 nested_classes.extend(child_classes)
                 nested_functions.extend(child_functions)
@@ -515,6 +537,353 @@ def _build_visible_types(
 
 def _resolve_dep_name(name: str, visible_types: dict[str, str]) -> str:
     return visible_types.get(name, name)
+
+
+def _strip_generic_arguments(text: str) -> str:
+    result: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "<":
+            depth += 1
+            continue
+        if ch == ">":
+            depth = max(0, depth - 1)
+            continue
+        if depth == 0:
+            result.append(ch)
+    return "".join(result)
+
+
+def _extract_type_reference(text: str) -> str | None:
+    cleaned = re.sub(r"@\w+(?:\([^)]*\))?\s*", "", text).strip()
+    if not cleaned:
+        return None
+    cleaned = _strip_generic_arguments(cleaned)
+    cleaned = cleaned.replace("...", "").replace("[]", "")
+    tokens = re.findall(r"[A-Za-z_][\w.]*", cleaned)
+    if not tokens:
+        return None
+    for token in reversed(tokens):
+        simple = token.rsplit(".", 1)[-1]
+        if simple and simple[0].isupper() and simple not in _COMMON_JAVA_TYPES:
+            return token
+    return None
+
+
+def _resolve_type_reference(type_name: str | None, visible_types: dict[str, str]) -> str | None:
+    if not type_name:
+        return None
+    if type_name in visible_types:
+        return visible_types[type_name]
+    if "." in type_name:
+        return visible_types.get(type_name.rsplit(".", 1)[-1], type_name)
+    return type_name
+
+
+def _iter_descendants(node: Node | None) -> list[Node]:
+    if node is None:
+        return []
+    nodes: list[Node] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        nodes.append(current)
+        stack.extend(reversed(current.named_children))
+    return nodes
+
+
+def _count_argument_nodes(arguments_node: Node | None) -> int | None:
+    if arguments_node is None:
+        return None
+    return len(arguments_node.named_children)
+
+
+def _resolve_method_target(
+    owner_name: str,
+    method_name: str,
+    arity: int | None,
+    methods_by_owner: dict[str, dict[str, dict[int, list[str]]]],
+) -> str | None:
+    overloads = methods_by_owner.get(owner_name, {}).get(method_name)
+    if overloads:
+        if arity is not None:
+            matches = overloads.get(arity, [])
+            if len(matches) == 1:
+                return matches[0]
+        all_matches = [match for matches in overloads.values() for match in matches]
+        if len(all_matches) == 1:
+            return all_matches[0]
+    return f"{owner_name}.{method_name}"
+
+
+def _collect_field_types(body_node: Node | None, source_bytes: bytes) -> dict[str, str]:
+    field_types: dict[str, str] = {}
+    if body_node is None:
+        return field_types
+
+    for child in _body_children(body_node):
+        if child.type != "field_declaration":
+            continue
+        type_node = next(
+            (
+                grandchild
+                for grandchild in child.named_children
+                if grandchild.type not in {"modifiers", "variable_declarator"}
+            ),
+            None,
+        )
+        type_name = _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None
+        if not type_name:
+            continue
+        for declarator in child.named_children:
+            if declarator.type != "variable_declarator":
+                continue
+            name_node = declarator.child_by_field_name("name")
+            if name_node is None:
+                continue
+            field_types[_node_text(name_node, source_bytes)] = type_name
+    return field_types
+
+
+def _collect_method_variable_types(
+    method_node: Node,
+    inherited_types: dict[str, str],
+    source_bytes: bytes,
+) -> dict[str, str]:
+    variable_types = dict(inherited_types)
+
+    parameters_node = method_node.child_by_field_name("parameters")
+    if parameters_node is not None:
+        for param in parameters_node.named_children:
+            if param.type not in {"formal_parameter", "spread_parameter"}:
+                continue
+            type_node = next(
+                (
+                    child
+                    for child in param.named_children
+                    if child.type not in {"identifier", "variable_declarator_id", "dimensions"}
+                ),
+                None,
+            )
+            name_node = param.child_by_field_name("name") or next(
+                (child for child in param.named_children if child.type == "identifier"),
+                None,
+            )
+            type_name = _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None
+            if type_name and name_node is not None:
+                variable_types[_node_text(name_node, source_bytes)] = type_name
+
+    for node in _iter_descendants(_method_body_node(method_node)):
+        if node.type != "local_variable_declaration":
+            continue
+        type_node = next(
+            (
+                child
+                for child in node.named_children
+                if child.type not in {"modifiers", "variable_declarator"}
+            ),
+            None,
+        )
+        type_name = _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None
+        if not type_name:
+            continue
+        for declarator in node.named_children:
+            if declarator.type != "variable_declarator":
+                continue
+            name_node = declarator.child_by_field_name("name")
+            if name_node is not None:
+                variable_types[_node_text(name_node, source_bytes)] = type_name
+
+    return variable_types
+
+
+def _resolve_receiver_owner(
+    object_node: Node | None,
+    current_owner: str,
+    variable_types: dict[str, str],
+    visible_types: dict[str, str],
+    source_bytes: bytes,
+) -> str | None:
+    if object_node is None:
+        return current_owner
+    if object_node.type in {"this", "super"}:
+        return current_owner
+
+    if object_node.type == "identifier":
+        object_text = _node_text(object_node, source_bytes)
+        if object_text in variable_types:
+            return _resolve_type_reference(variable_types[object_text], visible_types)
+        if object_text and object_text[0].isupper():
+            return _resolve_type_reference(object_text, visible_types)
+
+    type_name = _extract_type_reference(_node_text(object_node, source_bytes))
+    return _resolve_type_reference(type_name, visible_types)
+
+
+def _collect_method_body_dependencies(
+    func: FunctionInfo,
+    method_node: Node,
+    visible_types: dict[str, str],
+    methods_by_owner: dict[str, dict[str, dict[int, list[str]]]],
+    field_types_by_class: dict[str, dict[str, str]],
+    source_bytes: bytes,
+) -> set[str]:
+    deps: set[str] = set()
+    current_owner = func.qualified_name.rsplit(".", 1)[0]
+    variable_types = _collect_method_variable_types(
+        method_node,
+        field_types_by_class.get(current_owner, {}),
+        source_bytes,
+    )
+
+    for node in _iter_descendants(_method_body_node(method_node)):
+        if node.type == "method_invocation":
+            name_node = node.child_by_field_name("name")
+            if name_node is None:
+                continue
+            method_name = _node_text(name_node, source_bytes)
+            owner_name = _resolve_receiver_owner(
+                node.child_by_field_name("object"),
+                current_owner,
+                variable_types,
+                visible_types,
+                source_bytes,
+            )
+            if not owner_name:
+                continue
+            target = _resolve_method_target(
+                owner_name,
+                method_name,
+                _count_argument_nodes(node.child_by_field_name("arguments")),
+                methods_by_owner,
+            )
+            if target and target != func.qualified_name:
+                deps.add(target)
+            owner_simple = owner_name.rsplit(".", 1)[-1]
+            arguments_node = node.child_by_field_name("arguments")
+            if method_name == "start" and owner_simple.endswith("Thread"):
+                run_target = _run_target_for_type(owner_name, methods_by_owner)
+                if run_target and run_target != func.qualified_name:
+                    deps.add(run_target)
+                if owner_simple == "Thread":
+                    deps.update(
+                        target
+                        for target in _resolve_launch_argument_targets(
+                            arguments_node,
+                            variable_types,
+                            visible_types,
+                            methods_by_owner,
+                            source_bytes,
+                        )
+                        if target != func.qualified_name
+                    )
+            elif method_name in {"execute", "scheduleAtFixedRate", "scheduleWithFixedDelay"} and (
+                owner_simple.endswith(_JAVA_EXECUTOR_TYPE_SUFFIXES)
+            ):
+                deps.update(
+                    target
+                    for target in _resolve_launch_argument_targets(
+                        arguments_node,
+                        variable_types,
+                        visible_types,
+                        methods_by_owner,
+                        source_bytes,
+                    )
+                    if target != func.qualified_name
+                )
+            elif method_name in {"submit", "schedule"} and owner_simple.endswith(_JAVA_EXECUTOR_TYPE_SUFFIXES):
+                deps.update(
+                    target
+                    for target in _resolve_launch_argument_targets(
+                        arguments_node,
+                        variable_types,
+                        visible_types,
+                        methods_by_owner,
+                        source_bytes,
+                        prefer_call=True,
+                    )
+                    if target != func.qualified_name
+                )
+        elif node.type == "method_reference" and len(node.children) == 3:
+            owner_name = _resolve_receiver_owner(
+                node.children[0],
+                current_owner,
+                variable_types,
+                visible_types,
+                source_bytes,
+            )
+            if not owner_name:
+                continue
+            method_name = _node_text(node.children[2], source_bytes)
+            if method_name == "new":
+                deps.add(owner_name)
+                continue
+            target = _resolve_method_target(owner_name, method_name, None, methods_by_owner)
+            deps.add(target or f"{owner_name}.{method_name}")
+        elif node.type == "object_creation_expression":
+            type_node = node.child_by_field_name("type")
+            type_name = _resolve_type_reference(
+                _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None,
+                visible_types,
+            )
+            if type_name:
+                deps.add(type_name)
+
+    return deps
+
+
+def _run_target_for_type(
+    owner_name: str,
+    methods_by_owner: dict[str, dict[str, dict[int, list[str]]]],
+) -> str | None:
+    return _resolve_method_target(owner_name, "run", None, methods_by_owner) or f"{owner_name}.run"
+
+
+def _call_target_for_type(
+    owner_name: str,
+    methods_by_owner: dict[str, dict[str, dict[int, list[str]]]],
+) -> str | None:
+    return _resolve_method_target(owner_name, "call", None, methods_by_owner) or f"{owner_name}.call"
+
+
+def _resolve_launch_argument_targets(
+    arguments_node: Node | None,
+    variable_types: dict[str, str],
+    visible_types: dict[str, str],
+    methods_by_owner: dict[str, dict[str, dict[int, list[str]]]],
+    source_bytes: bytes,
+    *,
+    prefer_call: bool = False,
+) -> set[str]:
+    targets: set[str] = set()
+    if arguments_node is None:
+        return targets
+    for arg in arguments_node.named_children:
+        owner_name: str | None = None
+        if arg.type == "identifier":
+            arg_text = _node_text(arg, source_bytes)
+            if arg_text in variable_types:
+                owner_name = _resolve_type_reference(variable_types[arg_text], visible_types)
+        elif arg.type == "object_creation_expression":
+            type_node = arg.child_by_field_name("type")
+            owner_name = _resolve_type_reference(
+                _extract_type_reference(_node_text(type_node, source_bytes)) if type_node else None,
+                visible_types,
+            )
+        if not owner_name:
+            continue
+        if prefer_call:
+            call_target = _call_target_for_type(owner_name, methods_by_owner)
+            run_target = _run_target_for_type(owner_name, methods_by_owner)
+            if call_target:
+                targets.add(call_target)
+            if run_target:
+                targets.add(run_target)
+        else:
+            target = _run_target_for_type(owner_name, methods_by_owner)
+            if target:
+                targets.add(target)
+    return targets
 
 
 def _count_call_args(body_text: str, paren_start_idx: int) -> int | None:
@@ -564,6 +933,9 @@ def _build_dependency_graph(
     classes: list[ClassInfo],
     functions: list[FunctionInfo],
     imports: list[ImportInfo],
+    method_nodes: dict[str, Node],
+    field_types_by_class: dict[str, dict[str, str]],
+    source_bytes: bytes,
 ) -> dict[str, list[str]]:
     visible_types, imported_static_members = _build_visible_types(imports, classes)
     methods_by_owner: dict[str, dict[str, dict[int, list[str]]]] = {}
@@ -620,6 +992,19 @@ def _build_dependency_graph(
         for decorator in func.decorators:
             if decorator and decorator[0].isupper():
                 deps.add(_resolve_dep_name(decorator, visible_types))
+
+        method_node = method_nodes.get(func.qualified_name)
+        if method_node is not None:
+            deps.update(
+                _collect_method_body_dependencies(
+                    func,
+                    method_node,
+                    visible_types,
+                    methods_by_owner,
+                    field_types_by_class,
+                    source_bytes,
+                )
+            )
 
         graph[func.qualified_name] = sorted(dep for dep in deps if dep != func.qualified_name)
 
@@ -752,6 +1137,8 @@ def annotate_java(source: str, source_name: str = "<source>") -> StructuralMetad
 
     classes: list[ClassInfo] = []
     functions: list[FunctionInfo] = []
+    method_nodes: dict[str, Node] = {}
+    field_types_by_class: dict[str, dict[str, str]] = {}
     for node in children:
         if node.type not in _TYPE_NODE_KINDS:
             continue
@@ -761,11 +1148,21 @@ def annotate_java(source: str, source_name: str = "<source>") -> StructuralMetad
             None,
             lines,
             source_bytes,
+            method_nodes,
+            field_types_by_class,
         )
         classes.extend(found_classes)
         functions.extend(found_functions)
 
-    dependency_graph = _build_dependency_graph(lines, classes, functions, imports)
+    dependency_graph = _build_dependency_graph(
+        lines,
+        classes,
+        functions,
+        imports,
+        method_nodes,
+        field_types_by_class,
+        source_bytes,
+    )
 
     return StructuralMetadata(
         source_name=source_name,

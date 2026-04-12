@@ -87,6 +87,84 @@ class TestJavaTypeAndMethodExtraction:
         )
         assert "java.util.Objects" in constructor_deps
 
+    def test_dependency_graph_uses_ast_for_receiver_calls_method_refs_and_lambdas(self):
+        src = """\
+package com.acme.runtime;
+
+import java.util.function.Supplier;
+
+interface Handler {
+    void onTrade(String trade);
+}
+
+final class Worker {
+    void run() {
+    }
+}
+
+final class FooNode {
+    FooNode() {
+    }
+}
+
+public final class Engine {
+    private final Handler handler;
+
+    Engine(Handler handler) {
+        this.handler = handler;
+    }
+
+    public void register(String trade) {
+        handler.onTrade(trade);
+        Runnable runnable = Worker::run;
+        Supplier<FooNode> supplier = () -> new FooNode();
+    }
+}
+"""
+        meta = annotate_java(src, "Engine.java")
+
+        register_deps = set(meta.dependency_graph["com.acme.runtime.Engine.register(String)"])
+        assert "com.acme.runtime.Handler.onTrade(String)" in register_deps
+        assert "com.acme.runtime.Worker.run()" in register_deps
+        assert "com.acme.runtime.FooNode" in register_deps
+
+    def test_dependency_graph_binds_runtime_launch_sites(self):
+        src = """\
+package com.acme.runtime;
+
+import java.util.concurrent.Executor;
+
+final class WorkerThread extends Thread {
+    @Override
+    public void run() {
+    }
+}
+
+final class WorkerTask implements Runnable {
+    @Override
+    public void run() {
+    }
+}
+
+public final class Launcher {
+    public void startThread(WorkerThread worker) {
+        worker.start();
+    }
+
+    public void executeTask(Executor executor, WorkerTask task) {
+        executor.execute(task);
+    }
+}
+"""
+        meta = annotate_java(src, "Launcher.java")
+
+        start_deps = set(meta.dependency_graph["com.acme.runtime.Launcher.startThread(WorkerThread)"])
+        execute_deps = set(
+            meta.dependency_graph["com.acme.runtime.Launcher.executeTask(Executor,WorkerTask)"]
+        )
+        assert "com.acme.runtime.WorkerThread.run()" in start_deps
+        assert "com.acme.runtime.WorkerTask.run()" in execute_deps
+
     def test_record_and_overloaded_methods_are_detected(self):
         src = """\
 package com.acme.model;
