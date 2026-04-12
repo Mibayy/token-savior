@@ -503,6 +503,7 @@ class ProjectQueryEngine:
         "pack_context",
         "get_relevance_cluster",
         "find_semantic_duplicates",
+        "get_duplicate_classes",
     ]
 
     def __init__(self, index: ProjectIndex):
@@ -797,7 +798,6 @@ class ProjectQueryEngine:
         Returns {chain: [{name, file, line, end_line, type, signature, source_preview}, ...]}
         with rich info for each hop, so callers don't need follow-up lookups.
         """
-        index = self.index
         resolved_from = self._resolve_graph_symbol_name(from_name)
         resolved_to = self._resolve_graph_symbol_name(to_name)
         if resolved_from is None:
@@ -888,7 +888,6 @@ class ProjectQueryEngine:
         self, name: str, max_direct: int = 0, max_transitive: int = 0, max_total_chars: int = 50_000
     ) -> dict:
         """Direct and transitive dependents of a symbol, each with confidence and depth."""
-        index = self.index
         resolved_name, direct = self._resolve_dep_name(name)
         if direct is None:
             return {"error": f"'{name}' not found in reverse dependency graph"}
@@ -1228,6 +1227,25 @@ class ProjectQueryEngine:
         grouped by community detection on the dependency graph.
         Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
         return get_cluster_for_symbol(name, self._get_communities(), self.index, max_members=max_members)
+
+    def get_duplicate_classes(self, name: str | None = None, max_results: int = 0) -> list[dict]:
+        """Return duplicate Java classes that share the same qualified name across files."""
+        duplicates = []
+        for qualified_name, files in sorted(self.index.duplicate_classes.items()):
+            simple_name = qualified_name.rsplit(".", 1)[-1]
+            if name is not None and name not in {simple_name, qualified_name}:
+                continue
+            duplicates.append(
+                {
+                    "name": simple_name,
+                    "qualified_name": qualified_name,
+                    "count": len(files),
+                    "files": files,
+                }
+            )
+        if max_results > 0:
+            duplicates = duplicates[:max_results]
+        return duplicates
 
     # ------------------------------------------------------------------
     # Semantic duplicate detection (P9 part A integration)
@@ -1817,6 +1835,7 @@ DEPENDENCY ANALYSIS:
   get_change_impact(name) -> dict               # Transitive impact of changing this symbol
   get_file_dependencies(file) -> list[str]      # Files this file imports from
   get_file_dependents(file) -> list[str]        # Files that import from this file
+  get_duplicate_classes(name?) -> list[dict]    # Java classes duplicated across files
 
 SEARCH:
   search_codebase(pattern) -> list[dict]        # Regex across all files (max 100 results)

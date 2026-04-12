@@ -239,3 +239,260 @@ class TestJavaProjectIndexer:
 
         dependent_result = funcs["get_dependents"]("Factories.createFeed")
         assert any(dep.get("name") == register_symbol for dep in dependent_result)
+
+    def test_propagates_java_interface_dispatch_to_implementations(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/feed/TradeHandler.java",
+            """\
+            package com.acme.feed;
+
+            public interface TradeHandler {
+                void onTrade(String trade);
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/feed/LoggingTradeHandler.java",
+            """\
+            package com.acme.feed;
+
+            public final class LoggingTradeHandler implements TradeHandler {
+                @Override
+                public void onTrade(String trade) {
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/feed/Dispatcher.java",
+            """\
+            package com.acme.feed;
+
+            public final class Dispatcher {
+                private final TradeHandler handler;
+
+                public Dispatcher(TradeHandler handler) {
+                    this.handler = handler;
+                }
+
+                public void dispatch(String trade) {
+                    handler.onTrade(trade);
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        dispatch_symbol = "com.acme.feed.Dispatcher.dispatch(String)"
+        iface_symbol = "com.acme.feed.TradeHandler.onTrade(String)"
+        impl_symbol = "com.acme.feed.LoggingTradeHandler.onTrade(String)"
+
+        deps = idx.global_dependency_graph[dispatch_symbol]
+        assert iface_symbol in deps
+        assert impl_symbol in deps
+
+        dependents = idx.reverse_dependency_graph[impl_symbol]
+        assert dispatch_symbol in dependents
+
+        dependent_result = funcs["get_dependents"]("LoggingTradeHandler.onTrade")
+        assert any(dep.get("name") == dispatch_symbol for dep in dependent_result)
+
+    def test_resolves_java_lambda_constructor_edges_into_global_graph(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/runtime/CryptoAssetAggregationNode.java",
+            """\
+            package com.acme.runtime;
+
+            public final class CryptoAssetAggregationNode {
+                public CryptoAssetAggregationNode() {
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/runtime/Factories.java",
+            """\
+            package com.acme.runtime;
+
+            import java.util.function.Supplier;
+
+            public final class Factories {
+                public Supplier<CryptoAssetAggregationNode> nodeFactory() {
+                    return () -> new CryptoAssetAggregationNode();
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+
+        factory_symbol = "com.acme.runtime.Factories.nodeFactory()"
+        node_symbol = "com.acme.runtime.CryptoAssetAggregationNode"
+        deps = idx.global_dependency_graph[factory_symbol]
+        assert node_symbol in deps
+
+    def test_adds_spring_framework_entry_edges(self, tmp_path):
+        root = tmp_path / "spring-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/web/UserController.java",
+            """\
+            package com.acme.web;
+
+            import org.springframework.web.bind.annotation.GetMapping;
+            import org.springframework.web.bind.annotation.RestController;
+
+            @RestController
+            public final class UserController {
+                @GetMapping("/users")
+                public String getUser() {
+                    return "ok";
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+
+        controller_symbol = "com.acme.web.UserController"
+        method_symbol = "com.acme.web.UserController.getUser()"
+        framework_dependents = idx.reverse_dependency_graph[method_symbol]
+        assert any(dep.startswith("__framework__.spring.class:controller:") for dep in framework_dependents)
+        assert any(dep.startswith("__framework__.spring.method:route:") for dep in framework_dependents)
+        assert any(
+            dep.startswith("__framework__.spring.class:controller:")
+            for dep in idx.reverse_dependency_graph[controller_symbol]
+        )
+
+    def test_adds_runtime_dispatch_edges_for_indirect_runnable_run(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/runtime/BaseShutdownThread.java",
+            """\
+            package com.acme.runtime;
+
+            public abstract class BaseShutdownThread implements Runnable {
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/runtime/RuntimeShutdownThread.java",
+            """\
+            package com.acme.runtime;
+
+            public final class RuntimeShutdownThread extends BaseShutdownThread {
+                @Override
+                public void run() {
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+
+        run_symbol = "com.acme.runtime.RuntimeShutdownThread.run()"
+        dependents = idx.reverse_dependency_graph[run_symbol]
+        assert "__runtime__.java.dispatch:Runnable.run" in dependents
+
+    def test_reports_duplicate_java_classes(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/view/HotViewKeys.java",
+            """\
+            package com.acme.view;
+
+            public final class HotViewKeys {
+            }
+            """,
+        )
+        _write_file(
+            root / "src/generated/java/com/acme/view/HotViewKeys.java",
+            """\
+            package com.acme.view;
+
+            public final class HotViewKeys {
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        duplicates = funcs["get_duplicate_classes"]("HotViewKeys")
+        assert duplicates == [
+            {
+                "name": "HotViewKeys",
+                "qualified_name": "com.acme.view.HotViewKeys",
+                "count": 2,
+                "files": [
+                    "src/generated/java/com/acme/view/HotViewKeys.java",
+                    "src/main/java/com/acme/view/HotViewKeys.java",
+                ],
+            }
+        ]
+
+    def test_adds_direct_runtime_edges_from_thread_and_executor_launch_sites(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/runtime/WorkerThread.java",
+            """\
+            package com.acme.runtime;
+
+            public final class WorkerThread extends Thread {
+                @Override
+                public void run() {
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/runtime/WorkerTask.java",
+            """\
+            package com.acme.runtime;
+
+            public final class WorkerTask implements Runnable {
+                @Override
+                public void run() {
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/runtime/Launcher.java",
+            """\
+            package com.acme.runtime;
+
+            import java.util.concurrent.Executor;
+
+            public final class Launcher {
+                public void startThread(WorkerThread worker) {
+                    worker.start();
+                }
+
+                public void executeTask(Executor executor, WorkerTask task) {
+                    executor.execute(task);
+                }
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+
+        start_symbol = "com.acme.runtime.Launcher.startThread(WorkerThread)"
+        execute_symbol = "com.acme.runtime.Launcher.executeTask(Executor,WorkerTask)"
+        thread_run_symbol = "com.acme.runtime.WorkerThread.run()"
+        task_run_symbol = "com.acme.runtime.WorkerTask.run()"
+
+        assert thread_run_symbol in idx.global_dependency_graph[start_symbol]
+        assert task_run_symbol in idx.global_dependency_graph[execute_symbol]
+        assert start_symbol in idx.reverse_dependency_graph[thread_run_symbol]
+        assert execute_symbol in idx.reverse_dependency_graph[task_run_symbol]

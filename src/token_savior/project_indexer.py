@@ -20,6 +20,33 @@ logger = logging.getLogger(__name__)
 
 _WORD_BOUNDARY_CACHE: dict[str, re.Pattern] = {}
 _JAVA_METHOD_REFERENCE_PATTERN = re.compile(r"(?<![\w$])([A-Za-z_][\w.]*)::([A-Za-z_]\w*)")
+_SPRING_CLASS_DECORATORS = frozenset(
+    {
+        "RestController",
+        "Controller",
+        "RequestMapping",
+        "Configuration",
+        "ConfigurationProperties",
+        "Service",
+        "Component",
+        "Repository",
+        "SpringBootApplication",
+    }
+)
+_SPRING_METHOD_DECORATORS = frozenset(
+    {
+        "Bean",
+        "GetMapping",
+        "PostMapping",
+        "PutMapping",
+        "PatchMapping",
+        "DeleteMapping",
+        "RequestMapping",
+    }
+)
+_JAVA_LIFECYCLE_DECORATORS = frozenset({"PreDestroy", "PostConstruct"})
+_JAVA_DYNAMIC_DISPATCH_BASES = frozenset({"Runnable", "Thread"})
+_LOCAL_SCOPE_PREFIX = "::<local>"
 
 
 def _parse_gitignore(root_path: str) -> list[str]:
@@ -242,6 +269,7 @@ class ProjectIndexer:
 
         # Step 3: build global symbol table
         symbol_table = self._build_symbol_table(files)
+        duplicate_classes = self._build_duplicate_classes(files)
 
         # Step 4: build cross-file import graph
         import_graph = self._build_import_graph(files)
@@ -277,6 +305,7 @@ class ProjectIndexer:
             import_graph=import_graph,
             reverse_import_graph=reverse_import_graph,
             symbol_table=symbol_table,
+            duplicate_classes=duplicate_classes,
             total_files=len(files),
             total_lines=total_lines,
             total_functions=total_functions,
@@ -407,6 +436,7 @@ class ProjectIndexer:
         idx.total_functions += len(metadata.functions)
         idx.total_classes += len(metadata.classes)
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
         # Rebuild import graph for this file
         file_imports = self._resolve_imports_for_file(rel_path, metadata, idx.files)
@@ -472,6 +502,7 @@ class ProjectIndexer:
         idx.file_mtimes.pop(rel_path, None)
         idx.total_files = len(idx.files)
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
     def rebuild_graphs(self) -> None:
         """Rebuild all cross-file graphs from current file data.
@@ -484,6 +515,7 @@ class ProjectIndexer:
 
         idx = self._project_index
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.duplicate_classes = self._build_duplicate_classes(idx.files)
         idx.import_graph = self._build_import_graph(idx.files)
         idx.reverse_import_graph = self._build_reverse_graph(idx.import_graph)
         idx.global_dependency_graph = self._build_global_dependency_graph(
@@ -625,6 +657,22 @@ class ProjectIndexer:
                 symbol_table[alias] = alias_targets[alias]
 
         return symbol_table
+
+    def _build_duplicate_classes(self, files: dict[str, StructuralMetadata]) -> dict[str, list[str]]:
+        duplicates: dict[str, set[str]] = {}
+        for file_path, metadata in files.items():
+            if not file_path.endswith(".java"):
+                continue
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None)
+                if not qualified_name or self._is_local_scoped_symbol(qualified_name):
+                    continue
+                duplicates.setdefault(qualified_name, set()).add(file_path)
+        return {
+            qualified_name: sorted(paths)
+            for qualified_name, paths in duplicates.items()
+            if len(paths) > 1
+        }
 
     @staticmethod
     def _is_local_scoped_symbol(name: str | None) -> bool:
@@ -971,6 +1019,8 @@ class ProjectIndexer:
         # Set of all known qualified names in the project
         all_symbols = set(symbol_table.keys())
         java_package_symbols: dict[str, dict[str, str]] = {}
+        java_hierarchy = self._build_java_type_hierarchy(files)
+        java_impl_edges = self._build_java_implementation_edges(files, java_hierarchy)
         for metadata in files.values():
             if not metadata.module_name:
                 continue
@@ -1003,24 +1053,15 @@ class ProjectIndexer:
                     global_graph[source_qualified] = set()
 
                 for dep in deps:
-                    dep_qualified = None
-
-                    # Check if it's an imported name
-                    if dep in imported_names:
-                        dep_qualified = imported_names[dep]
-
-                    # Check if it's a local name in the same file
-                    if dep_qualified is None:
-                        candidate = self._qualify_name(dep, file_path, symbol_table)
-                        if candidate in all_symbols:
-                            dep_qualified = candidate
-
-                    # Check if it's a known global symbol
-                    if dep_qualified is None and dep in all_symbols:
-                        dep_qualified = dep
-
-                    if dep_qualified and dep_qualified != source_qualified:
-                        global_graph[source_qualified].add(dep_qualified)
+                    for dep_qualified in self._resolve_java_dependency_symbols(
+                        dep,
+                        file_path,
+                        imported_names,
+                        symbol_table,
+                        all_symbols,
+                    ):
+                        if dep_qualified != source_qualified:
+                            global_graph[source_qualified].add(dep_qualified)
 
             # Now handle cross-file dependencies by scanning function/class bodies
             # for references to imported names (which the per-file dep graph misses).
@@ -1059,6 +1100,7 @@ class ProjectIndexer:
                         )
                         if target != func_qualified
                     )
+                    global_graph[func_qualified].update(java_impl_edges.get(func_qualified, set()))
 
             for cls in metadata.classes:
                 cls_qualified = self._qualify_name(cls.name, file_path, symbol_table)
@@ -1088,7 +1130,205 @@ class ProjectIndexer:
                         if target != cls_qualified
                     )
 
+        for source, targets in list(global_graph.items()):
+            targets.update(
+                target for dep in list(targets) for target in java_impl_edges.get(dep, set()) if target != source
+            )
+
+        for source, targets in self._build_java_framework_entry_edges(files).items():
+            global_graph.setdefault(source, set()).update(targets)
+
+        for source, targets in self._build_java_runtime_entry_edges(files, java_hierarchy).items():
+            global_graph.setdefault(source, set()).update(targets)
+
         return global_graph
+
+    @staticmethod
+    def _build_java_implementation_edges(
+        files: dict[str, StructuralMetadata],
+        hierarchy: dict[str, set[str]],
+    ) -> dict[str, set[str]]:
+        class_index: dict[str, list] = {}
+        for metadata in files.values():
+            for cls in metadata.classes:
+                class_index.setdefault(cls.name, []).append(cls)
+                qualified_name = getattr(cls, "qualified_name", None)
+                if qualified_name:
+                    class_index.setdefault(qualified_name, []).append(cls)
+
+        impl_edges: dict[str, set[str]] = {}
+        for metadata in files.values():
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None) or cls.name
+                ancestor_names = set(cls.base_classes) | hierarchy.get(qualified_name, set())
+                for base_name in ancestor_names:
+                    for base_cls in class_index.get(base_name, []):
+                        base_methods = {}
+                        for method in base_cls.methods:
+                            base_methods.setdefault(ProjectIndexer._method_signature_key(method), []).append(
+                                method.qualified_name
+                            )
+                        for method in cls.methods:
+                            for base_symbol in base_methods.get(
+                                ProjectIndexer._method_signature_key(method),
+                                [],
+                            ):
+                                impl_edges.setdefault(base_symbol, set()).add(method.qualified_name)
+        return impl_edges
+
+    @staticmethod
+    def _build_java_type_hierarchy(
+        files: dict[str, StructuralMetadata]
+    ) -> dict[str, set[str]]:
+        class_index: dict[str, list] = {}
+        by_qualified_name: dict[str, object] = {}
+        for metadata in files.values():
+            for cls in metadata.classes:
+                class_index.setdefault(cls.name, []).append(cls)
+                qualified_name = getattr(cls, "qualified_name", None)
+                if qualified_name:
+                    class_index.setdefault(qualified_name, []).append(cls)
+                    by_qualified_name[qualified_name] = cls
+
+        cache: dict[str, set[str]] = {}
+
+        def _collect(qualified_name: str, seen: set[str]) -> set[str]:
+            if qualified_name in cache:
+                return cache[qualified_name]
+            cls = by_qualified_name.get(qualified_name)
+            if cls is None:
+                return set()
+            ancestors: set[str] = set()
+            next_seen = set(seen)
+            next_seen.add(qualified_name)
+            for base_name in cls.base_classes:
+                ancestors.add(base_name)
+                for base_cls in class_index.get(base_name, []):
+                    base_qualified = getattr(base_cls, "qualified_name", None) or base_cls.name
+                    ancestors.add(base_qualified)
+                    if base_qualified not in next_seen:
+                        ancestors.update(_collect(base_qualified, next_seen))
+            cache[qualified_name] = ancestors
+            return ancestors
+
+        for qualified_name in by_qualified_name:
+            _collect(qualified_name, set())
+        return cache
+
+    @staticmethod
+    def _decorator_names(decorators: list[str]) -> set[str]:
+        return {decorator.split(".")[-1] for decorator in decorators}
+
+    def _build_java_framework_entry_edges(
+        self,
+        files: dict[str, StructuralMetadata],
+    ) -> dict[str, set[str]]:
+        edges: dict[str, set[str]] = {}
+        for file_path, metadata in files.items():
+            if not file_path.endswith(".java"):
+                continue
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None) or cls.name
+                class_decorators = self._decorator_names(getattr(cls, "decorators", []))
+                if class_decorators & _SPRING_CLASS_DECORATORS:
+                    if class_decorators & {"RestController", "Controller", "RequestMapping"}:
+                        class_kind = "controller"
+                    elif class_decorators & {"Configuration", "ConfigurationProperties"}:
+                        class_kind = "configuration"
+                    elif "SpringBootApplication" in class_decorators:
+                        class_kind = "application"
+                    else:
+                        class_kind = "component"
+                    source = f"__framework__.spring.class:{class_kind}:{qualified_name}"
+                    targets = edges.setdefault(source, set())
+                    targets.add(qualified_name)
+                    targets.update(method.qualified_name for method in cls.methods)
+                for method in cls.methods:
+                    method_decorators = self._decorator_names(method.decorators)
+                    if method_decorators & (_SPRING_METHOD_DECORATORS | _JAVA_LIFECYCLE_DECORATORS):
+                        if method_decorators & _JAVA_LIFECYCLE_DECORATORS:
+                            method_kind = "lifecycle"
+                        elif "Bean" in method_decorators:
+                            method_kind = "bean"
+                        else:
+                            method_kind = "route"
+                        source = f"__framework__.spring.method:{method_kind}:{method.qualified_name}"
+                        edges.setdefault(source, set()).add(method.qualified_name)
+        return edges
+
+    def _build_java_runtime_entry_edges(
+        self,
+        files: dict[str, StructuralMetadata],
+        hierarchy: dict[str, set[str]],
+    ) -> dict[str, set[str]]:
+        edges: dict[str, set[str]] = {}
+        source = "__runtime__.java.dispatch:Runnable.run"
+        for file_path, metadata in files.items():
+            if not file_path.endswith(".java"):
+                continue
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None) or cls.name
+                ancestor_names = set(cls.base_classes) | hierarchy.get(qualified_name, set())
+                if not (ancestor_names & _JAVA_DYNAMIC_DISPATCH_BASES):
+                    continue
+                for method in cls.methods:
+                    if method.name == "run":
+                        edges.setdefault(source, set()).add(method.qualified_name)
+        return edges
+
+    @staticmethod
+    def _method_signature_key(func) -> tuple[str, int]:
+        return func.name, len(getattr(func, "parameters", []))
+
+    def _resolve_java_dependency_symbols(
+        self,
+        dep: str,
+        file_path: str,
+        imported_names: dict[str, str],
+        symbol_table: dict[str, str],
+        all_symbols: set[str],
+    ) -> set[str]:
+        if "." not in dep:
+            resolved: set[str] = set()
+            if dep in imported_names:
+                resolved.add(imported_names[dep])
+            candidate = self._qualify_name(dep, file_path, symbol_table)
+            if candidate in all_symbols:
+                resolved.add(candidate)
+            if dep in all_symbols:
+                resolved.add(dep)
+            return resolved
+
+        owner, _, member = dep.rpartition(".")
+        owner_candidates = {owner}
+        if owner in imported_names:
+            owner_candidates.add(imported_names[owner])
+        owner_candidates.add(self._qualify_name(owner, file_path, symbol_table))
+
+        resolved: set[str] = set()
+        for owner_candidate in owner_candidates:
+            if not owner_candidate:
+                continue
+            prefix = owner_candidate + "."
+            for symbol in all_symbols:
+                if not symbol.startswith(prefix):
+                    continue
+                remainder = symbol[len(prefix) :]
+                if remainder == member or remainder.startswith(f"{member}("):
+                    resolved.add(symbol)
+
+        if resolved:
+            canonical = {symbol for symbol in resolved if symbol.count(".") > dep.count(".")}
+            return canonical or resolved
+
+        if dep in imported_names:
+            resolved.add(imported_names[dep])
+        candidate = self._qualify_name(dep, file_path, symbol_table)
+        if candidate in all_symbols:
+            resolved.add(candidate)
+        if dep in all_symbols:
+            resolved.add(dep)
+        return resolved
 
     def _build_java_imported_names(
         self,

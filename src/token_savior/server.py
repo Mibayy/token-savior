@@ -407,6 +407,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_feature_files": 0.20,
     "get_entry_points": 0.10,
     "get_symbol_cluster": 0.15,
+    "get_duplicate_classes": 0.05,
 }
 
 
@@ -2334,6 +2335,9 @@ _QFN_HANDLERS: dict[str, object] = {
     ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 4)
+    ),
+    "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
+        a.get("name"), max_results=a.get("max_results", 0)
     ),
 }
 

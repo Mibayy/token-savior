@@ -309,6 +309,20 @@ def _collect_signature_propagated_live_symbols(
     return propagated
 
 
+def _duplicate_symbol_sets(index: ProjectIndex) -> tuple[set[str], set[str]]:
+    duplicate_classes = set(index.duplicate_classes.keys())
+    duplicate_methods: set[str] = set()
+    if not duplicate_classes:
+        return duplicate_classes, duplicate_methods
+    for meta in index.files.values():
+        for cls in meta.classes:
+            qualified_name = cls.qualified_name or cls.name
+            if qualified_name not in duplicate_classes:
+                continue
+            duplicate_methods.update(method.qualified_name for method in cls.methods)
+    return duplicate_classes, duplicate_methods
+
+
 def _is_java_callback_like_method(func: FunctionInfo, parent_class: ClassInfo | None) -> bool:
     if parent_class is None or not parent_class.base_classes:
         return False
@@ -448,12 +462,16 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
         index, live_method_reference_symbols
     )
     live_symbols = live_method_reference_symbols | signature_propagated_live_symbols
+    duplicate_classes, duplicate_methods = _duplicate_symbol_sets(index)
 
     for file_path, meta in index.files.items():
         class_by_name = {cls.name: cls for cls in meta.classes}
 
         for func in meta.functions:
             parent_class = class_by_name.get(func.parent_class or "")
+            parent_qualified_name = (parent_class.qualified_name or parent_class.name) if parent_class else None
+            if func.qualified_name in duplicate_methods or parent_qualified_name in duplicate_classes:
+                continue
             if _is_function_entry_point(func, file_path, parent_class, meta):
                 continue
             symbol_key = func.qualified_name
@@ -473,6 +491,8 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
             )
 
         for cls in meta.classes:
+            if (cls.qualified_name or cls.name) in duplicate_classes:
+                continue
             if _is_class_entry_point(cls, file_path, meta):
                 continue
             qualified_name = cls.qualified_name or cls.name

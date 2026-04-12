@@ -80,11 +80,13 @@ def _make_meta(
 def _make_index(
     files: dict[str, StructuralMetadata],
     reverse_dependency_graph: dict[str, set[str]] | None = None,
+    duplicate_classes: dict[str, list[str]] | None = None,
 ) -> ProjectIndex:
     return ProjectIndex(
         root_path="/project",
         files=files,
         reverse_dependency_graph=reverse_dependency_graph or {},
+        duplicate_classes=duplicate_classes or {},
     )
 
 
@@ -646,6 +648,61 @@ class TestFrameworkAndDispatchHeuristics:
         index = _make_index({"src/main/java/com/acme/feed/AlpacaTradeConsumer.java": meta})
         result = find_dead_code(index)
         assert "accept()" not in result
+
+    def test_duplicate_java_classes_and_methods_are_not_reported_as_dead(self):
+        method_a = _make_func(
+            "render",
+            qualified_name="com.acme.view.HotViewKeys.render()",
+            line_start=2,
+            line_end=4,
+            is_method=True,
+            parent_class="HotViewKeys",
+        )
+        method_b = _make_func(
+            "render",
+            qualified_name="com.acme.view.HotViewKeys.render()",
+            line_start=2,
+            line_end=4,
+            is_method=True,
+            parent_class="HotViewKeys",
+        )
+        class_a = _make_class(
+            "HotViewKeys",
+            line_start=1,
+            line_end=5,
+            methods=[method_a],
+            qualified_name="com.acme.view.HotViewKeys",
+        )
+        class_b = _make_class(
+            "HotViewKeys",
+            line_start=1,
+            line_end=5,
+            methods=[method_b],
+            qualified_name="com.acme.view.HotViewKeys",
+        )
+        index = _make_index(
+            {
+                "src/main/java/com/acme/view/HotViewKeys.java": _make_meta(
+                    "src/main/java/com/acme/view/HotViewKeys.java",
+                    functions=[method_a],
+                    classes=[class_a],
+                ),
+                "src/generated/java/com/acme/view/HotViewKeys.java": _make_meta(
+                    "src/generated/java/com/acme/view/HotViewKeys.java",
+                    functions=[method_b],
+                    classes=[class_b],
+                ),
+            },
+            duplicate_classes={
+                "com.acme.view.HotViewKeys": [
+                    "src/generated/java/com/acme/view/HotViewKeys.java",
+                    "src/main/java/com/acme/view/HotViewKeys.java",
+                ]
+            },
+        )
+        result = find_dead_code(index)
+        assert "HotViewKeys" not in result
+        assert "render()" not in result
 
     def test_value_class_accessors_and_mutable_setters_not_flagged(self):
         accessor = _make_func(

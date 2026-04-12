@@ -896,6 +896,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["name"],
         },
     },
+    "get_duplicate_classes": {
+        "description": "Find duplicate Java classes with the same fully qualified name defined in multiple files.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Optional simple or fully qualified class name to filter duplicates.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max duplicate groups to return (0 = all, default 0).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     # ── Memory Engine tools ───────────────────────────────────────────────
     "memory_save": {
         "description": "Save an observation to memory.",

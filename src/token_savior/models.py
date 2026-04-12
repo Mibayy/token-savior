@@ -204,6 +204,7 @@ class ProjectIndex:
 
     # Global symbol table: symbol_name -> file_path where defined
     symbol_table: dict[str, str] = field(default_factory=dict)
+    duplicate_classes: dict[str, list[str]] = field(default_factory=dict)
 
     # Stats
     total_files: int = 0
