@@ -214,6 +214,19 @@ class TestTestFiles:
         result = find_dead_code(index)
         assert "helper_in_test_file" not in result
 
+    def test_function_in_java_test_file_not_flagged(self):
+        func = _make_func(
+            "testApply",
+            qualified_name="com.acme.pricing.PriceEngineTest.testApply()",
+            line_start=5,
+            is_method=True,
+            parent_class="PriceEngineTest",
+        )
+        meta = _make_meta("src/test/java/com/acme/pricing/PriceEngineTest.java", functions=[func])
+        index = _make_index({"src/test/java/com/acme/pricing/PriceEngineTest.java": meta})
+        result = find_dead_code(index)
+        assert "testApply" not in result
+
 
 class TestInitPy:
     def test_symbol_in_init_py_not_flagged(self):
@@ -241,6 +254,38 @@ class TestClassDeadCode:
         )
         result = find_dead_code(index)
         assert "UsedProcessor" not in result
+
+    def test_java_class_uses_qualified_name_for_dependents(self):
+        cls = ClassInfo(
+            name="PriceEngine",
+            qualified_name="com.acme.pricing.PriceEngine",
+            line_range=LineRange(10, 40),
+            base_classes=[],
+            methods=[],
+            decorators=[],
+            docstring=None,
+        )
+        meta = _make_meta("src/main/java/com/acme/pricing/PriceEngine.java", classes=[cls])
+        index = _make_index(
+            {"src/main/java/com/acme/pricing/PriceEngine.java": meta},
+            reverse_dependency_graph={"com.acme.pricing.PriceEngine": {"caller"}},
+        )
+        result = find_dead_code(index)
+        assert "PriceEngine" not in result
+
+    def test_java_constructor_not_reported_as_dead_code(self):
+        constructor = _make_func(
+            "PriceEngine",
+            qualified_name="com.acme.pricing.PriceEngine.PriceEngine()",
+            line_start=12,
+            line_end=14,
+            is_method=True,
+            parent_class="PriceEngine",
+        )
+        meta = _make_meta("src/main/java/com/acme/pricing/PriceEngine.java", functions=[constructor])
+        index = _make_index({"src/main/java/com/acme/pricing/PriceEngine.java": meta})
+        result = find_dead_code(index)
+        assert "PriceEngine()" not in result
 
 
 class TestMaxResults:

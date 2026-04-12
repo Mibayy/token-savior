@@ -27,6 +27,42 @@ def _sample_index(tmp_path):
     return indexer.index()
 
 
+def _java_index(tmp_path):
+    (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
+    src_main = tmp_path / "src/main/java/com/acme/pricing"
+    src_test = tmp_path / "src/test/java/com/acme/pricing"
+    src_main.mkdir(parents=True)
+    src_test.mkdir(parents=True)
+    (src_main / "PriceEngine.java").write_text(
+        (
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input) {\n"
+            "        return input + 1;\n"
+            "    }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    (src_test / "PriceEngineTest.java").write_text(
+        (
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngineTest {\n"
+            "    public void testApply() {\n"
+            "        PriceEngine engine = new PriceEngine();\n"
+            "        engine.apply(42);\n"
+            "    }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    indexer = ProjectIndexer(
+        str(tmp_path),
+        include_patterns=["**/*.java", "**/*.gradle", "**/*.gradle.kts"],
+    )
+    return indexer.index()
+
+
 class TestFindImpactedTestFiles:
     def test_finds_tests_from_changed_source_file(self, tmp_path):
         index = _sample_index(tmp_path)
@@ -51,6 +87,19 @@ class TestFindImpactedTestFiles:
         result = find_impacted_test_files(index, changed_files=["src/utils.py"])
 
         assert "tests/test_utils.py" in result["impacted_tests"]
+
+    def test_finds_java_tests_from_changed_source_file(self, tmp_path):
+        index = _java_index(tmp_path)
+
+        result = find_impacted_test_files(
+            index,
+            changed_files=["src/main/java/com/acme/pricing/PriceEngine.java"],
+        )
+
+        assert "src/test/java/com/acme/pricing/PriceEngineTest.java" in result["impacted_tests"]
+        assert "name_match:src/main/java/com/acme/pricing/PriceEngine.java" in result[
+            "reason_map"
+        ]["src/test/java/com/acme/pricing/PriceEngineTest.java"]
 
 
 class TestRunImpactedTests:
@@ -108,3 +157,21 @@ class TestRunImpactedTests:
             result = run_impacted_tests(index, changed_files=["src/core.py"], compact=True)
 
         assert set(result.keys()) == {"ok", "command", "summary", "selection"}
+
+    def test_runs_filtered_gradle_tests_for_java_projects(self, tmp_path):
+        index = _java_index(tmp_path)
+
+        with patch("token_savior.impacted_tests.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="BUILD SUCCESSFUL\n", stderr="")
+            result = run_impacted_tests(
+                index,
+                changed_files=["src/main/java/com/acme/pricing/PriceEngine.java"],
+            )
+
+        assert result["ok"] is True
+        assert result["command"] == [
+            "gradle",
+            "test",
+            "--tests",
+            "com.acme.pricing.PriceEngineTest",
+        ]

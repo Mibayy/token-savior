@@ -17,11 +17,11 @@ def find_impacted_test_files(
     symbol_names: list[str] | None = None,
     max_tests: int = 20,
 ) -> dict:
-    """Infer a compact set of likely impacted pytest files."""
+    """Infer a compact set of likely impacted test files."""
     changed = _normalize_changed_files(index, changed_files, symbol_names)
     if not changed:
         return {"error": "No changed files or symbols could be resolved"}
-
+    tests = sorted(path for path in index.files if _is_test_file(path))
     tests = sorted(path for path in index.files if _is_pytest_file(path))
     impacted: list[str] = []
     reasons: dict[str, list[str]] = {}
@@ -35,17 +35,17 @@ def find_impacted_test_files(
             impacted.append(test_file)
 
     for changed_file in changed:
-        if _is_pytest_file(changed_file):
+        if _is_test_file(changed_file):
             add_reason(changed_file, "changed_test_file")
 
         for dependent in sorted(index.reverse_import_graph.get(changed_file, set())):
-            if _is_pytest_file(dependent):
+            if _is_test_file(dependent):
                 add_reason(dependent, f"imports:{changed_file}")
 
         for candidate in _filename_based_test_candidates(changed_file):
             if candidate in reasons:
                 continue
-            if candidate in index.files and _is_pytest_file(candidate):
+            if candidate in index.files and _is_test_file(candidate):
                 add_reason(candidate, f"name_match:{changed_file}")
 
         changed_stem = PurePosixPath(changed_file).stem
@@ -185,12 +185,18 @@ def _normalize_changed_files(
 def _select_test_command(index: ProjectIndex, selection: dict) -> list[str] | None:
     """Choose the most appropriate test command for the current project."""
     impacted_tests = selection["impacted_tests"]
-    if impacted_tests:
-        return ["pytest", *impacted_tests, "-q"]
-
     changed_files = selection.get("changed_files", [])
     actions = discover_project_actions(index.root_path)
     action_ids = {action["id"]: action["command"] for action in actions}
+    if impacted_tests:
+        if all(_is_pytest_file(path) for path in impacted_tests):
+            return ["pytest", *impacted_tests, "-q"]
+        java_command = _select_java_test_command(index, impacted_tests, action_ids)
+        if java_command is not None:
+            return java_command
+
+    if any(_is_java_related_file(path) for path in changed_files):
+        return action_ids.get("gradle:test") or action_ids.get("maven:test")
 
     if any(path.endswith((".ts", ".tsx", ".js", ".jsx")) for path in changed_files):
         return action_ids.get("npm:test")
@@ -200,7 +206,9 @@ def _select_test_command(index: ProjectIndex, selection: dict) -> list[str] | No
         return action_ids.get("go:test")
 
     return (
-        action_ids.get("python:test")
+        action_ids.get("gradle:test")
+        or action_ids.get("maven:test")
+        or action_ids.get("python:test")
         or action_ids.get("npm:test")
         or action_ids.get("cargo:test")
         or action_ids.get("go:test")
@@ -224,9 +232,34 @@ def _is_pytest_file(path: str) -> bool:
         "tests/" in path or name.startswith("test_") or name.endswith("_test.py")
     )
 
+def _is_java_test_file(path: str) -> bool:
+    """Whether a path looks like a Java test class."""
+    name = PurePosixPath(path).name
+    return path.endswith(".java") and (
+        "src/test/java/" in path
+        or name.endswith(("Test.java", "Tests.java", "IT.java", "ITCase.java"))
+    )
+
+
+def _is_java_related_file(path: str) -> bool:
+    """Whether a file path is part of a Java project/test layout."""
+    name = PurePosixPath(path).name
+    return path.endswith(".java") or name in {
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "pom.xml",
+    }
+
+
+def _is_test_file(path: str) -> bool:
+    """Whether a path looks like a supported project test file."""
+    return _is_pytest_file(path) or _is_java_test_file(path)
+
 
 def _filename_based_test_candidates(changed_file: str) -> list[str]:
-    """Generate common pytest filename conventions for a source file."""
+    """Generate common test filename conventions for a source file."""
     pure_path = PurePosixPath(changed_file)
     stem = pure_path.stem
     parent = pure_path.parent
@@ -236,7 +269,78 @@ def _filename_based_test_candidates(changed_file: str) -> list[str]:
         str(parent / f"test_{stem}.py"),
         str(parent / f"{stem}_test.py"),
     }
+    candidates.update(_java_filename_based_test_candidates(changed_file))
     return sorted(candidates)
+
+
+def _java_filename_based_test_candidates(changed_file: str) -> set[str]:
+    """Generate common Java test filename conventions for a source file."""
+    pure_path = PurePosixPath(changed_file)
+    if pure_path.suffix != ".java":
+        return set()
+
+    candidates: set[str] = set()
+    stem = pure_path.stem
+    suffixes = ("Test.java", "Tests.java", "IT.java", "ITCase.java")
+
+    if "src/main/java/" in changed_file:
+        relative = changed_file.split("src/main/java/", 1)[1]
+        package_dir = PurePosixPath(relative).parent
+        for suffix in suffixes:
+            candidates.add(str(PurePosixPath("src/test/java") / package_dir / f"{stem}{suffix}"))
+        return candidates
+
+    if "src/test/java/" in changed_file:
+        relative = changed_file.split("src/test/java/", 1)[1]
+        package_dir = PurePosixPath(relative).parent
+        for suffix in suffixes:
+            candidates.add(str(PurePosixPath("src/test/java") / package_dir / f"{stem}{suffix}"))
+
+    return candidates
+
+
+def _select_java_test_command(
+    index: ProjectIndex,
+    impacted_tests: list[str],
+    action_ids: dict[str, list[str]],
+) -> list[str] | None:
+    java_tests = [path for path in impacted_tests if _is_java_test_file(path)]
+    if not java_tests:
+        return None
+
+    selectors = _java_test_selectors(index, java_tests)
+    gradle_test = action_ids.get("gradle:test")
+    if gradle_test:
+        command = [*gradle_test]
+        for selector in selectors:
+            command.extend(["--tests", selector])
+        return command
+
+    maven_test = action_ids.get("maven:test")
+    if maven_test:
+        simple_selectors = [selector.rsplit(".", 1)[-1] for selector in selectors]
+        return [maven_test[0], f"-Dtest={','.join(simple_selectors)}", *maven_test[1:]]
+
+    return None
+
+
+def _java_test_selectors(index: ProjectIndex, impacted_tests: list[str]) -> list[str]:
+    selectors: list[str] = []
+    seen: set[str] = set()
+    for test_file in impacted_tests:
+        selector = _java_test_selector(index, test_file)
+        if selector and selector not in seen:
+            selectors.append(selector)
+            seen.add(selector)
+    return selectors
+
+
+def _java_test_selector(index: ProjectIndex, test_file: str) -> str:
+    meta = index.files.get(test_file)
+    stem = PurePosixPath(test_file).stem
+    if meta and meta.module_name:
+        return f"{meta.module_name}.{stem}"
+    return stem
 
 
 def _truncate_output(value: str, max_output_chars: int) -> str:

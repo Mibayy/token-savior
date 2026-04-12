@@ -292,3 +292,32 @@ class TestFindHotspots:
         )
         result = find_hotspots(index)
         assert result.index("deep_fn") < result.index("flat_fn")
+
+    def test_java_brace_language_hotspots_detect_branches_and_nesting(self):
+        java_lines = [
+            "public int apply(int value) {\n",
+            "    if (value > 0) {\n",
+            "        for (int i = 0; i < value; i++) {\n",
+            "            while (i < value) {\n",
+            "                value--;\n",
+            "            }\n",
+            "        }\n",
+            "    }\n",
+            "    return value;\n",
+            "}\n",
+        ]
+        simple_lines = [
+            "public int helper(int value) {\n",
+            "    return value;\n",
+            "}\n",
+        ]
+        java_func = _make_func("PriceEngine.apply", 1, 10, params=["value"], file="src/Foo.java")
+        simple_func = _make_func("PriceEngine.helper", 1, 3, params=["value"], file="src/Bar.java")
+        index = _make_index(
+            {
+                "src/Foo.java": (java_lines, [java_func]),
+                "src/Bar.java": (simple_lines, [simple_func]),
+            }
+        )
+        result = find_hotspots(index)
+        assert result.index("PriceEngine.apply") < result.index("PriceEngine.helper")

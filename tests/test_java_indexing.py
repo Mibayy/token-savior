@@ -132,6 +132,11 @@ class TestJavaProjectIndexer:
         assert result["file"] == "src/main/java/com/acme/pricing/PriceEngine.java"
         assert result["type"] == "class"
 
+        bare_class_result = funcs["find_symbol"]("PriceEngine")
+        assert bare_class_result["file"] == "src/main/java/com/acme/pricing/PriceEngine.java"
+        assert bare_class_result["type"] == "class"
+        assert bare_class_result["name"] == "com.acme.pricing.PriceEngine"
+
         method_result = funcs["find_symbol"]("PriceEngine.apply")
         assert method_result["file"] == "src/main/java/com/acme/pricing/PriceEngine.java"
         assert method_result["type"] == "method"
@@ -147,6 +152,12 @@ class TestJavaProjectIndexer:
         assert any(
             dep.get("name") == "com.acme.pricing.PriceEngine.helper()"
             for dep in dependency_result
+        )
+
+        class_dependency_result = funcs["get_dependencies"]("PriceEngine")
+        assert any(
+            dep.get("name") == "com.acme.pricing.QuotePublisher"
+            for dep in class_dependency_result
         )
 
     def test_indexes_scoped_local_java_classes_without_simple_aliases(self, tmp_path):

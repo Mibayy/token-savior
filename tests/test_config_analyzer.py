@@ -404,6 +404,31 @@ class TestCheckOrphans:
         orphans = [i for i in issues if i.check == "orphan" and i.key == "API_KEY"]
         assert orphans == [], f"API_KEY should not be orphan, got: {orphans}"
 
+    def test_java_system_getenv_key_recognized_as_used(self):
+        """System.getenv(\"API_KEY\") in Java code → key should NOT be an orphan."""
+        config = {"app.env": _make_config_with_key("app.env", "API_KEY")}
+        code = {
+            "Main.java": _make_code_meta(
+                "Main.java",
+                ['String key = System.getenv("API_KEY");'],
+            )
+        }
+        issues = check_orphans(config, code)
+        orphans = [i for i in issues if i.check == "orphan" and i.key == "API_KEY"]
+        assert orphans == [], f"API_KEY should not be orphan, got: {orphans}"
+
+    def test_java_system_property_missing_from_config_is_ghost(self):
+        """System.getProperty(\"APP_PORT\") with no config entry → ghost."""
+        code = {
+            "Main.java": _make_code_meta(
+                "Main.java",
+                ['String port = System.getProperty("APP_PORT");'],
+            )
+        }
+        issues = check_orphans({}, code)
+        ghosts = [i for i in issues if i.check == "ghost"]
+        assert any(i.key == "APP_PORT" for i in ghosts)
+
     def test_orphan_config_file_basename_not_in_code(self):
         """Config file whose basename never appears in code → orphan_file."""
         config = {"secrets.env": _make_config_with_key("secrets.env", "MY_KEY")}
@@ -504,6 +529,9 @@ class TestIsCodeFile:
 
     def test_go_is_code(self):
         assert _is_code_file("main.go") is True
+
+    def test_java_is_code(self):
+        assert _is_code_file("Main.java") is True
 
 
 # ---------------------------------------------------------------------------

@@ -37,9 +37,19 @@ _ENTRY_POINT_CLASS_DECORATOR_KEYWORDS = frozenset({"dataclass", "model"})
 
 
 def _is_test_file(file_path: str) -> bool:
-    """Return True if the file is a test file (test_*.py or *_test.py)."""
+    """Return True if the file is a Python or Java test file."""
     basename = os.path.basename(file_path)
-    return basename.startswith("test_") or basename.endswith("_test.py")
+    return (
+        basename.startswith("test_")
+        or basename.endswith("_test.py")
+        or (
+            file_path.endswith(".java")
+            and (
+                "src/test/java/" in file_path
+                or basename.endswith(("Test.java", "Tests.java", "IT.java", "ITCase.java"))
+            )
+        )
+    )
 
 
 def _is_init_file(file_path: str) -> bool:
@@ -70,6 +80,9 @@ def _is_function_entry_point(func: FunctionInfo, file_path: str) -> bool:
         return True
     # test_ prefix
     if func.name.startswith("test_"):
+        return True
+    # Constructors are reported through class usage rather than as standalone dead symbols
+    if func.is_method and func.parent_class and func.name == func.parent_class:
         return True
     # Decorator-based entry points
     if _decorator_matches_keywords(func.decorators, _ENTRY_POINT_DECORATOR_KEYWORDS):
@@ -131,7 +144,8 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
         for cls in meta.classes:
             if _is_class_entry_point(cls, file_path):
                 continue
-            callers = rdg.get(cls.name)
+            qualified_name = cls.qualified_name or cls.name
+            callers = rdg.get(qualified_name) or rdg.get(cls.name)
             if callers:
                 continue
             dead.append(

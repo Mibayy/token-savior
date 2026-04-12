@@ -413,6 +413,10 @@ _ACCESS_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "rust": [
         re.compile(r'env::var\((["\'])(.+?)\1\)'),
     ],
+    "java": [
+        re.compile(r'System\.getenv\((["\'])(.+?)\1\)'),
+        re.compile(r'System\.getProperty\((["\'])(.+?)\1\)'),
+    ],
 }
 
 _EXT_TO_LANG: dict[str, str] = {
@@ -423,6 +427,7 @@ _EXT_TO_LANG: dict[str, str] = {
     ".jsx": "typescript",
     ".go": "go",
     ".rs": "rust",
+    ".java": "java",
 }
 
 
@@ -829,6 +834,7 @@ _CODE_EXTENSIONS: frozenset[str] = frozenset(
         ".go",
         ".rs",
         ".cs",
+        ".java",
     }
 )
 

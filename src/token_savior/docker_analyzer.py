@@ -137,7 +137,7 @@ def _code_contains(index: ProjectIndex, token: str) -> bool:
     """Return True if *token* appears in any line of any non-config file."""
     for path, meta in index.files.items():
         ext = os.path.splitext(path)[1].lower()
-        if ext in (".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".cs"):
+        if ext in (".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".cs", ".java"):
             for line in meta.lines:
                 if token in line:
                     return True

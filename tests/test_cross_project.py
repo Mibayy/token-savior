@@ -44,6 +44,35 @@ def _make_index(root_path: str, files: dict[str, list[ImportInfo]]) -> ProjectIn
     )
 
 
+def _make_java_meta(
+    source_name: str,
+    package: str,
+    imports: list[ImportInfo],
+) -> StructuralMetadata:
+    return StructuralMetadata(
+        source_name=source_name,
+        total_lines=1,
+        total_chars=0,
+        lines=[""],
+        line_char_offsets=[0],
+        imports=imports,
+        module_name=package,
+    )
+
+
+def _make_java_index(
+    root_path: str,
+    files: dict[str, tuple[str, list[ImportInfo]]],
+) -> ProjectIndex:
+    return ProjectIndex(
+        root_path=root_path,
+        files={
+            path: _make_java_meta(path, package, imports)
+            for path, (package, imports) in files.items()
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests for helpers
 # ---------------------------------------------------------------------------
@@ -96,6 +125,22 @@ class TestGetAllImports:
     def test_empty_index_returns_empty_set(self):
         index = _make_index("/proj/a", {})
         assert _get_all_imports(index) == set()
+
+    def test_keeps_full_java_import_paths(self):
+        index = _make_java_index(
+            "/proj/a",
+            {
+                "src/main/java/com/acme/app/Main.java": (
+                    "com.acme.app",
+                    [_make_import("com.acme.shared.MathUtil"), _make_import("java.util.List")],
+                ),
+            },
+        )
+
+        result = _get_all_imports(index)
+
+        assert "com.acme.shared.MathUtil" in result
+        assert "java.util.List" in result
 
 
 class TestGetProjectPackages:
@@ -281,3 +326,30 @@ class TestFindCrossProjectDeps:
     def test_empty_indices(self):
         result = find_cross_project_deps({})
         assert "no cross-project dependencies found" in result
+
+    def test_detects_java_direct_dependencies_by_package_prefix(self):
+        index_a = _make_java_index(
+            "/proj/trade-research-platform",
+            {
+                "src/main/java/com/ull/trading/runtime/Runner.java": (
+                    "com.ull.trading.runtime",
+                    [_make_import("com.joshorig.ull.dag.api.GraphDefinition")],
+                ),
+            },
+        )
+        index_b = _make_java_index(
+            "/proj/dag-framework",
+            {
+                "src/main/java/com/joshorig/ull/dag/api/GraphDefinition.java": (
+                    "com.joshorig.ull.dag.api",
+                    [],
+                ),
+            },
+        )
+
+        result = find_cross_project_deps(
+            {"trade-research-platform": index_a, "dag-framework": index_b}
+        )
+
+        assert "trade-research-platform → dag-framework" in result
+        assert "com.joshorig.ull.dag.api.GraphDefinition" in result

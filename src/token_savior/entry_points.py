@@ -15,6 +15,7 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
     for file_path, meta in index.files.items():
         filename = os.path.basename(file_path).lower()
         path_lower = file_path.lower()
+        class_by_name = {cls.name: cls for cls in meta.classes}
 
         # File-level bonuses
         file_path_bonus = 0.0
@@ -33,6 +34,7 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
             "index.ts",
             "index.js",
             "main.ts",
+            "application.java",
         ):
             file_path_bonus += 0.5
             file_path_reasons.append(f"entry file ({filename})")
@@ -41,10 +43,32 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
             score = file_path_bonus
             reasons = list(file_path_reasons)
             name_lower = func.name.lower()
+            parent_class = class_by_name.get(func.parent_class or "")
+            class_decorators = set(getattr(parent_class, "decorators", [])) if parent_class else set()
+            func_decorators = set(getattr(func, "decorators", []))
 
             if func.name in ("main", "run", "start", "serve", "app", "cli"):
                 score += 2.0
                 reasons.append(f"entry name ({func.name})")
+            if file_path.endswith(".java") and func.name == "main":
+                score += 1.5
+                reasons.append("java main method")
+            if "SpringBootApplication" in class_decorators:
+                score += 2.0
+                reasons.append("spring boot application")
+            if class_decorators & {"RestController", "Controller", "RequestMapping"}:
+                score += 2.5
+                reasons.append("spring controller")
+            if func_decorators & {
+                "GetMapping",
+                "PostMapping",
+                "PutMapping",
+                "PatchMapping",
+                "DeleteMapping",
+                "RequestMapping",
+            }:
+                score += 3.0
+                reasons.append("spring route mapping")
 
             if any(name_lower.startswith(p) for p in ("handle", "on_", "dispatch")):
                 score += 1.5

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from token_savior.models import ProjectIndex
 
 # Branching keywords to count (must appear as a substring of a stripped line)
@@ -16,10 +18,32 @@ _BRANCH_KEYWORDS = (
     "try:",
     "match ",
 )
+_BRACE_LANGUAGE_BRANCH_KEYWORDS = (
+    "if (",
+    "if(",
+    "else if (",
+    "else if(",
+    "else {",
+    "for (",
+    "for(",
+    "while (",
+    "while(",
+    "switch (",
+    "switch(",
+    "case ",
+    "catch (",
+    "catch(",
+    "try {",
+    "do {",
+)
+_BRACE_LANGUAGE_EXTENSIONS = frozenset(
+    {".java", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".cs", ".c", ".h"}
+)
 
-
-def _compute_nesting_depth(lines: list[str]) -> int:
+def _compute_nesting_depth(lines: list[str], file_path: str | None = None) -> int:
     """Find max indentation depth relative to function's base indentation."""
+    if file_path and os.path.splitext(file_path)[1].lower() in _BRACE_LANGUAGE_EXTENSIONS:
+        return _compute_brace_nesting_depth(lines)
     if not lines:
         return 0
 
@@ -49,12 +73,32 @@ def _compute_nesting_depth(lines: list[str]) -> int:
     return max_depth
 
 
-def _count_branches(lines: list[str]) -> int:
+def _compute_brace_nesting_depth(lines: list[str]) -> int:
+    """Estimate nesting depth for brace-delimited languages."""
+    current_depth = 0
+    max_depth = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        current_depth = max(0, current_depth - stripped.count("}"))
+        max_depth = max(max_depth, max(0, current_depth - 1))
+        current_depth += stripped.count("{")
+        max_depth = max(max_depth, max(0, current_depth - 1))
+    return max_depth
+
+
+def _count_branches(lines: list[str], file_path: str | None = None) -> int:
     """Count branching keywords in lines."""
+    keywords = (
+        _BRACE_LANGUAGE_BRANCH_KEYWORDS
+        if file_path and os.path.splitext(file_path)[1].lower() in _BRACE_LANGUAGE_EXTENSIONS
+        else _BRANCH_KEYWORDS
+    )
     count = 0
     for line in lines:
         stripped = line.lstrip()
-        for kw in _BRANCH_KEYWORDS:
+        for kw in keywords:
             if stripped.startswith(kw) or stripped == kw.rstrip():
                 count += 1
                 break  # at most one keyword match per line
@@ -93,8 +137,8 @@ def find_hotspots(
             func_lines = meta.lines[start - 1 : end]
 
             line_count = end - start + 1
-            branch_count = _count_branches(func_lines)
-            nesting = _compute_nesting_depth(func_lines)
+            branch_count = _count_branches(func_lines, file_path)
+            nesting = _compute_nesting_depth(func_lines, file_path)
             param_count = len(func.parameters)
 
             score = _score_function(line_count, branch_count, nesting, param_count)

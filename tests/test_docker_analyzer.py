@@ -156,3 +156,25 @@ class TestCopySources:
         # /app is absolute, won't exist on tmp_path but that's expected
         # Just check it ran without error
         assert "Docker Analysis" in result
+
+    def test_java_code_reference_suppresses_missing_env_warning(self, tmp_path):
+        dockerfile = tmp_path / "Dockerfile"
+        text = "FROM eclipse-temurin:21\nENV APP_PORT=8080\n"
+        docker_meta = _dockerfile_meta(text, str(dockerfile))
+        java_meta = StructuralMetadata(
+            source_name=str(tmp_path / "src/Main.java"),
+            total_lines=1,
+            total_chars=34,
+            lines=['System.getenv("APP_PORT");'],
+            line_char_offsets=[0],
+        )
+        index = _make_index(
+            {
+                str(dockerfile): docker_meta,
+                str(tmp_path / "src/Main.java"): java_meta,
+            },
+            root_path=str(tmp_path),
+        )
+        result = analyze_docker(index)
+        assert "APP_PORT" in result
+        assert "not found in any .env file" not in result

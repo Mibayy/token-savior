@@ -26,6 +26,43 @@ def _build_project(tmp_path):
     return indexer
 
 
+def _build_java_project(tmp_path):
+    (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
+    src_main = tmp_path / "src/main/java/com/acme/pricing"
+    src_test = tmp_path / "src/test/java/com/acme/pricing"
+    src_main.mkdir(parents=True)
+    src_test.mkdir(parents=True)
+    (src_main / "PriceEngine.java").write_text(
+        (
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input) {\n"
+            "        return input + 1;\n"
+            "    }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    (src_test / "PriceEngineTest.java").write_text(
+        (
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngineTest {\n"
+            "    public void testApply() {\n"
+            "        PriceEngine engine = new PriceEngine();\n"
+            "        engine.apply(42);\n"
+            "    }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    indexer = ProjectIndexer(
+        str(tmp_path),
+        include_patterns=["**/*.java", "**/*.gradle", "**/*.gradle.kts"],
+    )
+    indexer.index()
+    return indexer
+
+
 class TestApplySymbolChangeAndValidate:
     def test_replaces_symbol_and_runs_impacted_tests(self, tmp_path):
         indexer = _build_project(tmp_path)
@@ -84,6 +121,29 @@ class TestApplySymbolChangeAndValidate:
             )
 
         assert set(result.keys()) == {"ok", "summary", "validation"}
+
+    def test_runs_filtered_gradle_validation_for_java_projects(self, tmp_path):
+        indexer = _build_java_project(tmp_path)
+
+        with patch("token_savior.impacted_tests.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="BUILD SUCCESSFUL\n",
+                stderr="",
+            )
+            result = apply_symbol_change_and_validate(
+                indexer,
+                "com.acme.pricing.PriceEngine.apply(int)",
+                "    public int apply(int input) {\n        return input - 1;\n    }",
+            )
+
+        assert result["ok"] is True
+        assert result["validation"]["command"] == [
+            "gradle",
+            "test",
+            "--tests",
+            "com.acme.pricing.PriceEngineTest",
+        ]
 
 
 class TestApplySymbolChangeValidateWithRollback:

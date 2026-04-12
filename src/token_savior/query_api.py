@@ -375,6 +375,84 @@ def _format_l3(sym: FunctionInfo | ClassInfo) -> str:
         head += ", ..."
     return f"{sym.name}({head}) - {doc}"
 
+_SPRING_HTTP_METHODS_BY_DECORATOR: dict[str, list[str]] = {
+    "GetMapping": ["GET"],
+    "PostMapping": ["POST"],
+    "PutMapping": ["PUT"],
+    "PatchMapping": ["PATCH"],
+    "DeleteMapping": ["DELETE"],
+}
+_SPRING_REQUEST_MAPPING_RE = re.compile(r"@RequestMapping\s*\((.*?)\)", re.DOTALL)
+_SPRING_GENERIC_MAPPING_RE = re.compile(r"@([A-Za-z]+Mapping)\s*(\((.*?)\))?", re.DOTALL)
+_SPRING_REQUEST_METHOD_RE = re.compile(r"RequestMethod\.([A-Z]+)")
+_SPRING_QUOTED_VALUE_RE = re.compile(r'"([^"]+)"')
+_SPRING_VALUE_RE = re.compile(r'@Value\(\s*"[^"]*\$\{([^}:"]+)')
+
+
+def _is_spring_controller(cls) -> bool:
+    decorators = set(getattr(cls, "decorators", []))
+    return bool(decorators & {"RestController", "Controller", "RequestMapping"})
+
+
+def _spring_declaration_lines(meta: StructuralMetadata, line_range) -> list[str]:
+    start = max(0, line_range.start - 1)
+    end = min(len(meta.lines), line_range.start + 8)
+    return list(meta.lines[start:end])
+
+
+def _extract_spring_paths(annotation_block: str) -> list[str]:
+    paths = [value for value in _SPRING_QUOTED_VALUE_RE.findall(annotation_block) if value]
+    return paths or [""]
+
+
+def _extract_spring_request_mapping(annotation_block: str) -> tuple[list[str], list[str]]:
+    methods = _SPRING_REQUEST_METHOD_RE.findall(annotation_block) or ["ANY"]
+    return methods, _extract_spring_paths(annotation_block)
+
+
+def _combine_route_paths(prefix_paths: list[str], method_paths: list[str]) -> list[str]:
+    routes: list[str] = []
+    for prefix in prefix_paths or [""]:
+        for method_path in method_paths or [""]:
+            prefix_clean = prefix.strip("/")
+            method_clean = method_path.strip("/")
+            if prefix_clean and method_clean:
+                route = f"/{prefix_clean}/{method_clean}"
+            elif prefix_clean:
+                route = f"/{prefix_clean}"
+            elif method_clean:
+                route = f"/{method_clean}"
+            else:
+                route = "/"
+            routes.append(re.sub(r"/+", "/", route))
+    return routes or ["/"]
+
+
+def _extract_spring_class_paths(meta: StructuralMetadata, cls) -> list[str]:
+    lines = "\n".join(_spring_declaration_lines(meta, cls.line_range))
+    match = _SPRING_REQUEST_MAPPING_RE.search(lines)
+    if not match:
+        return [""]
+    return _extract_spring_paths(match.group(1))
+
+
+def _extract_spring_method_mappings(meta: StructuralMetadata, func) -> list[tuple[list[str], list[str]]]:
+    lines = "\n".join(_spring_declaration_lines(meta, func.line_range))
+    mappings: list[tuple[list[str], list[str]]] = []
+
+    for decorator, methods in _SPRING_HTTP_METHODS_BY_DECORATOR.items():
+        if decorator not in getattr(func, "decorators", []):
+            continue
+        for match in re.finditer(rf"@{decorator}\s*(\((.*?)\))?", lines, re.DOTALL):
+            annotation_block = match.group(2) or ""
+            mappings.append((methods, _extract_spring_paths(annotation_block)))
+
+    if "RequestMapping" in getattr(func, "decorators", []):
+        for match in _SPRING_REQUEST_MAPPING_RE.finditer(lines):
+            mappings.append(_extract_spring_request_mapping(match.group(1)))
+
+    return mappings
+
 
 class ProjectQueryEngine:
     """Query engine bound to a project-wide index.
@@ -930,6 +1008,24 @@ class ProjectQueryEngine:
                         "type": "layout",
                     }
                 )
+            elif path.endswith(".java"):
+                spring_classes = [cls for cls in meta.classes if _is_spring_controller(cls)]
+                for cls in spring_classes:
+                    class_paths = _extract_spring_class_paths(meta, cls)
+                    for func in meta.functions:
+                        if func.parent_class != cls.name:
+                            continue
+                        mappings = _extract_spring_method_mappings(meta, func)
+                        for methods, method_paths in mappings:
+                            for route_path in _combine_route_paths(class_paths, method_paths):
+                                routes.append(
+                                    {
+                                        "route": route_path,
+                                        "file": path,
+                                        "methods": methods,
+                                        "type": "api",
+                                    }
+                                )
         routes.sort(key=lambda r: (r["type"], r["route"]))
         if max_results > 0:
             routes = routes[:max_results]
@@ -953,6 +1049,12 @@ class ProjectQueryEngine:
                         usage_type = "process.env"
                     elif "os.environ" in line or "os.getenv" in line:
                         usage_type = "os.environ"
+                    elif "System.getenv" in line:
+                        usage_type = "system.getenv"
+                    elif "System.getProperty" in line:
+                        usage_type = "system.getProperty"
+                    elif "@Value" in line and _SPRING_VALUE_RE.search(line):
+                        usage_type = "spring.value"
                     elif "secrets." in line:
                         usage_type = "github_secret"
                     elif line.strip().startswith(var_name + "=") or line.strip().startswith(
@@ -1490,6 +1592,9 @@ class ProjectQueryEngine:
     def _resolve_symbol_info(self, name: str) -> dict:
         """Resolve a symbol name to rich info (file, line, signature, preview)."""
         index = self.index
+        class_info = self._resolve_exact_class_info(name)
+        if class_info is not None:
+            return class_info
         # Try symbol table first
         if name in index.symbol_table:
             path = index.symbol_table[name]
@@ -1544,6 +1649,9 @@ class ProjectQueryEngine:
         return name, None
 
     def _resolve_graph_symbol_name(self, name: str) -> str | None:
+        exact_class_name = self._resolve_exact_class_name(name)
+        if exact_class_name and exact_class_name in self.index.global_dependency_graph:
+            return exact_class_name
         if name in self.index.global_dependency_graph:
             return name
         info = self._resolve_symbol_info(name)
@@ -1560,6 +1668,30 @@ class ProjectQueryEngine:
         if self._communities is None:
             self._communities = compute_communities(self.index)
         return self._communities
+
+    def _resolve_exact_class_info(self, name: str) -> dict | None:
+        for path, meta in self._candidate_class_files(name):
+            for cls in meta.classes:
+                if cls.name == name or cls.qualified_name == name:
+                    return self._class_result(cls, path, meta)
+        return None
+
+    def _resolve_exact_class_name(self, name: str) -> str | None:
+        info = self._resolve_exact_class_info(name)
+        if info is None:
+            return None
+        return info.get("qualified_name") or info.get("name")
+
+    def _candidate_class_files(self, name: str):
+        if name in self.index.symbol_table:
+            path = self.index.symbol_table[name]
+            meta = _resolve_file(self.index, path)
+            if meta is not None:
+                yield path, meta
+        for path, meta in sorted(self.index.files.items()):
+            if name in self.index.symbol_table and path == self.index.symbol_table[name]:
+                continue
+            yield path, meta
 
 
 def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
