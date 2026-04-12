@@ -1,0 +1,119 @@
+#!/bin/bash
+# Memory Engine — PreToolUse hook
+# Injecte l'historique mémoire pour :
+#   - les tools Token Savior de lecture de code (par symbole/fichier)
+#   - les commandes Bash significatives (par keyword extrait de la commande)
+
+PAYLOAD=$(cat)
+
+TOOL=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
+
+# Strip the mcp__<server>__ prefix so we can match plain names.
+SHORT_TOOL="${TOOL##*__}"
+
+CODE_TOOLS_RE='^(get_function_source|get_class_source|get_edit_context|find_symbol|get_file_dependencies)$'
+
+if [[ "$SHORT_TOOL" =~ $CODE_TOOLS_RE ]]; then
+    MODE=code
+elif [[ "$TOOL" == "Bash" ]]; then
+    MODE=bash
+else
+    exit 0
+fi
+
+RESULT=$(/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json, re
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+
+payload = json.loads('''$PAYLOAD''')
+args = payload.get('tool_input', {})
+mode = '$MODE'
+
+db = memory_db.get_db()
+row = db.execute(
+    'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+).fetchone()
+db.close()
+if not row:
+    sys.exit(0)
+project = row[0]
+
+if mode == 'code':
+    symbol = args.get('name') or args.get('symbol_name', '')
+    file_path = args.get('file_path', '')
+    if not (symbol or file_path):
+        sys.exit(0)
+    obs = memory_db.observation_get_by_symbol(
+        project, symbol, file_path=file_path or None, limit=5
+    )
+    if obs:
+        print(f'📌 Memory for {symbol or file_path}:')
+        for o in obs:
+            age = o.get('age') or (o.get('created_at') or '')[:10]
+            stale = '⚠️ ' if o.get('stale') else ''
+            glob = '🌐 ' if o.get('is_global') else ''
+            print(f\"  #{o['id']}  [{o['type']}]  {stale}{glob}{o['title']}  —  {age}\")
+    sys.exit(0)
+
+# mode == 'bash'
+command = args.get('command') or ''
+if not command:
+    sys.exit(0)
+
+PATTERNS = [
+    (r'systemctl\s+\w+\s+(\S+)',                       lambda m: m.group(1)),
+    (r'journalctl\s+(?:-[^ ]+\s+)*(?:-u\s+)?(\S+)',    lambda m: m.group(1)),
+    (r'docker\s+(?:\w+\s+)?(\S+)',                     lambda m: m.group(1)),
+    (r'(nginx|caddy|hermes|sirius|claude-telegram|vps-monitor|eclatauto)', lambda m: m.group(1)),
+    (r'python3?\s+([\w/.-]+\.py)',                     lambda m: m.group(1)),
+    (r'(?:pip|npm|apt|pnpm)\s+install\s+(\S+)',        lambda m: m.group(1)),
+]
+
+keyword = None
+for pat, extract in PATTERNS:
+    m = re.search(pat, command)
+    if m:
+        keyword = extract(m)
+        break
+
+if not keyword:
+    sys.exit(0)
+
+keyword = keyword.strip().strip('.service').strip('/')
+if len(keyword) < 3:
+    sys.exit(0)
+
+# Search obs matching keyword across command/infra/config/guardrail/warning
+ctx_like = f'%{keyword}%'
+try:
+    conn = memory_db.get_db()
+    rows = conn.execute(
+        'SELECT id, type, title, context, created_at, created_at_epoch, is_global '
+        'FROM observations '
+        'WHERE archived=0 AND (project_root=? OR is_global=1) '
+        '  AND type IN (\\'command\\',\\'infra\\',\\'config\\',\\'guardrail\\',\\'warning\\') '
+        '  AND (title LIKE ? OR context LIKE ? OR content LIKE ?) '
+        'ORDER BY created_at_epoch DESC LIMIT 3',
+        (project, ctx_like, ctx_like, ctx_like),
+    ).fetchall()
+    conn.close()
+except Exception:
+    sys.exit(0)
+
+if not rows:
+    sys.exit(0)
+
+print(f'📌 Memory for \`{keyword}\`:')
+for r in rows:
+    d = dict(r)
+    age = memory_db.relative_age(d.get('created_at_epoch'))
+    ctx = f\" · {d['context']}\" if d.get('context') else ''
+    glob = '🌐 ' if d.get('is_global') else ''
+    print(f\"  #{d['id']}  [{d['type']}]  {glob}{d['title']}{ctx}  {age}\")
+" 2>/dev/null)
+
+if [ -n "$RESULT" ]; then
+    echo "$RESULT"
+fi
+exit 0

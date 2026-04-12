@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/token-savior/hooks/memory-session-start.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/token-savior/hooks/memory-session-stop.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

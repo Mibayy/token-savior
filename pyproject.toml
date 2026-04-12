@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "token-savior"
-version = "1.0.0"
-description = "Compact structural codebase MCP server for token-efficient AI development"
+name = "token-savior-recall"
+version = "2.0.0"
+description = "Structural codebase MCP server with persistent memory engine — 97% token savings + cross-session recall for Claude Code"
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}

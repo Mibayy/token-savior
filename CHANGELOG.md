@@ -1,5 +1,60 @@
 # Changelog
 
+## v2.0.0 — Token Savior Recall (2026-04-13)
+
+### Memory Engine (new)
+
+- SQLite WAL + FTS5: cross-session persistent memory
+- 21 memory tools: save, search, get, delete, index, timeline, status, why, top
+- 8 Claude Code lifecycle hooks: SessionStart, Stop, SessionEnd, PreCompact,
+  PreToolUse ×2, UserPromptSubmit, PostToolUse
+- LRU scoring: `0.4 × recency + 0.3 × access + 0.3 × type_priority`
+- Delta injection: only the diff since last session is re-injected at start
+- Explicit TTL per observation type (command 60d, research 90d, note 60d)
+- Semantic dedup: exact hash + Jaccard (~0.85 threshold)
+- Auto-promotion: note × 5 accesses → convention, warning × 5 → guardrail
+- Contradiction detection at save time
+- Auto-linking between observations (symbol, context, tags)
+- Telegram feed for critical observations (warning / guardrail / error_pattern)
+- Mode system: `code`, `review`, `debug`, `infra`, `silent` with auto-detection
+- Thematic corpus Q&A
+- Versioned markdown export (git-tracked)
+- CLI: `ts memory {status,list,search,get,save,delete,top,why,doctor,relink}`
+- Dashboard Memory tab
+- 12 observation types: `bugfix`, `decision`, `convention`, `warning`,
+  `guardrail`, `error_pattern`, `note`, `command`, `research`, `infra`,
+  `config`, `idea`
+
+### Manifest optimizations
+
+- 80 → 69 tools (−11)
+- 42,251 → 36,153 chars manifest (−14%)
+- ~1,524 tokens saved per session on MCP manifest alone
+
+### Cleanup
+
+- Removed DEPRECATED tools (`apply_symbol_change_validate_with_rollback`,
+  `get_changed_symbols_since_ref`)
+- Fused 10 memory tools → 5 (`memory_mode`, `memory_archive`,
+  `memory_maintain`, `memory_set_global`, `memory_prompts`)
+
+### Core Token Savior (unchanged)
+
+- 69 MCP tools total (53 core + 16 memory)
+- 97% token savings measured across 170 real sessions
+- ~$609 estimated cost saved
+- 17 indexed projects
+- Annotators: Python, TypeScript/JS, Rust, Go, C/C++, C#, JSON, YAML,
+  TOML, XML, INI, ENV, HCL, Dockerfile, Markdown
+
+### Rename
+
+- Project renamed: **Token Savior → Token Savior Recall**
+- MCP server identifier: `token-savior` → `token-savior-recall`
+- PyPI package: `token-savior` → `token-savior-recall`
+
+---
+
 ## v1.0.0 (2026-04-11)
 
 ### Architecture

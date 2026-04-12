@@ -1,0 +1,157 @@
+#!/bin/bash
+# Memory Engine — UserPromptSubmit hook
+# - synchronous: inject top-3 relevant observations into context (stdout)
+# - background: strip private tags, trigger phrases, archive prompt
+PAYLOAD=$(cat)
+
+# --- Synchronous injection (must complete before Claude responds) ---------
+/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json, re
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+
+try:
+    payload = json.loads('''$PAYLOAD''')
+    text = (payload.get('prompt') or '').strip()
+    if len(text) < 20:
+        sys.exit(0)
+
+    # Skip if prompt is itself a trigger phrase — user is recording, not asking
+    TRIGGER_STARTS = (
+        'rappelle-toi', 'rappelle toi', 'note que', 'à retenir',
+        'règle', 'regle', 'ne jamais', 'toujours',
+        'remember that', 'note that', 'important', 'rule:', 'never ', 'always ',
+    )
+    low = text.lower()
+    if any(low.startswith(s) for s in TRIGGER_STARTS):
+        sys.exit(0)
+
+    db = memory_db.get_db()
+    row = db.execute(
+        'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+    ).fetchone()
+    db.close()
+    if not row:
+        sys.exit(0)
+
+    # Build FTS5-safe query: alphanumeric tokens >=3 chars, OR-joined, quoted
+    tokens = re.findall(r'[A-Za-zÀ-ÿ0-9_]{3,}', text[:300])
+    stop = {'que','qui','les','des','une','aux','pour','avec','dans','sur','par','est','sont','the','and','for','with','this','that','you','are','how','what','can','will','from'}
+    tokens = [t for t in tokens if t.lower() not in stop][:12]
+    if not tokens:
+        sys.exit(0)
+    query = ' OR '.join(f'\"{t}\"' for t in tokens)
+
+    results = memory_db.observation_search(project_root=row[0], query=query, limit=10)
+    if not results:
+        sys.exit(0)
+
+    priority_types = ('guardrail', 'convention', 'warning')
+    priority = [r for r in results if r.get('type') in priority_types]
+    others = [r for r in results if r.get('type') not in priority_types]
+    top3 = (priority + others)[:3]
+    if not top3:
+        sys.exit(0)
+
+    print('📌 Relevant memory:')
+    for r in top3:
+        sym = f\" ({r['symbol']})\" if r.get('symbol') else ''
+        print(f\"  #{r['id']}  [{r['type']}]  {r['title']}{sym}\")
+except Exception:
+    pass
+" 2>/dev/null
+
+# --- Session mode auto-detection (synchronous, write override file) ------
+/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json, re
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+
+try:
+    payload = json.loads('''$PAYLOAD''')
+    text = (payload.get('prompt') or '').strip()
+    if len(text) < 3:
+        sys.exit(0)
+
+    explicit = re.match(r'(?i)^mode\s*:\s*(debug|review|code|silent|infra)\b', text)
+    if explicit:
+        memory_db.set_session_override(explicit.group(1).lower())
+        sys.exit(0)
+
+    KEYWORDS = [
+        (r'(?i)^(debug|fix this|wtf|pourquoi|why is)\b', 'debug'),
+        (r'(?i)^(review|audit|check|v[eé]rifie|analyse)\b', 'review'),
+    ]
+    for pattern, target in KEYWORDS:
+        if re.match(pattern, text):
+            memory_db.set_session_override(target)
+            break
+except Exception:
+    pass
+" 2>/dev/null
+
+# --- Background: archive + trigger phrases --------------------------------
+/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json, re
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+
+payload = json.loads('''$PAYLOAD''')
+text = payload.get('prompt', '')
+if len(text) < 10:
+    sys.exit(0)
+
+try:
+    mode = memory_db.get_current_mode()
+    archive_enabled = mode.get('prompt_archive', True)
+except Exception:
+    archive_enabled = True
+
+db = memory_db.get_db()
+row = db.execute(
+    'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+).fetchone()
+db.close()
+project = row[0] if row else None
+
+TRIGGER_PATTERNS = [
+    (r'(?i)^rappelle[- ]toi que (.+)$', 'note'),
+    (r'(?i)^note que (.+)$', 'note'),
+    (r'(?i)^à retenir\s*:\s*(.+)$', 'convention'),
+    (r'(?i)^r[eè]gle\s*:\s*(.+)$', 'guardrail'),
+    (r'(?i)^ne jamais (.+)$', 'guardrail'),
+    (r'(?i)^toujours (.+)$', 'convention'),
+    (r'(?i)^remember that (.+)$', 'note'),
+    (r'(?i)^note that (.+)$', 'note'),
+    (r'(?i)^important\s*:\s*(.+)$', 'warning'),
+    (r'(?i)^rule\s*:\s*(.+)$', 'guardrail'),
+    (r'(?i)^never (.+)$', 'guardrail'),
+    (r'(?i)^always (.+)$', 'convention'),
+    (r'(?i)^commande\s*:\s*(.+)$', 'command'),
+    (r'(?i)^infra\s*:\s*(.+)$', 'infra'),
+    (r'(?i)^config\s*:\s*(.+)$', 'config'),
+    (r'(?i)^id[ée]e\s*:\s*(.+)$', 'idea'),
+    (r'(?i)^research\s*:\s*(.+)$', 'research'),
+]
+
+if project:
+    for pattern, obs_type in TRIGGER_PATTERNS:
+        m = re.match(pattern, text.strip())
+        if m:
+            content = m.group(1).strip()
+            title = content[:60] + ('...' if len(content) > 60 else '')
+            try:
+                memory_db.observation_save(
+                    session_id=None, project_root=project,
+                    type=obs_type, title=title, content=content,
+                    tags=['trigger-phrase'],
+                )
+            except Exception:
+                pass
+            break
+
+if archive_enabled and project:
+    memory_db.prompt_save(None, project, text)
+" 2>/dev/null &
+
+exit 0

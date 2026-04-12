@@ -62,29 +62,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "get_changed_symbols_since_ref": {
-        "description": "[DEPRECATED -- use get_changed_symbols(ref=...) instead] Return a compact symbol-oriented summary of git changes since a given ref.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "since_ref": {
-                    "type": "string",
-                    "description": "Git ref to compare against HEAD and current worktree.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum changed files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["since_ref"],
-        },
-        "deprecated": True,
-    },
     "summarize_patch_by_symbol": {
         "description": "Summarize a set of changed files as symbol-level entries for compact review instead of textual diffs.",
         "inputSchema": {
@@ -283,132 +260,39 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "run_impacted_tests": {
-        "description": "Run only the inferred impacted pytest files and return a compact summary instead of full logs.",
+        "description": "Run tests impacted by current changes.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed project files to map to likely impacted tests.",
-                },
-                "symbol_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed symbols to map to likely impacted tests.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
+                "changed_files": {"type": "array", "items": {"type": "string"}, "description": "Changed files"},
+                "symbol_names": {"type": "array", "items": {"type": "string"}, "description": "Changed symbols"},
+                "max_tests": {"type": "integer", "description": "Max test files"},
+                "timeout_sec": {"type": "integer", "description": "Timeout seconds"},
+                "max_output_chars": {"type": "integer", "description": "Max output chars"},
+                "include_output": {"type": "boolean", "description": "Include raw output"},
+                "compact": {"type": "boolean", "description": "Compact result"},
                 **_PROJECT_PARAM,
             },
         },
     },
     "apply_symbol_change_and_validate": {
-        "description": "Replace a symbol, reindex the file, and run only the inferred impacted tests. Set rollback_on_failure=true to auto-restore on test failure.",
+        "description": "Replace symbol source, reindex, run tests.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name to replace.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Replacement source for the symbol.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                "rollback_on_failure": {
-                    "type": "boolean",
-                    "description": "Create a checkpoint and auto-restore if tests fail (default false).",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
+                "symbol_name": {"type": "string", "description": "Symbol to replace"},
+                "new_source": {"type": "string", "description": "Replacement source"},
+                "file_path": {"type": "string", "description": "Optional file path"},
+                "rollback_on_failure": {"type": "boolean", "description": "Auto-restore on fail"},
+                "max_tests": {"type": "integer", "description": "Max test files"},
+                "timeout_sec": {"type": "integer", "description": "Timeout seconds"},
+                "max_output_chars": {"type": "integer", "description": "Max output chars"},
+                "include_output": {"type": "boolean", "description": "Include raw output"},
+                "compact": {"type": "boolean", "description": "Compact result"},
                 **_PROJECT_PARAM,
             },
             "required": ["symbol_name", "new_source"],
         },
-    },
-    "apply_symbol_change_validate_with_rollback": {
-        "description": "[DEPRECATED -- use apply_symbol_change_and_validate(rollback_on_failure=true)] Replace, validate, rollback on failure.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name to replace.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Replacement source for the symbol.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to run (default 20).",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep when included (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
-                "compact": {
-                    "type": "boolean",
-                    "description": "Return only the minimum useful fields for agent loops.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
-        },
-        "deprecated": True,
     },
     # ── Project actions ───────────────────────────────────────────────────
     "discover_project_actions": {
@@ -850,31 +734,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Analysis tools ────────────────────────────────────────────────────
     "analyze_config": {
-        "description": (
-            "Analyze config files for issues and insights: duplicate keys, hardcoded secrets, orphan entries, "
-            "config file loaders (which code loads which config), and schema (what keys code expects with defaults). "
-            "Checks can be filtered via the 'checks' parameter."
-        ),
+        "description": "Audit config files for issues.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "checks": {
                     "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"],
-                    },
-                    "description": 'Checks to run (default: duplicates,secrets,orphans). Options: "duplicates", "secrets", "orphans", "loaders", "schema".',
+                    "items": {"type": "string", "enum": ["duplicates", "secrets", "orphans", "loaders", "schema"]},
+                    "description": "Checks to run",
                 },
-                "file_path": {
-                    "type": "string",
-                    "description": "Specific config file to analyze. Omit to analyze all config files.",
-                },
-                "severity": {
-                    "type": "string",
-                    "enum": ["all", "error", "warning"],
-                    "description": 'Filter by severity (default: "all").',
-                },
+                "file_path": {"type": "string", "description": "Specific config file"},
+                "severity": {"type": "string", "enum": ["all", "error", "warning"], "description": "Severity filter"},
                 **_PROJECT_PARAM,
             },
         },
@@ -987,6 +857,313 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
+        },
+    },
+    # ── Memory Engine tools ───────────────────────────────────────────────
+    "memory_save": {
+        "description": "Save an observation to memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "user", "feedback", "project", "reference",
+                        "guardrail", "error_pattern", "decision", "convention",
+                        "bugfix", "warning", "note",
+                        "command", "research", "infra", "config", "idea",
+                    ],
+                    "description": "Observation type",
+                },
+                "title": {"type": "string", "description": "Short title"},
+                "content": {"type": "string", "description": "Full content"},
+                "why": {"type": "string", "description": "Why it matters"},
+                "how_to_apply": {"type": "string", "description": "How to apply"},
+                "symbol": {"type": "string", "description": "Related code symbol"},
+                "file_path": {"type": "string", "description": "Related file path"},
+                "context": {"type": "string", "description": "Free context: URL, command, config"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags list"},
+                "importance": {"type": "integer", "description": "Importance 1-10"},
+                "session_id": {"type": "integer", "description": "Session id"},
+                "is_global": {"type": "boolean", "description": "Visible in all projects"},
+                "ttl_days": {"type": "integer", "description": "TTL in days"},
+                **_PROJECT_PARAM,
+            },
+            "required": ["type", "title", "content"],
+        },
+    },
+    "memory_maintain": {
+        "description": "Maintenance: promote, relink, export, patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["promote", "relink", "export", "patterns"], "description": "Action"},
+                "dry_run": {"type": "boolean", "description": "Preview only"},
+                "output_dir": {"type": "string", "description": "Export dir"},
+                "window_days": {"type": "integer", "description": "Patterns window"},
+                "min_occurrences": {"type": "integer", "description": "Patterns threshold"},
+                **_PROJECT_PARAM,
+            },
+            "required": ["action"],
+        },
+    },
+    "memory_top": {
+        "description": "Classement des observations par score LRU, access_count ou âge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Nombre d'obs (défaut 20)."},
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["score", "access_count", "age"],
+                    "description": "Critère de tri (défaut score).",
+                },
+            },
+        },
+    },
+    "memory_why": {
+        "description": "Explique pourquoi une observation apparaît dans les résultats (trace recency, type, symbol, links, FTS match).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "ID de l'observation."},
+                "query": {"type": "string", "description": "Optionnel — query FTS5 pour vérifier le match."},
+            },
+            "required": ["id"],
+        },
+    },
+    "memory_doctor": {
+        "description": "Rapport de santé de la mémoire : orphans, near-duplicates, obs incomplètes.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "memory_from_bash": {
+        "description": "Sauvegarde une commande bash comme observation mémoire (type=command par défaut).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Commande bash complète à mémoriser."},
+                "type": {
+                    "type": "string",
+                    "description": "Type d'observation (command par défaut).",
+                    "enum": ["command", "infra", "config"],
+                },
+                "context": {"type": "string", "description": "Contexte libre (service, composant, ...)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["command"],
+        },
+    },
+    "memory_set_global": {
+        "description": "Set observation global visibility.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "Observation ID"},
+                "is_global": {"type": "boolean", "description": "True=global, False=local"},
+            },
+            "required": ["id", "is_global"],
+        },
+    },
+    "memory_search": {
+        "description": (
+            "Full-text search across all observations. Returns compact results. "
+            "Use memory_get with IDs to fetch full details."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "FTS5 search query (supports AND, OR, NOT, phrases).",
+                },
+                "type_filter": {
+                    "type": "string",
+                    "description": "Filter by observation type (optional).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["query"],
+        },
+    },
+    "memory_get": {
+        "description": "Get full details of observations by IDs (Layer 3 — full detail).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List of observation IDs to fetch.",
+                },
+                "full": {
+                    "type": "boolean",
+                    "description": "If false (default), content trimmed to 80 chars. If true, full content.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["ids"],
+        },
+    },
+    "memory_delete": {
+        "description": "Soft-delete an observation by ID (sets archived=1).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "description": "Observation ID to archive.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["id"],
+        },
+    },
+    "memory_index": {
+        "description": (
+            "Compact index of recent observations (Layer 1 — progressive disclosure). "
+            "Returns a markdown table with ID, type, title, importance, date."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max entries to return (default 30).",
+                },
+                "type_filter": {
+                    "type": "string",
+                    "description": "Filter by observation type (optional).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": [],
+        },
+    },
+    "memory_timeline": {
+        "description": (
+            "Chronological context around an observation (Layer 2). "
+            "Shows observations before and after for temporal context."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "observation_id": {
+                    "type": "integer",
+                    "description": "Center observation ID.",
+                },
+                "window": {
+                    "type": "integer",
+                    "description": "Window in hours around the observation (default 24).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["observation_id"],
+        },
+    },
+    "memory_prompts": {
+        "description": "Save or search prompt history.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["save", "search"], "description": "save or search"},
+                "prompt_text": {"type": "string", "description": "Prompt to save"},
+                "prompt_number": {"type": "integer", "description": "Prompt ordinal"},
+                "query": {"type": "string", "description": "Search query"},
+                "limit": {"type": "integer", "description": "Max results"},
+                **_PROJECT_PARAM,
+            },
+            "required": ["action"],
+        },
+    },
+    "memory_mode": {
+        "description": "Get or set memory capture mode.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["get", "set", "set_project"], "description": "Action"},
+                "mode": {"type": "string", "enum": ["code", "review", "debug", "silent"], "description": "Mode name"},
+                "project": {"type": "string", "description": "Project path"},
+            },
+            "required": ["action"],
+        },
+    },
+    "corpus_build": {
+        "description": (
+            "Build a named thematic corpus from observations filtered by type/tags/symbol. "
+            "Returns a summary (count, type breakdown, preview) and stores IDs for later query."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Corpus name (unique per project).",
+                },
+                "filter_type": {
+                    "type": "string",
+                    "description": "Filter by observation type (optional).",
+                },
+                "filter_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Require at least one matching tag (optional).",
+                },
+                "filter_symbol": {
+                    "type": "string",
+                    "description": "Filter by linked symbol (optional).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name"],
+        },
+    },
+    "memory_archive": {
+        "description": "Manage archived observations.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["run", "list", "restore"], "description": "run=decay, list, restore"},
+                "id": {"type": "integer", "description": "ID for restore"},
+                "dry_run": {"type": "boolean", "description": "Preview only"},
+                "limit": {"type": "integer", "description": "List max entries"},
+                **_PROJECT_PARAM,
+            },
+            "required": ["action"],
+        },
+    },
+    "memory_status": {
+        "description": (
+            "Quick overview of the Memory Engine for the active project: active/archived "
+            "obs count, current mode, last session + end_type, last summary date, prompts archived."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    "corpus_query": {
+        "description": (
+            "Format all observations of a corpus as markdown context + a question, "
+            "ready for Claude to answer with full context injected."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Corpus name previously built via corpus_build.",
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Question to answer with the corpus context.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name", "question"],
         },
     },
 }

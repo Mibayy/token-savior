@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.Mibayy/token-savior",
-  "description": "Structural codebase MCP server — navigate and edit code by symbol name, not raw text.",
+  "name": "io.github.Mibayy/token-savior-recall",
+  "description": "Structural codebase MCP server with persistent memory engine — navigate code by symbol and recall context across sessions.",
   "repository": {
     "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "2.0.0",
   "packages": [
     {
       "registryType": "pypi",
-      "identifier": "token-savior",
-      "version": "1.0.0",
+      "identifier": "token-savior-recall",
+      "version": "2.0.0",
       "transport": {
         "type": "stdio"
       },

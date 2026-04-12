@@ -69,3 +69,4 @@ benchmarks/report.md
 *.bak
 *.tmp
 .token-savior-checkpoints/
+memory-backup-*.json

@@ -1,4 +1,6 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "token-savior-recall",
+  "description": "Structural codebase MCP server with persistent memory engine — 97% token savings on code navigation plus cross-session recall for AI coding agents.",
   "maintainers": ["Mibayy"]
 }

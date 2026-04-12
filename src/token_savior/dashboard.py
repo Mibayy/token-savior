@@ -33,72 +33,227 @@ def load_payload(path: Path) -> dict | None:
 
 
 def _project_name(payload: dict, path: Path) -> str:
-    project_root = str(payload.get("project") or "").rstrip("/")
-    if project_root:
-        base = os.path.basename(project_root) or project_root
-        return "token-savior" if base == "token-savior" else base
-    derived = path.stem.rsplit("-", 1)[0]
-    return "token-savior" if derived == "token-savior" else derived
+    raw = payload.get("project")
+    if isinstance(raw, str) and raw.strip():
+        base = raw.rstrip("/").split("/")[-1]
+        return base or path.stem
+    return path.stem
 
 
-def _display_project_root(value: object) -> str:
-    project_root = str(value or "").strip()
-    if not project_root:
+def _display_project_root(value: str) -> str:
+    if not isinstance(value, str):
         return ""
-    return project_root.replace("/root/token-savior", "/root/token-savior")
+    return value
 
 
 def _safe_int(payload: dict, key: str) -> int:
     try:
-        return int(payload.get(key, 0) or 0)
+        return int(payload.get(key) or 0)
     except Exception:
         return 0
 
 
 def _recent_sessions(payload: dict, project_name: str) -> list[dict]:
-    sessions = []
-    for entry in payload.get("history", []):
-        session = dict(entry)
-        session["project"] = project_name
-        session["client_name"] = _client_name(entry.get("client_name"))
-        sessions.append(session)
-    return sessions
+    entries = payload.get("recent_sessions") or []
+    out = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            item = dict(entry)
+            item["project"] = project_name
+            out.append(item)
+    return out
 
 
-def _client_name(value: object) -> str:
-    name = str(value or "").strip()
-    return name or "unknown"
+def _client_name(value) -> str:
+    return str(value).strip() if value else "unknown"
 
 
 def _project_client_counts(payload: dict) -> dict[str, int]:
-    client_counts: dict[str, int] = {}
-    for client_name, count in payload.get("client_counts", {}).items():
-        try:
-            normalized = _client_name(client_name)
-            client_counts[normalized] = client_counts.get(normalized, 0) + int(count)
-        except Exception:
-            continue
-    if client_counts:
-        return client_counts
-    history = payload.get("history", [])
-    if history:
-        for entry in history:
-            normalized = _client_name(entry.get("client_name"))
-            client_counts[normalized] = client_counts.get(normalized, 0) + 1
-        return client_counts
-    sessions = _safe_int(payload, "sessions")
-    if sessions > 0:
-        client_counts["unknown"] = sessions
-    return client_counts
+    counts: dict[str, int] = {}
+    raw = payload.get("client_counts") or payload.get("clients")
+    if isinstance(raw, dict):
+        for name, value in raw.items():
+            try:
+                counts[_client_name(name)] = int(value or 0)
+            except Exception:
+                continue
+    elif isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, dict):
+                name = _client_name(entry.get("client"))
+                try:
+                    counts[name] = int(entry.get("sessions") or 0)
+                except Exception:
+                    continue
+    return counts
 
 
 def _should_include_project(payload: dict, path: Path) -> bool:
     if INCLUDE_TMP_PROJECTS:
         return True
-    project_root = str(payload.get("project") or "")
-    if project_root.startswith("/tmp/") or "/pytest-of-root/" in project_root:
+    root = payload.get("project") or ""
+    if isinstance(root, str) and root.startswith("/tmp/"):
         return False
     return True
+
+
+VALID_OBS_TYPES = (
+    "bugfix",
+    "decision",
+    "convention",
+    "warning",
+    "guardrail",
+    "error_pattern",
+    "note",
+    "command",
+    "research",
+    "infra",
+    "config",
+    "idea",
+)
+
+
+def collect_memory_engine_data() -> dict:
+    """Memory Engine stats across projects, isolated from token stats.
+
+    Filters observations to VALID_OBS_TYPES only — legacy `project`/`reference`/
+    `user`/`feedback` entries from auto-memory are excluded from the dashboard
+    so the type breakdown reflects coding-session signal only.
+    """
+    try:
+        from token_savior import memory_db
+    except Exception:
+        return {"available": False}
+
+    type_placeholders = ",".join("?" for _ in VALID_OBS_TYPES)
+
+    try:
+        conn = memory_db.get_db()
+        try:
+            totals_row = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "COUNT(DISTINCT project_root) AS projects, "
+                "COUNT(DISTINCT session_id) AS sessions, "
+                "SUM(CASE WHEN symbol IS NOT NULL THEN 1 ELSE 0 END) AS with_symbol "
+                f"FROM observations WHERE archived=0 AND type IN ({type_placeholders})",
+                VALID_OBS_TYPES,
+            ).fetchone()
+            archived_count = conn.execute(
+                f"SELECT COUNT(*) FROM observations "
+                f"WHERE archived=1 AND type IN ({type_placeholders})",
+                VALID_OBS_TYPES,
+            ).fetchone()[0]
+            by_type = [
+                {"type": r["type"], "count": r["count"]}
+                for r in conn.execute(
+                    "SELECT type, COUNT(*) AS count FROM observations "
+                    f"WHERE archived=0 AND type IN ({type_placeholders}) "
+                    "GROUP BY type ORDER BY count DESC",
+                    VALID_OBS_TYPES,
+                ).fetchall()
+            ]
+            prompts_count = conn.execute("SELECT COUNT(*) FROM user_prompts").fetchone()[0]
+            summaries_count = conn.execute("SELECT COUNT(*) FROM summaries").fetchone()[0]
+            sessions_total = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+            sessions_completed = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE end_type='completed'"
+            ).fetchone()[0]
+            sessions_interrupted = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE end_type='interrupted'"
+            ).fetchone()[0]
+
+            recent_obs_rows = conn.execute(
+                "SELECT id, type, title, content, symbol, file_path, importance, "
+                "why, how_to_apply, tags, project_root, is_global, "
+                "created_at, created_at_epoch "
+                f"FROM observations WHERE archived=0 AND type IN ({type_placeholders}) "
+                "ORDER BY created_at_epoch DESC LIMIT 10",
+                VALID_OBS_TYPES,
+            ).fetchall()
+            recent_obs = []
+            for r in recent_obs_rows:
+                d = dict(r)
+                d["age"] = memory_db.relative_age(d.get("created_at_epoch"))
+                if d.get("symbol") and d.get("project_root"):
+                    d["stale"] = memory_db.check_symbol_staleness(
+                        d["project_root"], d["symbol"], d.get("created_at_epoch") or 0
+                    )
+                else:
+                    d["stale"] = False
+                recent_obs.append(d)
+            global_count = conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE archived=0 AND is_global=1"
+            ).fetchone()[0]
+
+            top_sessions_rows = conn.execute(
+                "SELECT s.id, s.project_root, s.status, s.end_type, s.summary, "
+                "s.created_at, s.completed_at, s.created_at_epoch, s.completed_at_epoch, "
+                "(s.completed_at_epoch - s.created_at_epoch) AS duration_sec, "
+                "(SELECT COUNT(*) FROM observations o WHERE o.session_id=s.id AND o.archived=0) AS obs_count "
+                "FROM sessions s "
+                "ORDER BY s.id DESC LIMIT 5"
+            ).fetchall()
+            top_sessions = []
+            for r in top_sessions_rows:
+                row = dict(r)
+                # duration_sec is NULL when session is still active → "en cours"
+                if row.get("completed_at_epoch") is None:
+                    row["duration_s"] = None
+                else:
+                    row["duration_s"] = max(0, row.get("duration_sec") or 0)
+                top_sessions.append(row)
+
+            search_rows = conn.execute(
+                "SELECT id, type, title, symbol, created_at, project_root "
+                f"FROM observations WHERE archived=0 AND type IN ({type_placeholders}) "
+                "ORDER BY created_at_epoch DESC LIMIT 300",
+                VALID_OBS_TYPES,
+            ).fetchall()
+            all_obs = [dict(r) for r in search_rows]
+        finally:
+            conn.close()
+    except Exception:
+        return {"available": False}
+
+    try:
+        mode = memory_db.get_current_mode()
+    except Exception:
+        mode = None
+
+    # Continuity score for the most populated project
+    try:
+        conn2 = memory_db.get_db()
+        top_proj = conn2.execute(
+            "SELECT project_root FROM observations WHERE archived=0 "
+            "GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1"
+        ).fetchone()
+        conn2.close()
+        continuity = memory_db.compute_continuity_score(top_proj[0]) if top_proj else None
+    except Exception:
+        continuity = None
+
+    return {
+        "available": True,
+        "mode": mode,
+        "continuity": continuity,
+        "global_count": global_count,
+        "totals": {
+            "observations": totals_row["total"] or 0,
+            "archived": archived_count,
+            "projects": totals_row["projects"] or 0,
+            "sessions_with_obs": totals_row["sessions"] or 0,
+            "with_symbol": totals_row["with_symbol"] or 0,
+            "sessions": sessions_total,
+            "sessions_completed": sessions_completed,
+            "sessions_interrupted": sessions_interrupted,
+            "summaries": summaries_count,
+            "prompts": prompts_count,
+        },
+        "by_type": by_type,
+        "recent": recent_obs,
+        "top_sessions": top_sessions,
+        "all_obs": all_obs,
+    }
 
 
 def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
@@ -206,816 +361,588 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
     }
     for client_name, session_count in client_totals.items():
         result[client_name] = {"active": True, "sessions": session_count}
+    result["memory_engine"] = collect_memory_engine_data()
     return result
 
 
-HTML = """<!doctype html>
+# ---------------------------------------------------------------------------
+# HTML template — data injected as window.__DATA__ JSON at render time.
+# ---------------------------------------------------------------------------
+HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Token Savior</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<title>Token Savior — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #111118;
+  --surface-hi: #17171f;
+  --border: #1e1e2e;
+  --border-hi: #2a2a3e;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --cyan: #00d4ff;
+  --orange: #ff6b35;
+  --violet: #7c3aed;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --type-guardrail: #ef4444;
+  --type-convention: #7c3aed;
+  --type-warning: #f59e0b;
+  --type-bugfix: #10b981;
+  --type-decision: #00d4ff;
+  --type-error_pattern: #ff6b35;
+  --type-note: #64748b;
+  --type-project: #3b82f6;
+  --type-reference: #8b8b9e;
+  --type-user: #ec4899;
+  --type-command: #06b6d4;
+  --type-research: #8b5cf6;
+  --type-infra: #84cc16;
+  --type-config: #f97316;
+  --type-idea: #ec4899;
+  --type-feedback: #14b8a6;
+  --shadow: 0 0 0 1px rgba(255,255,255,0.05), 0 4px 24px rgba(0,0,0,0.4);
+}
 
-    :root {
-      --bg:        #060912;
-      --bg2:       #0b0f1a;
-      --card:      #0e1420;
-      --card2:     #111827;
-      --border:    rgba(255,255,255,0.06);
-      --border2:   rgba(255,255,255,0.1);
-      --text:      #f0f4ff;
-      --muted:     #5a6a82;
-      --soft:      #8fa3be;
-      --emerald:   #10d98e;
-      --emerald2:  #05a36a;
-      --cyan:      #38bdf8;
-      --violet:    #818cf8;
-      --amber:     #f59e0b;
-      --rose:      #fb7185;
-      --r:         14px;
-      --r2:        10px;
-    }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+body { min-height: 100vh; }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.muted { color: var(--muted); }
 
-    html { font-size: 14px; -webkit-font-smoothing: antialiased; }
+/* ---------- Header ---------- */
+.hdr {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 32px;
+  background: rgba(10,10,15,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
+.brand .bolt { color: var(--cyan); }
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; }
+.tab-btn {
+  appearance: none; border: 0; background: transparent; color: var(--muted);
+  padding: 8px 18px; border-radius: 6px; font: 500 13px 'Inter', sans-serif;
+  cursor: pointer; transition: all 0.15s ease;
+  font-family: 'JetBrains Mono', monospace;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { background: var(--bg); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-hi); }
+.tab-btn[data-tab="memory"].active { color: var(--orange); }
+.tab-btn[data-tab="tokens"].active { color: var(--cyan); }
+.live-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); }
 
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+/* ---------- Layout ---------- */
+.wrap { max-width: 1400px; margin: 0 auto; padding: 32px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none; } }
 
-    /* ─── Dot grid background ─── */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
-      background-size: 28px 28px;
-      pointer-events: none;
-      z-index: 0;
-    }
+/* ---------- Hero ---------- */
+.hero { text-align: center; padding: 48px 0 40px; }
+.hero-pct { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 96px; line-height: 1; color: var(--cyan); letter-spacing: -0.04em; }
+.hero-sub { margin-top: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 14px; }
 
-    .wrap {
-      position: relative;
-      z-index: 1;
-      max-width: 1360px;
-      margin: 0 auto;
-      padding: 32px 24px 56px;
-    }
+/* ---------- KPI cards ---------- */
+.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.kpi {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; box-shadow: var(--shadow);
+  transition: border-color 0.15s;
+}
+.kpi:hover { border-color: var(--border-hi); }
+.kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
+.kpi-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 28px; color: var(--text); letter-spacing: -0.02em; }
+.kpi-hint { margin-top: 6px; font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.kpi.accent-orange .kpi-value { color: var(--orange); }
+.kpi.accent-cyan .kpi-value { color: var(--cyan); }
+.kpi.accent-violet .kpi-value { color: var(--violet); }
 
-    /* ─── Topbar ─── */
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 40px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .brand-icon {
-      width: 34px; height: 34px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #1a3554, #0d2240);
-      border: 1px solid rgba(56,189,248,0.25);
-      display: grid; place-items: center;
-      font-size: 16px;
-      flex-shrink: 0;
-    }
-    .brand-name {
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--text);
-    }
-    .brand-tagline {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 1px;
-    }
-    .status-pill {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      border-radius: 999px;
-      border: 1px solid rgba(16,217,142,0.18);
-      background: rgba(16,217,142,0.05);
-      font-size: 12px;
-      color: var(--emerald);
-      font-weight: 500;
-      letter-spacing: 0.01em;
-    }
-    .dot {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--emerald);
-      flex-shrink: 0;
-      animation: blink 2.4s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
+/* ---------- Cards ---------- */
+.grid2 { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; box-shadow: var(--shadow);
+}
+.card + .card { margin-top: 16px; }
+.card-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; }
+.card-title { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.card-count { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
 
-    /* ─── Hero ─── */
-    .hero {
-      text-align: center;
-      margin-bottom: 48px;
-      padding: 0 16px;
-    }
-    .hero-eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 5px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border2);
-      background: rgba(255,255,255,0.03);
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--soft);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      margin-bottom: 20px;
-    }
-    .hero-number {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: clamp(72px, 12vw, 120px);
-      font-weight: 600;
-      letter-spacing: -0.05em;
-      line-height: 1;
-      background: linear-gradient(135deg, #10d98e 0%, #38bdf8 60%, #818cf8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      margin-bottom: 12px;
-    }
-    .hero-label {
-      font-size: 16px;
-      color: var(--soft);
-      font-weight: 400;
-      letter-spacing: -0.01em;
-    }
-    .hero-sub {
-      margin-top: 6px;
-      font-size: 13px;
-      color: var(--muted);
-    }
+/* ---------- Input ---------- */
+.input {
+  appearance: none; width: 100%; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 8px 12px; border-radius: 6px; font: 13px 'JetBrains Mono', monospace;
+  transition: border-color 0.15s;
+}
+.input:focus { outline: none; border-color: var(--border-hi); }
+.search { max-width: 260px; }
 
-    /* ─── Stats row ─── */
-    .stats-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 32px;
-    }
-    .stat-card {
-      padding: 18px 20px;
-      border-radius: var(--r);
-      border: 1px solid var(--border);
-      background: var(--card);
-      position: relative;
-      overflow: hidden;
-    }
-    .stat-card::after {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 1px;
-      background: var(--stat-line, transparent);
-    }
-    .stat-card.s-emerald { --stat-line: linear-gradient(90deg, transparent, var(--emerald), transparent); }
-    .stat-card.s-cyan    { --stat-line: linear-gradient(90deg, transparent, var(--cyan), transparent); }
-    .stat-card.s-violet  { --stat-line: linear-gradient(90deg, transparent, var(--violet), transparent); }
-    .stat-card.s-amber   { --stat-line: linear-gradient(90deg, transparent, var(--amber), transparent); }
-    .stat-label {
-      font-size: 11px;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      margin-bottom: 10px;
-    }
-    .stat-value {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 26px;
-      font-weight: 600;
-      letter-spacing: -0.04em;
-      line-height: 1;
-    }
-    .stat-hint {
-      margin-top: 8px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .c-emerald { color: var(--emerald); }
-    .c-cyan    { color: var(--cyan); }
-    .c-violet  { color: var(--violet); }
-    .c-amber   { color: var(--amber); }
-    .c-rose    { color: var(--rose); }
-    .c-soft    { color: var(--soft); }
-    .c-muted   { color: var(--muted); }
+/* ---------- Project rows ---------- */
+.proj-list { max-height: 640px; overflow-y: auto; }
+.proj-list::-webkit-scrollbar { width: 8px; }
+.proj-list::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 4px; }
+.proj-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.proj-row:last-child { border-bottom: 0; }
+.proj-name { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 13px; }
+.proj-path { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.proj-stats { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); text-align: right; white-space: nowrap; }
+.proj-stats .key { color: var(--muted); }
+.proj-stats .val { color: var(--text); }
+.proj-savings { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 16px; color: var(--cyan); min-width: 72px; text-align: right; }
+.proj-bar { grid-column: 1 / -1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.proj-bar-fill { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--violet)); }
+.proj-clients { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.client-pill { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; }
 
-    /* ─── Main grid ─── */
-    .main-grid {
-      display: grid;
-      grid-template-columns: 1fr 380px;
-      gap: 16px;
-      align-items: start;
-    }
-    .left-col  { display: flex; flex-direction: column; gap: 16px; }
-    .right-col { display: flex; flex-direction: column; gap: 16px; }
+/* ---------- Horizontal bars ---------- */
+.hbar-list { display: flex; flex-direction: column; gap: 10px; }
+.hbar { position: relative; }
+.hbar-lbl { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-bottom: 4px; }
+.hbar-lbl .name { color: var(--text); }
+.hbar-lbl .count { color: var(--muted); }
+.hbar-track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.hbar-fill { height: 100%; background: var(--cyan); border-radius: 3px; transition: width 0.3s ease; }
 
-    /* ─── Section card ─── */
-    .section {
-      border-radius: var(--r);
-      border: 1px solid var(--border);
-      background: var(--card);
-      overflow: hidden;
-    }
-    .section-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
-    }
-    .section-title {
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }
-    .section-sub {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-    .section-body { padding: 16px 20px; }
-    .count-badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: var(--soft);
-      padding: 3px 8px;
-      border-radius: 6px;
-      border: 1px solid var(--border2);
-      background: rgba(255,255,255,0.03);
-    }
+/* ---------- Memory status bar ---------- */
+.mem-status {
+  display: flex; gap: 24px; align-items: center; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 20px; margin-bottom: 24px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.mem-status .chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--muted);
+}
+.mem-status .chip .val { color: var(--text); font-weight: 600; }
+.mode-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,107,53,0.1); color: var(--orange);
+  padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,107,53,0.3);
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px;
+}
 
-    /* ─── Search ─── */
-    .search-bar {
-      width: 100%;
-      padding: 9px 13px;
-      border-radius: var(--r2);
-      border: 1px solid var(--border2);
-      background: rgba(255,255,255,0.03);
-      color: var(--text);
-      font-size: 13px;
-      font-family: inherit;
-      outline: none;
-      margin-bottom: 14px;
-      transition: border-color .15s, box-shadow .15s;
-    }
-    .search-bar::placeholder { color: var(--muted); }
-    .search-bar:focus {
-      border-color: rgba(56,189,248,0.35);
-      box-shadow: 0 0 0 3px rgba(56,189,248,0.08);
-    }
+/* ---------- Type badges ---------- */
+.type-badge {
+  display: inline-flex; align-items: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 3px 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+}
+.type-badge[data-type="guardrail"]     { color: var(--type-guardrail);     border-color: rgba(239,68,68,0.3);  background: rgba(239,68,68,0.08); }
+.type-badge[data-type="convention"]    { color: var(--type-convention);    border-color: rgba(124,58,237,0.3); background: rgba(124,58,237,0.08); }
+.type-badge[data-type="warning"]       { color: var(--type-warning);       border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.08); }
+.type-badge[data-type="bugfix"]        { color: var(--type-bugfix);        border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.08); }
+.type-badge[data-type="decision"]      { color: var(--type-decision);      border-color: rgba(0,212,255,0.3);  background: rgba(0,212,255,0.08); }
+.type-badge[data-type="error_pattern"] { color: var(--type-error_pattern); border-color: rgba(255,107,53,0.3); background: rgba(255,107,53,0.08); }
+.type-badge[data-type="note"]          { color: var(--type-note);          border-color: rgba(100,116,139,0.3);background: rgba(100,116,139,0.08); }
+.type-badge[data-type="project"]       { color: var(--type-project);       border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.08); }
 
-    /* ─── Project rows ─── */
-    .proj-list { display: flex; flex-direction: column; gap: 8px; }
-    .proj-row {
-      padding: 14px 16px;
-      border-radius: var(--r2);
-      border: 1px solid var(--border);
-      background: var(--card2);
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 12px;
-      align-items: start;
-      transition: border-color .15s;
-    }
-    .proj-row:hover { border-color: var(--border2); }
-    .proj-name {
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      margin-bottom: 3px;
-    }
-    .proj-path {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: var(--muted);
-    }
-    .proj-nums {
-      display: flex;
-      gap: 16px;
-      margin-top: 12px;
-      align-items: center;
-    }
-    .pn-item { display: flex; flex-direction: column; gap: 2px; }
-    .pn-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
-    .pn-value { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
-    .proj-bar-wrap {
-      margin-top: 10px;
-      height: 3px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.05);
-      overflow: hidden;
-    }
-    .proj-bar {
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, var(--cyan), var(--emerald));
-      transition: width .5s ease;
-    }
-    .proj-right {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 8px;
-    }
-    .pct-badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: -0.03em;
-    }
-    .proj-chips { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-    .chip {
-      font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
-      padding: 2px 7px;
-      border-radius: 5px;
-      border: 1px solid var(--border2);
-      color: var(--soft);
-    }
+/* ---------- Type breakdown bars ---------- */
+.type-bars { display: flex; flex-direction: column; gap: 8px; }
+.type-row { display: grid; grid-template-columns: 120px 1fr 48px; align-items: center; gap: 12px; }
+.type-row .t-track { height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.type-row .t-fill { height: 100%; border-radius: 4px; }
+.type-row .t-count { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); text-align: right; }
 
-    /* ─── Tool bars ─── */
-    .tool-list { display: flex; flex-direction: column; gap: 7px; }
-    .tool-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: center;
-      gap: 10px;
-    }
-    .tool-name {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: var(--soft);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .tool-bar-wrap {
-      grid-column: 1 / -1;
-      height: 3px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.05);
-      overflow: hidden;
-      margin-top: -4px;
-    }
-    .tool-bar {
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, var(--violet), var(--cyan));
-    }
-    .tool-count {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: var(--muted);
-      flex-shrink: 0;
-    }
+/* ---------- Obs list ---------- */
+.obs-list { display: flex; flex-direction: column; }
+.obs-row {
+  display: grid; grid-template-columns: 40px auto 1fr auto auto; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+  transition: background 0.1s;
+}
+.obs-row:hover { background: rgba(255,255,255,0.02); }
+.obs-row:last-child { border-bottom: 0; }
+.obs-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+.obs-title { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obs-sym { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--violet); }
+.obs-stale { margin-left: 4px; font-size: 11px; color: var(--orange); }
+.obs-global { margin-right: 4px; font-size: 11px; }
+.obs-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+.obs-content {
+  grid-column: 1 / -1; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--muted); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 12px; margin-top: 8px; white-space: pre-wrap; line-height: 1.55;
+  max-height: 320px; overflow-y: auto;
+}
+.hidden { display: none !important; }
 
-    /* ─── Sessions ─── */
-    .sess-list { display: flex; flex-direction: column; gap: 6px; }
-    .sess-row {
-      padding: 10px 12px;
-      border-radius: var(--r2);
-      border: 1px solid var(--border);
-      background: var(--card2);
-    }
-    .sess-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 7px;
-    }
-    .sess-project { font-size: 13px; font-weight: 600; }
-    .sess-badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 5px;
-      border: 1px solid currentColor;
-      opacity: 0.85;
-    }
-    .sess-meta {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
-    }
-    .sm-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-    .sm-value { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--soft); margin-top: 1px; }
+/* ---------- Session list ---------- */
+.sess-row {
+  padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.sess-row:last-child { border-bottom: 0; }
+.sess-row:hover { background: rgba(255,255,255,0.02); }
+.sess-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sess-id { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
+.sess-badge {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+  padding: 3px 8px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.sess-badge[data-end="completed"]   { color: var(--success); background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); }
+.sess-badge[data-end="interrupted"] { color: var(--warning); background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); }
+.sess-badge[data-end="active"]      { color: var(--cyan); background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); }
+.sess-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-left: auto; }
+.sess-project { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.sess-summary {
+  margin-top: 10px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--muted); white-space: pre-wrap; max-height: 260px; overflow-y: auto; line-height: 1.55;
+}
 
-    /* ─── Clients ─── */
-    .client-list { display: flex; flex-direction: column; gap: 8px; }
-    .client-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .client-name { font-family: 'JetBrains Mono', monospace; font-size: 13px; min-width: 90px; }
-    .client-track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.05); overflow: hidden; }
-    .client-fill  { height: 100%; border-radius: inherit; background: var(--cyan); }
-    .client-n { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); min-width: 28px; text-align: right; }
+.empty { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 14px; text-align: center; }
 
-    /* ─── Empty ─── */
-    .empty {
-      padding: 24px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 12px;
-      border: 1px dashed var(--border2);
-      border-radius: var(--r2);
-    }
-
-    /* ─── Footer ─── */
-    .footer {
-      margin-top: 40px;
-      text-align: center;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.02em;
-    }
-
-    /* ─── Responsive ─── */
-    @media (max-width: 1100px) {
-      .main-grid { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 700px) {
-      .wrap { padding: 20px 14px 40px; }
-      .stats-row { grid-template-columns: repeat(2, 1fr); }
-      .hero-number { font-size: 72px; }
-      .proj-nums { flex-wrap: wrap; gap: 10px; }
-    }
-    @media (max-width: 420px) {
-      .stats-row { grid-template-columns: 1fr; }
-    }
-  </style>
+footer { text-align: center; padding: 32px; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+</style>
 </head>
 <body>
+<header class="hdr">
+  <div class="brand"><span class="bolt">⚡</span> Token Savior</div>
+  <div class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab-btn="tokens">Tokens</button>
+    <button class="tab-btn" data-tab-btn="memory">Memory</button>
+  </div>
+  <div class="live-badge"><span class="dot"></span><span id="liveStamp">● Live</span></div>
+</header>
+
 <div class="wrap">
+  <section class="tab-panel active" data-tab="tokens">
+    <div class="hero">
+      <div class="hero-pct" id="heroPct">—</div>
+      <div class="hero-sub" id="heroSub">loading…</div>
+    </div>
 
-  <!-- Topbar -->
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-icon">⚡</div>
+    <div class="kpi-row">
+      <div class="kpi accent-cyan"><div class="kpi-label">Tokens Saved</div><div class="kpi-value" id="kpiSaved">—</div><div class="kpi-hint" id="kpiSavedHint"></div></div>
+      <div class="kpi"><div class="kpi-label">Tokens Used</div><div class="kpi-value" id="kpiUsed">—</div><div class="kpi-hint" id="kpiUsedHint"></div></div>
+      <div class="kpi"><div class="kpi-label">Total Queries</div><div class="kpi-value" id="kpiCalls">—</div><div class="kpi-hint" id="kpiCallsHint"></div></div>
+      <div class="kpi accent-orange"><div class="kpi-label">$ Saved (est.)</div><div class="kpi-value" id="kpiUsd">—</div><div class="kpi-hint">vs naive reads</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-hdr">
+          <div class="card-title">Projects</div>
+          <input class="input search" id="projFilter" type="search" placeholder="filter projects…">
+        </div>
+        <div class="proj-list" id="projList"></div>
+      </div>
       <div>
-        <div class="brand-name">Token Savior</div>
-        <div class="brand-tagline" id="statsPath"></div>
-      </div>
-    </div>
-    <div class="status-pill">
-      <div class="dot"></div>
-      <span id="liveLabel">Live</span>
-    </div>
-  </div>
-
-  <!-- Hero -->
-  <div class="hero">
-    <div class="hero-eyebrow">
-      <span>workspace token efficiency</span>
-    </div>
-    <div class="hero-number" id="heroSavingsPct">—</div>
-    <div class="hero-label">of tokens saved across the workspace</div>
-    <div class="hero-sub" id="heroSub">Loading…</div>
-  </div>
-
-  <!-- Stats row -->
-  <div class="stats-row">
-    <div class="stat-card s-emerald">
-      <div class="stat-label">Tokens saved</div>
-      <div class="stat-value c-emerald" id="sTokSaved">—</div>
-      <div class="stat-hint" id="sCharsSaved">— chars</div>
-    </div>
-    <div class="stat-card s-cyan">
-      <div class="stat-label">Tokens used</div>
-      <div class="stat-value c-cyan" id="sTokUsed">—</div>
-      <div class="stat-hint" id="sTokNaive">Naive —</div>
-    </div>
-    <div class="stat-card s-violet">
-      <div class="stat-label">Total queries</div>
-      <div class="stat-value c-violet" id="sQueries">—</div>
-      <div class="stat-hint" id="sSessions">— sessions</div>
-    </div>
-    <div class="stat-card s-amber">
-      <div class="stat-label">$ Saved (est.)</div>
-      <div class="stat-value c-amber" id="sSavingsUsd">—</div>
-      <div class="stat-hint" id="sSavingsHint">@ $3/M input tokens</div>
-    </div>
-  </div>
-
-  <!-- Main grid -->
-  <div class="main-grid">
-
-    <!-- Left: projects -->
-    <div class="left-col">
-      <div class="section">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Projects</div>
-            <div class="section-sub">Ranked by tokens saved · only used projects appear</div>
-          </div>
-          <span class="count-badge" id="projCount">0</span>
+        <div class="card">
+          <div class="card-hdr"><div class="card-title">Clients</div><div class="card-count" id="clientCount"></div></div>
+          <div class="hbar-list" id="clientList"></div>
         </div>
-        <div class="section-body">
-          <input class="search-bar" id="projSearch" type="search" placeholder="Filter by name, path, or client…">
-          <div class="proj-list" id="projList"></div>
+        <div class="card">
+          <div class="card-hdr"><div class="card-title">Top Tools</div><div class="card-count" id="toolCount"></div></div>
+          <div class="hbar-list" id="toolList"></div>
         </div>
       </div>
     </div>
+  </section>
 
-    <!-- Right sidebar -->
-    <div class="right-col">
+  <section class="tab-panel" data-tab="memory">
+    <div class="mem-status" id="memStatus"><span class="muted">loading memory…</span></div>
 
-      <!-- Clients -->
-      <div class="section">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Clients</div>
-            <div class="section-sub">Sessions per client</div>
-          </div>
-        </div>
-        <div class="section-body">
-          <div class="client-list" id="clientList"></div>
-        </div>
-      </div>
-
-      <!-- Top tools -->
-      <div class="section">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Top tools</div>
-            <div class="section-sub">Most called across workspace</div>
-          </div>
-        </div>
-        <div class="section-body">
-          <div class="tool-list" id="toolList"></div>
-        </div>
-      </div>
-
-      <!-- Recent sessions -->
-      <div class="section">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Recent sessions</div>
-            <div class="section-sub">Latest 25 snapshots</div>
-          </div>
-        </div>
-        <div class="section-body">
-          <div class="sess-list" id="sessList"></div>
-        </div>
-      </div>
-
+    <div class="kpi-row">
+      <div class="kpi accent-orange"><div class="kpi-label">Observations</div><div class="kpi-value" id="memObs">—</div><div class="kpi-hint" id="memObsHint"></div></div>
+      <div class="kpi"><div class="kpi-label">Sessions Completed</div><div class="kpi-value" id="memSessCompl">—</div><div class="kpi-hint" id="memSessHint"></div></div>
+      <div class="kpi accent-violet"><div class="kpi-label">Summaries</div><div class="kpi-value" id="memSum">—</div><div class="kpi-hint">auto-generated</div></div>
+      <div class="kpi"><div class="kpi-label">Prompts Archived</div><div class="kpi-value" id="memPrompts">—</div><div class="kpi-hint">user prompts</div></div>
     </div>
-  </div>
 
-  <div class="footer" id="footer"></div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Type Breakdown</div><div class="card-count" id="typeCount"></div></div>
+      <div class="type-bars" id="typeBars"></div>
+    </div>
 
+    <div style="height:16px"></div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-hdr">
+          <div class="card-title">Recent Observations</div>
+          <input class="input search" id="obsSearch" type="search" placeholder="search observations…">
+        </div>
+        <div class="obs-list" id="obsList"></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><div class="card-title">Recent Sessions</div><div class="card-count" id="sessCount"></div></div>
+        <div id="sessList"></div>
+      </div>
+    </div>
+  </section>
 </div>
+
+<footer>Token Savior · generated <span id="genAt"></span></footer>
+
 <script>
-  const S = { data: null, ts: null };
+window.__DATA__ = __DATA_JSON__;
 
-  // ── Format helpers ──────────────────────────────────────
-  function fmt(n) {
-    n = Number(n || 0);
-    if (n >= 1e9)  return (n / 1e9).toFixed(2).replace(/\\.?0+$/, '') + 'B';
-    if (n >= 1e6)  return (n / 1e6).toFixed(2).replace(/\\.?0+$/, '') + 'M';
-    if (n >= 1e3)  return (n / 1e3).toFixed(1).replace(/\\.?0+$/, '') + 'K';
-    return String(n);
-  }
-  function fmtFull(n) {
-    return new Intl.NumberFormat('en-US').format(Number(n || 0));
-  }
-  function fmtPct(v) {
-    const n = Number(v || 0);
-    return n.toFixed(n >= 10 ? 1 : 2) + '%';
-  }
-  function fmtDate(v) {
-    if (!v) return '—';
-    const d = new Date(v);
-    if (isNaN(d)) return String(v).slice(0, 16).replace('T', ' ');
-    return d.toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  }
-  function ago(iso) {
-    if (!iso) return '';
-    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
-    if (s < 10)  return 'just now';
-    if (s < 60)  return s + 's ago';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-    return Math.floor(s / 86400) + 'd ago';
-  }
-  function esc(v) {
-    return String(v || '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-  function pctColor(v) {
-    const p = Number(v || 0);
-    if (p >= 80) return 'var(--emerald)';
-    if (p >= 55) return 'var(--amber)';
-    return 'var(--rose)';
-  }
-  function pctClass(v) {
-    const p = Number(v || 0);
-    if (p >= 80) return 'c-emerald';
-    if (p >= 55) return 'c-amber';
-    return 'c-rose';
-  }
+// ---------- Helpers ----------
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
+const basename = (p) => (p || "").replace(/\/+$/, "").split("/").pop() || p || "—";
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortDate = (iso) => (iso || "").slice(0, 10);
+const fmtDur = (s) => {
+  if (s == null) return "en cours";
+  s = Number(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s/60) + "m " + (s%60) + "s";
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return h + "h " + m + "m";
+};
 
-  // ── Render ──────────────────────────────────────────────
-  function set(id, v) { document.getElementById(id).textContent = v; }
-
-  function renderHero(d) {
-    const t = d.totals;
-    set('heroSavingsPct', fmtPct(t.savings_pct));
-    set('heroSub', fmtFull(t.tokens_saved) + ' tokens saved · ' + fmtFull(t.tokens_used) + ' used vs ' + fmtFull(t.tokens_naive) + ' naive');
-    set('statsPath', d.stats_dir || '');
-  }
-
-  function renderStats(d) {
-    const t = d.totals;
-    set('sTokSaved',  fmt(t.tokens_saved));
-    set('sCharsSaved', fmtFull(t.chars_saved) + ' chars');
-    set('sTokUsed',   fmt(t.tokens_used));
-    set('sTokNaive',  'Naive ' + fmt(t.tokens_naive));
-    set('sQueries',   fmt(t.queries));
-    set('sSessions',  fmtFull(d.total_sessions || 0) + ' sessions');
-    const usd = (t.estimated_savings_usd || 0);
-    set('sSavingsUsd', '$' + (usd >= 1 ? usd.toFixed(2) : usd.toFixed(3)));
-    set('sSavingsHint', '@ $3/M input tokens · ' + (d.project_count || 0) + ' projects');
-    set('projCount',  String(d.project_count || 0));
-  }
-
-  function renderProjects(d) {
-    const q = (document.getElementById('projSearch').value || '').trim().toLowerCase();
-    const rows = (d.projects || []).filter(r => {
-      if (!q) return true;
-      return [r.project, r.project_root, r.last_client,
-              Object.keys(r.client_counts || {}).join(' ')].join(' ').toLowerCase().includes(q);
-    });
-    if (!rows.length) {
-      document.getElementById('projList').innerHTML = '<div class="empty">No projects match this filter.</div>';
-      return;
-    }
-    document.getElementById('projList').innerHTML = rows.map(r => {
-      const pct = Math.max(0, Math.min(100, Number(r.savings_pct || 0)));
-      const col = pctColor(r.savings_pct);
-      const cls = pctClass(r.savings_pct);
-      const chips = Object.entries(r.client_counts || {})
-        .map(([c, n]) => `<span class="chip">${esc(c)} ${fmt(n)}</span>`).join('');
-      return `
-        <div class="proj-row">
-          <div>
-            <div class="proj-name">${esc(r.project)}</div>
-            ${r.project_root ? `<div class="proj-path">${esc(r.project_root)}</div>` : ''}
-            <div class="proj-nums">
-              <div class="pn-item"><div class="pn-label">Saved</div><div class="pn-value c-emerald">${fmt(r.tokens_saved)}</div></div>
-              <div class="pn-item"><div class="pn-label">Used</div><div class="pn-value c-cyan">${fmt(r.tokens_used)}</div></div>
-              <div class="pn-item"><div class="pn-label">Queries</div><div class="pn-value">${fmt(r.queries)}</div></div>
-              <div class="pn-item"><div class="pn-label">Sessions</div><div class="pn-value">${fmt(r.sessions)}</div></div>
-              <div class="pn-item"><div class="pn-label">Last seen</div><div class="pn-value c-muted" style="font-size:12px">${fmtDate(r.last_session)}</div></div>
-            </div>
-            <div class="proj-bar-wrap"><div class="proj-bar" style="width:${pct}%"></div></div>
-          </div>
-          <div class="proj-right">
-            <div class="pct-badge ${cls}">${fmtPct(r.savings_pct)}</div>
-            <div class="proj-chips">${chips}</div>
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  function renderClients(d) {
-    const rows = d.clients || [];
-    if (!rows.length) {
-      document.getElementById('clientList').innerHTML = '<div class="empty">No data yet.</div>';
-      return;
-    }
-    const max = Math.max(...rows.map(r => r.sessions));
-    document.getElementById('clientList').innerHTML = rows.map(r => {
-      const w = max > 0 ? Math.round((r.sessions / max) * 100) : 0;
-      return `
-        <div class="client-row">
-          <div class="client-name">${esc(r.client)}</div>
-          <div class="client-track"><div class="client-fill" style="width:${w}%"></div></div>
-          <div class="client-n">${fmtFull(r.sessions)}</div>
-        </div>`;
-    }).join('');
-  }
-
-  function renderTools(d) {
-    const rows = d.top_tools || [];
-    if (!rows.length) {
-      document.getElementById('toolList').innerHTML = '<div class="empty">No data yet.</div>';
-      return;
-    }
-    const max = rows[0].count;
-    document.getElementById('toolList').innerHTML = rows.map(r => {
-      const w = max > 0 ? Math.round((r.count / max) * 100) : 0;
-      return `
-        <div class="tool-row">
-          <div class="tool-name">${esc(r.tool)}</div>
-          <div class="tool-count">${fmt(r.count)}</div>
-          <div class="tool-bar-wrap"><div class="tool-bar" style="width:${w}%"></div></div>
-        </div>`;
-    }).join('');
-  }
-
-  function renderSessions(d) {
-    const rows = d.recent_sessions || [];
-    if (!rows.length) {
-      document.getElementById('sessList').innerHTML = '<div class="empty">No sessions yet.</div>';
-      return;
-    }
-    document.getElementById('sessList').innerHTML = rows.map(r => {
-      const cls = pctClass(r.savings_pct);
-      const col = pctColor(r.savings_pct);
-      return `
-        <div class="sess-row">
-          <div class="sess-head">
-            <div class="sess-project">${esc(r.project)}</div>
-            <span class="sess-badge ${cls}">${fmtPct(r.savings_pct)}</span>
-          </div>
-          <div class="sess-meta">
-            <div><div class="sm-label">Client</div><div class="sm-value">${esc(r.client_name || '—')}</div></div>
-            <div><div class="sm-label">Used</div><div class="sm-value">${fmt(r.tokens_used)}</div></div>
-            <div><div class="sm-label">Naive</div><div class="sm-value">${fmt(r.tokens_naive)}</div></div>
-            <div><div class="sm-label">When</div><div class="sm-value">${fmtDate(r.timestamp)}</div></div>
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  function renderFooter(d) {
-    set('footer', 'Updated ' + ago(S.ts) + ' · ' + (d.stats_dir || ''));
-  }
-
-  function render(d) {
-    S.data = d;
-    S.ts   = new Date().toISOString();
-    renderHero(d);
-    renderStats(d);
-    renderProjects(d);
-    renderClients(d);
-    renderTools(d);
-    renderSessions(d);
-    renderFooter(d);
-    document.getElementById('liveLabel').textContent = 'Live · ' + ago(S.ts);
-  }
-
-  // ── Fetch ───────────────────────────────────────────────
-  async function refresh() {
-    const r = await fetch('./api/status', { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    render(await r.json());
-  }
-
-  async function tick() {
-    try { await refresh(); } catch (e) {
-      document.getElementById('liveLabel').textContent = 'Error: ' + (e.message || e);
-    }
-    if (S.data) renderFooter(S.data);
-  }
-
-  document.getElementById('projSearch').addEventListener('input', () => {
-    if (S.data) renderProjects(S.data);
+// ---------- Tab switching ----------
+document.querySelectorAll("[data-tab-btn]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.tabBtn;
+    document.querySelectorAll("[data-tab-btn]").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.dataset.tab === target));
   });
+});
 
-  // Update "X ago" label every 15s without re-fetching
-  setInterval(() => {
-    document.getElementById('liveLabel').textContent = 'Live · ' + ago(S.ts);
-    if (S.data) renderFooter(S.data);
-  }, 15000);
+// ---------- Renderers ----------
+function renderTokens(d) {
+  const t = d.totals || {};
+  $("heroPct").textContent = (t.savings_pct || 0).toFixed(1) + "%";
+  $("heroSub").textContent = `${fmt(t.tokens_saved)} saved · ${fmt(t.tokens_used)} used vs ${fmt(t.tokens_naive)} naive`;
 
-  tick();
-  setInterval(tick, 5000);
+  $("kpiSaved").textContent = fmt(t.tokens_saved);
+  $("kpiSavedHint").textContent = (t.savings_pct || 0).toFixed(1) + "% of naive";
+  $("kpiUsed").textContent = fmt(t.tokens_used);
+  $("kpiUsedHint").textContent = fmt(t.chars_used) + " chars";
+  $("kpiCalls").textContent = fmt(t.queries);
+  $("kpiCallsHint").textContent = (d.project_count || 0) + " projects";
+  $("kpiUsd").textContent = "$" + (t.estimated_savings_usd || 0).toFixed(2);
+
+  // Projects list
+  const list = $("projList");
+  const projects = (d.projects || []).filter(p => p.queries > 0 || p.tokens_saved > 0);
+  if (!projects.length) {
+    list.innerHTML = '<div class="empty">no project activity yet</div>';
+  } else {
+    list.innerHTML = projects.map(p => {
+      const clients = Object.entries(p.client_counts || {})
+        .sort((a,b) => b[1]-a[1])
+        .map(([c,n]) => `<span class="client-pill">${esc(c)} · ${n}</span>`).join("");
+      const pct = Math.min(100, p.savings_pct || 0);
+      return `
+        <div class="proj-row" data-project="${esc(p.project.toLowerCase())} ${esc((p.project_root||'').toLowerCase())}">
+          <div>
+            <div class="proj-name">${esc(p.project)}</div>
+            <div class="proj-path">${esc(p.project_root || '')}</div>
+            <div class="proj-clients">${clients}</div>
+          </div>
+          <div class="proj-stats">
+            <span class="key">saved</span> <span class="val">${fmt(p.tokens_saved)}</span> ·
+            <span class="key">used</span> <span class="val">${fmt(p.tokens_used)}</span><br>
+            <span class="key">queries</span> <span class="val">${fmt(p.queries)}</span> ·
+            <span class="key">sessions</span> <span class="val">${fmt(p.sessions)}</span>
+          </div>
+          <div class="proj-savings">${(p.savings_pct||0).toFixed(1)}%</div>
+          <div class="proj-bar"><div class="proj-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+    }).join("");
+  }
+
+  // Clients
+  const clients = d.clients || [];
+  $("clientCount").textContent = clients.length + " client" + (clients.length === 1 ? "" : "s");
+  const maxC = Math.max(1, ...clients.map(c => c.sessions));
+  $("clientList").innerHTML = clients.length
+    ? clients.map(c => `
+      <div class="hbar">
+        <div class="hbar-lbl"><span class="name">${esc(c.client)}</span><span class="count">${fmt(c.sessions)}</span></div>
+        <div class="hbar-track"><div class="hbar-fill" style="width:${(c.sessions/maxC)*100}%; background: var(--cyan);"></div></div>
+      </div>`).join("")
+    : '<div class="empty">no clients</div>';
+
+  // Top tools
+  const tools = d.top_tools || [];
+  $("toolCount").textContent = tools.length + " tools";
+  const maxT = Math.max(1, ...tools.map(t => t.count));
+  $("toolList").innerHTML = tools.length
+    ? tools.map(t => `
+      <div class="hbar">
+        <div class="hbar-lbl"><span class="name">${esc(t.tool)}</span><span class="count">${fmt(t.count)}</span></div>
+        <div class="hbar-track"><div class="hbar-fill" style="width:${(t.count/maxT)*100}%; background: var(--violet);"></div></div>
+      </div>`).join("")
+    : '<div class="empty">no tool usage</div>';
+}
+
+function renderMemory(d) {
+  const m = d.memory_engine || {available: false};
+  if (!m.available) {
+    $("memStatus").innerHTML = '<span class="empty">memory engine unavailable</span>';
+    return;
+  }
+  const t = m.totals || {};
+  const mode = (m.mode && m.mode.name) || 'code';
+  const origin = (m.mode && m.mode.origin) || 'global';
+
+  const cs = m.continuity || null;
+  const contChip = cs && cs.total > 0
+    ? `<span class="chip" title="${cs.valid}/${cs.total} valid · ${cs.recent} recent · ${cs.potentially_stale} potentially stale">continuity <span class="val">${cs.score}%</span> ${esc(cs.label)}</span>`
+    : '';
+  const globChip = m.global_count
+    ? `<span class="chip">🌐 global <span class="val">${fmt(m.global_count)}</span></span>`
+    : '';
+
+  $("memStatus").innerHTML = `
+    <span class="mode-badge">MODE: ${esc(mode)} · ${esc(origin)}</span>
+    <span class="chip">obs <span class="val">${fmt(t.observations)}</span></span>
+    ${globChip}
+    ${contChip}
+    <span class="chip">archived <span class="val">${fmt(t.archived)}</span></span>
+    <span class="chip">sessions <span class="val">${fmt(t.sessions)}</span></span>
+    <span class="chip">summaries <span class="val">${fmt(t.summaries)}</span></span>
+    <span class="chip">prompts <span class="val">${fmt(t.prompts)}</span></span>
+    <span class="chip">projects <span class="val">${fmt(t.projects)}</span></span>
+  `;
+
+  $("memObs").textContent = fmt(t.observations);
+  $("memObsHint").textContent = `${fmt(t.with_symbol)} symbol-linked · ${fmt(t.archived)} archived`;
+  $("memSessCompl").textContent = fmt(t.sessions_completed);
+  $("memSessHint").textContent = `${fmt(t.sessions_interrupted)} interrupted / ${fmt(t.sessions)} total`;
+  $("memSum").textContent = fmt(t.summaries);
+  $("memPrompts").textContent = fmt(t.prompts);
+
+  // Type breakdown
+  const byType = m.by_type || [];
+  $("typeCount").textContent = byType.length + " types";
+  const maxType = Math.max(1, ...byType.map(x => x.count));
+  $("typeBars").innerHTML = byType.length
+    ? byType.map(x => {
+        const color = `var(--type-${x.type}, var(--type-note))`;
+        return `
+          <div class="type-row">
+            <span class="type-badge" data-type="${esc(x.type)}">${esc(x.type)}</span>
+            <div class="t-track"><div class="t-fill" style="width:${(x.count/maxType)*100}%; background:${color};"></div></div>
+            <div class="t-count">${fmt(x.count)}</div>
+          </div>`;
+      }).join("")
+    : '<div class="empty">no observations</div>';
+
+  // Recent obs
+  const recent = m.recent || [];
+  renderObsList(recent);
+
+  // Sessions
+  const sess = m.top_sessions || [];
+  $("sessCount").textContent = sess.length + " sessions";
+  $("sessList").innerHTML = sess.length
+    ? sess.map(s => {
+        const end = s.end_type || (s.status === 'active' ? 'active' : '?');
+        const day = shortDate(s.completed_at || s.created_at);
+        const summary = s.summary
+          ? `<div class="sess-summary">${esc(s.summary)}</div>`
+          : '';
+        return `
+          <div class="sess-row" data-sess-id="${s.id}">
+            <div class="sess-head">
+              <span class="sess-id">#${s.id}</span>
+              <span class="sess-badge" data-end="${esc(end)}">${esc(end)}</span>
+              <span class="sess-meta">${day} · ${fmt(s.obs_count)} obs · ${fmtDur(s.duration_s)}</span>
+            </div>
+            <div class="sess-project">${esc(basename(s.project_root))}</div>
+            ${summary}
+          </div>`;
+      }).join("")
+    : '<div class="empty">no sessions</div>';
+}
+
+function renderObsList(list) {
+  const container = $("obsList");
+  if (!list.length) {
+    container.innerHTML = '<div class="empty">no observations</div>';
+    return;
+  }
+  container.innerHTML = list.map(o => {
+    const staleBadge = o.stale ? '<span class="obs-stale" title="Symbol modified after this observation was saved">⚠️</span>' : '';
+    const sym = o.symbol ? `<span class="obs-sym">⚙ ${esc(o.symbol)}</span>${staleBadge}` : '';
+    const glob = o.is_global ? '<span class="obs-global" title="Global — applies to all projects">🌐</span>' : '';
+    const age = o.age || shortDate(o.created_at);
+    const dateAttr = o.created_at ? ` title="${esc(o.created_at)}"` : '';
+    const haystack = (String(o.title||'') + ' ' + String(o.content||'') + ' ' + String(o.symbol||'')).toLowerCase();
+    return `
+      <div class="obs-row" data-search="${esc(haystack)}">
+        <span class="obs-id">#${o.id}</span>
+        <span class="type-badge" data-type="${esc(o.type)}">${esc(o.type)}</span>
+        ${glob}
+        <span class="obs-title">${esc(o.title)}</span>
+        ${sym}
+        <span class="obs-date"${dateAttr}>${esc(age)}</span>
+      </div>
+      <div class="obs-content hidden">${esc(o.content || '(empty)')}</div>`;
+  }).join("");
+  container.querySelectorAll('.obs-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const body = row.nextElementSibling;
+      if (body && body.classList.contains('obs-content')) body.classList.toggle('hidden');
+    });
+  });
+}
+
+// ---------- Search / filter ----------
+$("projFilter").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.proj-row').forEach(r => {
+    r.classList.toggle('hidden', q && !r.dataset.project.includes(q));
+  });
+});
+
+$("obsSearch").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#obsList .obs-row').forEach(r => {
+    const match = !q || r.dataset.search.includes(q);
+    r.classList.toggle('hidden', !match);
+    const body = r.nextElementSibling;
+    if (body && !match) body.classList.add('hidden');
+  });
+});
+
+// ---------- Boot ----------
+function render(d) {
+  renderTokens(d);
+  renderMemory(d);
+  $("genAt").textContent = (d.generated_at || '').slice(0, 19).replace('T', ' ') + " UTC";
+  $("liveStamp").textContent = "● Live · " + (d.generated_at || '').slice(11, 19);
+}
+render(window.__DATA__);
 </script>
 </body>
 </html>
 """
+
+
+def generate_dashboard(data: dict) -> str:
+    """Return the full HTML page with data injected as window.__DATA__."""
+    payload = json.dumps(data, default=str, ensure_ascii=False)
+    # Escape </script in JSON so it can't close the <script> tag early.
+    payload = payload.replace("</", "<\\/")
+    return HTML_TEMPLATE.replace("__DATA_JSON__", payload)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1029,11 +956,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/status":
-            body = json.dumps(collect_dashboard_data(), indent=2).encode("utf-8")
+            body = json.dumps(collect_dashboard_data(), indent=2, default=str).encode("utf-8")
             self._send(200, body, "application/json")
             return
         if path == "/":
-            self._send(200, HTML.encode("utf-8"), "text/html; charset=utf-8")
+            html = generate_dashboard(collect_dashboard_data())
+            self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             return
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
