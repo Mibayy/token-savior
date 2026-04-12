@@ -23,6 +23,7 @@ def _make_func(
     line_start: int = 1,
     line_end: int = 5,
     decorators: list[str] | None = None,
+    parameters: list[str] | None = None,
     is_method: bool = False,
     parent_class: str | None = None,
 ) -> FunctionInfo:
@@ -30,7 +31,7 @@ def _make_func(
         name=name,
         qualified_name=qualified_name or name,
         line_range=LineRange(line_start, line_end),
-        parameters=[],
+        parameters=parameters or [],
         decorators=decorators or [],
         docstring=None,
         is_method=is_method,
@@ -533,6 +534,49 @@ class TestFrameworkAndDispatchHeuristics:
         result = find_dead_code(index)
         assert "cryptoAssetAggregationFactory()" not in result
 
+    def test_cross_file_method_reference_target_not_flagged(self):
+        factory = _make_func(
+            "cryptoAssetAggregationFactory",
+            qualified_name="com.acme.runtime.Factories.cryptoAssetAggregationFactory()",
+            line_start=2,
+            line_end=4,
+            is_method=True,
+            parent_class="Factories",
+        )
+        factory_cls = _make_class(
+            "Factories",
+            line_start=1,
+            line_end=6,
+            methods=[factory],
+            qualified_name="com.acme.runtime.Factories",
+        )
+        factory_meta = _make_meta(
+            "src/main/java/com/acme/runtime/Factories.java",
+            functions=[factory],
+            classes=[factory_cls],
+            lines=[
+                "class Factories {",
+                "  static Object cryptoAssetAggregationFactory() { return null; }",
+                "}",
+            ],
+        )
+        graph_meta = _make_meta(
+            "src/main/java/com/acme/runtime/TradingGraphs.java",
+            lines=[
+                "class TradingGraphs {",
+                "  void register() { GraphDefinition.register(Factories::cryptoAssetAggregationFactory); }",
+                "}",
+            ],
+        )
+        index = _make_index(
+            {
+                "src/main/java/com/acme/runtime/Factories.java": factory_meta,
+                "src/main/java/com/acme/runtime/TradingGraphs.java": graph_meta,
+            }
+        )
+        result = find_dead_code(index)
+        assert "cryptoAssetAggregationFactory()" not in result
+
     def test_java_override_and_runnable_run_not_flagged(self):
         override = _make_func(
             "onOpen",
@@ -664,6 +708,38 @@ class TestFrameworkAndDispatchHeuristics:
         result = find_dead_code(index)
         assert "DiagnosticsOverview" not in result
         assert "DiagnosticsQuery" not in result
+
+    def test_java_main_class_not_flagged(self):
+        main_method = _make_func(
+            "main",
+            qualified_name="com.acme.runtime.TradeResearchRuntimeMain.main(java.lang.String[])",
+            line_start=2,
+            line_end=4,
+            parameters=["String[] args"],
+            is_method=True,
+            parent_class="TradeResearchRuntimeMain",
+        )
+        cls = _make_class(
+            "TradeResearchRuntimeMain",
+            line_start=1,
+            line_end=5,
+            methods=[main_method],
+            qualified_name="com.acme.runtime.TradeResearchRuntimeMain",
+        )
+        meta = _make_meta(
+            "src/main/java/com/acme/runtime/TradeResearchRuntimeMain.java",
+            functions=[main_method],
+            classes=[cls],
+            lines=[
+                "public final class TradeResearchRuntimeMain {",
+                "  public static void main(String[] args) {",
+                "  }",
+                "}",
+            ],
+        )
+        index = _make_index({"src/main/java/com/acme/runtime/TradeResearchRuntimeMain.java": meta})
+        result = find_dead_code(index)
+        assert "TradeResearchRuntimeMain" not in result
 
 
 class TestMaxResults:

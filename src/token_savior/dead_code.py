@@ -221,6 +221,7 @@ def _class_matches_owner_token(cls: ClassInfo, owner_token: str) -> bool:
 
 def _collect_method_reference_live_symbols(index: ProjectIndex) -> set[str]:
     live_symbols: set[str] = set()
+    class_index = _class_name_index(index)
     for _, meta in index.files.items():
         if not meta.lines:
             continue
@@ -232,9 +233,16 @@ def _collect_method_reference_live_symbols(index: ProjectIndex) -> set[str]:
                     if enclosing_class is not None:
                         matching_classes.append(enclosing_class)
                 else:
-                    matching_classes = [
-                        cls for cls in meta.classes if _class_matches_owner_token(cls, owner_token)
-                    ]
+                    matching_classes = []
+                    seen_classes: set[str] = set()
+                    for candidate_classes in class_index.values():
+                        for cls in candidate_classes:
+                            qualified_name = cls.qualified_name or cls.name
+                            if qualified_name in seen_classes:
+                                continue
+                            if _class_matches_owner_token(cls, owner_token):
+                                matching_classes.append(cls)
+                                seen_classes.add(qualified_name)
                 for cls in matching_classes:
                     qualified_name = cls.qualified_name or cls.name
                     live_symbols.add(qualified_name)
@@ -242,6 +250,18 @@ def _collect_method_reference_live_symbols(index: ProjectIndex) -> set[str]:
                         if method.name == method_name:
                             live_symbols.add(method.qualified_name)
     return live_symbols
+
+
+def _class_has_java_main_method(cls: ClassInfo) -> bool:
+    for method in cls.methods:
+        if method.name != "main":
+            continue
+        if len(method.parameters) != 1:
+            continue
+        parameter = method.parameters[0]
+        if "String[]" in parameter or "String..." in parameter or "args" in parameter:
+            return True
+    return False
 
 
 def _method_signature_key(func: FunctionInfo) -> str:
@@ -398,6 +418,8 @@ def _is_class_entry_point(cls: ClassInfo, file_path: str, meta) -> bool:
     if _is_spring_managed_class(cls):
         return True
     if _decorator_names(cls.decorators) & _JMH_CLASS_DECORATORS:
+        return True
+    if file_path.endswith(".java") and _class_has_java_main_method(cls):
         return True
     if _is_java_type_only_class(cls, file_path, meta):
         return True
