@@ -376,6 +376,7 @@ class TestFileQueryFunctions:
         assert classes[0]["name"] == "Engine"
         assert "run" in classes[0]["methods"]
         assert "__init__" in classes[0]["methods"]
+        assert "method_signatures" in classes[0]
 
     def test_get_imports(self):
         imports = self.funcs["get_imports"]()
@@ -502,7 +503,9 @@ class TestProjectQueryFunctions:
     def test_get_structure_summary_project(self):
         # No file_path => project summary
         summary = self.funcs["get_structure_summary"]()
-        assert "/project" in summary
+        assert "Project Structure Summary: /project" in summary
+        assert "Top directories:" in summary
+        assert "src" in summary
 
     def test_get_structure_summary_file(self):
         summary = self.funcs["get_structure_summary"]("src/engine_mod.py")
@@ -539,6 +542,55 @@ class TestProjectQueryFunctions:
         classes = self.funcs["get_classes"]("src/engine_mod.py")
         assert len(classes) == 1
         assert classes[0]["name"] == "Engine"
+        assert classes[0]["method_signatures"] == ["Engine.__init__", "Engine.run"]
+
+    def test_get_classes_dedupes_duplicate_method_names(self):
+        meta = StructuralMetadata(
+            source_name="factories.java",
+            total_lines=10,
+            total_chars=100,
+            lines=[""] * 10,
+            line_char_offsets=[],
+            classes=[
+                ClassInfo(
+                    name="Factories",
+                    line_range=LineRange(1, 10),
+                    base_classes=[],
+                    methods=[
+                        FunctionInfo(
+                            name="optionFlowImbalanceFactory",
+                            qualified_name="Factories.optionFlowImbalanceFactory(String)",
+                            line_range=LineRange(2, 3),
+                            parameters=["name"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                        FunctionInfo(
+                            name="optionFlowImbalanceFactory",
+                            qualified_name="Factories.optionFlowImbalanceFactory(String,int)",
+                            line_range=LineRange(5, 6),
+                            parameters=["name", "window"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                    ],
+                    decorators=[],
+                    docstring=None,
+                )
+            ],
+        )
+
+        classes = create_file_query_functions(meta)["get_classes"]()
+
+        assert classes[0]["methods"] == ["optionFlowImbalanceFactory"]
+        assert classes[0]["method_signatures"] == [
+            "Factories.optionFlowImbalanceFactory(String)",
+            "Factories.optionFlowImbalanceFactory(String,int)",
+        ]
 
     def test_get_imports_all(self):
         imports = self.funcs["get_imports"]()
@@ -636,6 +688,134 @@ class TestProjectQueryFunctions:
     def test_get_call_chain_unknown_source(self):
         result = self.funcs["get_call_chain"]("nonexistent", "helper")
         assert "error" in result
+
+    def test_get_call_chain_bridges_method_to_class_aliases(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/app.py": StructuralMetadata(
+                    source_name="app.py",
+                    total_lines=4,
+                    total_chars=40,
+                    lines=[""] * 4,
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="start",
+                            qualified_name="App.start",
+                            line_range=LineRange(1, 2),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="App",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="App",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="start",
+                                    qualified_name="App.start",
+                                    line_range=LineRange(1, 2),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="App",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.py": StructuralMetadata(
+                    source_name="factories.py",
+                    total_lines=6,
+                    total_chars=60,
+                    lines=[""] * 6,
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="make",
+                            qualified_name="Factories.make",
+                            line_range=LineRange(2, 3),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            line_range=LineRange(1, 4),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="make",
+                                    qualified_name="Factories.make",
+                                    line_range=LineRange(2, 3),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.py": StructuralMetadata(
+                    source_name="node.py",
+                    total_lines=2,
+                    total_chars=20,
+                    lines=[""] * 2,
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="Node",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "App.start": {"Factories.make"},
+                "Factories": {"Node"},
+                "Factories.make": set(),
+                "Node": set(),
+            },
+            reverse_dependency_graph={
+                "Factories.make": {"App.start"},
+                "Node": {"Factories"},
+            },
+            symbol_table={
+                "App": "src/app.py",
+                "App.start": "src/app.py",
+                "Factories": "src/factories.py",
+                "Factories.make": "src/factories.py",
+                "Node": "src/node.py",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"]("App.start", "Node")
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert names == ["App.start", "Factories.make", "Node"]
 
     def test_get_file_dependencies(self):
         deps = self.funcs["get_file_dependencies"]("src/runner_mod.py")
@@ -778,6 +958,47 @@ class TestOutputSizeControls:
         # If max_lines >= actual lines, no truncation message
         src = self.funcs["get_function_source"]("helper", max_lines=100)
         assert "truncated" not in src
+
+
+class TestComponentQueries:
+    def test_get_components_strips_destructured_marker(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "ui/components/Card.tsx": StructuralMetadata(
+                    source_name="Card.tsx",
+                    total_lines=10,
+                    total_chars=120,
+                    lines=["export function Card({ title }) {", "  return <div />", "}"],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="Card",
+                            qualified_name="Card",
+                            line_range=LineRange(5, 9),
+                            parameters=["destructured", "title"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=False,
+                            parent_class=None,
+                        )
+                    ],
+                )
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        components = funcs["get_components"]()
+
+        assert components == [
+            {
+                "name": "Card",
+                "file": "ui/components/Card.tsx",
+                "line_range": "5-9",
+                "params": ["title"],
+                "type": "component",
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------

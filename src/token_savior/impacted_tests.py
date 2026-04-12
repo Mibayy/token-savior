@@ -22,7 +22,6 @@ def find_impacted_test_files(
     if not changed:
         return {"error": "No changed files or symbols could be resolved"}
     tests = sorted(path for path in index.files if _is_test_file(path))
-    tests = sorted(path for path in index.files if _is_pytest_file(path))
     impacted: list[str] = []
     reasons: dict[str, list[str]] = {}
 
@@ -54,6 +53,11 @@ def find_impacted_test_files(
                 continue
             if changed_stem and changed_stem in PurePosixPath(test_file).stem:
                 add_reason(test_file, f"stem_match:{changed_file}")
+
+    symbol_seeds = _resolve_changed_symbols(index, changed, symbol_names)
+    for test_file, test_reasons in _graph_based_test_candidates(index, symbol_seeds).items():
+        for reason in test_reasons:
+            add_reason(test_file, reason)
 
     omitted = max(0, len(reasons) - len(impacted))
     return {
@@ -180,6 +184,62 @@ def _normalize_changed_files(
                 files.add(path)
                 break
     return sorted(files)
+
+
+def _resolve_changed_symbols(
+    index: ProjectIndex,
+    changed_files: list[str],
+    symbol_names: list[str] | None,
+) -> set[str]:
+    symbols: set[str] = set()
+    for symbol_name in symbol_names or []:
+        if symbol_name in index.reverse_dependency_graph or symbol_name in index.global_dependency_graph:
+            symbols.add(symbol_name)
+        for path, meta in index.files.items():
+            if any(
+                func.name == symbol_name or func.qualified_name == symbol_name
+                for func in meta.functions
+            ):
+                symbols.update(
+                    func.qualified_name
+                    for func in meta.functions
+                    if func.name == symbol_name or func.qualified_name == symbol_name
+                )
+            for cls in meta.classes:
+                qualified_name = cls.qualified_name or cls.name
+                if cls.name == symbol_name or qualified_name == symbol_name:
+                    symbols.add(qualified_name)
+                    symbols.update(method.qualified_name for method in cls.methods)
+    for changed_file in changed_files:
+        meta = index.files.get(changed_file)
+        if meta is None:
+            continue
+        symbols.update(func.qualified_name for func in meta.functions)
+        for cls in meta.classes:
+            symbols.add(cls.qualified_name or cls.name)
+            symbols.update(method.qualified_name for method in cls.methods)
+    return symbols
+
+
+def _graph_based_test_candidates(index: ProjectIndex, seed_symbols: set[str]) -> dict[str, list[str]]:
+    if not seed_symbols:
+        return {}
+    results: dict[str, list[str]] = {}
+    visited: set[str] = set(seed_symbols)
+    queue = list(seed_symbols)
+    while queue:
+        symbol = queue.pop(0)
+        for dependent in index.reverse_dependency_graph.get(symbol, set()):
+            if dependent in visited:
+                continue
+            visited.add(dependent)
+            queue.append(dependent)
+            file_path = index.symbol_table.get(dependent)
+            if not file_path:
+                continue
+            if _is_test_file(file_path):
+                results.setdefault(file_path, []).append(f"graph_dep:{symbol}")
+    return results
 
 
 def _select_test_command(index: ProjectIndex, selection: dict) -> list[str] | None:

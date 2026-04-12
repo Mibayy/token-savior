@@ -439,6 +439,47 @@ class TestJavaProjectIndexer:
             }
         ]
 
+    def test_reports_simple_name_duplicate_java_classes(self, tmp_path):
+        root = tmp_path / "java-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/view/HotViewKeys.java",
+            """\
+            package com.acme.view;
+
+            public final class HotViewKeys {
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/legacy/HotViewKeys.java",
+            """\
+            package com.acme.legacy;
+
+            public final class HotViewKeys {
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        duplicates = funcs["get_duplicate_classes"]("HotViewKeys", simple_name_mode=True)
+        assert duplicates == [
+            {
+                "name": "HotViewKeys",
+                "qualified_names": [
+                    "com.acme.legacy.HotViewKeys",
+                    "com.acme.view.HotViewKeys",
+                ],
+                "count": 2,
+                "files": [
+                    "src/main/java/com/acme/legacy/HotViewKeys.java",
+                    "src/main/java/com/acme/view/HotViewKeys.java",
+                ],
+            }
+        ]
+
     def test_adds_direct_runtime_edges_from_thread_and_executor_launch_sites(self, tmp_path):
         root = tmp_path / "java-project"
         root.mkdir()

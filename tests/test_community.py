@@ -2,8 +2,10 @@
 
 import tempfile
 from pathlib import Path
+
+from token_savior.community import compute_communities, get_cluster_for_symbol
+from token_savior.models import ClassInfo, FunctionInfo, LineRange, ProjectIndex, StructuralMetadata
 from token_savior.project_indexer import ProjectIndexer
-from token_savior.community import compute_communities
 from token_savior.query_api import create_project_query_functions
 
 
@@ -76,3 +78,77 @@ class TestCommunityDetection:
         result = self.funcs["get_symbol_cluster"]("login", max_members=2)
         if "error" not in result:
             assert len(result["members"]) <= 2
+
+    def test_get_cluster_resolves_class_members_as_classes(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/node.py": StructuralMetadata(
+                    source_name="node.py",
+                    total_lines=4,
+                    total_chars=60,
+                    lines=["class CryptoAssetAggregationNode:", "    pass", "", ""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoAssetAggregationNode",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/service.py": StructuralMetadata(
+                    source_name="service.py",
+                    total_lines=5,
+                    total_chars=90,
+                    lines=["class CryptoCycleQueryService:", "    def build(self):", "        return None", "", ""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="build",
+                            qualified_name="CryptoCycleQueryService.build",
+                            line_range=LineRange(2, 3),
+                            parameters=["self"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="CryptoCycleQueryService",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoCycleQueryService",
+                            line_range=LineRange(1, 3),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={},
+            reverse_dependency_graph={},
+            symbol_table={
+                "CryptoAssetAggregationNode": "src/node.py",
+                "CryptoCycleQueryService": "src/service.py",
+                "CryptoCycleQueryService.build": "src/service.py",
+            },
+        )
+        communities = {
+            "CryptoAssetAggregationNode": "CryptoCycleQueryService",
+            "CryptoCycleQueryService": "CryptoCycleQueryService",
+            "CryptoCycleQueryService.build": "CryptoCycleQueryService",
+        }
+
+        result = get_cluster_for_symbol("CryptoAssetAggregationNode", communities, index)
+
+        assert result["community_id"] == "CryptoCycleQueryService"
+        members = {member["name"]: member for member in result["members"]}
+        assert members["CryptoAssetAggregationNode"]["type"] == "class"
+        assert members["CryptoAssetAggregationNode"]["file"] == "src/node.py"
+        assert members["CryptoCycleQueryService"]["type"] == "class"
+        assert members["CryptoCycleQueryService.build"]["type"] == "method"

@@ -115,6 +115,37 @@ class TestBasicDeadCode:
         assert "used_helper" not in result
         assert "0 unreferenced symbols" in result
 
+    def test_cross_project_callers_keep_symbol_live(self):
+        func = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            line_start=10,
+            is_method=True,
+            parent_class="TradeDecoder",
+        )
+        cls = _make_class(
+            "TradeDecoder",
+            methods=[func],
+            qualified_name="com.acme.feed.TradeDecoder",
+        )
+        index = _make_index(
+            {"src/main/java/com/acme/feed/TradeDecoder.java": _make_meta(
+                "src/main/java/com/acme/feed/TradeDecoder.java",
+                functions=[func],
+                classes=[cls],
+            )}
+        )
+        sibling = ProjectIndex(
+            root_path="/sibling",
+            files={},
+            global_dependency_graph={
+                "com.acme.app.DecoderUser.run()": {"com.acme.feed.TradeDecoder.decode(byte[])"}
+            },
+        )
+        result = find_dead_code(index, sibling_indices={"sibling": sibling})
+        assert "TradeDecoder" not in result
+        assert "decode(" not in result
+
     def test_empty_index_returns_zero(self):
         index = _make_index({})
         result = find_dead_code(index)

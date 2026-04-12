@@ -323,6 +323,39 @@ def _duplicate_symbol_sets(index: ProjectIndex) -> tuple[set[str], set[str]]:
     return duplicate_classes, duplicate_methods
 
 
+def _cross_project_live_symbols(
+    index: ProjectIndex,
+    sibling_indices: dict[str, ProjectIndex] | None,
+) -> set[str]:
+    if not sibling_indices:
+        return set()
+
+    current_symbols: set[str] = set()
+    symbol_files = index.symbol_table
+    for file_path, meta in index.files.items():
+        for func in meta.functions:
+            current_symbols.add(func.qualified_name)
+            if symbol_files.get(func.name) == file_path:
+                current_symbols.add(func.name)
+        for cls in meta.classes:
+            qualified_name = cls.qualified_name or cls.name
+            current_symbols.add(qualified_name)
+            if symbol_files.get(cls.name) == file_path:
+                current_symbols.add(cls.name)
+
+    live: set[str] = set()
+    for sibling in sibling_indices.values():
+        if sibling.root_path == index.root_path:
+            continue
+        for deps in sibling.global_dependency_graph.values():
+            for dep in deps:
+                if dep in current_symbols:
+                    live.add(dep)
+                    if "." in dep:
+                        live.add(dep.rsplit(".", 1)[0])
+    return live
+
+
 def _is_java_callback_like_method(func: FunctionInfo, parent_class: ClassInfo | None) -> bool:
     if parent_class is None or not parent_class.base_classes:
         return False
@@ -454,7 +487,10 @@ class _DeadSymbol:
     signature: str  # e.g. "unused_helper(x, y)" or just "OldProcessor"
 
 
-def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
+def _collect_dead_symbols(
+    index: ProjectIndex,
+    sibling_indices: dict[str, ProjectIndex] | None = None,
+) -> list[_DeadSymbol]:
     rdg = index.reverse_dependency_graph
     dead: list[_DeadSymbol] = []
     live_method_reference_symbols = _collect_method_reference_live_symbols(index)
@@ -462,6 +498,7 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
         index, live_method_reference_symbols
     )
     live_symbols = live_method_reference_symbols | signature_propagated_live_symbols
+    live_symbols |= _cross_project_live_symbols(index, sibling_indices)
     duplicate_classes, duplicate_methods = _duplicate_symbol_sets(index)
 
     for file_path, meta in index.files.items():
@@ -518,7 +555,11 @@ def _collect_dead_symbols(index: ProjectIndex) -> list[_DeadSymbol]:
 # ---------------------------------------------------------------------------
 
 
-def find_dead_code(index: ProjectIndex, max_results: int = 50) -> str:
+def find_dead_code(
+    index: ProjectIndex,
+    max_results: int = 50,
+    sibling_indices: dict[str, ProjectIndex] | None = None,
+) -> str:
     """Analyse *index* and return a formatted dead-code report.
 
     Parameters
@@ -534,7 +575,7 @@ def find_dead_code(index: ProjectIndex, max_results: int = 50) -> str:
     str
         Multi-line report string.
     """
-    all_dead = _collect_dead_symbols(index)
+    all_dead = _collect_dead_symbols(index, sibling_indices=sibling_indices)
     total = len(all_dead)
     shown = all_dead[:max_results]
 

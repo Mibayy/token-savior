@@ -113,6 +113,18 @@ def _check_path_exists(source: str, root_path: str) -> bool:
     return os.path.exists(os.path.join(root_path, source))
 
 
+def _display_path(path: str, root_path: str) -> str:
+    """Return a project-relative path without inventing ../../ prefixes."""
+    if not path:
+        return path
+    if os.path.isabs(path):
+        try:
+            return os.path.relpath(path, root_path) if root_path else path
+        except ValueError:
+            return path
+    return path
+
+
 def _find_env_files(index: ProjectIndex) -> dict[str, StructuralMetadata]:
     """Return all .env files from the index."""
     return {
@@ -201,18 +213,22 @@ def analyze_docker(index: ProjectIndex) -> str:
     total = len(dockerfile_files) + len(compose_files)
 
     if total == 0:
-        return "Docker Analysis -- no Dockerfiles found in project"
+        return "Docker Analysis -- no Dockerfiles or compose files found in project"
 
     env_files = _find_env_files(index)
     env_keys = _env_file_keys(env_files)
 
-    parts: list[str] = [f"Docker Analysis -- {len(dockerfile_files)} Dockerfile(s) found", ""]
+    parts: list[str] = [
+        "Docker Analysis -- "
+        f"Found {len(dockerfile_files)} Dockerfile(s), {len(compose_files)} compose file(s)",
+        "",
+    ]
 
     # ------------------------------------------------------------------
     # Per-Dockerfile analysis
     # ------------------------------------------------------------------
     for path, meta in sorted(dockerfile_files.items()):
-        rel_path = os.path.relpath(path, index.root_path) if index.root_path else path
+        rel_path = _display_path(path, index.root_path)
         parts.append(f"{rel_path}:")
 
         base_images = _extract_base_images(meta)
@@ -276,7 +292,7 @@ def analyze_docker(index: ProjectIndex) -> str:
     # Per-docker-compose analysis
     # ------------------------------------------------------------------
     for path, meta in sorted(compose_files.items()):
-        rel_path = os.path.relpath(path, index.root_path) if index.root_path else path
+        rel_path = _display_path(path, index.root_path)
         parts.append(f"{rel_path}:")
 
         services = _extract_compose_services(meta)

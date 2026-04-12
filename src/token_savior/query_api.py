@@ -8,8 +8,9 @@ All functions return plain dicts/strings for easy use in a REPL.
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
-from collections import deque
+from collections import defaultdict, deque
 from typing import Callable
 
 from token_savior.community import compute_communities, get_cluster_for_symbol
@@ -143,7 +144,8 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
                 "name": cls.name,
                 "qualified_name": cls.qualified_name or cls.name,
                 "lines": [cls.line_range.start, cls.line_range.end],
-                "methods": [m.name for m in cls.methods],
+                "methods": sorted({m.name for m in cls.methods}),
+                "method_signatures": [m.qualified_name for m in cls.methods],
                 "bases": cls.base_classes,
             }
             for cls in metadata.classes
@@ -562,7 +564,34 @@ class ProjectQueryEngine:
     def get_structure_summary(self, file_path: str | None = None) -> str:
         """Per-file or project-level summary."""
         if file_path is None:
-            return self.get_project_summary()
+            index = self.index
+            package_counts: dict[str, dict[str, int]] = defaultdict(
+                lambda: {"files": 0, "classes": 0, "functions": 0}
+            )
+            for path, meta in index.files.items():
+                package = os.path.dirname(path) or "."
+                package_counts[package]["files"] += 1
+                package_counts[package]["classes"] += len(meta.classes)
+                package_counts[package]["functions"] += sum(
+                    1 for func in meta.functions if not func.is_method
+                )
+
+            parts = [f"Project Structure Summary: {index.root_path}"]
+            parts.append(f"Files: {index.total_files}")
+            parts.append(f"Lines: {index.total_lines}")
+            parts.append(
+                f"Packages/dirs: {len(package_counts)}"
+            )
+            parts.append("")
+            parts.append("Top directories:")
+            for package, counts in sorted(
+                package_counts.items(),
+                key=lambda item: (-item[1]["files"], item[0]),
+            )[:10]:
+                parts.append(
+                    f"- {package}: {counts['files']} files, {counts['classes']} classes, {counts['functions']} top-level functions"
+                )
+            return "\n".join(parts)
         meta = _resolve_file(self.index, file_path)
         if meta is None:
             return f"Error: file '{file_path}' not found in index"
@@ -617,12 +646,15 @@ class ProjectQueryEngine:
             result = []
             for path, meta in sorted(self.index.files.items()):
                 for cls in meta.classes:
+                    method_names = [m.name for m in cls.methods]
+                    method_signatures = [m.qualified_name for m in cls.methods]
                     result.append(
                         {
                             "name": cls.name,
                             "qualified_name": cls.qualified_name or cls.name,
                             "lines": [cls.line_range.start, cls.line_range.end],
-                            "methods": [m.name for m in cls.methods],
+                            "methods": sorted(set(method_names)),
+                            "method_signatures": method_signatures,
                             "bases": cls.base_classes,
                             "file": path,
                         }
@@ -958,8 +990,21 @@ class ProjectQueryEngine:
     def get_routes(self, max_results: int = 0) -> list[dict]:
         """Detect API routes and pages from the project structure.
         Returns [{route, file, methods, type}] for Next.js App Router,
-        Express, and similar frameworks."""
+        Spring controllers, and similar frameworks."""
         routes: list[dict] = []
+        seen_route_keys: set[tuple[str, str, str, int]] = set()
+
+        def add_route(route: dict) -> None:
+            methods = route.get("methods") or [""]
+            line = int(route.get("line", 1))
+            for method in methods:
+                key = (route["route"], method, route["file"], line)
+                if key in seen_route_keys:
+                    continue
+                seen_route_keys.add(key)
+                routes.append(route)
+                break
+
         for path, meta in self.index.files.items():
             # Next.js App Router: app/**/route.ts -> API route
             if "/route." in path and ("app/" in path or "pages/api/" in path):
@@ -978,12 +1023,13 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/route.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": methods or ["GET"],
                         "type": "api",
+                        "line": 1,
                     }
                 )
             # Next.js App Router: app/**/page.tsx -> Page
@@ -996,12 +1042,13 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/page.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": [],
                         "type": "page",
+                        "line": 1,
                     }
                 )
             # Next.js App Router: app/**/layout.tsx -> Layout
@@ -1014,12 +1061,13 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/layout.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": [],
                         "type": "layout",
+                        "line": 1,
                     }
                 )
             elif path.endswith(".java"):
@@ -1032,15 +1080,16 @@ class ProjectQueryEngine:
                         mappings = _extract_spring_method_mappings(meta, func)
                         for methods, method_paths in mappings:
                             for route_path in _combine_route_paths(class_paths, method_paths):
-                                routes.append(
+                                add_route(
                                     {
                                         "route": route_path,
                                         "file": path,
                                         "methods": methods,
                                         "type": "api",
+                                        "line": func.line_range.start,
                                     }
                                 )
-        routes.sort(key=lambda r: (r["type"], r["route"]))
+        routes.sort(key=lambda r: (r["type"], r["route"], r["file"], r.get("line", 1)))
         if max_results > 0:
             routes = routes[:max_results]
         return routes
@@ -1130,12 +1179,13 @@ class ProjectQueryEngine:
                     else:
                         comp_type = "default_export"
                 if is_component:
+                    params = [param for param in func.parameters if param != "destructured"]
                     components.append(
                         {
                             "name": func.name,
                             "file": path,
                             "line_range": f"{func.line_range.start}-{func.line_range.end}",
-                            "params": func.parameters,
+                            "params": params,
                             "type": comp_type,
                         }
                     )
@@ -1228,21 +1278,48 @@ class ProjectQueryEngine:
         Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
         return get_cluster_for_symbol(name, self._get_communities(), self.index, max_members=max_members)
 
-    def get_duplicate_classes(self, name: str | None = None, max_results: int = 0) -> list[dict]:
-        """Return duplicate Java classes that share the same qualified name across files."""
+    def get_duplicate_classes(
+        self,
+        name: str | None = None,
+        max_results: int = 0,
+        simple_name_mode: bool = False,
+    ) -> list[dict]:
+        """Return duplicate Java classes by FQN, or by simple name when requested."""
         duplicates = []
-        for qualified_name, files in sorted(self.index.duplicate_classes.items()):
-            simple_name = qualified_name.rsplit(".", 1)[-1]
-            if name is not None and name not in {simple_name, qualified_name}:
-                continue
-            duplicates.append(
-                {
-                    "name": simple_name,
-                    "qualified_name": qualified_name,
-                    "count": len(files),
-                    "files": files,
-                }
-            )
+        if simple_name_mode:
+            grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+            for path, meta in sorted(self.index.files.items()):
+                for cls in meta.classes:
+                    qualified_name = cls.qualified_name or cls.name
+                    grouped[cls.name].append((qualified_name, path))
+            for simple_name, entries in sorted(grouped.items()):
+                qualified_names = sorted({qualified_name for qualified_name, _ in entries})
+                files = sorted({path for _, path in entries})
+                if len(files) < 2:
+                    continue
+                if name is not None and name not in {simple_name, *qualified_names}:
+                    continue
+                duplicates.append(
+                    {
+                        "name": simple_name,
+                        "qualified_names": qualified_names,
+                        "count": len(files),
+                        "files": files,
+                    }
+                )
+        else:
+            for qualified_name, files in sorted(self.index.duplicate_classes.items()):
+                simple_name = qualified_name.rsplit(".", 1)[-1]
+                if name is not None and name not in {simple_name, qualified_name}:
+                    continue
+                duplicates.append(
+                    {
+                        "name": simple_name,
+                        "qualified_name": qualified_name,
+                        "count": len(files),
+                        "files": files,
+                    }
+                )
         if max_results > 0:
             duplicates = duplicates[:max_results]
         return duplicates
@@ -1708,31 +1785,41 @@ class ProjectQueryEngine:
         return self._communities
 
     def _get_aggregated_dependencies(self, resolved_name: str) -> set[str] | None:
-        deps = self.index.global_dependency_graph.get(resolved_name)
-        class_symbol = self._find_class_by_qualified_name(resolved_name)
-        if class_symbol is None:
-            return deps
-
-        aggregated: set[str] = set(deps or set())
-        for method in class_symbol.methods:
-            method_name = method.qualified_name
-            method_deps = self.index.global_dependency_graph.get(method_name, set())
-            aggregated.update(method_deps)
-        return aggregated
+        aggregated: set[str] = set()
+        found_dependency_data = False
+        for alias in self._get_symbol_graph_aliases(resolved_name):
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                found_dependency_data = True
+                aggregated.update(deps)
+            class_symbol = self._find_class_by_qualified_name(alias)
+            if class_symbol is None:
+                continue
+            for method in class_symbol.methods:
+                method_deps = self.index.global_dependency_graph.get(method.qualified_name)
+                if method_deps is not None:
+                    found_dependency_data = True
+                    aggregated.update(method_deps)
+        if found_dependency_data:
+            return aggregated
+        return None
 
     def _get_aggregated_dependents(self, resolved_name: str) -> set[str] | None:
-        deps = self.index.reverse_dependency_graph.get(resolved_name)
-        class_symbol = self._find_class_by_qualified_name(resolved_name)
-        if class_symbol is None:
-            return deps
-
-        aggregated: set[str] = set(deps or set())
-        found_dependency_data = deps is not None
-        for method in class_symbol.methods:
-            method_deps = self.index.reverse_dependency_graph.get(method.qualified_name)
-            if method_deps is not None:
+        aggregated: set[str] = set()
+        found_dependency_data = False
+        for alias in self._get_symbol_graph_aliases(resolved_name):
+            deps = self.index.reverse_dependency_graph.get(alias)
+            if deps is not None:
                 found_dependency_data = True
-                aggregated.update(method_deps)
+                aggregated.update(deps)
+            class_symbol = self._find_class_by_qualified_name(alias)
+            if class_symbol is None:
+                continue
+            for method in class_symbol.methods:
+                method_deps = self.index.reverse_dependency_graph.get(method.qualified_name)
+                if method_deps is not None:
+                    found_dependency_data = True
+                    aggregated.update(method_deps)
         if found_dependency_data:
             return aggregated
         return None
@@ -1747,8 +1834,23 @@ class ProjectQueryEngine:
             aliases.add(method.qualified_name)
         return aliases
 
+    def _get_symbol_graph_aliases(self, qualified_name: str) -> set[str]:
+        aliases = set(self._get_class_symbol_aliases(qualified_name))
+        if "." not in qualified_name:
+            return aliases
+
+        parent_name = qualified_name.rsplit(".", 1)[0]
+        parent_class = self._find_class_by_qualified_name(parent_name)
+        if parent_class is None:
+            return aliases
+
+        if any(method.qualified_name == qualified_name for method in parent_class.methods):
+            aliases.add(parent_name)
+            aliases.update(method.qualified_name for method in parent_class.methods)
+        return aliases
+
     def _get_graph_target_names(self, resolved_name: str) -> set[str]:
-        return self._get_class_symbol_aliases(resolved_name)
+        return self._get_symbol_graph_aliases(resolved_name)
 
     def _has_forward_graph_presence(self, qualified_name: str) -> bool:
         if qualified_name in self.index.global_dependency_graph:

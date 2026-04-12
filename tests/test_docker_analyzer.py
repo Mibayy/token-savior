@@ -24,7 +24,7 @@ class TestNoDockerfiles:
     def test_empty_index(self):
         index = _make_index({})
         result = analyze_docker(index)
-        assert result == "Docker Analysis -- no Dockerfiles found in project"
+        assert result == "Docker Analysis -- no Dockerfiles or compose files found in project"
 
     def test_index_with_only_python_files(self):
         meta = StructuralMetadata(
@@ -36,7 +36,7 @@ class TestNoDockerfiles:
         )
         index = _make_index({"/fake/project/app.py": meta})
         result = analyze_docker(index)
-        assert result == "Docker Analysis -- no Dockerfiles found in project"
+        assert result == "Docker Analysis -- no Dockerfiles or compose files found in project"
 
 
 class TestDockerfileFound:
@@ -44,7 +44,7 @@ class TestDockerfileFound:
         meta = _dockerfile_meta("FROM python:3.12\n", "/fake/project/Dockerfile")
         index = _make_index({"/fake/project/Dockerfile": meta})
         result = analyze_docker(index)
-        assert "Docker Analysis -- 1 Dockerfile(s) found" in result
+        assert "Docker Analysis -- Found 1 Dockerfile(s), 0 compose file(s)" in result
 
     def test_base_image_listed(self):
         meta = _dockerfile_meta("FROM python:3.12-slim\n", "/fake/project/Dockerfile")
@@ -114,13 +114,30 @@ class TestDockerfileNamed:
         meta = _dockerfile_meta("FROM python:3.12\n", "/fake/project/Dockerfile.dev")
         index = _make_index({"/fake/project/Dockerfile.dev": meta})
         result = analyze_docker(index)
-        assert "Docker Analysis -- 1 Dockerfile(s) found" in result
+        assert "Docker Analysis -- Found 1 Dockerfile(s), 0 compose file(s)" in result
 
     def test_backend_dockerfile_detected(self):
         meta = _dockerfile_meta("FROM python:3.12\n", "/fake/project/backend.dockerfile")
         index = _make_index({"/fake/project/backend.dockerfile": meta})
         result = analyze_docker(index)
-        assert "Docker Analysis -- 1 Dockerfile(s) found" in result
+        assert "Docker Analysis -- Found 1 Dockerfile(s), 0 compose file(s)" in result
+
+    def test_relative_paths_do_not_gain_parent_prefixes(self):
+        compose_meta = StructuralMetadata(
+            source_name="deployment/docker-compose.local.yml",
+            total_lines=2,
+            total_chars=20,
+            lines=["services:", "  api:"],
+            line_char_offsets=[0, 10],
+        )
+        compose_meta.sections = []  # type: ignore[attr-defined]
+        index = _make_index(
+            {"deployment/docker-compose.local.yml": compose_meta},
+            root_path="/fake/project",
+        )
+        result = analyze_docker(index)
+        assert "deployment/docker-compose.local.yml:" in result
+        assert "../../" not in result
 
 
 class TestCopySources:

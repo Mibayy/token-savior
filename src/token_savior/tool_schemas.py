@@ -897,13 +897,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_duplicate_classes": {
-        "description": "Find duplicate Java classes with the same fully qualified name defined in multiple files.",
+        "description": "Find duplicate Java classes with the same fully qualified name defined in multiple files, or group by simple class name when requested.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
                     "description": "Optional simple or fully qualified class name to filter duplicates.",
+                },
+                "simple_name_mode": {
+                    "type": "boolean",
+                    "description": "When true, group duplicate classes by simple name across files instead of exact fully qualified name.",
                 },
                 "max_results": {
                     "type": "integer",

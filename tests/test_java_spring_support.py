@@ -89,6 +89,12 @@ class TestSpringBootQuerySupport:
             route["route"] == "/api/users/{id}" and route["methods"] == ["DELETE"]
             for route in routes
         )
+        assert len(
+            {
+                (route["route"], tuple(route["methods"]), route["file"], route.get("line"))
+                for route in routes
+            }
+        ) == len(routes)
 
         env_usage = funcs["get_env_usage"]("APP_MODE")
         assert any(entry["usage_type"] == "system.getenv" for entry in env_usage)

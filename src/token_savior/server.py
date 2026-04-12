@@ -999,7 +999,16 @@ def _h_analyze_config(slot, args):
 
 def _h_find_dead_code(slot, args):
     _prep(slot)
-    return run_dead_code(slot.indexer._project_index, max_results=args.get("max_results", 50))
+    loaded: dict[str, ProjectIndex] = {}
+    for root, sibling_slot in _slot_mgr.projects.items():
+        _slot_mgr.ensure(sibling_slot)
+        if sibling_slot.indexer and sibling_slot.indexer._project_index:
+            loaded[os.path.basename(root)] = sibling_slot.indexer._project_index
+    return run_dead_code(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 50),
+        sibling_indices=loaded,
+    )
 
 
 def _h_find_hotspots(slot, args):
@@ -2337,7 +2346,9 @@ _QFN_HANDLERS: dict[str, object] = {
         min_lines=a.get("min_lines", 4)
     ),
     "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
-        a.get("name"), max_results=a.get("max_results", 0)
+        a.get("name"),
+        max_results=a.get("max_results", 0),
+        simple_name_mode=a.get("simple_name_mode", False),
     ),
 }
 

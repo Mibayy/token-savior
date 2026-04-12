@@ -78,20 +78,33 @@ def check_duplicates(
     """
     issues: list[ConfigIssue] = []
 
+    def _parent_paths(meta: StructuralMetadata) -> dict[int, tuple[str, ...]]:
+        stack: list[tuple[int, str]] = []
+        result: dict[int, tuple[str, ...]] = {}
+        for idx, sec in enumerate(meta.sections):
+            while stack and stack[-1][0] >= sec.level:
+                stack.pop()
+            result[idx] = tuple(title for _, title in stack)
+            stack.append((sec.level, sec.title))
+        return result
+
     # ------------------------------------------------------------------
     # Per-file checks: exact duplicates + similar keys
     # ------------------------------------------------------------------
     for source_name, meta in config_files.items():
-        # Group sections by level
-        by_level: dict[int, list] = defaultdict(list)
-        for sec in meta.sections:
-            by_level[sec.level].append(sec)
+        parent_paths = _parent_paths(meta)
+        by_scope: dict[tuple[int, tuple[str, ...]], list[tuple[int, object]]] = defaultdict(list)
+        for idx, sec in enumerate(meta.sections):
+            by_scope[(sec.level, parent_paths[idx])].append((idx, sec))
 
-        for level, sections in by_level.items():
+        for (level, _parent_path), scoped_sections in by_scope.items():
+            sections = [sec for _, sec in scoped_sections]
             n = len(sections)
             for i in range(n):
                 for j in range(i + 1, n):
                     a, b = sections[i], sections[j]
+                    if a.line_range.start == b.line_range.start:
+                        continue
                     if a.title == b.title:
                         # Exact duplicate
                         issues.append(
@@ -253,6 +266,10 @@ def _extract_value(line: str) -> str:
     return value
 
 
+def _looks_like_template(value: str) -> bool:
+    return "${" in value or "%(" in value or "<" in value and ">" in value
+
+
 def _mask_value(value: str) -> str:
     """Return a masked representation: first 4 + **** + last 4 chars."""
     if len(value) <= 8:
@@ -312,11 +329,18 @@ def check_secrets(
 
             value = _extract_value(stripped)
             key = stripped.split("=")[0].split(":")[0].strip() if value else ""
+            lower_key = key.lower()
 
             # ----------------------------------------------------------------
             # Engine 1 – Known prefix
             # ----------------------------------------------------------------
             if value:
+                if _looks_like_template(value):
+                    continue
+                if lower_key == "image":
+                    continue
+                if lower_key == "pattern" and "log4j" in source_name.lower():
+                    continue
                 for prefix in _KNOWN_PREFIXES:
                     if value.startswith(prefix):
                         issues.append(
@@ -491,6 +515,15 @@ def check_orphans(
        code file's text.
     """
     issues: list[ConfigIssue] = []
+    convention_patterns = (
+        "gradle.properties",
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.",
+        "application.yaml",
+        "application.yml",
+        "log4j2.xml",
+    )
 
     # ------------------------------------------------------------------
     # Collect level-1 keys from config files
@@ -564,6 +597,9 @@ def check_orphans(
     # ------------------------------------------------------------------
     for source_name, meta in config_files.items():
         basename = os.path.basename(source_name)
+        normalized = source_name.replace("\\", "/")
+        if basename in convention_patterns or basename.startswith("tsconfig.") or normalized.startswith(".github/workflows/") or "/.github/workflows/" in normalized:
+            continue
         if not any(basename in line for line in all_code_text):
             issues.append(
                 ConfigIssue(
@@ -945,13 +981,15 @@ def analyze_config(
     if file_path is not None:
         # Only the requested file (if it exists and is a config file)
         config_files: dict[str, StructuralMetadata] = {}
-        if file_path in all_files and _is_config_file(file_path):
+        if file_path in all_files and _is_config_file(file_path) and not file_path.endswith(".xml"):
             config_files[file_path] = all_files[file_path]
         code_files: dict[str, StructuralMetadata] = {
             k: v for k, v in all_files.items() if _is_code_file(k)
         }
     else:
-        config_files = {k: v for k, v in all_files.items() if _is_config_file(k)}
+        config_files = {
+            k: v for k, v in all_files.items() if _is_config_file(k) and not k.endswith(".xml")
+        }
         code_files = {k: v for k, v in all_files.items() if _is_code_file(k)}
 
     if not config_files:

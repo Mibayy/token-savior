@@ -71,7 +71,7 @@ class TestFindImpactedTestFiles:
 
         assert result["changed_files"] == ["src/core.py"]
         assert "tests/test_core.py" in result["impacted_tests"]
-        assert result["reason_map"]["tests/test_core.py"] == ["imports:src/core.py"]
+        assert "imports:src/core.py" in result["reason_map"]["tests/test_core.py"]
 
     def test_finds_tests_from_symbol_name(self, tmp_path):
         index = _sample_index(tmp_path)
@@ -101,6 +101,46 @@ class TestFindImpactedTestFiles:
             "reason_map"
         ]["src/test/java/com/acme/pricing/PriceEngineTest.java"]
 
+    def test_graph_dependents_add_non_name_matching_tests(self, tmp_path):
+        src_main = tmp_path / "src/main/java/com/acme/runtime"
+        src_test = tmp_path / "src/test/java/com/acme/runtime"
+        src_main.mkdir(parents=True)
+        src_test.mkdir(parents=True)
+        (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
+        (src_main / "CryptoAssetAggregationNode.java").write_text(
+            (
+                "package com.acme.runtime;\n"
+                "public final class CryptoAssetAggregationNode {\n"
+                "  public CryptoAssetAggregationNode() {}\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (src_test / "CryptoCycleNodeTest.java").write_text(
+            (
+                "package com.acme.runtime;\n"
+                "public final class CryptoCycleNodeTest {\n"
+                "  public void testNode() {\n"
+                "    new CryptoAssetAggregationNode();\n"
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(
+            str(tmp_path),
+            include_patterns=["**/*.java", "**/*.gradle", "**/*.gradle.kts"],
+        )
+        index = indexer.index()
+
+        result = find_impacted_test_files(index, symbol_names=["CryptoAssetAggregationNode"])
+
+        assert "src/test/java/com/acme/runtime/CryptoCycleNodeTest.java" in result["impacted_tests"]
+        assert any(
+            reason.startswith("graph_dep:")
+            for reason in result["reason_map"]["src/test/java/com/acme/runtime/CryptoCycleNodeTest.java"]
+        )
+
 
 class TestRunImpactedTests:
     def test_runs_only_impacted_tests(self, tmp_path):
@@ -115,7 +155,7 @@ class TestRunImpactedTests:
             result = run_impacted_tests(index, changed_files=["src/core.py"])
 
         assert result["ok"] is True
-        assert result["command"] == ["pytest", "tests/test_core.py", "-q"]
+        assert result["command"] == ["pytest", "tests/test_core.py", "tests/test_utils.py", "-q"]
         assert result["summary"]["pytest"]["passed"] == 2
         assert "stdout" not in result
 
