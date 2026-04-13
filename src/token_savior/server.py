@@ -58,6 +58,10 @@ from token_savior.config_analyzer import analyze_config as run_config_analysis
 from token_savior.cross_project import find_cross_project_deps as run_cross_project
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
+from token_savior.java_quality import (
+    find_allocation_hotspots as run_allocation_hotspots,
+    find_performance_hotspots as run_performance_hotspots,
+)
 from token_savior.slot_manager import SlotManager, _ProjectSlot
 from token_savior.markov_prefetcher import PPMPrefetcher
 from token_savior.tca_engine import TCAEngine
@@ -419,6 +423,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_feature_files": 0.20,
     "get_entry_points": 0.10,
     "get_symbol_cluster": 0.15,
+    "get_duplicate_classes": 0.05,
 }
 
 
@@ -1087,7 +1092,16 @@ def _h_analyze_config(slot, args):
 
 def _h_find_dead_code(slot, args):
     _prep(slot)
-    return run_dead_code(slot.indexer._project_index, max_results=args.get("max_results", 50))
+    loaded: dict[str, ProjectIndex] = {}
+    for root, sibling_slot in _slot_mgr.projects.items():
+        _slot_mgr.ensure(sibling_slot)
+        if sibling_slot.indexer and sibling_slot.indexer._project_index:
+            loaded[os.path.basename(root)] = sibling_slot.indexer._project_index
+    return run_dead_code(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 50),
+        sibling_indices=loaded,
+    )
 
 
 def _h_find_hotspots(slot, args):
@@ -1096,6 +1110,24 @@ def _h_find_hotspots(slot, args):
         slot.indexer._project_index,
         max_results=args.get("max_results", 20),
         min_score=args.get("min_score", 0.0),
+    )
+
+
+def _h_find_allocation_hotspots(slot, args):
+    _prep(slot)
+    return run_allocation_hotspots(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 20),
+        min_score=args.get("min_score", 1.0),
+    )
+
+
+def _h_find_performance_hotspots(slot, args):
+    _prep(slot)
+    return run_performance_hotspots(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 20),
+        min_score=args.get("min_score", 1.0),
     )
 
 
@@ -2215,6 +2247,8 @@ _SLOT_HANDLERS: dict[str, object] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
     "find_hotspots": _h_find_hotspots,
+    "find_allocation_hotspots": _h_find_allocation_hotspots,
+    "find_performance_hotspots": _h_find_performance_hotspots,
     "detect_breaking_changes": _h_detect_breaking_changes,
     "find_cross_project_deps": _h_find_cross_project_deps,
     "analyze_docker": _h_analyze_docker,
@@ -2516,19 +2550,49 @@ def _q_get_edit_context(qfns, args):
     max_deps = args.get("max_deps", 10)
     max_callers = args.get("max_callers", 10)
     ctx: dict = {"symbol": sym_name}
+    location = None
     try:
-        ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+        location = qfns["find_symbol"](sym_name)
+    except Exception:
+        location = None
+
+    is_class = isinstance(location, dict) and location.get("type") == "class"
+    try:
+        if is_class:
+            ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+        else:
+            ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
     except Exception:
         try:
-            ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+            if is_class:
+                ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+            else:
+                ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
         except Exception:
             ctx["source"] = None
+    ctx["location"] = location
     try:
-        ctx["location"] = qfns["find_symbol"](sym_name)
-    except Exception:
-        ctx["location"] = None
-    try:
-        ctx["dependencies"] = qfns["get_dependencies"](sym_name, max_results=max_deps)
+        dependencies = qfns["get_dependencies"](sym_name, max_results=max_deps)
+        if is_class:
+            class_name = location.get("name") if isinstance(location, dict) else None
+            filtered_dependencies = []
+            for dep in dependencies:
+                dep_name = dep.get("name") if isinstance(dep, dict) else None
+                dep_type = dep.get("type") if isinstance(dep, dict) else None
+                if dep_name and dep_name.endswith("()"):
+                    owner = dep_name.rsplit(".", 1)[0] if "." in dep_name else None
+                    method_base = dep_name.rsplit(".", 1)[-1].split("(", 1)[0]
+                    owner_simple = owner.rsplit(".", 1)[-1] if owner else None
+                    if (
+                        owner
+                        and class_name == owner
+                        and method_base == owner_simple
+                        and dep_type in {None, "method"}
+                    ):
+                        continue
+                filtered_dependencies.append(dep)
+            dependencies = filtered_dependencies
+        ctx["dependencies"] = dependencies
     except Exception:
         ctx["dependencies"] = []
     try:
@@ -2608,6 +2672,11 @@ _QFN_HANDLERS: dict[str, object] = {
     ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 4)
+    ),
+    "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
+        a.get("name"),
+        max_results=a.get("max_results", 0),
+        simple_name_mode=a.get("simple_name_mode", False),
     ),
 }
 

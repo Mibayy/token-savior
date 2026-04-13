@@ -253,3 +253,175 @@ def test_return_type_changed_is_warning(git_repo):
 
     assert "WARNING" in result
     assert "get_count" in result
+
+
+def test_java_method_signature_change_is_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input, int scale) {\n"
+            "        return input * scale;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "BREAKING" in result
+    assert "PriceEngine.apply(int)" in result
+
+
+def test_java_return_type_change_is_warning(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public long apply(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "WARNING" in result
+    assert "return type changed" in result
+
+
+def test_deleted_java_file_reports_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    public int apply(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    os.remove(api_file)
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "BREAKING" in result
+    assert "com.acme.pricing.PriceEngine" in result
+
+
+def test_private_java_method_not_reported_as_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    private int normalize(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    private int normalize(int input, int scale) {\n"
+            "        return input * scale;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "normalize" not in result
+
+
+def test_package_private_java_method_not_reported_as_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    int normalize(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    int normalize(int input, int scale) {\n"
+            "        return input * scale;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "normalize" not in result
+
+
+def test_java_method_not_flagged_when_only_lines_shift(git_repo):
+    api_file = os.path.join(git_repo, "StatusController.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class StatusController {\n"
+            "    public String health(String env) {\n"
+            "        return env;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class StatusController {\n"
+            "    public String status() {\n"
+            "        return \"ok\";\n"
+            "    }\n\n"
+            "    public String health(String env) {\n"
+            "        return env;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "health" not in result

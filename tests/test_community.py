@@ -2,8 +2,10 @@
 
 import tempfile
 from pathlib import Path
+
+from token_savior.community import compute_communities, get_cluster_for_symbol
+from token_savior.models import ClassInfo, FunctionInfo, LineRange, ProjectIndex, StructuralMetadata
 from token_savior.project_indexer import ProjectIndexer
-from token_savior.community import compute_communities
 from token_savior.query_api import create_project_query_functions
 
 
@@ -76,3 +78,79 @@ class TestCommunityDetection:
         result = self.funcs["get_symbol_cluster"]("login", max_members=2)
         if "error" not in result:
             assert len(result["members"]) <= 2
+
+    def test_get_cluster_resolves_class_members_as_classes(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/node.py": StructuralMetadata(
+                    source_name="node.py",
+                    total_lines=4,
+                    total_chars=60,
+                    lines=["class SampleAggregationNode:", "    pass", "", ""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="SampleAggregationNode",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/service.py": StructuralMetadata(
+                    source_name="service.py",
+                    total_lines=5,
+                    total_chars=90,
+                    lines=["class SampleQueryService:", "    def build(self):", "        return None", "", ""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="build",
+                            qualified_name="SampleQueryService.build",
+                            line_range=LineRange(2, 3),
+                            parameters=["self"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="SampleQueryService",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="SampleQueryService",
+                            line_range=LineRange(1, 3),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={},
+            reverse_dependency_graph={},
+            symbol_table={
+                "SampleAggregationNode": "src/node.py",
+                "SampleQueryService": "src/service.py",
+                "SampleQueryService.build": "src/service.py",
+            },
+        )
+        communities = {
+            "SampleAggregationNode": "SampleQueryService",
+            "SampleQueryService": "SampleQueryService",
+            "SampleQueryService.build": "SampleQueryService",
+        }
+
+        result = get_cluster_for_symbol("SampleAggregationNode", communities, index)
+
+        assert result["community_id"] == "SampleAggregationNode"
+        assert result["canonical_community_id"] == "SampleQueryService"
+        assert result["members"][0]["name"] == "SampleAggregationNode"
+        members = {member["name"]: member for member in result["members"]}
+        assert members["SampleAggregationNode"]["type"] == "class"
+        assert members["SampleAggregationNode"]["file"] == "src/node.py"
+        assert members["SampleQueryService"]["type"] == "class"
+        assert members["SampleQueryService.build"]["type"] == "method"

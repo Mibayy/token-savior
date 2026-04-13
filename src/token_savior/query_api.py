@@ -8,8 +8,9 @@ All functions return plain dicts/strings for easy use in a REPL.
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
-from collections import deque
+from collections import defaultdict, deque
 from typing import Callable
 
 from token_savior.community import compute_communities, get_cluster_for_symbol
@@ -21,6 +22,65 @@ from token_savior.models import (
     StructuralMetadata,
 )
 from token_savior.symbol_hash import analyze_symbol_semantics
+
+def _split_signature_suffix(name: str) -> tuple[str, str]:
+    if name.endswith(")") and "(" in name:
+        base, _, suffix = name.rpartition("(")
+        return base, f"({suffix}"
+    return name, ""
+
+
+def _function_aliases(func) -> set[str]:
+    aliases = {func.name, func.qualified_name}
+    base_name, signature_suffix = _split_signature_suffix(func.qualified_name)
+    aliases.add(base_name)
+    if func.is_method and func.parent_class:
+        aliases.add(f"{func.parent_class}.{func.name}")
+        if signature_suffix:
+            aliases.add(f"{func.parent_class}.{func.name}{signature_suffix}")
+    return aliases
+
+
+def _function_matches_name(func, name: str) -> bool:
+    return name in _function_aliases(func)
+
+
+def _graph_name_matches(candidate: str, name: str) -> bool:
+    if candidate == name:
+        return True
+    if candidate.endswith(f".{name}"):
+        return True
+    candidate_base, _ = _split_signature_suffix(candidate)
+    name_base, _ = _split_signature_suffix(name)
+    if candidate_base == name_base:
+        return True
+    if candidate_base.endswith(f".{name_base}"):
+        return True
+    return False
+
+
+def _is_constructor_symbol(name: str) -> bool:
+    base_name, signature = _split_signature_suffix(name)
+    if not signature or "." not in base_name:
+        return False
+    owner_name, _, method_name = base_name.rpartition(".")
+    return bool(owner_name) and owner_name.rsplit(".", 1)[-1] == method_name
+
+
+def _find_matching_functions(functions, name: str) -> list:
+    return [func for func in functions if _function_matches_name(func, name)]
+
+
+def _resolve_unique_function(functions, name: str):
+    matches = _find_matching_functions(functions, name)
+    if not matches:
+        return None, "missing"
+    exact_matches = [func for func in matches if func.qualified_name == name]
+    if exact_matches:
+        return exact_matches[0], None
+    if len(matches) == 1:
+        return matches[0], None
+    return None, "ambiguous"
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +151,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
             {
                 "name": f.name,
                 "qualified_name": f.qualified_name,
-                "lines": [f.line_range.start, f.line_range.end],
+                "lines": list(_effective_function_range(metadata, f)),
                 "params": f.parameters,
                 "is_method": f.is_method,
                 "parent_class": f.parent_class,
@@ -104,8 +164,10 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
         return [
             {
                 "name": cls.name,
+                "qualified_name": cls.qualified_name or cls.name,
                 "lines": [cls.line_range.start, cls.line_range.end],
-                "methods": [m.name for m in cls.methods],
+                "methods": sorted({m.name for m in cls.methods}),
+                "method_signatures": [m.qualified_name for m in cls.methods],
                 "bases": cls.base_classes,
             }
             for cls in metadata.classes
@@ -125,15 +187,25 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def get_function_source(name: str) -> str:
         """Source of a function by name (searches top-level and methods)."""
-        for f in metadata.functions:
-            if f.name == name or f.qualified_name == name:
-                return "\n".join(metadata.lines[f.line_range.start - 1 : f.line_range.end])
-        return f"Error: function '{name}' not found"
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return f"Error: function '{name}' is ambiguous; use a fully qualified signature"
+        if func is None:
+            return f"Error: function '{name}' not found"
+        start, end = _effective_function_range(metadata, func)
+        return "\n".join(metadata.lines[start - 1 : end])
 
-    def get_class_source(name: str) -> str:
+    def get_class_source(name: str, level: int = 0) -> str:
         """Source of a class by name."""
         for cls in metadata.classes:
-            if cls.name == name:
+            if cls.name == name or cls.qualified_name == name:
+                if level == 1:
+                    return _format_l1(cls)
+                if level == 2:
+                    body = "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
+                    return _format_l2(cls, body)
+                if level == 3:
+                    return _format_l3(cls)
                 return "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
         return f"Error: class '{name}' not found"
 
@@ -157,19 +229,24 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def _resolve_file_symbol(name: str) -> dict:
         """Resolve a symbol name to rich info from the file metadata."""
-        for func in metadata.functions:
-            if func.qualified_name == name or func.name == name:
-                return {
-                    "name": func.qualified_name,
-                    "file": metadata.source_name,
-                    "line": func.line_range.start,
-                    "end_line": func.line_range.end,
-                    "type": "method" if func.is_method else "function",
-                }
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return {
+                "name": name,
+                "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+            }
+        if func is not None:
+            return {
+                "name": func.qualified_name,
+                "file": metadata.source_name,
+                "line": func.line_range.start,
+                "end_line": func.line_range.end,
+                "type": "method" if func.is_method else "function",
+            }
         for cls in metadata.classes:
-            if cls.name == name:
+            if cls.name == name or cls.qualified_name == name:
                 return {
-                    "name": cls.name,
+                    "name": cls.qualified_name or cls.name,
                     "file": metadata.source_name,
                     "line": cls.line_range.start,
                     "end_line": cls.line_range.end,
@@ -179,16 +256,53 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
 
     def get_dependencies(name: str) -> list[dict]:
         """What this function/class references."""
-        deps = metadata.dependency_graph.get(name)
+        resolved_name = name
+        resolved_class = None
+        if name not in metadata.dependency_graph:
+            func, error = _resolve_unique_function(metadata.functions, name)
+            if error == "ambiguous":
+                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+            if func is not None:
+                resolved_name = func.qualified_name
+            else:
+                for cls in metadata.classes:
+                    if cls.name == name or cls.qualified_name == name:
+                        resolved_name = cls.qualified_name or cls.name
+                        resolved_class = cls
+                        resolved_class = cls
+                        break
+        deps = metadata.dependency_graph.get(resolved_name)
+        if resolved_class is not None:
+            aggregated_deps = set(deps or [])
+            for method in resolved_class.methods:
+                aggregated_deps.update(metadata.dependency_graph.get(method.qualified_name, []))
+            deps = sorted(aggregated_deps)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         return [_resolve_file_symbol(dep) for dep in sorted(deps)]
 
     def get_dependents(name: str) -> list[dict]:
         """What references this function/class."""
+        resolved_name = name
+        resolved_class = None
+        if name not in metadata.dependency_graph:
+            func, error = _resolve_unique_function(metadata.functions, name)
+            if error == "ambiguous":
+                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+            if func is not None:
+                resolved_name = func.qualified_name
+            else:
+                for cls in metadata.classes:
+                    if cls.name == name or cls.qualified_name == name:
+                        resolved_name = cls.qualified_name or cls.name
+                        break
+        resolved_targets = {resolved_name}
+        if resolved_class is not None:
+            for method in resolved_class.methods:
+                resolved_targets.add(method.qualified_name)
         result = []
         for source, targets in metadata.dependency_graph.items():
-            if name in targets:
+            if any(target in targets for target in resolved_targets):
                 result.append(source)
         return [_resolve_file_symbol(dep) for dep in sorted(result)]
 
@@ -276,13 +390,27 @@ def _format_l2(sym: FunctionInfo | ClassInfo, body: str) -> str:
         header = f"[L2] class {sym.name}"
         if sym.base_classes:
             header += f"({', '.join(sym.base_classes)})"
-    else:
-        header = f"[L2] {sym.name}({', '.join(sym.parameters)})"
+        out = [header]
+        if sym.decorators:
+            out.append(f"  decorators: {', '.join(sym.decorators)}")
+        doc = _first_doc_line(sym.docstring)
+        if doc:
+            out.append(f"  doc: {doc[:120]}")
+        out.append(f"  methods: {len(sym.methods)}")
+        for method in sym.methods[:12]:
+            method_doc = _first_doc_line(method.docstring)
+            params = ", ".join(method.parameters)
+            summary = f"  - {method.name}({params})"
+            if method_doc:
+                summary += f" — {method_doc[:100]}"
+            out.append(summary)
+        if len(sym.methods) > 12:
+            out.append(f"  ... {len(sym.methods) - 12} more methods")
+        return "\n".join(out)
 
+    header = f"[L2] {sym.name}({', '.join(sym.parameters)})"
     analysis = analyze_symbol_semantics(body)
     out = [header]
-    if isinstance(sym, ClassInfo):
-        out.append(f"  methods: {len(sym.methods)}")
     if analysis["raises"]:
         out.append(f"  raises: {', '.join(analysis['raises'])}")
     if analysis["has_side_effects"]:
@@ -305,6 +433,195 @@ def _format_l3(sym: FunctionInfo | ClassInfo) -> str:
     if len(params) > 3:
         head += ", ..."
     return f"{sym.name}({head}) - {doc}"
+
+
+def _display_function_start_line(meta: StructuralMetadata, func: FunctionInfo) -> int:
+    start = max(1, func.line_range.start)
+    end = min(len(meta.lines), func.line_range.end)
+    name_pattern = re.compile(rf"\b{re.escape(func.name)}\s*\(")
+    for line_no in range(start, end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if name_pattern.search(line):
+            return line_no
+    return func.line_range.start
+
+
+def _effective_function_range(meta: StructuralMetadata, func: FunctionInfo) -> tuple[int, int]:
+    start = _display_function_start_line(meta, func)
+    if not str(meta.source_name).endswith(".java"):
+        return start, func.line_range.end
+
+    max_end = min(len(meta.lines), max(start, func.line_range.end))
+    if start > max_end:
+        return func.line_range.start, func.line_range.end
+
+    seen_body = False
+    brace_depth = 0
+    for line_no in range(start, max_end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if not seen_body and "{" not in line and stripped.endswith(";"):
+            return start, line_no
+        for ch in line:
+            if ch == "{":
+                brace_depth += 1
+                seen_body = True
+            elif ch == "}":
+                brace_depth = max(0, brace_depth - 1)
+        if seen_body and brace_depth == 0:
+            return start, line_no
+
+    return start, func.line_range.end
+
+
+def _infer_component_end_line(meta: StructuralMetadata, func) -> int:
+    start_0 = max(0, func.line_range.start - 1)
+    if func.line_range.end > func.line_range.start:
+        return func.line_range.end
+    if start_0 >= len(meta.lines):
+        return func.line_range.end
+
+    depth_paren = 0
+    depth_brace = 0
+    depth_bracket = 0
+    seen_arrow = False
+    seen_function_body = False
+
+    for idx in range(start_0, min(len(meta.lines), start_0 + 120)):
+        line = meta.lines[idx]
+        if "=>" in line:
+            seen_arrow = True
+        if re.search(r"\bfunction\b", line):
+            seen_function_body = True
+
+        for ch in line:
+            if ch == "(":
+                depth_paren += 1
+            elif ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+            elif ch == "{":
+                depth_brace += 1
+            elif ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+            elif ch == "[":
+                depth_bracket += 1
+            elif ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+
+        stripped = line.strip()
+        if idx == start_0:
+            continue
+
+        if stripped in {"};", "}", ");", ")", "</>"} and depth_brace == 0 and depth_paren == 0:
+            return idx + 1
+        if (
+            (";" in line or stripped.endswith(")") or stripped.endswith("}") or stripped.endswith("};"))
+            and depth_paren == 0
+            and depth_brace == 0
+            and depth_bracket == 0
+            and (seen_arrow or seen_function_body)
+        ):
+            return idx + 1
+
+    return func.line_range.end
+_SPRING_HTTP_METHODS_BY_DECORATOR: dict[str, list[str]] = {
+    "GetMapping": ["GET"],
+    "PostMapping": ["POST"],
+    "PutMapping": ["PUT"],
+    "PatchMapping": ["PATCH"],
+    "DeleteMapping": ["DELETE"],
+}
+_SPRING_REQUEST_MAPPING_RE = re.compile(r"@RequestMapping\s*\((.*?)\)", re.DOTALL)
+_SPRING_GENERIC_MAPPING_RE = re.compile(r"@([A-Za-z]+Mapping)\s*(\((.*?)\))?", re.DOTALL)
+_SPRING_REQUEST_METHOD_RE = re.compile(r"RequestMethod\.([A-Z]+)")
+_SPRING_QUOTED_VALUE_RE = re.compile(r'"([^"]+)"')
+_SPRING_VALUE_RE = re.compile(r'@Value\(\s*"[^"]*\$\{([^}:"]+)')
+
+
+def _is_spring_controller(cls) -> bool:
+    decorators = set(getattr(cls, "decorators", []))
+    return bool(decorators & {"RestController", "Controller", "RequestMapping"})
+
+
+def _spring_declaration_lines(
+    meta: StructuralMetadata,
+    line_range,
+    max_lines: int | None = None,
+) -> list[str]:
+    start = max(0, line_range.start - 1)
+    end = min(len(meta.lines), line_range.end)
+    if max_lines is not None:
+        end = min(end, start + max_lines)
+    if end <= start:
+        end = min(len(meta.lines), line_range.start + 1)
+    return list(meta.lines[start:end])
+
+
+def _extract_spring_paths(annotation_block: str) -> list[str]:
+    paths = [value for value in _SPRING_QUOTED_VALUE_RE.findall(annotation_block) if value]
+    return paths or [""]
+
+
+def _extract_spring_request_mapping(annotation_block: str) -> tuple[list[str], list[str]]:
+    methods = _SPRING_REQUEST_METHOD_RE.findall(annotation_block) or ["ANY"]
+    return methods, _extract_spring_paths(annotation_block)
+
+
+def _combine_route_paths(prefix_paths: list[str], method_paths: list[str]) -> list[str]:
+    routes: list[str] = []
+    for prefix in prefix_paths or [""]:
+        for method_path in method_paths or [""]:
+            prefix_clean = prefix.strip("/")
+            method_clean = method_path.strip("/")
+            if prefix_clean and method_clean:
+                route = f"/{prefix_clean}/{method_clean}"
+            elif prefix_clean:
+                route = f"/{prefix_clean}"
+            elif method_clean:
+                route = f"/{method_clean}"
+            else:
+                route = "/"
+            routes.append(re.sub(r"/+", "/", route))
+    return routes or ["/"]
+
+
+def _extract_spring_class_paths(meta: StructuralMetadata, cls) -> list[str]:
+    annotation_block = getattr(cls, "decorator_details", {}).get("RequestMapping", "")
+    if not annotation_block:
+        return [""]
+    return _extract_spring_paths(annotation_block)
+
+
+def _extract_spring_method_mappings(meta: StructuralMetadata, func) -> list[tuple[list[str], list[str]]]:
+    mappings: list[tuple[list[str], list[str]]] = []
+    decorator_details = getattr(func, "decorator_details", {})
+
+    for decorator, methods in _SPRING_HTTP_METHODS_BY_DECORATOR.items():
+        if decorator not in getattr(func, "decorators", []):
+            continue
+        annotation_block = decorator_details.get(decorator, "")
+        mappings.append((methods, _extract_spring_paths(annotation_block)))
+
+    if "RequestMapping" in getattr(func, "decorators", []):
+        annotation_block = decorator_details.get("RequestMapping", "")
+        mappings.append(_extract_spring_request_mapping(annotation_block))
+
+    return mappings
+
+
+def _spring_method_declaration_line(meta: StructuralMetadata, func) -> int:
+    start = max(0, func.line_range.start - 1)
+    end = min(len(meta.lines), func.line_range.end)
+    signature_pattern = re.compile(rf"\b{re.escape(func.name)}\s*\(")
+    for idx in range(start, end):
+        if signature_pattern.search(meta.lines[idx]):
+            return idx + 1
+    return func.line_range.start
 
 
 class ProjectQueryEngine:
@@ -343,6 +660,7 @@ class ProjectQueryEngine:
         "pack_context",
         "get_relevance_cluster",
         "find_semantic_duplicates",
+        "get_duplicate_classes",
     ]
 
     def __init__(self, index: ProjectIndex):
@@ -401,7 +719,34 @@ class ProjectQueryEngine:
     def get_structure_summary(self, file_path: str | None = None) -> str:
         """Per-file or project-level summary."""
         if file_path is None:
-            return self.get_project_summary()
+            index = self.index
+            package_counts: dict[str, dict[str, int]] = defaultdict(
+                lambda: {"files": 0, "classes": 0, "functions": 0}
+            )
+            for path, meta in index.files.items():
+                package = os.path.dirname(path) or "."
+                package_counts[package]["files"] += 1
+                package_counts[package]["classes"] += len(meta.classes)
+                package_counts[package]["functions"] += sum(
+                    1 for func in meta.functions if not func.is_method
+                )
+
+            parts = [f"Project Structure Summary: {index.root_path}"]
+            parts.append(f"Files: {index.total_files}")
+            parts.append(f"Lines: {index.total_lines}")
+            parts.append(
+                f"Packages/dirs: {len(package_counts)}"
+            )
+            parts.append("")
+            parts.append("Top directories:")
+            for package, counts in sorted(
+                package_counts.items(),
+                key=lambda item: (-item[1]["files"], item[0]),
+            )[:10]:
+                parts.append(
+                    f"- {package}: {counts['files']} files, {counts['classes']} classes, {counts['functions']} top-level functions"
+                )
+            return "\n".join(parts)
         meta = _resolve_file(self.index, file_path)
         if meta is None:
             return f"Error: file '{file_path}' not found in index"
@@ -433,7 +778,7 @@ class ProjectQueryEngine:
                         {
                             "name": f.name,
                             "qualified_name": f.qualified_name,
-                            "lines": [f.line_range.start, f.line_range.end],
+                            "lines": list(_effective_function_range(meta, f)),
                             "params": f.parameters,
                             "is_method": f.is_method,
                             "parent_class": f.parent_class,
@@ -456,11 +801,15 @@ class ProjectQueryEngine:
             result = []
             for path, meta in sorted(self.index.files.items()):
                 for cls in meta.classes:
+                    method_names = [m.name for m in cls.methods]
+                    method_signatures = [m.qualified_name for m in cls.methods]
                     result.append(
                         {
                             "name": cls.name,
+                            "qualified_name": cls.qualified_name or cls.name,
                             "lines": [cls.line_range.start, cls.line_range.end],
-                            "methods": [m.name for m in cls.methods],
+                            "methods": sorted(set(method_names)),
+                            "method_signatures": method_signatures,
                             "bases": cls.base_classes,
                             "file": path,
                         }
@@ -573,14 +922,16 @@ class ProjectQueryEngine:
             meta = _resolve_file(index, path)
             if meta is None:
                 continue
+            for cls in meta.classes:
+                qualified_name = cls.qualified_name or cls.name
+                if cls.name == name or qualified_name == name:
+                    return ("class", meta, cls)
             for func in meta.functions:
                 if func.name == name or func.qualified_name == name:
                     return ("function", meta, func)
             for cls in meta.classes:
-                if cls.name == name:
-                    return ("class", meta, cls)
                 for method in cls.methods:
-                    if method.qualified_name == name:
+                    if method.name == name or method.qualified_name == name:
                         return ("function", meta, method)
         return None
 
@@ -593,7 +944,10 @@ class ProjectQueryEngine:
 
     def get_dependencies(self, name: str, max_results: int = 0) -> list[dict]:
         """What this function/class references (from global_dependency_graph)."""
-        deps = self.index.global_dependency_graph.get(name)
+        resolved_name = self._resolve_graph_symbol_name(name)
+        if resolved_name is None:
+            return [{"error": f"'{name}' not found in dependency graph"}]
+        deps = self._get_aggregated_dependencies(resolved_name)
         if deps is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
         result = sorted(deps)
@@ -633,28 +987,47 @@ class ProjectQueryEngine:
         Returns {chain: [{name, file, line, end_line, type, signature, source_preview}, ...]}
         with rich info for each hop, so callers don't need follow-up lookups.
         """
-        index = self.index
-        if from_name not in index.global_dependency_graph:
+        resolved_from = self._resolve_graph_symbol_name(from_name)
+        resolved_to = (
+            self._resolve_graph_symbol_name(to_name)
+            or self._resolve_exact_class_name(to_name)
+            or self._resolve_symbol_info(to_name).get("name")
+        )
+        if resolved_from is None:
             return {"error": f"'{from_name}' not found in dependency graph"}
-        if from_name == to_name:
-            info = self._resolve_symbol_info(from_name)
+        if resolved_to is None:
+            return {"error": f"'{to_name}' not found in dependency graph"}
+        if resolved_from == resolved_to:
+            info = self._resolve_symbol_info(resolved_from)
             info.setdefault("name", from_name)
             return {"chain": [info]}
 
         # BFS
-        visited = {from_name}
-        queue: deque[list[str]] = deque([[from_name]])
+        target_names = self._get_graph_target_names(resolved_to)
+        visited = {resolved_from}
+        queue: deque[list[str]] = deque([[resolved_from]])
         path_names: list[str] | None = None
         while queue:
             path = queue.popleft()
             current = path[-1]
-            neighbors = index.global_dependency_graph.get(current, set())
-            for neighbor in sorted(neighbors):
-                if neighbor == to_name:
-                    path_names = path + [neighbor]
+            neighbors = self._get_call_chain_neighbors(current)
+            expanded_neighbors: list[tuple[str, str]] = []
+            for neighbor in neighbors:
+                candidates = self._resolve_graph_candidate_names(neighbor)
+                if not candidates:
+                    candidates = {neighbor}
+                for candidate in candidates:
+                    expanded_neighbors.append((neighbor, candidate))
+
+            for raw_neighbor, neighbor in sorted(
+                expanded_neighbors,
+                key=lambda item: self._call_chain_neighbor_key(item[1]),
+            ):
+                if neighbor in target_names or raw_neighbor in target_names:
+                    path_names = path + [resolved_to if neighbor != resolved_to else neighbor]
                     break
-                if neighbor not in visited:
-                    visited.add(neighbor)
+                if neighbor not in visited and self._has_any_graph_presence(neighbor):
+                    visited.update(self._resolve_graph_candidate_names(neighbor))
                     queue.append(path + [neighbor])
             if path_names is not None:
                 break
@@ -718,7 +1091,6 @@ class ProjectQueryEngine:
         self, name: str, max_direct: int = 0, max_transitive: int = 0, max_total_chars: int = 50_000
     ) -> dict:
         """Direct and transitive dependents of a symbol, each with confidence and depth."""
-        index = self.index
         resolved_name, direct = self._resolve_dep_name(name)
         if direct is None:
             return {"error": f"'{name}' not found in reverse dependency graph"}
@@ -726,13 +1098,13 @@ class ProjectQueryEngine:
         # BFS tracking depth per symbol
         depth_map: dict[str, int] = {}
         queue: deque[tuple[str, int]] = deque((sym, 1) for sym in direct)
-        visited: set[str] = set(direct) | {name}
+        visited: set[str] = set(direct) | self._get_class_symbol_aliases(resolved_name)
         for sym in direct:
             depth_map[sym] = 1
 
         while queue:
             current, depth = queue.popleft()
-            next_deps = index.reverse_dependency_graph.get(current, set())
+            next_deps = self._get_aggregated_dependents(current) or set()
             for dep in next_deps:
                 if dep not in visited:
                     visited.add(dep)
@@ -789,8 +1161,21 @@ class ProjectQueryEngine:
     def get_routes(self, max_results: int = 0) -> list[dict]:
         """Detect API routes and pages from the project structure.
         Returns [{route, file, methods, type}] for Next.js App Router,
-        Express, and similar frameworks."""
+        Spring controllers, and similar frameworks."""
         routes: list[dict] = []
+        seen_route_keys: set[tuple[str, str, str, int]] = set()
+
+        def add_route(route: dict) -> None:
+            methods = route.get("methods") or [""]
+            line = int(route.get("line", 1))
+            for method in methods:
+                key = (route["route"], method, route["file"], line)
+                if key in seen_route_keys:
+                    continue
+                seen_route_keys.add(key)
+                routes.append(route)
+                break
+
         for path, meta in self.index.files.items():
             # Next.js App Router: app/**/route.ts -> API route
             if "/route." in path and ("app/" in path or "pages/api/" in path):
@@ -809,12 +1194,13 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/route.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": methods or ["GET"],
                         "type": "api",
+                        "line": 1,
                     }
                 )
             # Next.js App Router: app/**/page.tsx -> Page
@@ -827,12 +1213,13 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/page.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": [],
                         "type": "page",
+                        "line": 1,
                     }
                 )
             # Next.js App Router: app/**/layout.tsx -> Layout
@@ -845,15 +1232,36 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/layout.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                routes.append(
+                add_route(
                     {
                         "route": route_path,
                         "file": path,
                         "methods": [],
                         "type": "layout",
+                        "line": 1,
                     }
                 )
-        routes.sort(key=lambda r: (r["type"], r["route"]))
+            elif path.endswith(".java"):
+                spring_classes = [cls for cls in meta.classes if _is_spring_controller(cls)]
+                for cls in spring_classes:
+                    class_paths = _extract_spring_class_paths(meta, cls)
+                    for func in meta.functions:
+                        if func.parent_class != cls.name:
+                            continue
+                        mappings = _extract_spring_method_mappings(meta, func)
+                        decl_line = _spring_method_declaration_line(meta, func)
+                        for methods, method_paths in mappings:
+                            for route_path in _combine_route_paths(class_paths, method_paths):
+                                add_route(
+                                    {
+                                        "route": route_path,
+                                        "file": path,
+                                        "methods": methods,
+                                        "type": "api",
+                                        "line": decl_line,
+                                    }
+                                )
+        routes.sort(key=lambda r: (r["type"], r["route"], r["file"], r.get("line", 1)))
         if max_results > 0:
             routes = routes[:max_results]
         return routes
@@ -876,6 +1284,12 @@ class ProjectQueryEngine:
                         usage_type = "process.env"
                     elif "os.environ" in line or "os.getenv" in line:
                         usage_type = "os.environ"
+                    elif "System.getenv" in line:
+                        usage_type = "system.getenv"
+                    elif "System.getProperty" in line:
+                        usage_type = "system.getProperty"
+                    elif "@Value" in line and _SPRING_VALUE_RE.search(line):
+                        usage_type = "spring.value"
                     elif "secrets." in line:
                         usage_type = "github_secret"
                     elif line.strip().startswith(var_name + "=") or line.strip().startswith(
@@ -892,6 +1306,15 @@ class ProjectQueryEngine:
                             "content": context[:200],
                         }
                     )
+        if not results:
+            return [
+                {
+                    "var_name": var_name,
+                    "usage_type": "not_found",
+                    "searched_files": len(self.index.files),
+                    "content": f"No usage found for {var_name}",
+                }
+            ]
         results.sort(key=lambda r: (r["usage_type"], r["file"]))
         if max_results > 0:
             results = results[:max_results]
@@ -937,12 +1360,14 @@ class ProjectQueryEngine:
                     else:
                         comp_type = "default_export"
                 if is_component:
+                    params = [param for param in func.parameters if param != "destructured"]
+                    end_line = _infer_component_end_line(meta, func)
                     components.append(
                         {
                             "name": func.name,
                             "file": path,
-                            "line_range": f"{func.line_range.start}-{func.line_range.end}",
-                            "params": func.parameters,
+                            "line_range": f"{func.line_range.start}-{end_line}",
+                            "params": params,
                             "type": comp_type,
                         }
                     )
@@ -1034,6 +1459,58 @@ class ProjectQueryEngine:
         grouped by community detection on the dependency graph.
         Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
         return get_cluster_for_symbol(name, self._get_communities(), self.index, max_members=max_members)
+
+    def get_duplicate_classes(
+        self,
+        name: str | None = None,
+        max_results: int = 0,
+        simple_name_mode: bool = False,
+    ) -> list[dict]:
+        """Return duplicate Java classes by FQN, or by simple name when requested."""
+        duplicates = []
+        if simple_name_mode:
+            grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+            for path, meta in sorted(self.index.files.items()):
+                for cls in meta.classes:
+                    if (
+                        cls.name.isupper()
+                        and len(cls.name) <= 4
+                        and not any(ch.islower() for ch in cls.name)
+                    ):
+                        continue
+                    qualified_name = cls.qualified_name or cls.name
+                    grouped[cls.name].append((qualified_name, path))
+            for simple_name, entries in sorted(grouped.items()):
+                qualified_names = sorted({qualified_name for qualified_name, _ in entries})
+                files = sorted({path for _, path in entries})
+                if len(files) < 2:
+                    continue
+                if name is not None and name not in {simple_name, *qualified_names}:
+                    continue
+                duplicates.append(
+                    {
+                        "name": simple_name,
+                        "qualified_names": qualified_names,
+                        "count": len(files),
+                        "files": files,
+                    }
+                )
+        else:
+            for qualified_name, files in sorted(self.index.duplicate_classes.items()):
+                simple_name = qualified_name.rsplit(".", 1)[-1]
+                if name is not None and name not in {simple_name, qualified_name}:
+                    continue
+                duplicates.append(
+                    {
+                        "name": simple_name,
+                        "qualified_name": qualified_name,
+                        "count": len(files),
+                        "files": files,
+                    }
+                )
+        if max_results > 0:
+            duplicates = duplicates[:max_results]
+        return duplicates
 
     # ------------------------------------------------------------------
     # Semantic duplicate detection (P9 part A integration)
@@ -1354,17 +1831,24 @@ class ProjectQueryEngine:
             if source is None:
                 for path, meta in sorted(index.files.items()):
                     symbols = meta.functions if kind == "function" else meta.classes
-                    for sym in symbols:
-                        match = (
-                            (sym.name == name or getattr(sym, "qualified_name", None) == name)
-                            if kind == "function"
-                            else sym.name == name
-                        )
-                        if match:
+                    if kind == "function":
+                        sym, error = _resolve_unique_function(symbols, name)
+                        if error == "ambiguous":
+                            return (
+                                f"Error: function '{name}' is ambiguous; "
+                                "use a fully qualified signature"
+                            )
+                        if sym is not None:
                             source = "\n".join(
                                 meta.lines[sym.line_range.start - 1 : sym.line_range.end]
                             )
-                            break
+                    else:
+                        for sym in symbols:
+                            if sym.name == name or getattr(sym, "qualified_name", None) == name:
+                                source = "\n".join(
+                                    meta.lines[sym.line_range.start - 1 : sym.line_range.end]
+                                )
+                                break
                     if source is not None:
                         break
 
@@ -1392,7 +1876,8 @@ class ProjectQueryEngine:
     def _class_result(self, cls, path, meta):
         preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
         return {
-            "name": cls.name,
+            "name": cls.qualified_name or cls.name,
+            "qualified_name": cls.qualified_name or cls.name,
             "file": path,
             "line": cls.line_range.start,
             "end_line": cls.line_range.end,
@@ -1405,44 +1890,296 @@ class ProjectQueryEngine:
     def _resolve_symbol_info(self, name: str) -> dict:
         """Resolve a symbol name to rich info (file, line, signature, preview)."""
         index = self.index
+        class_info = self._resolve_exact_class_info(name)
+        if class_info is not None:
+            return class_info
         # Try symbol table first
         if name in index.symbol_table:
             path = index.symbol_table[name]
             meta = _resolve_file(index, path)
             if meta is not None:
-                for func in meta.functions:
-                    if func.name == name or func.qualified_name == name:
-                        return self._func_result(func, path, meta)
+                func, error = _resolve_unique_function(meta.functions, name)
+                if error == "ambiguous":
+                    return {
+                        "name": name,
+                        "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+                    }
+                if func is not None:
+                    return self._func_result(func, path, meta)
                 for cls in meta.classes:
-                    if cls.name == name:
+                    if cls.name == name or cls.qualified_name == name:
                         return self._class_result(cls, path, meta)
         # Fallback: search all files
+        candidate_results: list[dict] = []
         for path, meta in sorted(index.files.items()):
-            for func in meta.functions:
-                if func.name == name or func.qualified_name == name:
-                    return self._func_result(func, path, meta)
+            func, error = _resolve_unique_function(meta.functions, name)
+            if error == "ambiguous":
+                return {
+                    "name": name,
+                    "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+                }
+            if func is not None:
+                candidate_results.append(self._func_result(func, path, meta))
             for cls in meta.classes:
-                if cls.name == name:
+                if cls.name == name or cls.qualified_name == name:
                     return self._class_result(cls, path, meta)
+        if len(candidate_results) == 1:
+            return candidate_results[0]
+        if len(candidate_results) > 1:
+            return {
+                "name": name,
+                "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+            }
         return {"name": name}
 
     def _resolve_dep_name(self, name: str) -> tuple[str, set | None]:
         """Look up name in reverse dependency graph, falling back to class name for dotted methods."""
-        deps = self.index.reverse_dependency_graph.get(name)
+        exact_class_name = self._resolve_exact_class_name(name)
+        if exact_class_name is not None:
+            deps = self._get_aggregated_dependents(exact_class_name)
+            if deps is not None:
+                return exact_class_name, deps
+        resolved_name = self._resolve_graph_symbol_name(name)
+        deps = self._get_aggregated_dependents(resolved_name or name)
         if deps is not None:
-            return name, deps
+            return resolved_name or name, deps
         # For "Class.method", fall back to dependents of "Class"
         if "." in name:
-            class_name = name.split(".")[0]
-            deps = self.index.reverse_dependency_graph.get(class_name)
+            class_name = name.rsplit(".", 1)[0]
+            deps = self._get_aggregated_dependents(class_name)
             if deps is not None:
                 return class_name, deps
         return name, None
+
+    def _resolve_graph_symbol_name(self, name: str) -> str | None:
+        exact_class_name = self._resolve_exact_class_name(name)
+        if exact_class_name and self._has_forward_graph_presence(exact_class_name):
+            return exact_class_name
+        if name in self.index.global_dependency_graph:
+            return name
+        info = self._resolve_symbol_info(name)
+        resolved_name = info.get("name")
+        if resolved_name in self.index.global_dependency_graph:
+            return resolved_name
+        if "." in name:
+            class_name = name.rsplit(".", 1)[0]
+            if class_name in self.index.global_dependency_graph:
+                return class_name
+        return None
 
     def _get_communities(self) -> dict[str, str]:
         if self._communities is None:
             self._communities = compute_communities(self.index)
         return self._communities
+
+    def _get_aggregated_dependencies(self, resolved_name: str) -> set[str] | None:
+        aggregated: set[str] = set()
+        found_dependency_data = False
+        for alias in self._get_symbol_graph_aliases(resolved_name):
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                found_dependency_data = True
+                aggregated.update(deps)
+            class_symbol = self._find_class_by_qualified_name(alias)
+            if class_symbol is None:
+                continue
+            for method in class_symbol.methods:
+                method_deps = self.index.global_dependency_graph.get(method.qualified_name)
+                if method_deps is not None:
+                    found_dependency_data = True
+                    aggregated.update(method_deps)
+        expanded: set[str] = set(aggregated)
+        for dep in list(aggregated):
+            class_symbol = self._find_class_by_qualified_name(dep)
+            if class_symbol is None:
+                continue
+            expanded.update(method.qualified_name for method in class_symbol.methods)
+        if found_dependency_data:
+            return expanded
+        return None
+
+    def _get_aggregated_dependents(self, resolved_name: str) -> set[str] | None:
+        aggregated: set[str] = set()
+        found_dependency_data = False
+        for alias in self._get_symbol_graph_aliases(resolved_name):
+            deps = self.index.reverse_dependency_graph.get(alias)
+            if deps is not None:
+                found_dependency_data = True
+                aggregated.update(deps)
+            class_symbol = self._find_class_by_qualified_name(alias)
+            if class_symbol is None:
+                continue
+            for method in class_symbol.methods:
+                method_deps = self.index.reverse_dependency_graph.get(method.qualified_name)
+                if method_deps is not None:
+                    found_dependency_data = True
+                    aggregated.update(method_deps)
+        if found_dependency_data:
+            return aggregated
+        return None
+
+    def _get_class_symbol_aliases(self, qualified_name: str) -> set[str]:
+        class_symbol = self._find_class_by_qualified_name(qualified_name)
+        if class_symbol is None:
+            return {qualified_name}
+
+        aliases = {qualified_name}
+        for method in class_symbol.methods:
+            aliases.add(method.qualified_name)
+        return aliases
+
+    def _get_symbol_graph_aliases(self, qualified_name: str) -> set[str]:
+        aliases = set(self._get_class_symbol_aliases(qualified_name))
+        if "." not in qualified_name:
+            return aliases
+
+        parent_name = qualified_name.rsplit(".", 1)[0]
+        parent_class = self._find_class_by_qualified_name(parent_name)
+        if parent_class is None:
+            return aliases
+
+        if any(method.qualified_name == qualified_name for method in parent_class.methods):
+            aliases.add(parent_name)
+            aliases.update(method.qualified_name for method in parent_class.methods)
+        return aliases
+
+    def _get_graph_target_names(self, resolved_name: str) -> set[str]:
+        names = set(self._get_symbol_graph_aliases(resolved_name))
+        for alias in list(names):
+            names.update(self._resolve_graph_candidate_names(alias))
+        return names
+
+    @staticmethod
+    def _call_chain_neighbor_key(name: str) -> tuple[int, int, int, str]:
+        is_qualified = "." in name
+        is_method = "(" in name
+        is_constructor = _is_constructor_symbol(name)
+        return (0 if is_method else 1, 1 if is_constructor else 0, 0 if is_qualified else 1, name)
+
+    def _get_call_chain_neighbors(self, resolved_name: str) -> set[str]:
+        class_symbol = self._find_class_by_qualified_name(resolved_name)
+        if class_symbol is None:
+            return self._get_call_chain_method_dependencies(resolved_name)
+
+        neighbors: set[str] = set()
+        for alias in {resolved_name, class_symbol.name}:
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                neighbors.update(deps)
+        for method in class_symbol.methods:
+            if self._has_any_graph_presence(method.qualified_name):
+                neighbors.add(method.qualified_name)
+        return neighbors
+
+    def _get_call_chain_method_dependencies(self, resolved_name: str) -> set[str]:
+        aliases = {resolved_name}
+        base_name, _ = _split_signature_suffix(resolved_name)
+        aliases.add(base_name)
+        parent_classes: set[str] = set()
+
+        info = self._resolve_symbol_info(resolved_name)
+        info_name = info.get("name")
+        if info_name:
+            aliases.add(info_name)
+            info_base, _ = _split_signature_suffix(info_name)
+            aliases.add(info_base)
+
+        for meta in self.index.files.values():
+            for func in _find_matching_functions(meta.functions, resolved_name):
+                aliases.update(_function_aliases(func))
+                if func.parent_class:
+                    parent_classes.add(func.parent_class)
+                    qualified_parent = func.qualified_name.rsplit(".", 1)[0]
+                    parent_classes.add(qualified_parent)
+
+        neighbors: set[str] = set()
+        for alias in aliases:
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                neighbors.update(deps)
+        for parent_class in parent_classes:
+            if parent_class in self.index.global_dependency_graph or self._has_forward_graph_presence(parent_class):
+                neighbors.add(parent_class)
+        return neighbors
+
+    def _has_any_graph_presence(self, name: str) -> bool:
+        if name in self.index.global_dependency_graph or name in self.index.reverse_dependency_graph:
+            return True
+        return self._has_forward_graph_presence(name)
+
+    def _resolve_graph_candidate_names(self, name: str) -> set[str]:
+        candidates = {name}
+        resolved_name = self._resolve_graph_symbol_name(name)
+        if resolved_name:
+            candidates.add(resolved_name)
+        info = self._resolve_symbol_info(name)
+        info_name = info.get("name")
+        if info_name:
+            candidates.add(info_name)
+        if "." in name:
+            base_name, _ = _split_signature_suffix(name)
+            candidates.add(base_name)
+        for meta in self.index.files.values():
+            for func in _find_matching_functions(meta.functions, name):
+                candidates.update(_function_aliases(func))
+            for cls in meta.classes:
+                qualified_name = cls.qualified_name or cls.name
+                if name in {cls.name, qualified_name} or qualified_name.endswith(f".{name}"):
+                    candidates.add(qualified_name)
+                    candidates.update(method.qualified_name for method in cls.methods)
+        graph_symbols = set(self.index.global_dependency_graph) | set(self.index.reverse_dependency_graph)
+        for deps in self.index.global_dependency_graph.values():
+            graph_symbols.update(deps)
+        for deps in self.index.reverse_dependency_graph.values():
+            graph_symbols.update(deps)
+        for symbol in graph_symbols:
+            if symbol.startswith("__") and not name.startswith("__"):
+                continue
+            if _graph_name_matches(symbol, name):
+                candidates.add(symbol)
+        return candidates
+
+    def _has_forward_graph_presence(self, qualified_name: str) -> bool:
+        if qualified_name in self.index.global_dependency_graph:
+            return True
+        class_symbol = self._find_class_by_qualified_name(qualified_name)
+        if class_symbol is None:
+            return False
+        for method in class_symbol.methods:
+            if method.qualified_name in self.index.global_dependency_graph:
+                return True
+        return False
+
+    def _resolve_exact_class_info(self, name: str) -> dict | None:
+        for path, meta in self._candidate_class_files(name):
+            for cls in meta.classes:
+                if cls.name == name or cls.qualified_name == name:
+                    return self._class_result(cls, path, meta)
+        return None
+
+    def _resolve_exact_class_name(self, name: str) -> str | None:
+        info = self._resolve_exact_class_info(name)
+        if info is None:
+            return None
+        return info.get("qualified_name") or info.get("name")
+
+    def _find_class_by_qualified_name(self, qualified_name: str):
+        for meta in self.index.files.values():
+            for cls in meta.classes:
+                if (cls.qualified_name or cls.name) == qualified_name:
+                    return cls
+        return None
+
+    def _candidate_class_files(self, name: str):
+        if name in self.index.symbol_table:
+            path = self.index.symbol_table[name]
+            meta = _resolve_file(self.index, path)
+            if meta is not None:
+                yield path, meta
+        for path, meta in sorted(self.index.files.items()):
+            if name in self.index.symbol_table and path == self.index.symbol_table[name]:
+                continue
+            yield path, meta
 
 
 def create_project_query_functions(index: ProjectIndex) -> dict[str, Callable]:
@@ -1487,6 +2224,7 @@ DEPENDENCY ANALYSIS:
   get_change_impact(name) -> dict               # Transitive impact of changing this symbol
   get_file_dependencies(file) -> list[str]      # Files this file imports from
   get_file_dependents(file) -> list[str]        # Files that import from this file
+  get_duplicate_classes(name?) -> list[dict]    # Java classes duplicated across files
 
 SEARCH:
   search_codebase(pattern) -> list[dict]        # Regex across all files (max 100 results)

@@ -10,6 +10,7 @@ from token_savior.models import (
     StructuralMetadata,
 )
 from token_savior.query_api import (
+    ProjectQueryEngine,
     STRUCTURAL_QUERY_INSTRUCTIONS,
     create_file_query_functions,
     create_project_query_functions,
@@ -376,6 +377,7 @@ class TestFileQueryFunctions:
         assert classes[0]["name"] == "Engine"
         assert "run" in classes[0]["methods"]
         assert "__init__" in classes[0]["methods"]
+        assert "method_signatures" in classes[0]
 
     def test_get_imports(self):
         imports = self.funcs["get_imports"]()
@@ -402,12 +404,22 @@ class TestFileQueryFunctions:
         assert "class Engine" in src
         assert "def run" in src
 
+    def test_get_class_source_level_2_lists_methods(self):
+        src = self.funcs["get_class_source"]("Engine", level=2)
+        assert "[L2] class Engine" in src
+        assert "methods:" in src
+        assert "- run(" in src
+
     def test_get_class_source_not_found(self):
         result = self.funcs["get_class_source"]("Nonexistent")
         assert "Error" in result
 
     def test_get_dependencies(self):
         deps = self.funcs["get_dependencies"]("Engine.run")
+        assert any(d.get("name") == "helper" for d in deps)
+
+    def test_get_dependencies_for_class_aggregates_method_dependencies(self):
+        deps = self.funcs["get_dependencies"]("Engine")
         assert any(d.get("name") == "helper" for d in deps)
 
     def test_get_dependencies_empty(self):
@@ -498,7 +510,10 @@ class TestProjectQueryFunctions:
     def test_get_structure_summary_project(self):
         # No file_path => project summary
         summary = self.funcs["get_structure_summary"]()
-        assert "/project" in summary
+        assert "Project Structure Summary: /project" in summary
+        assert "Top directories:" in summary
+        assert "src" in summary
+        assert summary != self.funcs["get_project_summary"]()
 
     def test_get_structure_summary_file(self):
         summary = self.funcs["get_structure_summary"]("src/engine_mod.py")
@@ -535,6 +550,55 @@ class TestProjectQueryFunctions:
         classes = self.funcs["get_classes"]("src/engine_mod.py")
         assert len(classes) == 1
         assert classes[0]["name"] == "Engine"
+        assert classes[0]["method_signatures"] == ["Engine.__init__", "Engine.run"]
+
+    def test_get_classes_dedupes_duplicate_method_names(self):
+        meta = StructuralMetadata(
+            source_name="factories.java",
+            total_lines=10,
+            total_chars=100,
+            lines=[""] * 10,
+            line_char_offsets=[],
+            classes=[
+                ClassInfo(
+                    name="Factories",
+                    line_range=LineRange(1, 10),
+                    base_classes=[],
+                    methods=[
+                        FunctionInfo(
+                            name="optionFlowImbalanceFactory",
+                            qualified_name="Factories.optionFlowImbalanceFactory(String)",
+                            line_range=LineRange(2, 3),
+                            parameters=["name"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                        FunctionInfo(
+                            name="optionFlowImbalanceFactory",
+                            qualified_name="Factories.optionFlowImbalanceFactory(String,int)",
+                            line_range=LineRange(5, 6),
+                            parameters=["name", "window"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                    ],
+                    decorators=[],
+                    docstring=None,
+                )
+            ],
+        )
+
+        classes = create_file_query_functions(meta)["get_classes"]()
+
+        assert classes[0]["methods"] == ["optionFlowImbalanceFactory"]
+        assert classes[0]["method_signatures"] == [
+            "Factories.optionFlowImbalanceFactory(String)",
+            "Factories.optionFlowImbalanceFactory(String,int)",
+        ]
 
     def test_get_imports_all(self):
         imports = self.funcs["get_imports"]()
@@ -564,6 +628,59 @@ class TestProjectQueryFunctions:
     def test_get_class_source(self):
         src = self.funcs["get_class_source"]("Runner")
         assert "class Runner" in src
+
+    def test_get_class_source_level_2_lists_methods(self):
+        src = self.funcs["get_class_source"]("Runner", level=2)
+        assert "[L2] class Runner" in src
+        assert "methods:" in src
+
+    def test_get_class_source_level_2_prefers_class_over_constructor_named_symbol(self):
+        source = "class SampleNode:\n    pass\n"
+        lines = source.split("\n")
+        constructor = FunctionInfo(
+            name="SampleNode",
+            qualified_name="pkg.SampleNode.SampleNode()",
+            line_range=LineRange(1, 1),
+            parameters=[],
+            decorators=[],
+            docstring=None,
+            is_method=True,
+            parent_class="SampleNode",
+        )
+        cls = ClassInfo(
+            name="SampleNode",
+            qualified_name="pkg.SampleNode",
+            line_range=LineRange(1, 2),
+            base_classes=[],
+            methods=[constructor],
+            decorators=[],
+            docstring="Synthetic node.",
+        )
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/node.py": StructuralMetadata(
+                    source_name="src/node.py",
+                    total_lines=len(lines),
+                    total_chars=len(source),
+                    lines=lines,
+                    line_char_offsets=[],
+                    functions=[constructor],
+                    classes=[cls],
+                )
+            },
+            symbol_table={
+                "SampleNode": "src/node.py",
+                "pkg.SampleNode": "src/node.py",
+                "pkg.SampleNode.SampleNode()": "src/node.py",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        src = funcs["get_class_source"]("SampleNode", level=2)
+
+        assert src.startswith("[L2] class SampleNode")
+        assert "methods: 1" in src
 
     def test_get_class_source_not_found(self):
         result = self.funcs["get_class_source"]("Nonexistent")
@@ -597,6 +714,10 @@ class TestProjectQueryFunctions:
         deps = self.funcs["get_dependents"]("Engine.run")
         assert any(d.get("name") == "Runner.execute" for d in deps)
 
+    def test_get_dependents_for_class_aggregates_method_dependents(self):
+        deps = self.funcs["get_dependents"]("Engine")
+        assert any(d.get("name") == "Runner.execute" for d in deps)
+
     def test_get_call_chain(self):
         result = self.funcs["get_call_chain"]("Runner.execute", "helper")
         assert "chain" in result
@@ -608,6 +729,12 @@ class TestProjectQueryFunctions:
         assert "chain" in result
         names = [s.get("name", s) for s in result["chain"]]
         assert names == ["Engine.run", "helper"]
+
+    def test_get_call_chain_from_class_aggregates_method_dependencies(self):
+        result = self.funcs["get_call_chain"]("Engine", "helper")
+        assert "chain" in result
+        names = [s.get("name", s) for s in result["chain"]]
+        assert names == ["Engine", "Engine.run", "helper"]
 
     def test_get_call_chain_same(self):
         result = self.funcs["get_call_chain"]("helper", "helper")
@@ -622,6 +749,134 @@ class TestProjectQueryFunctions:
     def test_get_call_chain_unknown_source(self):
         result = self.funcs["get_call_chain"]("nonexistent", "helper")
         assert "error" in result
+
+    def test_get_call_chain_bridges_method_to_class_aliases(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/app.py": StructuralMetadata(
+                    source_name="app.py",
+                    total_lines=4,
+                    total_chars=40,
+                    lines=[""] * 4,
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="start",
+                            qualified_name="App.start",
+                            line_range=LineRange(1, 2),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="App",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="App",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="start",
+                                    qualified_name="App.start",
+                                    line_range=LineRange(1, 2),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="App",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.py": StructuralMetadata(
+                    source_name="factories.py",
+                    total_lines=6,
+                    total_chars=60,
+                    lines=[""] * 6,
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="make",
+                            qualified_name="Factories.make",
+                            line_range=LineRange(2, 3),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            line_range=LineRange(1, 4),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="make",
+                                    qualified_name="Factories.make",
+                                    line_range=LineRange(2, 3),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.py": StructuralMetadata(
+                    source_name="node.py",
+                    total_lines=2,
+                    total_chars=20,
+                    lines=[""] * 2,
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="Node",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "App.start": {"Factories.make"},
+                "Factories": {"Node"},
+                "Factories.make": set(),
+                "Node": set(),
+            },
+            reverse_dependency_graph={
+                "Factories.make": {"App.start"},
+                "Node": {"Factories"},
+            },
+            symbol_table={
+                "App": "src/app.py",
+                "App.start": "src/app.py",
+                "Factories": "src/factories.py",
+                "Factories.make": "src/factories.py",
+                "Node": "src/node.py",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"]("App.start", "Node")
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert names == ["App.start", "Factories.make", "Factories", "Node"]
 
     def test_get_file_dependencies(self):
         deps = self.funcs["get_file_dependencies"]("src/runner_mod.py")
@@ -675,6 +930,11 @@ class TestProjectQueryFunctions:
                 f"expected confidence < 1.0, got {entry['confidence']}"
             )
             assert entry["depth"] >= 2, f"expected depth >= 2, got {entry['depth']}"
+
+    def test_get_change_impact_for_class_aggregates_method_dependents(self):
+        impact = self.funcs["get_change_impact"]("Engine")
+        direct_names = [d.get("name", d) if isinstance(d, dict) else d for d in impact["direct"]]
+        assert "Runner.execute" in direct_names
 
     def test_get_change_impact_no_dependents(self):
         # main has no reverse dependents in our graph
@@ -759,6 +1019,472 @@ class TestOutputSizeControls:
         # If max_lines >= actual lines, no truncation message
         src = self.funcs["get_function_source"]("helper", max_lines=100)
         assert "truncated" not in src
+
+
+class TestComponentQueries:
+    def test_get_components_strips_destructured_marker(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "ui/components/Card.tsx": StructuralMetadata(
+                    source_name="Card.tsx",
+                    total_lines=10,
+                    total_chars=120,
+                    lines=["export function Card({ title }) {", "  return <div />", "}"],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="Card",
+                            qualified_name="Card",
+                            line_range=LineRange(5, 9),
+                            parameters=["destructured", "title"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=False,
+                            parent_class=None,
+                        )
+                    ],
+                )
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        components = funcs["get_components"]()
+
+        assert components == [
+            {
+                "name": "Card",
+                "file": "ui/components/Card.tsx",
+                "line_range": "5-9",
+                "params": ["title"],
+                "type": "component",
+            }
+        ]
+
+    def test_get_components_repairs_collapsed_arrow_component_range(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "ui/components/CTAButton.tsx": StructuralMetadata(
+                    source_name="CTAButton.tsx",
+                    total_lines=8,
+                    total_chars=160,
+                    lines=[
+                        "export const CTAButton = ({ title }: Props) => (",
+                        "  <button>",
+                        "    <span>{title}</span>",
+                        "  </button>",
+                        ");",
+                        "",
+                        "",
+                        "",
+                    ],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="CTAButton",
+                            qualified_name="CTAButton",
+                            line_range=LineRange(1, 1),
+                            parameters=["destructured", "title"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=False,
+                            parent_class=None,
+                        )
+                    ],
+                )
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        components = funcs["get_components"]()
+
+        assert components[0]["line_range"] == "1-5"
+
+
+class TestCallChainAliasResolution:
+    def test_get_call_chain_resolves_signatureless_neighbors(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/app.java": StructuralMetadata(
+                    source_name="app.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="main",
+                            qualified_name="com.acme.App.main(String[])",
+                            line_range=LineRange(1, 1),
+                            parameters=["String[]"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="App",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="App",
+                            qualified_name="com.acme.App",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="main",
+                                    qualified_name="com.acme.App.main(String[])",
+                                    line_range=LineRange(1, 1),
+                                    parameters=["String[]"],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="App",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/graphs.java": StructuralMetadata(
+                    source_name="graphs.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="register",
+                            qualified_name="com.acme.GraphRegistry.register()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="GraphRegistry",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="GraphRegistry",
+                            qualified_name="com.acme.GraphRegistry",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="register",
+                                    qualified_name="com.acme.GraphRegistry.register()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="GraphRegistry",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.java": StructuralMetadata(
+                    source_name="factories.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="sampleAggregationFactory",
+                            qualified_name="com.acme.Factories.sampleAggregationFactory()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            qualified_name="com.acme.Factories",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="sampleAggregationFactory",
+                                    qualified_name="com.acme.Factories.sampleAggregationFactory()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.java": StructuralMetadata(
+                    source_name="node.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="SampleAggregationNode",
+                            qualified_name="com.acme.SampleAggregationNode",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "com.acme.App.main(String[])": {"com.acme.GraphRegistry.register"},
+                "com.acme.GraphRegistry.register()": {"com.acme.Factories.sampleAggregationFactory"},
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.SampleAggregationNode"},
+            },
+            reverse_dependency_graph={
+                "com.acme.GraphRegistry.register": {"com.acme.App.main(String[])"},
+                "com.acme.Factories.sampleAggregationFactory": {"com.acme.GraphRegistry.register()"},
+                "com.acme.SampleAggregationNode": {"com.acme.Factories.sampleAggregationFactory()"},
+            },
+            symbol_table={
+                "com.acme.App": "src/app.java",
+                "com.acme.App.main(String[])": "src/app.java",
+                "com.acme.GraphRegistry": "src/graphs.java",
+                "com.acme.GraphRegistry.register()": "src/graphs.java",
+                "com.acme.Factories": "src/factories.java",
+                "com.acme.Factories.sampleAggregationFactory()": "src/factories.java",
+                "com.acme.SampleAggregationNode": "src/node.java",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"]("com.acme.App", "com.acme.SampleAggregationNode")
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert "com.acme.GraphRegistry.register()" in names
+        assert "com.acme.Factories.sampleAggregationFactory()" in names
+
+    def test_get_call_chain_matches_suffix_only_graph_nodes(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={},
+            global_dependency_graph={
+                "SampleGraphApplication": {"RuntimeCoordinator.start"},
+                "com.acme.runtime.RuntimeCoordinator.start()": {"GraphRegistry.register"},
+                "com.acme.runtime.GraphRegistry.register()": {
+                    "Factories.sampleAggregationFactory"
+                },
+                "com.acme.runtime.Factories.sampleAggregationFactory()": {
+                    "com.acme.runtime.SampleAggregationNode"
+                },
+            },
+            reverse_dependency_graph={},
+            symbol_table={},
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"](
+            "SampleGraphApplication",
+            "SampleAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert "com.acme.runtime.GraphRegistry.register()" in names
+        assert "com.acme.runtime.Factories.sampleAggregationFactory()" in names
+
+    def test_get_call_chain_does_not_jump_across_unrelated_sibling_methods(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/graphs.java": StructuralMetadata(
+                    source_name="graphs.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="register",
+                            qualified_name="com.acme.GraphRegistry.register()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="GraphRegistry",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="GraphRegistry",
+                            qualified_name="com.acme.GraphRegistry",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="register",
+                                    qualified_name="com.acme.GraphRegistry.register()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="GraphRegistry",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.java": StructuralMetadata(
+                    source_name="factories.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="sampleAggregationFactory",
+                            qualified_name="com.acme.Factories.sampleAggregationFactory()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                        FunctionInfo(
+                            name="alternateFactory",
+                            qualified_name="com.acme.Factories.alternateFactory()",
+                            line_range=LineRange(2, 2),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            qualified_name="com.acme.Factories",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="sampleAggregationFactory",
+                                    qualified_name="com.acme.Factories.sampleAggregationFactory()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                ),
+                                FunctionInfo(
+                                    name="alternateFactory",
+                                    qualified_name="com.acme.Factories.alternateFactory()",
+                                    line_range=LineRange(2, 2),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                ),
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.java": StructuralMetadata(
+                    source_name="node.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="SampleAggregationNode",
+                            qualified_name="com.acme.SampleAggregationNode",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "com.acme.GraphRegistry.register()": {"com.acme.Factories.sampleAggregationFactory()"},
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.SampleAggregationNode"},
+                "com.acme.Factories.alternateFactory()": {"com.acme.AlternateNode"},
+            },
+            reverse_dependency_graph={
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.GraphRegistry.register()"},
+                "com.acme.SampleAggregationNode": {"com.acme.Factories.sampleAggregationFactory()"},
+                "com.acme.AlternateNode": {"com.acme.Factories.alternateFactory()"},
+            },
+            symbol_table={
+                "com.acme.GraphRegistry": "src/graphs.java",
+                "com.acme.GraphRegistry.register()": "src/graphs.java",
+                "com.acme.Factories": "src/factories.java",
+                "com.acme.Factories.sampleAggregationFactory()": "src/factories.java",
+                "com.acme.Factories.alternateFactory()": "src/factories.java",
+                "com.acme.SampleAggregationNode": "src/node.java",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"](
+            "com.acme.GraphRegistry",
+            "com.acme.SampleAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert names == [
+            "com.acme.GraphRegistry",
+            "com.acme.GraphRegistry.register()",
+            "com.acme.Factories.sampleAggregationFactory()",
+            "com.acme.SampleAggregationNode",
+        ]
+
+    def test_graph_candidate_names_do_not_treat_framework_sources_as_symbol_aliases(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={},
+            global_dependency_graph={
+                "__framework__.spring.boot:application:com.acme.SampleGraphApplication": {
+                    "com.acme.ReportService"
+                },
+                "com.acme.SampleGraphApplication.main(String[])": set(),
+            },
+            reverse_dependency_graph={},
+            symbol_table={},
+        )
+        engine = ProjectQueryEngine(index)
+
+        candidates = engine._resolve_graph_candidate_names("com.acme.SampleGraphApplication")
+
+        assert "__framework__.spring.boot:application:com.acme.SampleGraphApplication" not in candidates
 
 
 # ---------------------------------------------------------------------------

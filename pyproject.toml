@@ -21,11 +21,15 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",
 ]
-dependencies = ["PyYAML>=6.0"]
+dependencies = [
+    "PyYAML>=6.0",
+    "tree-sitter>=0.25,<0.26",
+    "tree-sitter-java>=0.23,<0.24",
+]
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.25"]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.5"]
 benchmark = ["aiohttp>=3.9"]
 
 [project.scripts]

@@ -822,6 +822,46 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "find_allocation_hotspots": {
+        "description": (
+            "Rank Java functions by allocation-heavy ULL antipatterns such as object construction, "
+            "collection creation, stream pipelines, boxing helpers, and formatting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of Java functions to report (default: 20).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum allocation score to include (default: 1).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "find_performance_hotspots": {
+        "description": (
+            "Rank Java functions by non-allocation ULL antipatterns such as blocking calls, locks, "
+            "synchronized sections, blocking I/O, and shared mutable state without cache-line padding."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of Java functions to report (default: 20).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum performance score to include (default: 1).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "detect_breaking_changes": {
         "description": (
             "Detect breaking API changes between the current code and a git ref. "
@@ -894,6 +934,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
+        },
+    },
+    "get_duplicate_classes": {
+        "description": "Find duplicate Java classes with the same fully qualified name defined in multiple files, or group by simple class name when requested.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Optional simple or fully qualified class name to filter duplicates.",
+                },
+                "simple_name_mode": {
+                    "type": "boolean",
+                    "description": "When true, group duplicate classes by simple name across files instead of exact fully qualified name.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max duplicate groups to return (0 = all, default 0).",
+                },
+                **_PROJECT_PARAM,
+            },
         },
     },
     # ── Memory Engine tools ───────────────────────────────────────────────

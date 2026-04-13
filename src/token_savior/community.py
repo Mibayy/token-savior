@@ -72,10 +72,13 @@ def compute_communities(index: ProjectIndex, max_iterations: int = 10) -> dict[s
     for sym, lbl in labels.items():
         groups[lbl].append(sym)
 
-    # Reassign: community ID = min(members)
+    # Reassign: community ID = most-connected member, then lexical tie-break.
     final: dict[str, str] = {}
     for members in groups.values():
-        community_id = min(members)
+        community_id = min(
+            members,
+            key=lambda sym: (-len(adjacency.get(sym, set()) & set(members)), sym),
+        )
         for sym in members:
             final[sym] = community_id
 
@@ -99,47 +102,46 @@ def get_cluster_for_symbol(
             return {"error": f"Symbol '{symbol}' not found in any community"}
         symbol = matches[0]
 
-    community_id = communities[symbol]
+    canonical_community_id = communities[symbol]
 
     # Find all members of this community
-    members_raw = sorted(s for s, cid in communities.items() if cid == community_id)
+    members_raw = sorted(s for s, cid in communities.items() if cid == canonical_community_id)
+    if symbol in members_raw:
+        members_raw.remove(symbol)
+        members_raw.insert(0, symbol)
+
+    def _resolve_member(sym: str) -> dict:
+        entry: dict = {"name": sym}
+        for file_path, meta in index.files.items():
+            for cls in meta.classes:
+                qualified_name = getattr(cls, "qualified_name", None) or cls.name
+                if cls.name == sym or qualified_name == sym:
+                    entry.update({"file": file_path, "line": cls.line_range.start, "type": "class"})
+                    return entry
+            for func in meta.functions:
+                if func.name == sym or func.qualified_name == sym:
+                    entry.update(
+                        {
+                            "file": file_path,
+                            "line": func.line_range.start,
+                            "type": "method" if func.is_method else "function",
+                        }
+                    )
+                    return entry
+        if sym in index.symbol_table:
+            entry["file"] = index.symbol_table[sym]
+        return entry
 
     # Enrich member info
     members = []
     for sym in members_raw[:max_members]:
-        entry: dict = {"name": sym}
-        # Look up in symbol table
-        if sym in index.symbol_table:
-            file_path = index.symbol_table[sym]
-            meta = index.files.get(file_path)
-            if meta:
-                for func in meta.functions:
-                    if func.name == sym or func.qualified_name == sym:
-                        entry.update(
-                            {
-                                "file": file_path,
-                                "line": func.line_range.start,
-                                "type": "method" if func.is_method else "function",
-                            }
-                        )
-                        break
-                else:
-                    for cls in meta.classes:
-                        if cls.name == sym:
-                            entry.update(
-                                {
-                                    "file": file_path,
-                                    "line": cls.line_range.start,
-                                    "type": "class",
-                                }
-                            )
-                            break
-        members.append(entry)
+        members.append(_resolve_member(sym))
 
     return {
-        "community_id": community_id,
+        "community_id": symbol,
+        "canonical_community_id": canonical_community_id,
         "queried_symbol": symbol,
-        "size": len([s for s, cid in communities.items() if cid == community_id]),
+        "size": len([s for s, cid in communities.items() if cid == canonical_community_id]),
         "members": members,
         "truncated": len(members_raw) > max_members,
     }

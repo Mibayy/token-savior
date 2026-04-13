@@ -54,7 +54,9 @@ class TestToolSchemas:
         # +1 v2.3 Prompt3 Step A (get_linucb_stats) = 92.
         # +1 v2.3 Prompt3 Step B (get_warmstart_stats) = 93.
         # +2 v2.3 Prompt3 Step C (memory_consistency, memory_quarantine_list) = 95.
-        assert len(TOOL_SCHEMAS) == 95, f"Expected 95 tools, got {len(TOOL_SCHEMAS)}"
+        # +2 Java quality tools (find_allocation_hotspots, find_performance_hotspots) = 97.
+        # +1 Java duplicate-classes (get_duplicate_classes) = 98.
+        assert len(TOOL_SCHEMAS) == 98, f"Expected 98 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

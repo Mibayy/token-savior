@@ -4,10 +4,10 @@
 
 # ⚡ Token Savior Recall
 
-> **97% token reduction** · **Persistent memory** · **75 MCP tools** · **Python 3.11+**
+> **97% token reduction** · **Persistent memory** · **78 MCP tools** · **Python 3.11+**
 
 [![Version](https://img.shields.io/badge/version-2.1.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.1.0)
-[![Tools](https://img.shields.io/badge/tools-75-green)]()
+[![Tools](https://img.shields.io/badge/tools-78-green)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Tests](https://img.shields.io/badge/tests-891%2F891-brightgreen)]()
 [![Memory](https://img.shields.io/badge/memory-SQLite%20WAL%20%2B%20FTS5-orange)]()
@@ -55,7 +55,7 @@ get_backward_slice("parse_invoice", variable="total", line=42)
 | Tokens saved | ~203M |
 | Estimated cost saved | $609+ |
 | Projects supported | 17 |
-| Tool count | **75** |
+| Tool count | **78** |
 
 > "Tokens saved" = estimated tokens the agent would have consumed navigating
 > with `cat`/`grep` versus with Token Savior Recall. Model-agnostic: the index
@@ -84,7 +84,158 @@ incremental reindex cost by **19x** on targeted edits.
 
 ---
 
-## Installation
+## What it covers
+
+| Language / Format | Files | Extracts |
+|-------------------|-------|----------|
+| Python | `.py`, `.pyw` | Functions, classes, methods, imports, dependency graph |
+| TypeScript / JS | `.ts`, `.tsx`, `.js`, `.jsx` | Functions, arrow functions, classes, interfaces, type aliases |
+| Go | `.go` | Functions, methods (receiver), structs, interfaces, type aliases |
+| Rust | `.rs` | Functions, structs, enums, traits, impl blocks, macro_rules |
+| C# | `.cs` | Classes, interfaces, structs, enums, methods, XML doc comments |
+| Java | `.java` | Packages, imports, classes, interfaces, enums, records, constructors, methods |
+| Gradle | `.gradle`, `.gradle.kts` | Build blocks, dependency declarations, assignments, task/settings structure |
+| C / C99 / C11 | `.c`, `.h` | Functions (static/inline/extern), structs/unions/enums, typedefs, `#define` macros, `#include`, Doxygen comments, dependency graph |
+| GLSL | `.glsl`, `.vert`, `.frag`, `.comp` | Functions, structs, uniforms (via C annotator) |
+| Markdown / Text | `.md`, `.txt`, `.rst` | Sections via heading detection |
+| JSON | `.json` | Nested key structure up to depth 4, `$ref` cross-references |
+| YAML | `.yaml`, `.yml` | Nested key hierarchy, array markers, depth cap 4 |
+| TOML | `.toml` | Tables, key-value pairs, nested structure |
+| INI / Properties | `.ini`, `.cfg`, `.properties` | Sections, key-value pairs |
+| Environment | `.env` | Variable names, values (with secret masking) |
+| XML / Plist / SVG | `.xml`, `.plist`, `.svg`, `.xhtml` | Element hierarchy, attributes (including Maven `pom.xml`) |
+| HCL / Terraform | `.hcl`, `.tf` | Blocks, nested resources, key-value pairs |
+| Conf | `.conf` | Key-value pairs, block structure |
+| Dockerfile | `Dockerfile`, `*.dockerfile` | Instructions, multi-stage builds, FROM/RUN/COPY/ENV |
+| Everything else | `*` | Line counts (generic fallback) |
+
+---
+
+## 78 tools
+
+### Navigation
+| Tool | What it does |
+|------|-------------|
+| `find_symbol` | Where a symbol is defined — file, line, type, 20-line preview |
+| `get_function_source` | Full source of a function or method |
+| `get_class_source` | Full source of a class |
+| `get_functions` | All functions in a file or project |
+| `get_classes` | All classes with methods and bases |
+| `get_imports` | All imports with module, names, line |
+| `get_structure_summary` | File or project structure at a glance |
+| `list_files` | Indexed files with optional glob filter |
+| `get_project_summary` | File count, packages, top classes/functions |
+| `search_codebase` | Regex search across all indexed files |
+| `reindex` | Force full re-index (rarely needed) |
+
+### Context & discovery
+| Tool | What it does |
+|------|-------------|
+| `get_edit_context` | All-in-one: symbol source + dependencies + callers in one call (saves 3 calls) |
+| `get_feature_files` | Find all files related to a feature keyword, then trace imports transitively |
+| `get_routes` | Detect API routes and pages (Next.js App Router, Express, pages/api) |
+| `get_components` | Detect React components (functions returning JSX) in `.tsx`/`.jsx` files |
+| `get_env_usage` | Find all references to an env variable across the codebase |
+
+### Impact analysis
+| Tool | What it does |
+|------|-------------|
+| `get_dependencies` | What a symbol calls/uses |
+| `get_dependents` | What calls/uses a symbol |
+| `get_change_impact` | Direct + transitive dependents with **confidence score** (1.0 = direct, 0.6/hop) and depth |
+| `get_call_chain` | Shortest dependency path between two symbols (BFS) |
+| `get_file_dependencies` | Files imported by a given file |
+| `get_file_dependents` | Files that import from a given file |
+| `get_symbol_cluster` | All functionally related symbols via label propagation community detection — one call instead of chaining dependency queries |
+| `get_duplicate_classes` | Find duplicate Java classes by fully qualified name, or group by simple name to surface shadowed class names across files |
+| `get_entry_points` | Score functions by likelihood of being execution entry points (routes ×3, handlers ×1.5, main ×2, zero callers) |
+
+### Git & diffs
+| Tool | What it does |
+|------|-------------|
+| `get_git_status` | Branch, ahead/behind, staged, unstaged, untracked |
+| `get_changed_symbols` | Changed files as symbol-level summaries, not diffs. Optional `ref` param for changes since any git ref |
+| `get_changed_symbols_since_ref` | **Deprecated** -- use `get_changed_symbols(ref=...)` instead. Removal in v1.1.0 |
+| `summarize_patch_by_symbol` | Compact review view — symbols instead of textual diffs |
+| `build_commit_summary` | Compact commit summary from changed files |
+
+### Safe editing
+| Tool | What it does |
+|------|-------------|
+| `replace_symbol_source` | Replace a symbol's source without touching the rest of the file |
+| `insert_near_symbol` | Insert content before or after a symbol |
+| `create_checkpoint` | Snapshot a set of files before editing |
+| `restore_checkpoint` | Restore from checkpoint |
+| `compare_checkpoint_by_symbol` | Diff checkpoint vs current at symbol level |
+| `list_checkpoints` | List available checkpoints |
+
+### Test & run
+| Tool | What it does |
+|------|-------------|
+| `find_impacted_test_files` | Infer likely impacted pytest files from changed symbols |
+| `run_impacted_tests` | Run only impacted tests — compact summary, not raw logs |
+| `apply_symbol_change_and_validate` | Edit + run impacted tests in one call. Optional `rollback_on_failure` for auto-rollback |
+| `apply_symbol_change_validate_with_rollback` | **Deprecated** -- use `apply_symbol_change_and_validate(rollback_on_failure=true)`. Removal in v1.1.0 |
+| `discover_project_actions` | Detect test/lint/build/run commands from project files |
+| `run_project_action` | Execute a discovered action with bounded output |
+
+### Config analysis
+| Tool | What it does |
+|------|-------------|
+| `analyze_config` | Scan config files for duplicates, secrets, typos, and orphan keys |
+
+Runs three checks (individually toggleable via the `checks` parameter):
+
+- **Duplicates** — Same key defined twice in the same file, plus Levenshtein-based typo detection (e.g. `db_hsot` vs `db_host`)
+- **Secrets** — Regex patterns for known secret formats (API keys, tokens, private keys) plus Shannon entropy analysis for high-entropy strings
+- **Orphans** — Cross-references config keys against actual code usage. Detects keys your code never reads and env vars your code expects but aren't set. Understands `os.environ`, `process.env`, `os.Getenv`, `std::env::var`, and more.
+
+Supported formats: `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.properties`, `.env`, `.xml`, `.plist`, `.hcl`, `.tf`, `.conf`, `.json`
+
+### Code quality
+| Tool | What it does |
+|------|-------------|
+| `find_dead_code` | Find functions/classes with zero callers (excludes entry points, tests, decorated routes) |
+| `find_hotspots` | Rank functions by complexity score (lines, branches, nesting, parameter count) |
+| `find_allocation_hotspots` | Rank Java functions by allocation-heavy ULL antipatterns such as object construction, collection creation, streams, boxing, and formatting |
+| `find_performance_hotspots` | Rank Java functions by non-allocation ULL antipatterns such as blocking, locks, synchronized sections, blocking I/O, and missing cache-line padding hints |
+| `detect_breaking_changes` | Compare current function signatures against a git ref — flags removed/renamed params, changed defaults |
+
+### Docker
+| Tool | What it does |
+|------|-------------|
+| `analyze_docker` | Audit Dockerfiles: base images, exposed ports, ENV/ARG cross-reference, `latest` tag warnings |
+
+### Multi-project
+| Tool | What it does |
+|------|-------------|
+| `find_cross_project_deps` | Cross-reference imports across projects to find shared dependencies |
+
+### Stats
+| Tool | What it does |
+|------|-------------|
+| `get_usage_stats` | Cumulative token savings per project across sessions |
+
+### Project management
+| Tool | What it does |
+|------|-------------|
+| `list_projects` | All registered projects and their index state |
+| `switch_project` | Set the active project for subsequent calls |
+| `set_project_root` | Register a new project root and trigger indexing |
+
+---
+
+## vs LSP
+
+LSP answers "where is this defined?" — `token-savior` answers "what breaks if I change it?"
+
+LSP is point queries: one symbol, one file, one position. It can find where `LLMClient` is defined and who references it directly. Ask "what breaks transitively if I refactor `LLMClient`?" and LSP has nothing — the AI would need to chain dozens of find-reference calls recursively, reading files at every step.
+
+`get_change_impact("TestCase")` on CPython finds 154 direct dependents and 492 transitive dependents in 0.45ms, returning 16K chars instead of reading 41M. And unlike LSP, it requires zero language servers — one binary covers Python + TS/JS + Go + Rust + C# + C/GLSL + config files + Dockerfiles out of the box.
+
+---
+
+## Install
 
 ### Quick start (uvx)
 
@@ -198,8 +349,9 @@ You MUST use token-savior-recall MCP tools FIRST.
 `replace_symbol_source` · `insert_near_symbol` ·
 `apply_symbol_change_and_validate` · `find_impacted_test_files`
 
-### Analysis (6)
+### Analysis (8)
 `find_hotspots` · `find_dead_code` · `detect_breaking_changes` ·
+`find_allocation_hotspots` · `find_performance_hotspots` ·
 `analyze_config` · `analyze_docker` · `run_impacted_tests`
 
 ### Project (7)

@@ -155,6 +155,29 @@ class TestDifferentLevels:
         issues = check_duplicates({"config.yml": meta})
         assert len(issues) == 0
 
+    def test_same_key_under_different_parents_not_flagged(self):
+        """Sibling branches may reuse the same child key without conflict."""
+        sections = [
+            SectionInfo(title="redis", level=1, line_range=LineRange(1, 1)),
+            SectionInfo(title="image", level=2, line_range=LineRange(2, 2)),
+            SectionInfo(title="api", level=1, line_range=LineRange(3, 3)),
+            SectionInfo(title="image", level=2, line_range=LineRange(4, 4)),
+        ]
+        meta = _make_meta("docker-compose.yml", sections)
+        issues = check_duplicates({"docker-compose.yml": meta})
+        assert issues == []
+
+    def test_same_line_duplicate_is_not_reported_twice(self):
+        """Flow-style YAML should not report a line as a duplicate of itself."""
+        sections = [
+            SectionInfo(title="latenessMs", level=2, line_range=LineRange(1, 1)),
+            SectionInfo(title="latenessMs", level=2, line_range=LineRange(1, 1)),
+        ]
+        meta = _make_meta("deploy.yaml", sections, lines=["", "trades: { latenessMs: 100 }"])
+        issues = check_duplicates({"deploy.yaml": meta})
+        duplicates = [i for i in issues if i.check == "duplicate"]
+        assert duplicates == []
+
 
 # ---------------------------------------------------------------------------
 # Cross-file conflicts
@@ -339,6 +362,36 @@ class TestCheckSecrets:
         # But the masked form (****) must be present
         assert "****" in (issue.detail or "")
 
+    def test_docker_image_template_not_flagged(self):
+        """Compose image placeholders are not secrets."""
+        meta = _make_simple_meta("docker-compose.yml", ["image: ghcr.io/org/repo:${TAG}"])
+        issues = check_secrets({"docker-compose.yml": meta})
+        assert issues == []
+
+    def test_log4j_pattern_not_flagged(self):
+        """PatternLayout strings should not trip entropy detection."""
+        meta = _make_simple_meta(
+            "log4j2.yaml",
+            ['pattern: "%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"'],
+        )
+        issues = check_secrets({"log4j2.yaml": meta})
+        assert issues == []
+
+    def test_template_placeholder_not_flagged(self):
+        """Template placeholders should not be treated as hardcoded secrets."""
+        meta = _make_simple_meta("app.env", ["API_KEY=${OPENAI_API_KEY}"])
+        issues = check_secrets({"app.env": meta})
+        assert issues == []
+
+    def test_flow_style_structured_value_not_flagged_as_entropy(self):
+        """Inline structured YAML config should not trip entropy detection."""
+        meta = _make_simple_meta(
+            "config/deploy/local.yaml",
+            ["trades: { latenessMs: 100, latePolicy: apply, reorderBufferSize: 32 }"],
+        )
+        issues = check_secrets({"config/deploy/local.yaml": meta})
+        assert issues == []
+
 
 # ---------------------------------------------------------------------------
 # TestCheckOrphans
@@ -404,6 +457,31 @@ class TestCheckOrphans:
         orphans = [i for i in issues if i.check == "orphan" and i.key == "API_KEY"]
         assert orphans == [], f"API_KEY should not be orphan, got: {orphans}"
 
+    def test_java_system_getenv_key_recognized_as_used(self):
+        """System.getenv(\"API_KEY\") in Java code → key should NOT be an orphan."""
+        config = {"app.env": _make_config_with_key("app.env", "API_KEY")}
+        code = {
+            "Main.java": _make_code_meta(
+                "Main.java",
+                ['String key = System.getenv("API_KEY");'],
+            )
+        }
+        issues = check_orphans(config, code)
+        orphans = [i for i in issues if i.check == "orphan" and i.key == "API_KEY"]
+        assert orphans == [], f"API_KEY should not be orphan, got: {orphans}"
+
+    def test_java_system_property_missing_from_config_is_ghost(self):
+        """System.getProperty(\"APP_PORT\") with no config entry → ghost."""
+        code = {
+            "Main.java": _make_code_meta(
+                "Main.java",
+                ['String port = System.getProperty("APP_PORT");'],
+            )
+        }
+        issues = check_orphans({}, code)
+        ghosts = [i for i in issues if i.check == "ghost"]
+        assert any(i.key == "APP_PORT" for i in ghosts)
+
     def test_orphan_config_file_basename_not_in_code(self):
         """Config file whose basename never appears in code → orphan_file."""
         config = {"secrets.env": _make_config_with_key("secrets.env", "MY_KEY")}
@@ -440,6 +518,56 @@ class TestCheckOrphans:
     def test_empty_config_and_code_no_issues(self):
         """Empty inputs produce no issues."""
         assert check_orphans({}, {}) == []
+
+    def test_convention_loaded_files_not_flagged_as_orphans(self):
+        """Build/runtime convention files should not require filename references."""
+        config = {
+            "gradle.properties": _make_config_with_key("gradle.properties", "ORG_GRADLE_PROJECT"),
+            "gradle/wrapper/gradle-wrapper.properties": _make_config_with_key(
+                "gradle/wrapper/gradle-wrapper.properties", "distributionUrl"
+            ),
+            "ui/package.json": _make_config_with_key("ui/package.json", "name"),
+            "deployment/docker-compose.local.yml": _make_config_with_key(
+                "deployment/docker-compose.local.yml", "services"
+            ),
+            "config/deploy/local.yaml": _make_config_with_key("config/deploy/local.yaml", "trades"),
+            ".github/workflows/ci.yml": _make_config_with_key(".github/workflows/ci.yml", "jobs"),
+            "application.yaml": _make_config_with_key("application.yaml", "server"),
+            "log4j2.xml": _make_config_with_key("log4j2.xml", "Configuration"),
+        }
+        code = {"app.py": _make_code_meta("app.py", ["print('hello')"])}
+        issues = check_orphans(config, code)
+        orphan_files = [i for i in issues if i.check == "orphan_file"]
+        assert orphan_files == []
+
+    def test_convention_keys_and_vite_ghosts_are_not_flagged(self):
+        config = {
+            "ui/package.json": _make_config_with_key("ui/package.json", "scripts"),
+            "ui/tsconfig.json": _make_config_with_key("ui/tsconfig.json", "compilerOptions"),
+        }
+        code = {
+            "ui/src/main.ts": _make_code_meta(
+                "ui/src/main.ts",
+                ["const api = import.meta.env.VITE_API_URL;"],
+            )
+        }
+
+        issues = check_orphans(config, code)
+
+        assert not any(i.check == "orphan" and i.key in {"scripts", "compilerOptions"} for i in issues)
+        assert not any(i.check == "ghost" and i.key == "VITE_API_URL" for i in issues)
+
+    def test_test_only_ghost_keys_are_not_flagged(self):
+        code = {
+            "tests/test_config.py": _make_code_meta(
+                "tests/test_config.py",
+                ['value = os.getenv("UW_SUB_JSON")'],
+            )
+        }
+
+        issues = check_orphans({}, code)
+
+        assert not any(i.check == "ghost" and i.key == "UW_SUB_JSON" for i in issues)
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +632,9 @@ class TestIsCodeFile:
 
     def test_go_is_code(self):
         assert _is_code_file("main.go") is True
+
+    def test_java_is_code(self):
+        assert _is_code_file("Main.java") is True
 
 
 # ---------------------------------------------------------------------------
@@ -715,3 +846,10 @@ class TestAnalyzeConfig:
         index = _make_index({".env.production": meta})
         result = analyze_config(index)
         assert result.startswith("Config Analysis")
+
+    def test_xml_files_are_skipped(self):
+        """XML files should not be parsed by the YAML/config analyzer."""
+        xml_meta = _make_simple_struct("log4j2.xml", ["<Configuration></Configuration>"])
+        index = _make_index({"log4j2.xml": xml_meta})
+        result = analyze_config(index)
+        assert "0 config files found in project" in result

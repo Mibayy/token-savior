@@ -98,6 +98,9 @@ class CacheManager:
                 "parent_class": fi.parent_class,
                 "signature_hash": fi.signature_hash,
                 "body_hash": fi.body_hash,
+                "decorator_details": fi.decorator_details,
+                "visibility": fi.visibility,
+                "return_type": fi.return_type,
             }
 
         def _ci(ci) -> dict:
@@ -109,6 +112,9 @@ class CacheManager:
                 "decorators": ci.decorators,
                 "docstring": ci.docstring,
                 "body_hash": ci.body_hash,
+                "qualified_name": ci.qualified_name,
+                "decorator_details": ci.decorator_details,
+                "visibility": ci.visibility,
             }
 
         def _ii(ii) -> dict:
@@ -136,6 +142,7 @@ class CacheManager:
                 "imports": [_ii(i) for i in sm.imports],
                 "sections": [_si(s) for s in sm.sections],
                 "dependency_graph": sm.dependency_graph,    # already dict[str, list[str]]
+                "module_name": sm.module_name,
             }
 
         def _sets_to_sorted(d: dict) -> dict:
@@ -149,6 +156,7 @@ class CacheManager:
             "import_graph": _sets_to_sorted(index.import_graph),
             "reverse_import_graph": _sets_to_sorted(index.reverse_import_graph),
             "symbol_table": index.symbol_table,
+            "duplicate_classes": index.duplicate_classes,
             "total_files": index.total_files,
             "total_lines": index.total_lines,
             "total_functions": index.total_functions,
@@ -189,6 +197,9 @@ class CacheManager:
                 parent_class=d.get("parent_class"),
                 signature_hash=d.get("signature_hash", ""),
                 body_hash=d.get("body_hash", ""),
+                decorator_details=d.get("decorator_details", {}),
+                visibility=d.get("visibility"),
+                return_type=d.get("return_type"),
             )
 
         def _ci(d: dict) -> ClassInfo:
@@ -200,6 +211,9 @@ class CacheManager:
                 decorators=d["decorators"],
                 docstring=d.get("docstring"),
                 body_hash=d.get("body_hash", ""),
+                qualified_name=d.get("qualified_name"),
+                decorator_details=d.get("decorator_details", {}),
+                visibility=d.get("visibility"),
             )
 
         def _ii(d: dict) -> ImportInfo:
@@ -231,6 +245,7 @@ class CacheManager:
                 imports=[_ii(i) for i in d.get("imports", [])],
                 sections=[_si(s) for s in d.get("sections", [])],
                 dependency_graph=d.get("dependency_graph", {}),
+                module_name=d.get("module_name"),
             )
 
         def _sets(d: dict) -> dict[str, set[str]]:
@@ -244,6 +259,7 @@ class CacheManager:
             import_graph=_sets(data.get("import_graph", {})),
             reverse_import_graph=_sets(data.get("reverse_import_graph", {})),
             symbol_table=data.get("symbol_table", {}),
+            duplicate_classes=data.get("duplicate_classes", {}),
             total_files=data.get("total_files", 0),
             total_lines=data.get("total_lines", 0),
             total_functions=data.get("total_functions", 0),

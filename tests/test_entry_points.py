@@ -62,3 +62,65 @@ class TestEntryPoints:
     def test_max_results(self):
         result = self.funcs["get_entry_points"](max_results=1)
         assert len(result) <= 1
+
+    def test_api_substring_alone_does_not_create_route_reason(self):
+        from pathlib import Path
+        from token_savior.project_indexer import ProjectIndexer
+        from token_savior.query_api import create_project_query_functions
+
+        tmp = Path(self.tmp)
+        (tmp / "api" / "contracts.py").parent.mkdir(parents=True, exist_ok=True)
+        (tmp / "api" / "contracts.py").write_text(
+            "class Contracts:\n    def onInit(self):\n        pass\n"
+        )
+        idx = ProjectIndexer(self.tmp)
+        project_index = idx.index()
+        funcs = create_project_query_functions(project_index)
+
+        result = funcs["get_entry_points"]()
+        entry = next((r for r in result if r["name"].endswith(".onInit")), None)
+        assert entry is not None
+        assert "routes/api path" not in entry["reasons"]
+
+    def test_java_application_and_benchmark_points_are_scored(self, tmp_path):
+        idx = _make_indexer(
+            tmp_path,
+            {
+                "src/main/java/com/acme/app/SampleGraphApplication.java": """\
+package com.acme.app;
+
+import org.openjdk.jmh.annotations.Benchmark;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public final class SampleGraphApplication {
+    public static void main(String[] args) {
+    }
+
+    @Benchmark
+    public void runBenchmark() {
+    }
+}
+""",
+            },
+        )
+        from token_savior.query_api import create_project_query_functions
+
+        funcs = create_project_query_functions(idx.index())
+        result = funcs["get_entry_points"]()
+
+        main_entry = next(
+            entry
+            for entry in result
+            if entry["name"] == "com.acme.app.SampleGraphApplication.main(String[])"
+        )
+        benchmark_entry = next(
+            entry
+            for entry in result
+            if entry["name"] == "com.acme.app.SampleGraphApplication.runBenchmark()"
+        )
+
+        assert any("spring boot application" in reason for reason in main_entry["reasons"])
+        assert any("entry class (SampleGraphApplication)" in reason for reason in main_entry["reasons"])
+        assert benchmark_entry["score"] > 0.3
+        assert any("benchmark lifecycle" in reason for reason in benchmark_entry["reasons"])

@@ -48,6 +48,9 @@ class FunctionInfo:
     # Empty string means "not computed yet" (e.g. legacy cache, non-py annotator).
     signature_hash: str = ""  # SHA-256[:16] of public signature
     body_hash: str = ""  # SHA-256[:16] of normalized body
+    decorator_details: dict[str, str] = field(default_factory=dict)
+    visibility: str | None = None
+    return_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,9 @@ class ClassInfo:
     decorators: list[str]
     docstring: str | None
     body_hash: str = ""  # SHA-256[:16] of full normalized class body
+    qualified_name: str | None = None
+    decorator_details: dict[str, str] = field(default_factory=dict)
+    visibility: str | None = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +189,7 @@ class StructuralMetadata:
     # Dependency map (populated for code files)
     # Maps each function/class name to the names it references
     dependency_graph: dict[str, list[str]] = field(default_factory=dict)
+    module_name: str | None = None
 
 
 @dataclass
@@ -202,6 +209,7 @@ class ProjectIndex:
 
     # Global symbol table: symbol_name -> file_path where defined
     symbol_table: dict[str, str] = field(default_factory=dict)
+    duplicate_classes: dict[str, list[str]] = field(default_factory=dict)
 
     # Stats
     total_files: int = 0

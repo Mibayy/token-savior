@@ -49,6 +49,24 @@ class TestFunctionDetection:
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "handler"
 
+    def test_multiline_typed_arrow_function_tracks_full_block_range(self):
+        src = (
+            "export const CTAButton: React.FC<Props> = (\n"
+            "  { title }\n"
+            ") =>\n"
+            "{\n"
+            "  return (\n"
+            "    <button>{title}</button>\n"
+            "  );\n"
+            "};"
+        )
+        meta = annotate_typescript(src)
+        assert len(meta.functions) == 1
+        func = meta.functions[0]
+        assert func.name == "CTAButton"
+        assert func.line_range.start == 1
+        assert func.line_range.end == 8
+
 
 class TestClassDetection:
     """Tests for detecting class declarations."""

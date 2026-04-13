@@ -111,6 +111,68 @@ def discover_project_actions(root_path: str) -> list[dict]:
         add_action("go:test", "test", ["go", "test", "./..."], "go.mod", "Run Go tests.")
         add_action("go:build", "build", ["go", "build", "./..."], "go.mod", "Build Go packages.")
 
+    gradle_source = next(
+        (
+            candidate
+            for candidate in (
+                "build.gradle.kts",
+                "build.gradle",
+                "settings.gradle.kts",
+                "settings.gradle",
+            )
+            if os.path.exists(os.path.join(root_path, candidate))
+        ),
+        None,
+    )
+    if gradle_source:
+        gradle_wrapper = os.path.join(root_path, "gradlew")
+        gradle_cmd = ["./gradlew"] if os.path.exists(gradle_wrapper) else ["gradle"]
+        add_action(
+            "gradle:test",
+            "test",
+            [*gradle_cmd, "test"],
+            gradle_source,
+            "Run Gradle tests.",
+        )
+        add_action(
+            "gradle:check",
+            "check",
+            [*gradle_cmd, "check"],
+            gradle_source,
+            "Run Gradle checks.",
+        )
+        add_action(
+            "gradle:build",
+            "build",
+            [*gradle_cmd, "build"],
+            gradle_source,
+            "Build the Gradle project.",
+        )
+
+    pom_xml = os.path.join(root_path, "pom.xml")
+    if os.path.exists(pom_xml):
+        add_action(
+            "maven:test",
+            "test",
+            ["mvn", "test"],
+            "pom.xml",
+            "Run Maven tests.",
+        )
+        add_action(
+            "maven:check",
+            "check",
+            ["mvn", "verify"],
+            "pom.xml",
+            "Run Maven verification.",
+        )
+        add_action(
+            "maven:build",
+            "build",
+            ["mvn", "package"],
+            "pom.xml",
+            "Build the Maven project.",
+        )
+
     makefile = None
     for candidate in ("Makefile", "makefile", "GNUmakefile"):
         candidate_path = os.path.join(root_path, candidate)

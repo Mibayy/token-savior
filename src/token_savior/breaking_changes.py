@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 
 from token_savior.git_tracker import get_changed_files
+from token_savior.java_annotator import annotate_java
 from token_savior.models import ProjectIndex
 from token_savior.symbol_hash import compute_body_hash
 
@@ -76,6 +79,19 @@ class _ClassSig:
     name: str
     line: int
     methods: list[_FuncSig]
+
+
+@dataclass
+class _JavaApiSig:
+    visibility: str
+    return_type: str | None
+
+
+@dataclass(frozen=True)
+class _JavaMethodShape:
+    owner: str
+    name: str
+    param_types: tuple[str, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +204,7 @@ def detect_breaking_changes(index: ProjectIndex, since_ref: str = "HEAD~1") -> s
 
     # Modified files: compare old vs new signatures
     for rel_path in changeset.modified:
-        if not rel_path.endswith(".py"):
+        if not rel_path.endswith((".py", ".java")):
             continue
         old_content = _get_old_file_content(index.root_path, since_ref, rel_path)
         if old_content is None:
@@ -200,41 +216,46 @@ def detect_breaking_changes(index: ProjectIndex, since_ref: str = "HEAD~1") -> s
                 new_content = fh.read()
         except OSError:
             continue
+        if rel_path.endswith(".py"):
+            old_funcs, old_classes = _extract_signatures(old_content)
+            new_funcs, new_classes = _extract_signatures(new_content)
 
-        old_funcs, old_classes = _extract_signatures(old_content)
-        new_funcs, new_classes = _extract_signatures(new_content)
-
-        all_changes.extend(_compare_functions(old_funcs, new_funcs, rel_path))
-        all_changes.extend(_compare_classes(old_classes, new_classes, rel_path))
+            all_changes.extend(_compare_functions(old_funcs, new_funcs, rel_path))
+            all_changes.extend(_compare_classes(old_classes, new_classes, rel_path))
+        else:
+            all_changes.extend(_compare_java_sources(old_content, new_content, rel_path))
 
     # Deleted files: every top-level function/class is a breaking removal
     for rel_path in changeset.deleted:
-        if not rel_path.endswith(".py"):
+        if not rel_path.endswith((".py", ".java")):
             continue
         old_content = _get_old_file_content(index.root_path, since_ref, rel_path)
         if old_content is None:
             continue
-        old_funcs, old_classes = _extract_signatures(old_content)
-        for func in old_funcs:
-            all_changes.append(
-                BreakingChange(
-                    file=rel_path,
-                    symbol=func.name,
-                    line=func.line,
-                    severity="breaking",
-                    message=f"function {func.name}(): file was deleted",
+        if rel_path.endswith(".py"):
+            old_funcs, old_classes = _extract_signatures(old_content)
+            for func in old_funcs:
+                all_changes.append(
+                    BreakingChange(
+                        file=rel_path,
+                        symbol=func.name,
+                        line=func.line,
+                        severity="breaking",
+                        message=f"function {func.name}(): file was deleted",
+                    )
                 )
-            )
-        for cls in old_classes:
-            all_changes.append(
-                BreakingChange(
-                    file=rel_path,
-                    symbol=cls.name,
-                    line=cls.line,
-                    severity="breaking",
-                    message=f"class {cls.name}: file was deleted",
+            for cls in old_classes:
+                all_changes.append(
+                    BreakingChange(
+                        file=rel_path,
+                        symbol=cls.name,
+                        line=cls.line,
+                        severity="breaking",
+                        message=f"class {cls.name}: file was deleted",
+                    )
                 )
-            )
+        else:
+            all_changes.extend(_collect_deleted_java_symbols(old_content, rel_path))
 
     return _format_report(since_ref, all_changes)
 
@@ -498,6 +519,234 @@ def _diff_return_type(
             )
         ]
     return []
+
+
+def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> list[BreakingChange]:
+    """Compare Java classes and methods using the Java annotator."""
+    old_meta = annotate_java(old_source, file_path)
+    new_meta = annotate_java(new_source, file_path)
+    changes: list[BreakingChange] = []
+
+    old_classes = _java_class_map(old_meta)
+    new_classes = _java_class_map(new_meta)
+    old_methods = _java_method_map(old_meta)
+    new_methods = _java_method_map(new_meta)
+    old_api = _java_api_signature_map(old_meta)
+    new_api = _java_api_signature_map(new_meta)
+    new_methods_by_name: dict[tuple[str, str], list[tuple[str, object]]] = defaultdict(list)
+    for candidate_name, candidate_func in new_methods.items():
+        shape = _java_method_shape(candidate_name)
+        new_methods_by_name[(shape.owner, shape.name)].append((candidate_name, candidate_func))
+
+    for qualified_name, cls in old_classes.items():
+        class_api = old_api.get(qualified_name)
+        if class_api is not None and class_api.visibility not in {"public", "protected"}:
+            continue
+        if qualified_name not in new_classes:
+            changes.append(
+                BreakingChange(
+                    file=file_path,
+                    symbol=qualified_name,
+                    line=cls.line_range.start,
+                    severity="breaking",
+                    message=f"class {qualified_name}: was removed entirely",
+                )
+            )
+
+    for qualified_name, func in old_methods.items():
+        old_sig = old_api.get(qualified_name)
+        if old_sig is None or old_sig.visibility not in {"public", "protected"}:
+            continue
+        if qualified_name not in new_methods:
+            old_shape = _java_method_shape(qualified_name)
+            sibling_candidates = new_methods_by_name.get((old_shape.owner, old_shape.name), [])
+            if sibling_candidates:
+                matching_candidate = next(
+                    (
+                        candidate_name
+                        for candidate_name, _ in sibling_candidates
+                        if _java_method_shape(candidate_name).param_types == old_shape.param_types
+                    ),
+                    None,
+                )
+                if matching_candidate is not None:
+                    continue
+
+                changes.append(
+                    BreakingChange(
+                        file=file_path,
+                        symbol=qualified_name,
+                        line=func.line_range.start,
+                        severity="breaking",
+                        message=(
+                            f"method {qualified_name}: signature changed from "
+                            f"({_format_java_param_types(old_shape.param_types)}) to "
+                            f"one of {', '.join(_format_java_method_signature(name) for name, _ in sibling_candidates)}"
+                        ),
+                    )
+                )
+                continue
+            changes.append(
+                BreakingChange(
+                    file=file_path,
+                    symbol=qualified_name,
+                    line=func.line_range.start,
+                    severity="breaking",
+                    message=f"method {qualified_name}: was removed or changed signature",
+                )
+            )
+            continue
+
+        new_sig = new_api.get(qualified_name)
+        if new_sig is None:
+            continue
+        old_return_type = old_sig.return_type
+        new_return_type = new_sig.return_type
+        if (
+            old_return_type is not None
+            and new_return_type is not None
+            and old_return_type != new_return_type
+        ):
+            changes.append(
+                BreakingChange(
+                    file=file_path,
+                    symbol=qualified_name,
+                    line=new_methods[qualified_name].line_range.start,
+                    severity="warning",
+                    message=(
+                        f"method {qualified_name}: return type changed from "
+                        f"'{old_return_type}' to '{new_return_type}'"
+                    ),
+                )
+            )
+
+    return changes
+
+
+def _collect_deleted_java_symbols(old_source: str, file_path: str) -> list[BreakingChange]:
+    """Collect breaking removals from a deleted Java file."""
+    meta = annotate_java(old_source, file_path)
+    api_map = _java_api_signature_map(meta)
+    changes: list[BreakingChange] = []
+
+    for qualified_name, cls in _java_class_map(meta).items():
+        class_api = api_map.get(qualified_name)
+        if class_api is not None and class_api.visibility not in {"public", "protected"}:
+            continue
+        changes.append(
+            BreakingChange(
+                file=file_path,
+                symbol=qualified_name,
+                line=cls.line_range.start,
+                severity="breaking",
+                message=f"class {qualified_name}: file was deleted",
+            )
+        )
+    for qualified_name, func in _java_method_map(meta).items():
+        sig = api_map.get(qualified_name)
+        if sig is None or sig.visibility not in {"public", "protected"}:
+            continue
+        changes.append(
+            BreakingChange(
+                file=file_path,
+                symbol=qualified_name,
+                line=func.line_range.start,
+                severity="breaking",
+                message=f"method {qualified_name}: file was deleted",
+            )
+        )
+    return changes
+
+
+def _java_class_map(meta) -> dict[str, object]:
+    return {
+        cls.qualified_name or cls.name: cls
+        for cls in meta.classes
+        if not _is_local_java_symbol(cls.qualified_name or cls.name)
+    }
+
+
+def _java_method_map(meta) -> dict[str, object]:
+    return {
+        func.qualified_name: func
+        for func in meta.functions
+        if not _is_local_java_symbol(func.qualified_name)
+    }
+
+
+def _is_local_java_symbol(name: str) -> bool:
+    return "::<local>." in name
+
+
+def _split_java_param_types(signature: str) -> tuple[str, ...]:
+    start = signature.find("(")
+    end = signature.rfind(")")
+    if start < 0 or end <= start + 1:
+        return ()
+    raw = signature[start + 1 : end]
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in raw:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            piece = "".join(current).strip()
+            if piece:
+                parts.append(piece)
+            current = []
+            continue
+        current.append(ch)
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return tuple(_normalize_java_type_name(part) for part in parts if part)
+
+
+def _normalize_java_type_name(type_name: str) -> str:
+    cleaned = type_name.replace("...", "[]").strip()
+    cleaned = re.sub(r"<.*>", "", cleaned)
+    tokens = [token for token in re.split(r"\s+", cleaned) if token]
+    base = tokens[-1] if tokens else cleaned
+    return ".".join(part for part in base.split(".") if part) or cleaned
+
+
+def _java_method_shape(qualified_name: str) -> _JavaMethodShape:
+    base_name = qualified_name[: qualified_name.find("(")] if "(" in qualified_name else qualified_name
+    owner, _, method_name = base_name.rpartition(".")
+    return _JavaMethodShape(
+        owner=owner,
+        name=method_name,
+        param_types=_split_java_param_types(qualified_name),
+    )
+
+
+def _format_java_param_types(param_types: tuple[str, ...]) -> str:
+    return ", ".join(param_types)
+
+
+def _format_java_method_signature(qualified_name: str) -> str:
+    shape = _java_method_shape(qualified_name)
+    return f"{shape.owner}.{shape.name}({_format_java_param_types(shape.param_types)})"
+
+
+def _java_api_signature_map(meta) -> dict[str, _JavaApiSig]:
+    api_map: dict[str, _JavaApiSig] = {}
+    for cls in meta.classes:
+        api_map[cls.qualified_name or cls.name] = _JavaApiSig(
+            visibility=cls.visibility or "package",
+            return_type=None,
+        )
+
+    for func in meta.functions:
+        api_map[func.qualified_name] = _JavaApiSig(
+            visibility=func.visibility or "package",
+            return_type=func.return_type,
+        )
+
+    return api_map
 
 
 # ---------------------------------------------------------------------------
