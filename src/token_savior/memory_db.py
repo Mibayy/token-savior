@@ -13,6 +13,7 @@ import re
 import sqlite3
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,97 +23,136 @@ _SCHEMA_PATH = Path(__file__).parent / "memory_schema.sql"
 
 
 # ---------------------------------------------------------------------------
-# Connection
+# Connection + migrations
 # ---------------------------------------------------------------------------
+
+# Migrations run once per DB path (tests use per-tmp_path DBs, so we can't
+# use a single boolean flag — we need per-path tracking).
+_migrated_paths: set[str] = set()
+
+
+def run_migrations(db_path: Path | str | None = None) -> None:
+    """Apply schema + ALTER TABLE migrations once per database path.
+
+    Idempotent. Called explicitly at MCP startup to keep get_db() hot-path
+    free of schema inspection; also invoked lazily from get_db() as a
+    safety net (e.g. for tests that patch MEMORY_DB_PATH).
+    """
+    path = Path(db_path) if db_path else MEMORY_DB_PATH
+    path_str = str(path)
+    if path_str in _migrated_paths:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path_str)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+    try:
+        # Pre-migration: user_prompts.project_root must exist before executescript
+        # because the schema defines an index that references it.
+        pre_cols = [r[1] for r in conn.execute("PRAGMA table_info(user_prompts)").fetchall()]
+        if pre_cols and "project_root" not in pre_cols:
+            conn.execute("ALTER TABLE user_prompts ADD COLUMN project_root TEXT")
+
+        # Base schema — creates tables if missing (idempotent via IF NOT EXISTS).
+        schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+        conn.executescript(schema_sql)
+
+        # Post-schema ALTER migrations: add columns that were introduced after
+        # the original schema. Safe to re-check even on fresh DBs.
+        sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "end_type" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN end_type TEXT")
+        if "tokens_injected" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_injected INTEGER DEFAULT 0")
+        if "tokens_saved_est" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_saved_est INTEGER DEFAULT 0")
+
+        obs_cols = [r[1] for r in conn.execute("PRAGMA table_info(observations)").fetchall()]
+        if "decay_immune" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN decay_immune INTEGER NOT NULL DEFAULT 0")
+        if "last_accessed_epoch" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN last_accessed_epoch INTEGER")
+        if "is_global" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_global ON observations(is_global)")
+        if "context" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN context TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_context ON observations(context)")
+        if "expires_at_epoch" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN expires_at_epoch INTEGER")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
+        # Step C: inter-agent memory bus — volatile observations carry agent_id.
+        if "agent_id" not in obs_cols:
+            conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
+
+        # Step D: adaptive lattice — Beta-Binomial Thompson sampling per (context, level).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS adaptive_lattice ("
+            "  context_type TEXT NOT NULL,"
+            "  level INTEGER NOT NULL,"
+            "  alpha REAL NOT NULL DEFAULT 1.0,"
+            "  beta REAL NOT NULL DEFAULT 1.0,"
+            "  updated_at_epoch INTEGER NOT NULL,"
+            "  PRIMARY KEY (context_type, level)"
+            ")"
+        )
+        # v2.3 Prompt3 Step C: self-consistency — Beta-Binomial validity per obs.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS consistency_scores ("
+            "  obs_id INTEGER PRIMARY KEY,"
+            "  validity_alpha REAL NOT NULL DEFAULT 2.0,"
+            "  validity_beta REAL NOT NULL DEFAULT 1.0,"
+            "  last_checked_epoch INTEGER,"
+            "  stale_suspected INTEGER NOT NULL DEFAULT 0,"
+            "  quarantine INTEGER NOT NULL DEFAULT 0,"
+            "  FOREIGN KEY(obs_id) REFERENCES observations(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consistency_quarantine "
+            "ON consistency_scores(quarantine)"
+        )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    _migrated_paths.add(path_str)
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a WAL-mode SQLite connection and ensure the schema exists."""
+    """Open a WAL-mode SQLite connection. Migrations run once per path."""
     path = db_path or MEMORY_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-
+    run_migrations(path)  # no-op after first call per path
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
-
-    # Pre-migration: add project_root to user_prompts if the live table predates it.
-    # Must run BEFORE executescript since schema now references that column in an index.
-    pre_cols = [r[1] for r in conn.execute("PRAGMA table_info(user_prompts)").fetchall()]
-    if pre_cols and "project_root" not in pre_cols:
-        conn.execute("ALTER TABLE user_prompts ADD COLUMN project_root TEXT")
-        conn.commit()
-
-    sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
-    if sess_cols and "end_type" not in sess_cols:
-        conn.execute("ALTER TABLE sessions ADD COLUMN end_type TEXT")
-        conn.commit()
-    if sess_cols and "tokens_injected" not in sess_cols:
-        conn.execute("ALTER TABLE sessions ADD COLUMN tokens_injected INTEGER DEFAULT 0")
-        conn.commit()
-    if sess_cols and "tokens_saved_est" not in sess_cols:
-        conn.execute("ALTER TABLE sessions ADD COLUMN tokens_saved_est INTEGER DEFAULT 0")
-        conn.commit()
-
-    obs_cols = [r[1] for r in conn.execute("PRAGMA table_info(observations)").fetchall()]
-    if obs_cols and "decay_immune" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN decay_immune INTEGER NOT NULL DEFAULT 0")
-        conn.commit()
-    if obs_cols and "last_accessed_epoch" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN last_accessed_epoch INTEGER")
-        conn.commit()
-    if obs_cols and "is_global" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_global ON observations(is_global)")
-        conn.commit()
-    if obs_cols and "context" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN context TEXT")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_context ON observations(context)")
-        conn.commit()
-    if obs_cols and "expires_at_epoch" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN expires_at_epoch INTEGER")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
-        conn.commit()
-    # Step C: inter-agent memory bus — volatile observations carry agent_id.
-    if obs_cols and "agent_id" not in obs_cols:
-        conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
-        conn.commit()
-
-    # Step D: adaptive lattice — Beta-Binomial Thompson sampling per (context, level).
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS adaptive_lattice ("
-        "  context_type TEXT NOT NULL,"
-        "  level INTEGER NOT NULL,"
-        "  alpha REAL NOT NULL DEFAULT 1.0,"
-        "  beta REAL NOT NULL DEFAULT 1.0,"
-        "  updated_at_epoch INTEGER NOT NULL,"
-        "  PRIMARY KEY (context_type, level)"
-        ")"
-    )
-    # v2.3 Prompt3 Step C: self-consistency — Beta-Binomial validity per obs.
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS consistency_scores ("
-        "  obs_id INTEGER PRIMARY KEY,"
-        "  validity_alpha REAL NOT NULL DEFAULT 2.0,"
-        "  validity_beta REAL NOT NULL DEFAULT 1.0,"
-        "  last_checked_epoch INTEGER,"
-        "  stale_suspected INTEGER NOT NULL DEFAULT 0,"
-        "  quarantine INTEGER NOT NULL DEFAULT 0,"
-        "  FOREIGN KEY(obs_id) REFERENCES observations(id) ON DELETE CASCADE"
-        ")"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_consistency_quarantine "
-        "ON consistency_scores(quarantine)"
-    )
-    conn.commit()
-
-    schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
-    conn.executescript(schema_sql)
-
     return conn
+
+
+@contextmanager
+def db_session(db_path: Path | None = None):
+    """Context manager for SQLite connections — guarantees close on exit.
+
+    Usage:
+        with db_session() as db:
+            db.execute(...)
+            db.commit()
+    """
+    conn = get_db(db_path)
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def relative_age(epoch: int | None) -> str:
@@ -264,37 +304,36 @@ def update_consistency_score(obs_id: int, success: bool) -> dict:
     posterior validity. Returns the updated record.
     """
     try:
-        conn = get_db()
-        now = int(time.time())
-        row = conn.execute(
-            "SELECT validity_alpha, validity_beta FROM consistency_scores WHERE obs_id=?",
-            [obs_id],
-        ).fetchone()
-        if row is None:
-            alpha, beta = 2.0, 1.0
-        else:
-            alpha, beta = row["validity_alpha"], row["validity_beta"]
-        if success:
-            alpha += 1.0
-        else:
-            beta += 1.0
-        validity = alpha / (alpha + beta)
-        quarantine = 1 if validity < CONSISTENCY_QUARANTINE_THRESHOLD else 0
-        stale = 1 if (not quarantine and validity < CONSISTENCY_STALE_THRESHOLD) else 0
-        conn.execute(
-            "INSERT INTO consistency_scores "
-            "(obs_id, validity_alpha, validity_beta, last_checked_epoch, "
-            "stale_suspected, quarantine) VALUES (?,?,?,?,?,?) "
-            "ON CONFLICT(obs_id) DO UPDATE SET "
-            "validity_alpha=excluded.validity_alpha, "
-            "validity_beta=excluded.validity_beta, "
-            "last_checked_epoch=excluded.last_checked_epoch, "
-            "stale_suspected=excluded.stale_suspected, "
-            "quarantine=excluded.quarantine",
-            [obs_id, alpha, beta, now, stale, quarantine],
-        )
-        conn.commit()
-        conn.close()
+        with db_session() as conn:
+            now = int(time.time())
+            row = conn.execute(
+                "SELECT validity_alpha, validity_beta FROM consistency_scores WHERE obs_id=?",
+                [obs_id],
+            ).fetchone()
+            if row is None:
+                alpha, beta = 2.0, 1.0
+            else:
+                alpha, beta = row["validity_alpha"], row["validity_beta"]
+            if success:
+                alpha += 1.0
+            else:
+                beta += 1.0
+            validity = alpha / (alpha + beta)
+            quarantine = 1 if validity < CONSISTENCY_QUARANTINE_THRESHOLD else 0
+            stale = 1 if (not quarantine and validity < CONSISTENCY_STALE_THRESHOLD) else 0
+            conn.execute(
+                "INSERT INTO consistency_scores "
+                "(obs_id, validity_alpha, validity_beta, last_checked_epoch, "
+                "stale_suspected, quarantine) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(obs_id) DO UPDATE SET "
+                "validity_alpha=excluded.validity_alpha, "
+                "validity_beta=excluded.validity_beta, "
+                "last_checked_epoch=excluded.last_checked_epoch, "
+                "stale_suspected=excluded.stale_suspected, "
+                "quarantine=excluded.quarantine",
+                [obs_id, alpha, beta, now, stale, quarantine],
+            )
+            conn.commit()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] update_consistency_score error: {exc}", file=sys.stderr)
         return {"obs_id": obs_id, "validity": 0.0, "alpha": 0.0, "beta": 0.0,
@@ -318,7 +357,6 @@ def run_consistency_check(
     ``last_checked_epoch`` (NULL first) so freshly-added obs get vetted.
     """
     try:
-        conn = get_db()
         params: list = []
         sql = (
             "SELECT o.id, o.project_root, o.symbol, o.created_at_epoch "
@@ -331,8 +369,8 @@ def run_consistency_check(
             params.append(project_root)
         sql += "ORDER BY (c.last_checked_epoch IS NULL) DESC, c.last_checked_epoch ASC LIMIT ?"
         params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        conn.close()
+        with db_session() as conn:
+            rows = conn.execute(sql, params).fetchall()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] run_consistency_check error: {exc}", file=sys.stderr)
         return {"checked": 0, "failed": 0, "quarantined": 0, "stale_suspected": 0}
@@ -481,16 +519,14 @@ def session_start(project_root: str) -> int:
     now = _now_iso()
     epoch = _now_epoch()
     try:
-        conn = get_db()
-        cur = conn.execute(
-            "INSERT INTO sessions (project_root, status, created_at, created_at_epoch) "
-            "VALUES (?, 'active', ?, ?)",
-            (project_root, now, epoch),
-        )
-        conn.commit()
-        sid = cur.lastrowid
-        conn.close()
-        return sid  # type: ignore[return-value]
+        with db_session() as conn:
+            cur = conn.execute(
+                "INSERT INTO sessions (project_root, status, created_at, created_at_epoch) "
+                "VALUES (?, 'active', ?, ?)",
+                (project_root, now, epoch),
+            )
+            conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] session_start error: {exc}", file=sys.stderr)
         raise
@@ -512,14 +548,13 @@ def session_end(
     now = _now_iso()
     epoch = _now_epoch()
     try:
-        conn = get_db()
-        conn.execute(
-            "UPDATE sessions SET status='completed', end_type=?, completed_at=?, completed_at_epoch=?, "
-            "summary=?, symbols_changed=?, files_changed=? WHERE id=?",
-            (end_type, now, epoch, summary, _json_dumps(symbols_changed), _json_dumps(files_changed), session_id),
-        )
-        conn.commit()
-        conn.close()
+        with db_session() as conn:
+            conn.execute(
+                "UPDATE sessions SET status='completed', end_type=?, completed_at=?, completed_at_epoch=?, "
+                "summary=?, symbols_changed=?, files_changed=? WHERE id=?",
+                (end_type, now, epoch, summary, _json_dumps(symbols_changed), _json_dumps(files_changed), session_id),
+            )
+            conn.commit()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] session_end error: {exc}", file=sys.stderr)
 
@@ -658,16 +693,14 @@ def observation_save(
     now = _now_iso()
     epoch = _now_epoch()
     try:
-        conn = get_db()
-        row = conn.execute(
-            "SELECT id FROM observations WHERE content_hash=? AND project_root=? AND archived=0",
-            (chash, project_root),
-        ).fetchone()
-        if row is not None:
-            conn.close()
-            return None
+        with db_session() as conn:
+            row = conn.execute(
+                "SELECT id FROM observations WHERE content_hash=? AND project_root=? AND archived=0",
+                (chash, project_root),
+            ).fetchone()
+            if row is not None:
+                return None
 
-        conn.close()
         if is_global:
             gdup = global_dedup_check(title, content, type, threshold=0.85)
             if gdup:
@@ -705,50 +738,48 @@ def observation_save(
                 f"(score {semantic['score']})",
                 file=sys.stderr,
             )
-        conn = get_db()
-        try:
-            conn.execute("DELETE FROM memory_cache WHERE cache_key LIKE ?", [f"{project_root}:%"])
-            conn.commit()
-        except sqlite3.Error:
-            pass
         immune = 1 if type in _DECAY_IMMUNE_TYPES else 0
         if expires_at_epoch is None:
             if ttl_days is not None:
                 expires_at_epoch = epoch + int(ttl_days) * 86400
             elif type in _DEFAULT_TTL_DAYS and not immune:
                 expires_at_epoch = epoch + _DEFAULT_TTL_DAYS[type] * 86400
-        cur = conn.execute(
-            "INSERT INTO observations "
-            "(session_id, project_root, type, title, content, why, how_to_apply, "
-            " symbol, file_path, context, tags, private, importance, content_hash, decay_immune, "
-            " is_global, expires_at_epoch, created_at, created_at_epoch, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                session_id,
-                project_root,
-                type,
-                title,
-                content,
-                why,
-                how_to_apply,
-                symbol,
-                file_path,
-                context,
-                _json_dumps(tags),
-                1 if private else 0,
-                importance,
-                chash,
-                immune,
-                1 if is_global else 0,
-                expires_at_epoch,
-                now,
-                epoch,
-                now,
-            ),
-        )
-        conn.commit()
-        obs_id = cur.lastrowid
-        conn.close()
+        with db_session() as conn:
+            try:
+                conn.execute("DELETE FROM memory_cache WHERE cache_key LIKE ?", [f"{project_root}:%"])
+            except sqlite3.Error:
+                pass
+            cur = conn.execute(
+                "INSERT INTO observations "
+                "(session_id, project_root, type, title, content, why, how_to_apply, "
+                " symbol, file_path, context, tags, private, importance, content_hash, decay_immune, "
+                " is_global, expires_at_epoch, created_at, created_at_epoch, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    project_root,
+                    type,
+                    title,
+                    content,
+                    why,
+                    how_to_apply,
+                    symbol,
+                    file_path,
+                    context,
+                    _json_dumps(tags),
+                    1 if private else 0,
+                    importance,
+                    chash,
+                    immune,
+                    1 if is_global else 0,
+                    expires_at_epoch,
+                    now,
+                    epoch,
+                    now,
+                ),
+            )
+            conn.commit()
+            obs_id = cur.lastrowid
         try:
             notify_telegram(
                 {"type": type, "title": title, "content": content, "symbol": symbol}
@@ -2109,73 +2140,72 @@ def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict:
     sql += "ORDER BY created_at_epoch ASC"
 
     try:
-        conn = get_db()
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        with db_session() as conn:
+            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-        now = int(time.time())
-        seen = {r["id"] for r in rows}
+            now = int(time.time())
+            seen = {r["id"] for r in rows}
 
-        ttl_rows: list[dict] = []
-        tsql = (
-            "SELECT id, type, title, created_at, access_count "
-            "FROM observations "
-            "WHERE archived=0 AND expires_at_epoch IS NOT NULL "
-            "  AND expires_at_epoch < ? "
-        )
-        tparams: list = [now]
-        if project_root:
-            tsql += "AND project_root=? "
-            tparams.append(project_root)
-        for r in conn.execute(tsql, tparams).fetchall():
-            d = dict(r)
-            if d["id"] in seen:
-                continue
-            d["reason"] = "ttl-expired"
-            ttl_rows.append(d)
-            seen.add(d["id"])
-
-        zero_access_rows: list[dict] = []
-        for obs_type, days in _ZERO_ACCESS_RULES:
-            cutoff = now - days * 86400
-            zsql = (
+            ttl_rows: list[dict] = []
+            tsql = (
                 "SELECT id, type, title, created_at, access_count "
                 "FROM observations "
-                "WHERE archived=0 AND decay_immune=0 "
-                "  AND type=? AND access_count=0 AND created_at_epoch < ? "
+                "WHERE archived=0 AND expires_at_epoch IS NOT NULL "
+                "  AND expires_at_epoch < ? "
             )
-            zparams: list = [obs_type, cutoff]
+            tparams: list = [now]
             if project_root:
-                zsql += "AND project_root=? "
-                zparams.append(project_root)
-            for r in conn.execute(zsql, zparams).fetchall():
+                tsql += "AND project_root=? "
+                tparams.append(project_root)
+            for r in conn.execute(tsql, tparams).fetchall():
                 d = dict(r)
                 if d["id"] in seen:
                     continue
-                d["reason"] = f"zero-access {obs_type} >{days}d"
-                zero_access_rows.append(d)
+                d["reason"] = "ttl-expired"
+                ttl_rows.append(d)
                 seen.add(d["id"])
 
-        all_rows = ttl_rows + rows + zero_access_rows
+            zero_access_rows: list[dict] = []
+            for obs_type, days in _ZERO_ACCESS_RULES:
+                cutoff = now - days * 86400
+                zsql = (
+                    "SELECT id, type, title, created_at, access_count "
+                    "FROM observations "
+                    "WHERE archived=0 AND decay_immune=0 "
+                    "  AND type=? AND access_count=0 AND created_at_epoch < ? "
+                )
+                zparams: list = [obs_type, cutoff]
+                if project_root:
+                    zsql += "AND project_root=? "
+                    zparams.append(project_root)
+                for r in conn.execute(zsql, zparams).fetchall():
+                    d = dict(r)
+                    if d["id"] in seen:
+                        continue
+                    d["reason"] = f"zero-access {obs_type} >{days}d"
+                    zero_access_rows.append(d)
+                    seen.add(d["id"])
 
-        immune_count = conn.execute(
-            "SELECT COUNT(*) FROM observations WHERE archived=0 AND decay_immune=1"
-        ).fetchone()[0]
-        kept_count = conn.execute(
-            "SELECT COUNT(*) FROM observations WHERE archived=0"
-        ).fetchone()[0] - len(all_rows)
+            all_rows = ttl_rows + rows + zero_access_rows
 
-        archived_ids: list[int] = []
-        if not dry_run and all_rows:
-            ids = [r["id"] for r in all_rows]
-            placeholders = ",".join("?" for _ in ids)
-            conn.execute(
-                f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
-                ids,
-            )
-            conn.commit()
-            archived_ids = ids
+            immune_count = conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE archived=0 AND decay_immune=1"
+            ).fetchone()[0]
+            kept_count = conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE archived=0"
+            ).fetchone()[0] - len(all_rows)
 
-        conn.close()
+            archived_ids: list[int] = []
+            if not dry_run and all_rows:
+                ids = [r["id"] for r in all_rows]
+                placeholders = ",".join("?" for _ in ids)
+                conn.execute(
+                    f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
+                    ids,
+                )
+                conn.commit()
+                archived_ids = ids
+
         return {
             "archived": len(all_rows) if not dry_run else 0,
             "candidates": len(all_rows),
@@ -2269,51 +2299,50 @@ def run_roi_gc(
     """
     th = _ROI_THRESHOLD if threshold is None else threshold
     try:
-        conn = get_db()
-        sql = (
-            "SELECT id, type, title, content, access_count, "
-            "       created_at_epoch, last_accessed_epoch, decay_immune "
-            "FROM observations WHERE archived=0 "
-        )
-        params: list = []
-        if project_root:
-            sql += "AND project_root=? "
-            params.append(project_root)
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-        now = int(time.time())
-        candidates: list[dict] = []
-        kept = 0
-        for r in rows:
-            if r.get("decay_immune"):
-                kept += 1
-                continue
-            metrics = compute_observation_roi(r, now_epoch=now)
-            if metrics["roi"] < th:
-                candidates.append({
-                    "id": r["id"],
-                    "type": r["type"],
-                    "title": r["title"],
-                    "access_count": r.get("access_count") or 0,
-                    "roi": metrics["roi"],
-                    "p_hit": metrics["p_hit"],
-                    "tokens_stored": metrics["tokens_stored"],
-                })
-            else:
-                kept += 1
-
-        archived_ids: list[int] = []
-        if not dry_run and candidates:
-            ids = [c["id"] for c in candidates]
-            placeholders = ",".join("?" for _ in ids)
-            conn.execute(
-                f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
-                ids,
+        with db_session() as conn:
+            sql = (
+                "SELECT id, type, title, content, access_count, "
+                "       created_at_epoch, last_accessed_epoch, decay_immune "
+                "FROM observations WHERE archived=0 "
             )
-            conn.commit()
-            archived_ids = ids
+            params: list = []
+            if project_root:
+                sql += "AND project_root=? "
+                params.append(project_root)
+            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-        conn.close()
+            now = int(time.time())
+            candidates: list[dict] = []
+            kept = 0
+            for r in rows:
+                if r.get("decay_immune"):
+                    kept += 1
+                    continue
+                metrics = compute_observation_roi(r, now_epoch=now)
+                if metrics["roi"] < th:
+                    candidates.append({
+                        "id": r["id"],
+                        "type": r["type"],
+                        "title": r["title"],
+                        "access_count": r.get("access_count") or 0,
+                        "roi": metrics["roi"],
+                        "p_hit": metrics["p_hit"],
+                        "tokens_stored": metrics["tokens_stored"],
+                    })
+                else:
+                    kept += 1
+
+            archived_ids: list[int] = []
+            if not dry_run and candidates:
+                ids = [c["id"] for c in candidates]
+                placeholders = ",".join("?" for _ in ids)
+                conn.execute(
+                    f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
+                    ids,
+                )
+                conn.commit()
+                archived_ids = ids
+
         candidates.sort(key=lambda c: c["roi"])
         return {
             "archived": len(archived_ids),
@@ -2406,28 +2435,23 @@ def run_mdl_distillation(
     from token_savior.mdl_distiller import find_distillation_candidates
 
     try:
-        conn = get_db()
         # Include decay_immune types (guardrail/convention) — they are exactly
         # the repeated rules MDL is supposed to consolidate. Skip rows that
         # were already distilled so we don't loop.
-        rows = [dict(r) for r in conn.execute(
-            "SELECT id, type, title, content, symbol, file_path, tags "
-            "FROM observations WHERE project_root=? AND archived=0 "
-            "  AND (tags IS NULL OR "
-            "       (tags NOT LIKE '%mdl-distilled%' "
-            "        AND tags NOT LIKE '%mdl-abstraction%'))",
-            [project_root],
-        ).fetchall()]
+        with db_session() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, type, title, content, symbol, file_path, tags "
+                "FROM observations WHERE project_root=? AND archived=0 "
+                "  AND (tags IS NULL OR "
+                "       (tags NOT LIKE '%mdl-distilled%' "
+                "        AND tags NOT LIKE '%mdl-abstraction%'))",
+                [project_root],
+            ).fetchall()]
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] mdl_distillation load error: {exc}", file=sys.stderr)
         return {"clusters_found": 0, "clusters_applied": 0, "obs_distilled": 0,
                 "abstractions_created": 0, "tokens_freed_estimate": 0,
                 "dry_run": dry_run, "preview": []}
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
     clusters = find_distillation_candidates(
         rows,
@@ -2466,7 +2490,7 @@ def run_mdl_distillation(
     distilled = 0
     abstractions_created = 0
     try:
-        conn = get_db()
+      with db_session() as conn:
         now_iso = _now_iso()
         epoch = _now_epoch()
         for c in clusters:
@@ -2525,7 +2549,6 @@ def run_mdl_distillation(
                     continue
             applied += 1
         conn.commit()
-        conn.close()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] mdl apply error: {exc}", file=sys.stderr)
 
@@ -2600,88 +2623,86 @@ def auto_link_observation(
     'contradicts' links for any ids in contradict_ids."""
     linked = 0
     try:
-        db = get_db()
-        _ensure_links_index(db)
-        new_obs = db.execute(
-            "SELECT symbol, context, tags FROM observations WHERE id=?",
-            [new_obs_id],
-        ).fetchone()
-        if not new_obs:
-            db.close()
-            return 0
+        with db_session() as db:
+            _ensure_links_index(db)
+            new_obs = db.execute(
+                "SELECT symbol, context, tags FROM observations WHERE id=?",
+                [new_obs_id],
+            ).fetchone()
+            if not new_obs:
+                return 0
 
-        candidates: set[int] = set()
-        if new_obs["symbol"]:
-            rows = db.execute(
-                "SELECT id FROM observations "
-                "WHERE symbol=? AND id!=? AND project_root=? AND archived=0",
-                [new_obs["symbol"], new_obs_id, project_root],
-            ).fetchall()
-            candidates.update(r["id"] for r in rows)
-
-        if new_obs["context"]:
-            ctx_keyword = new_obs["context"][:20]
-            if ctx_keyword:
+            candidates: set[int] = set()
+            if new_obs["symbol"]:
                 rows = db.execute(
                     "SELECT id FROM observations "
-                    "WHERE context LIKE ? AND id!=? AND project_root=? AND archived=0",
-                    [f"%{ctx_keyword}%", new_obs_id, project_root],
+                    "WHERE symbol=? AND id!=? AND project_root=? AND archived=0",
+                    [new_obs["symbol"], new_obs_id, project_root],
                 ).fetchall()
                 candidates.update(r["id"] for r in rows)
 
-        if new_obs["tags"]:
-            try:
-                new_tags = set(json.loads(new_obs["tags"]))
-                if new_tags:
+            if new_obs["context"]:
+                ctx_keyword = new_obs["context"][:20]
+                if ctx_keyword:
                     rows = db.execute(
-                        "SELECT id, tags FROM observations "
-                        "WHERE id!=? AND project_root=? AND archived=0 AND tags IS NOT NULL",
-                        [new_obs_id, project_root],
+                        "SELECT id FROM observations "
+                        "WHERE context LIKE ? AND id!=? AND project_root=? AND archived=0",
+                        [f"%{ctx_keyword}%", new_obs_id, project_root],
                     ).fetchall()
-                    for r in rows:
-                        try:
-                            existing = set(json.loads(r["tags"]))
-                            if new_tags & existing:
-                                candidates.add(r["id"])
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                    candidates.update(r["id"] for r in rows)
 
-        now_iso = _now_iso()
+            if new_obs["tags"]:
+                try:
+                    new_tags = set(json.loads(new_obs["tags"]))
+                    if new_tags:
+                        rows = db.execute(
+                            "SELECT id, tags FROM observations "
+                            "WHERE id!=? AND project_root=? AND archived=0 AND tags IS NOT NULL",
+                            [new_obs_id, project_root],
+                        ).fetchall()
+                        for r in rows:
+                            try:
+                                existing = set(json.loads(r["tags"]))
+                                if new_tags & existing:
+                                    candidates.add(r["id"])
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
-        for other_id in candidates:
-            a, b = min(new_obs_id, other_id), max(new_obs_id, other_id)
-            try:
-                cur = db.execute(
-                    "INSERT OR IGNORE INTO observation_links "
-                    "(source_id, target_id, link_type, auto_detected, created_at) "
-                    "VALUES (?, ?, 'related', 1, ?)",
-                    (a, b, now_iso),
-                )
-                if cur.rowcount > 0:
-                    linked += 1
-            except sqlite3.Error:
-                pass
+            now_iso = _now_iso()
 
-        for cid in (contradict_ids or []):
-            if cid == new_obs_id:
-                continue
-            a, b = min(new_obs_id, cid), max(new_obs_id, cid)
-            try:
-                cur = db.execute(
-                    "INSERT OR IGNORE INTO observation_links "
-                    "(source_id, target_id, link_type, auto_detected, created_at) "
-                    "VALUES (?, ?, 'contradicts', 1, ?)",
-                    (a, b, now_iso),
-                )
-                if cur.rowcount > 0:
-                    linked += 1
-            except sqlite3.Error:
-                pass
+            for other_id in candidates:
+                a, b = min(new_obs_id, other_id), max(new_obs_id, other_id)
+                try:
+                    cur = db.execute(
+                        "INSERT OR IGNORE INTO observation_links "
+                        "(source_id, target_id, link_type, auto_detected, created_at) "
+                        "VALUES (?, ?, 'related', 1, ?)",
+                        (a, b, now_iso),
+                    )
+                    if cur.rowcount > 0:
+                        linked += 1
+                except sqlite3.Error:
+                    pass
 
-        db.commit()
-        db.close()
+            for cid in (contradict_ids or []):
+                if cid == new_obs_id:
+                    continue
+                a, b = min(new_obs_id, cid), max(new_obs_id, cid)
+                try:
+                    cur = db.execute(
+                        "INSERT OR IGNORE INTO observation_links "
+                        "(source_id, target_id, link_type, auto_detected, created_at) "
+                        "VALUES (?, ?, 'contradicts', 1, ?)",
+                        (a, b, now_iso),
+                    )
+                    if cur.rowcount > 0:
+                        linked += 1
+                except sqlite3.Error:
+                    pass
+
+            db.commit()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] auto_link_observation error: {exc}", file=sys.stderr)
     return linked

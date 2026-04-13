@@ -3205,6 +3205,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
 
 async def main():
+    memory_db.run_migrations()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
