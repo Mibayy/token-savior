@@ -146,7 +146,9 @@ class TestCommunityDetection:
 
         result = get_cluster_for_symbol("SampleAggregationNode", communities, index)
 
-        assert result["community_id"] == "SampleQueryService"
+        assert result["community_id"] == "SampleAggregationNode"
+        assert result["canonical_community_id"] == "SampleQueryService"
+        assert result["members"][0]["name"] == "SampleAggregationNode"
         members = {member["name"]: member for member in result["members"]}
         assert members["SampleAggregationNode"]["type"] == "class"
         assert members["SampleAggregationNode"]["file"] == "src/node.py"

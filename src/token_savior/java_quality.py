@@ -47,15 +47,6 @@ _PERFORMANCE_RULES: tuple[tuple[str, re.Pattern[str], float], ...] = (
         6.0,
     ),
     (
-        "blocking wait",
-        re.compile(
-            r"\bThread\.sleep\s*\(|\.join\s*\(|\.await\s*\(|\.take\s*\(|\.put\s*\(|"
-            r"\.park\s*\(|\.block\s*\(|\b(?:Future|CompletableFuture)[A-Za-z0-9_<>, ?]*[\s\w,()]*\.get\s*\(|"
-            r"\bfuture[A-Za-z0-9_]*\.get\s*\("
-        ),
-        8.0,
-    ),
-    (
         "blocking I/O",
         re.compile(
             r"\bFiles\.(?:read|write|readAllBytes|lines|newBufferedReader|newBufferedWriter)\s*\(|"
@@ -74,6 +65,13 @@ _MUTABLE_FIELD_RE = re.compile(
 _CACHE_PADDING_HINT_RE = re.compile(
     r"@Contended|\bcacheLine\b|\bpadding\b|\bleftPadding\b|\brightPadding\b|\bpad\d+\b"
 )
+_BLOCKING_WAIT_RE = re.compile(
+    r"\bThread\.sleep\s*\(|\.join\s*\(|\.await\s*\(|\.take\s*\(|\.put\s*\(|\.park\s*\(|\.block\s*\("
+)
+_FUTURE_DECL_RE = re.compile(
+    r"\b(?:Future|CompletableFuture)(?:<[^;=)]*>)?\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+)
+_FUTURE_GET_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.get\s*\(")
 
 
 @dataclass(frozen=True)
@@ -143,6 +141,18 @@ def _shared_state_penalty(meta: StructuralMetadata, func: FunctionInfo) -> tuple
     return (1, 4.0, "shared mutable fields without cache-line padding")
 
 
+def _blocking_wait_signal(source: str) -> tuple[int, float, str] | None:
+    direct_hits = len(_BLOCKING_WAIT_RE.findall(source))
+    future_names = set(_FUTURE_DECL_RE.findall(source))
+    future_get_hits = sum(
+        1 for candidate in _FUTURE_GET_RE.findall(source) if candidate in future_names
+    )
+    hits = direct_hits + future_get_hits
+    if hits <= 0:
+        return None
+    return (hits, hits * 8.0, f"blocking wait x{hits}")
+
+
 def _scan_rules(source: str, rules: tuple[tuple[str, re.Pattern[str], float], ...]) -> tuple[float, int, list[str]]:
     score = 0.0
     hits = 0
@@ -171,6 +181,13 @@ def _collect_java_hotspots(
         for func in meta.functions:
             body = _strip_java_noise(_function_source(meta, func))
             score, hits, reasons = _scan_rules(body, rules)
+            if rules is _PERFORMANCE_RULES:
+                blocking_wait = _blocking_wait_signal(body)
+                if blocking_wait is not None:
+                    extra_hits, extra_score, extra_reason = blocking_wait
+                    hits += extra_hits
+                    score += extra_score
+                    reasons.append(extra_reason)
             if include_shared_state:
                 shared_state = _shared_state_penalty(meta, func)
                 if shared_state is not None:

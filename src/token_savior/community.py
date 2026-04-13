@@ -102,10 +102,13 @@ def get_cluster_for_symbol(
             return {"error": f"Symbol '{symbol}' not found in any community"}
         symbol = matches[0]
 
-    community_id = communities[symbol]
+    canonical_community_id = communities[symbol]
 
     # Find all members of this community
-    members_raw = sorted(s for s, cid in communities.items() if cid == community_id)
+    members_raw = sorted(s for s, cid in communities.items() if cid == canonical_community_id)
+    if symbol in members_raw:
+        members_raw.remove(symbol)
+        members_raw.insert(0, symbol)
 
     def _resolve_member(sym: str) -> dict:
         entry: dict = {"name": sym}
@@ -135,9 +138,10 @@ def get_cluster_for_symbol(
         members.append(_resolve_member(sym))
 
     return {
-        "community_id": community_id,
+        "community_id": symbol,
+        "canonical_community_id": canonical_community_id,
         "queried_symbol": symbol,
-        "size": len([s for s, cid in communities.items() if cid == community_id]),
+        "size": len([s for s, cid in communities.items() if cid == canonical_community_id]),
         "members": members,
         "truncated": len(members_raw) > max_members,
     }

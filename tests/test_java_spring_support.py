@@ -159,3 +159,48 @@ class TestSpringBootQuerySupport:
             ("/api/config/effective", ("GET",), 11),
             ("/api/config/history", ("GET",), 16),
         ]
+
+    def test_get_functions_uses_declaration_line_for_adjacent_java_methods(self, tmp_path):
+        root = tmp_path / "spring-project"
+        root.mkdir()
+        _write(
+            root / "src/main/java/com/acme/runtime/LifecycleHandler.java",
+            """\
+            package com.acme.runtime;
+
+            public final class LifecycleHandler {
+                public void onInit() {}
+                public void onClose() {}
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        results = {
+            entry["name"]: entry["lines"]
+            for entry in funcs["get_functions"]("src/main/java/com/acme/runtime/LifecycleHandler.java")
+        }
+
+        assert results["onInit"] == [4, 4]
+        assert results["onClose"] == [5, 5]
+
+    def test_get_env_usage_returns_explicit_not_found_record(self, tmp_path):
+        root = tmp_path / "spring-project"
+        root.mkdir()
+        _build_spring_project(root)
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        result = funcs["get_env_usage"]("REDIS_HOST")
+
+        assert result == [
+            {
+                "var_name": "REDIS_HOST",
+                "usage_type": "not_found",
+                "searched_files": len(idx.files),
+                "content": "No usage found for REDIS_HOST",
+            }
+        ]

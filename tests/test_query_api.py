@@ -404,6 +404,12 @@ class TestFileQueryFunctions:
         assert "class Engine" in src
         assert "def run" in src
 
+    def test_get_class_source_level_2_lists_methods(self):
+        src = self.funcs["get_class_source"]("Engine", level=2)
+        assert "[L2] class Engine" in src
+        assert "methods:" in src
+        assert "- run(" in src
+
     def test_get_class_source_not_found(self):
         result = self.funcs["get_class_source"]("Nonexistent")
         assert "Error" in result
@@ -622,6 +628,11 @@ class TestProjectQueryFunctions:
     def test_get_class_source(self):
         src = self.funcs["get_class_source"]("Runner")
         assert "class Runner" in src
+
+    def test_get_class_source_level_2_lists_methods(self):
+        src = self.funcs["get_class_source"]("Runner", level=2)
+        assert "[L2] class Runner" in src
+        assert "methods:" in src
 
     def test_get_class_source_not_found(self):
         result = self.funcs["get_class_source"]("Nonexistent")

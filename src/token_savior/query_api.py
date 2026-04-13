@@ -151,7 +151,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
             {
                 "name": f.name,
                 "qualified_name": f.qualified_name,
-                "lines": [f.line_range.start, f.line_range.end],
+                "lines": [_display_function_start_line(metadata, f), f.line_range.end],
                 "params": f.parameters,
                 "is_method": f.is_method,
                 "parent_class": f.parent_class,
@@ -194,10 +194,17 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
             return f"Error: function '{name}' not found"
         return "\n".join(metadata.lines[func.line_range.start - 1 : func.line_range.end])
 
-    def get_class_source(name: str) -> str:
+    def get_class_source(name: str, level: int = 0) -> str:
         """Source of a class by name."""
         for cls in metadata.classes:
             if cls.name == name or cls.qualified_name == name:
+                if level == 1:
+                    return _format_l1(cls)
+                if level == 2:
+                    body = "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
+                    return _format_l2(cls, body)
+                if level == 3:
+                    return _format_l3(cls)
                 return "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
         return f"Error: class '{name}' not found"
 
@@ -382,13 +389,27 @@ def _format_l2(sym: FunctionInfo | ClassInfo, body: str) -> str:
         header = f"[L2] class {sym.name}"
         if sym.base_classes:
             header += f"({', '.join(sym.base_classes)})"
-    else:
-        header = f"[L2] {sym.name}({', '.join(sym.parameters)})"
+        out = [header]
+        if sym.decorators:
+            out.append(f"  decorators: {', '.join(sym.decorators)}")
+        doc = _first_doc_line(sym.docstring)
+        if doc:
+            out.append(f"  doc: {doc[:120]}")
+        out.append(f"  methods: {len(sym.methods)}")
+        for method in sym.methods[:12]:
+            method_doc = _first_doc_line(method.docstring)
+            params = ", ".join(method.parameters)
+            summary = f"  - {method.name}({params})"
+            if method_doc:
+                summary += f" — {method_doc[:100]}"
+            out.append(summary)
+        if len(sym.methods) > 12:
+            out.append(f"  ... {len(sym.methods) - 12} more methods")
+        return "\n".join(out)
 
+    header = f"[L2] {sym.name}({', '.join(sym.parameters)})"
     analysis = analyze_symbol_semantics(body)
     out = [header]
-    if isinstance(sym, ClassInfo):
-        out.append(f"  methods: {len(sym.methods)}")
     if analysis["raises"]:
         out.append(f"  raises: {', '.join(analysis['raises'])}")
     if analysis["has_side_effects"]:
@@ -411,6 +432,22 @@ def _format_l3(sym: FunctionInfo | ClassInfo) -> str:
     if len(params) > 3:
         head += ", ..."
     return f"{sym.name}({head}) - {doc}"
+
+
+def _display_function_start_line(meta: StructuralMetadata, func: FunctionInfo) -> int:
+    start = max(1, func.line_range.start)
+    end = min(len(meta.lines), func.line_range.end)
+    name_pattern = re.compile(rf"\b{re.escape(func.name)}\s*\(")
+    for line_no in range(start, end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if name_pattern.search(line):
+            return line_no
+    return func.line_range.start
+
+
 def _infer_component_end_line(meta: StructuralMetadata, func) -> int:
     start_0 = max(0, func.line_range.start - 1)
     if func.line_range.end > func.line_range.start:
@@ -710,7 +747,7 @@ class ProjectQueryEngine:
                         {
                             "name": f.name,
                             "qualified_name": f.qualified_name,
-                            "lines": [f.line_range.start, f.line_range.end],
+                            "lines": [_display_function_start_line(meta, f), f.line_range.end],
                             "params": f.parameters,
                             "is_method": f.is_method,
                             "parent_class": f.parent_class,
@@ -1236,6 +1273,15 @@ class ProjectQueryEngine:
                             "content": context[:200],
                         }
                     )
+        if not results:
+            return [
+                {
+                    "var_name": var_name,
+                    "usage_type": "not_found",
+                    "searched_files": len(self.index.files),
+                    "content": f"No usage found for {var_name}",
+                }
+            ]
         results.sort(key=lambda r: (r["usage_type"], r["file"]))
         if max_results > 0:
             results = results[:max_results]

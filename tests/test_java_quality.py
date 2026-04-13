@@ -98,6 +98,36 @@ class TestJavaPerformanceHotspots:
         assert "shared mutable fields without cache-line padding" in result
         assert "com.acme.runtime.PerformanceExamples.fastPath(long)" in result
 
+    def test_does_not_treat_map_or_json_get_as_blocking_wait(self, tmp_path):
+        root = tmp_path / "perf-false-positive-project"
+        _write_file(
+            root / "src/main/java/com/acme/runtime/LookupExamples.java",
+            """\
+            package com.acme.runtime;
+
+            import java.util.Map;
+
+            final class JsonNode {
+                JsonNode get(String key) {
+                    return this;
+                }
+            }
+
+            public final class LookupExamples {
+                public String read(Map<String, String> values, JsonNode node) {
+                    String left = values.get("left");
+                    JsonNode right = node.get("right");
+                    return left == null ? "" : left + right;
+                }
+            }
+            """,
+        )
+
+        index = ProjectIndexer(str(root)).index()
+        result = find_performance_hotspots(index)
+
+        assert "blocking wait" not in result
+
     def test_returns_empty_message_when_no_java_perf_issues_found(self, tmp_path):
         root = tmp_path / "clean-project"
         _write_file(
