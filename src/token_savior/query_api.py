@@ -2054,6 +2054,8 @@ class ProjectQueryEngine:
         for deps in self.index.reverse_dependency_graph.values():
             graph_symbols.update(deps)
         for symbol in graph_symbols:
+            if symbol.startswith("__") and not name.startswith("__"):
+                continue
             if _graph_name_matches(symbol, name):
                 candidates.add(symbol)
         return candidates

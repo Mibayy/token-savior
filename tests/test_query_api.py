@@ -10,6 +10,7 @@ from token_savior.models import (
     StructuralMetadata,
 )
 from token_savior.query_api import (
+    ProjectQueryEngine,
     STRUCTURAL_QUERY_INSTRUCTIONS,
     create_file_query_functions,
     create_project_query_functions,
@@ -1406,6 +1407,25 @@ class TestCallChainAliasResolution:
             "com.acme.Factories.cryptoAssetAggregationFactory()",
             "com.acme.CryptoAssetAggregationNode",
         ]
+
+    def test_graph_candidate_names_do_not_treat_framework_sources_as_symbol_aliases(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={},
+            global_dependency_graph={
+                "__framework__.spring.boot:application:com.acme.TradeResearchApiApplication": {
+                    "com.acme.PositionsService"
+                },
+                "com.acme.TradeResearchApiApplication.main(String[])": set(),
+            },
+            reverse_dependency_graph={},
+            symbol_table={},
+        )
+        engine = ProjectQueryEngine(index)
+
+        candidates = engine._resolve_graph_candidate_names("com.acme.TradeResearchApiApplication")
+
+        assert "__framework__.spring.boot:application:com.acme.TradeResearchApiApplication" not in candidates
 
 
 # ---------------------------------------------------------------------------

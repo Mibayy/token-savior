@@ -469,7 +469,7 @@ class TestJavaProjectIndexer:
         dependents = idx.reverse_dependency_graph[run_symbol]
         assert "__runtime__.java.dispatch:Runnable.run" in dependents
 
-    def test_get_call_chain_reaches_node_through_spring_boot_wiring(self, tmp_path):
+    def test_get_call_chain_does_not_fabricate_spring_boot_runtime_path(self, tmp_path):
         root = tmp_path / "spring-project"
         root.mkdir()
         _write_file(
@@ -556,21 +556,15 @@ class TestJavaProjectIndexer:
             "CryptoAssetAggregationNode",
         )
 
-        assert "chain" in result
-        names = [step["name"] for step in result["chain"]]
-        assert "com.acme.app.TradeResearchApiApplication.main(String[])" in names
-        assert "com.acme.app.LiveIngressCoordinator.start()" in names
-        assert "com.acme.app.CryptoCycleGraphs.register()" in names
-        assert "com.acme.app.Factories.cryptoAssetAggregationFactory()" in names
-        assert names[-1] == "com.acme.app.CryptoAssetAggregationNode"
+        assert result == {
+            "error": "no path from 'TradeResearchApiApplication' to 'CryptoAssetAggregationNode'"
+        }
 
         factories_result = funcs["get_call_chain"](
             "TradeResearchApiApplication",
             "Factories",
         )
-        assert "chain" in factories_result
-        factory_names = [step["name"] for step in factories_result["chain"]]
-        assert factory_names[-1] == "com.acme.app.Factories"
+        assert factories_result == {"error": "no path from 'TradeResearchApiApplication' to 'Factories'"}
 
     def test_reports_duplicate_java_classes(self, tmp_path):
         root = tmp_path / "java-project"

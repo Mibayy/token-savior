@@ -1291,7 +1291,7 @@ class ProjectIndexer:
     ) -> dict[str, set[str]]:
         edges: dict[str, set[str]] = {}
         managed_classes: dict[str, tuple[object, StructuralMetadata, dict[str, str], set[str]]] = {}
-        application_main_methods: set[str] = set()
+        application_classes: set[str] = set()
 
         for file_path, metadata in files.items():
             if not file_path.endswith(".java"):
@@ -1302,11 +1302,8 @@ class ProjectIndexer:
                 decorators = self._decorator_names(getattr(cls, "decorators", []))
                 if decorators & _SPRING_CLASS_DECORATORS:
                     managed_classes[qualified_name] = (cls, metadata, imported_names, decorators)
-                if "SpringBootApplication" not in decorators:
-                    continue
-                for method in cls.methods:
-                    if method.name == "main":
-                        application_main_methods.add(method.qualified_name)
+                if "SpringBootApplication" in decorators:
+                    application_classes.add(qualified_name)
 
         preferred_bootstrap_targets = {
             qualified_name
@@ -1322,10 +1319,11 @@ class ProjectIndexer:
             }
         }
         bootstrap_targets = preferred_bootstrap_targets or set(managed_classes)
-        for main_method in application_main_methods:
-            targets = edges.setdefault(main_method, set())
+        for application_class in application_classes:
+            source = f"__framework__.spring.boot:application:{application_class}"
+            targets = edges.setdefault(source, set())
             for qualified_name in bootstrap_targets:
-                if qualified_name != main_method.rsplit(".", 1)[0]:
+                if qualified_name != application_class:
                     targets.add(qualified_name)
 
         for qualified_name, (cls, metadata, imported_names, _) in managed_classes.items():
