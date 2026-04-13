@@ -1218,6 +1218,35 @@ class TestCallChainAliasResolution:
         assert "com.acme.CryptoCycleGraphs.register()" in names
         assert "com.acme.Factories.cryptoAssetAggregationFactory()" in names
 
+    def test_get_call_chain_matches_suffix_only_graph_nodes(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={},
+            global_dependency_graph={
+                "TradeResearchApiApplication": {"LiveIngressCoordinator.start"},
+                "com.acme.runtime.LiveIngressCoordinator.start()": {"CryptoCycleGraphs.register"},
+                "com.acme.runtime.CryptoCycleGraphs.register()": {
+                    "Factories.cryptoAssetAggregationFactory"
+                },
+                "com.acme.runtime.Factories.cryptoAssetAggregationFactory()": {
+                    "com.acme.runtime.CryptoAssetAggregationNode"
+                },
+            },
+            reverse_dependency_graph={},
+            symbol_table={},
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"](
+            "TradeResearchApiApplication",
+            "CryptoAssetAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert "com.acme.runtime.CryptoCycleGraphs.register()" in names
+        assert "com.acme.runtime.Factories.cryptoAssetAggregationFactory()" in names
+
 
 # ---------------------------------------------------------------------------
 # System prompt instructions

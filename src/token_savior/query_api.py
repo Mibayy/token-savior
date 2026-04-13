@@ -45,6 +45,20 @@ def _function_matches_name(func, name: str) -> bool:
     return name in _function_aliases(func)
 
 
+def _graph_name_matches(candidate: str, name: str) -> bool:
+    if candidate == name:
+        return True
+    if candidate.endswith(f".{name}"):
+        return True
+    candidate_base, _ = _split_signature_suffix(candidate)
+    name_base, _ = _split_signature_suffix(name)
+    if candidate_base == name_base:
+        return True
+    if candidate_base.endswith(f".{name_base}"):
+        return True
+    return False
+
+
 def _find_matching_functions(functions, name: str) -> list:
     return [func for func in functions if _function_matches_name(func, name)]
 
@@ -1980,6 +1994,14 @@ class ProjectQueryEngine:
                 if name in {cls.name, qualified_name} or qualified_name.endswith(f".{name}"):
                     candidates.add(qualified_name)
                     candidates.update(method.qualified_name for method in cls.methods)
+        graph_symbols = set(self.index.global_dependency_graph) | set(self.index.reverse_dependency_graph)
+        for deps in self.index.global_dependency_graph.values():
+            graph_symbols.update(deps)
+        for deps in self.index.reverse_dependency_graph.values():
+            graph_symbols.update(deps)
+        for symbol in graph_symbols:
+            if _graph_name_matches(symbol, name):
+                candidates.add(symbol)
         return candidates
 
     def _has_forward_graph_presence(self, qualified_name: str) -> bool:
