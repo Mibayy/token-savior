@@ -257,6 +257,32 @@ def cmd_why(args) -> int:
     return 0
 
 
+def cmd_distill(args) -> int:
+    project = _resolve_project(args.project)
+    if not project:
+        print("No project.", file=sys.stderr)
+        return 1
+    res = memory_db.run_mdl_distillation(
+        project,
+        dry_run=args.dry_run,
+        min_cluster_size=args.min_cluster,
+        compression_required=args.compression,
+    )
+    print(f"MDL Distillation{' (dry run)' if args.dry_run else ''}:")
+    print(f"  Clusters found: {res['clusters_found']}")
+    if not args.dry_run:
+        print(f"  Applied: {res['clusters_applied']} clusters")
+        print(f"  Abstractions created: {res['abstractions_created']}")
+        print(f"  Obs distilled: {res['obs_distilled']}")
+    print(f"  Tokens freed (estimate): ~{res['tokens_freed_estimate']:,}t")
+    for i, p in enumerate(res.get("preview", [])[:5], 1):
+        pct = p["compression_ratio"] * 100
+        print(f"\nCluster {i} ({p['size']} obs, -{pct:.0f}% MDL): type={p['dominant_type']}")
+        print(f"  Shared: {', '.join(p['shared_tokens'][:5])}")
+        print(f"  MDL: {p['mdl_before']:.1f}t → {p['mdl_after']:.1f}t")
+    return 0
+
+
 def cmd_relink(args) -> int:
     project = _resolve_project(args.project)
     if not project:
@@ -424,6 +450,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = msub.add_parser("export")
     s.add_argument("--output-dir", default="/root/memory-backup")
     s.set_defaults(func=cmd_export)
+
+    s = msub.add_parser("distill", help="MDL distillation (crystallize similar obs)")
+    s.add_argument("--project")
+    s.add_argument("--dry-run", action="store_true", default=False)
+    s.add_argument("--min-cluster", type=int, default=3)
+    s.add_argument("--compression", type=float, default=0.2)
+    s.set_defaults(func=cmd_distill)
 
     s = msub.add_parser("relink")
     s.add_argument("--project")

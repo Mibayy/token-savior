@@ -615,6 +615,16 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
         pass
 
     try:
+        mdl_s = memory_db.get_mdl_stats()
+        if mdl_s.get("abstractions", 0) > 0 or mdl_s.get("distilled", 0) > 0:
+            lines.append(
+                f"MDL: {mdl_s['abstractions']} abstractions | "
+                f"{mdl_s['distilled']} obs distilled"
+            )
+    except Exception:
+        pass
+
+    try:
         roi_s = memory_db.get_roi_stats()
         if roi_s.get("total", 0) > 0:
             lines.append(
@@ -1447,6 +1457,43 @@ def _mh_memory_doctor(args: dict) -> str:
     return "\n".join(lines)
 
 
+def _mh_memory_distill(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    dry = args.get("dry_run", True)
+    mcs = int(args.get("min_cluster_size", 3))
+    cr = float(args.get("compression_required", 0.2))
+    res = memory_db.run_mdl_distillation(
+        root, dry_run=dry, min_cluster_size=mcs, compression_required=cr,
+    )
+    header = "MDL Distillation" + (" (dry run)" if dry else "")
+    lines = [
+        header + ":",
+        "─" * 60,
+        f" Clusters found: {res['clusters_found']} "
+        + (f"→ {sum(len(p['obs_ids']) for p in res['preview'])} obs affected" if res.get("preview") else ""),
+    ]
+    if not dry:
+        lines.append(
+            f" Applied: {res['clusters_applied']} clusters | "
+            f"{res['abstractions_created']} abstractions created | "
+            f"{res['obs_distilled']} obs distilled"
+        )
+    lines.append(f" Tokens freed (estimate): ~{res['tokens_freed_estimate']:,}t")
+    for i, p in enumerate(res.get("preview", [])[:5], 1):
+        pct = p["compression_ratio"] * 100
+        shared = ", ".join(p["shared_tokens"][:4]) or "(n/a)"
+        lines.append("")
+        lines.append(
+            f"Cluster {i} ({p['size']} obs, -{pct:.0f}% MDL): "
+            f"type={p['dominant_type']} ids={p['obs_ids'][:5]}"
+        )
+        lines.append(f"  Shared: {shared}")
+        lines.append(f"  MDL before: {p['mdl_before']:.1f}t → after: {p['mdl_after']:.1f}t")
+        head_line = (p["abstraction"].splitlines() or [""])[0]
+        lines.append(f"  Abstraction: {head_line[:100]}")
+    return "\n".join(lines)
+
+
 def _mh_memory_roi_gc(args: dict) -> str:
     root = _resolve_memory_project(args)
     dry = args.get("dry_run", True)
@@ -2008,6 +2055,7 @@ _MEMORY_HANDLERS: dict[str, object] = {
     "memory_maintain": _mh_memory_maintain,
     "memory_from_bash": _mh_memory_from_bash,
     "memory_doctor": _mh_memory_doctor,
+    "memory_distill": _mh_memory_distill,
     "memory_roi_gc": _mh_memory_roi_gc,
     "memory_roi_stats": _mh_memory_roi_stats,
     "memory_why": _mh_memory_why,

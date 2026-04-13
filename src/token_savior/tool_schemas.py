@@ -974,6 +974,21 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": "Rapport de santé de la mémoire : orphans, near-duplicates, obs incomplètes.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    "memory_distill": {
+        "description": (
+            "MDL distillation: crystallize N similar observations into 1 abstraction + deltas. "
+            "Uses Jaccard clustering + Rissanen MDL (L(abstraction) + Σ L(delta) < Σ L(obs))."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean", "description": "Preview only (default true)."},
+                "min_cluster_size": {"type": "integer", "description": "Minimum cluster size (default 3)."},
+                "compression_required": {"type": "number", "description": "Minimum MDL compression ratio (default 0.2)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "memory_roi_gc": {
         "description": (
             "Token Economy ROI garbage collection. Archive observations whose "
