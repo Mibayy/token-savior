@@ -1567,6 +1567,59 @@ TOOL_SCHEMAS: dict[str, dict] = {
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    "get_linucb_stats": {
+        "description": "LinUCB injection model: feature weights θ, updates count, top feature.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "get_warmstart_stats": {
+        "description": (
+            "Cross-session warm start: stored signatures, pairwise similarity, "
+            "per-project distribution."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "memory_consistency": {
+        "description": (
+            "Run Bayesian self-consistency check on symbol-linked observations "
+            "(updates validity α/β, flags stale_suspected and quarantine)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_root": {
+                    "type": "string",
+                    "description": "Project filter; omit to run across all projects.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max observations to check this pass (default 100).",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Report what would change without persisting.",
+                },
+            },
+        },
+    },
+    "memory_quarantine_list": {
+        "description": (
+            "List observations currently quarantined by the consistency check "
+            "(Bayesian validity below 40%)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_root": {
+                    "type": "string",
+                    "description": "Filter by project; omit for all projects.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max rows to return (default 50).",
+                },
+            },
+        },
+    },
 }
 
 # Set of deprecated tool names for quick lookup

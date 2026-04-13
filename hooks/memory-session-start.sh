@@ -54,6 +54,7 @@ if 20 <= ctx_pct < 40:
 def _fmt_row(r):
     age = r.get('age') or '?'
     glob = '🌐 ' if r.get('is_global') else ''
+    stale = '⚠️ ' if r.get('stale_suspected') else ''
     sym = f\" [{r['symbol']}]\" if r.get('symbol') else ''
     sc = r.get('score')
     sc_str = f\" ★{sc:.2f}\" if sc is not None else ''
@@ -67,7 +68,7 @@ def _fmt_row(r):
                 ttl_str = ' ⏰ expired'
             else:
                 ttl_str = f' ⏰ {max(1, secs // 86400)}d'
-    return f\"  #{r['id']}  [{r['type']}]  {glob}{r['title']}{sym}  {age}{sc_str}{ttl_str}\"
+    return f\"  #{r['id']}  [{r['type']}]  {stale}{glob}{r['title']}{sym}  {age}{sc_str}{ttl_str}\"
 
 if rows:
     import hashlib
@@ -151,6 +152,55 @@ if project:
         db.commit()
     db.close()
 " 2>/dev/null
+fi
+
+# Warm start: find similar historical sessions by signature and pre-warm PPM
+WARMSTART=$(/root/.local/token-savior-venv/bin/python3 -c "
+import sys, os
+sys.path.insert(0, '/root/token-savior/src')
+from pathlib import Path
+from token_savior.session_warmstart import SessionWarmStart, compute_signature
+from token_savior.markov_prefetcher import PPMPrefetcher
+from token_savior import memory_db
+
+project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+if not project:
+    db = memory_db.get_db()
+    row = db.execute('SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1').fetchone()
+    db.close()
+    project = row[0] if row else ''
+
+try:
+    mode = memory_db.get_current_mode(project_root=project or None)
+    mode_name = mode.get('name', 'code')
+except Exception:
+    mode_name = 'code'
+
+stats_dir = Path(os.path.expanduser('~/.local/share/token-savior'))
+ws = SessionWarmStart(stats_dir)
+
+# Embryo signature — only mode + project known, no tools yet.
+embryo = compute_signature({'tool_counts': {}, 'duration_min': 0, 'turns': 0, 'obs_accessed': 0, 'symbols': [], 'mode': mode_name})
+similar = ws.find_similar_sessions(embryo, project_root=project or None, top_k=3, min_sim=0.3)
+
+if similar:
+    best_sim = similar[0][1]
+    prefetcher = PPMPrefetcher(stats_dir)
+    seeded_pairs = 0
+    for entry, _ in similar:
+        tc = entry.get('tool_counts') or {}
+        top_tools = sorted(tc.items(), key=lambda x: -x[1])[:3]
+        for i in range(len(top_tools) - 1):
+            prefetcher.record_call(top_tools[i][0], '')
+            seeded_pairs += 1
+        if top_tools:
+            prefetcher.record_call(top_tools[-1][0], '')
+    prefetcher.save()
+    print(f'🔥 Warm start: {len(similar)} similar sessions (best: {best_sim:.0%}) — {seeded_pairs} PPM seeds')
+" 2>/dev/null)
+
+if [ -n "$WARMSTART" ]; then
+    echo "$WARMSTART"
 fi
 
 # Statusline: [mem:N obs · mode:X]

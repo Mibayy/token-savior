@@ -242,6 +242,84 @@ except Exception:
     pass
 " < "$TMP_OUT" 2>/dev/null
 
+# Weekly self-consistency check (7-day interval)
+(
+    CONS_FLAG=/root/.local/share/token-savior/last_consistency_check
+    mkdir -p "$(dirname "$CONS_FLAG")"
+    NOW_CONS=$(date +%s)
+    LAST_CONS=0
+    [ -f "$CONS_FLAG" ] && LAST_CONS=$(cat "$CONS_FLAG" 2>/dev/null || echo 0)
+    AGE_CONS=$((NOW_CONS - LAST_CONS))
+    if [ "$AGE_CONS" -ge 604800 ]; then
+        "$PY" -c "
+import sys
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+res = memory_db.run_consistency_check(project_root='$PROJECT' or None, limit=200, dry_run=False)
+print(f'[consistency] checked={res[\"checked\"]} failed={res[\"failed\"]} quarantined={res[\"quarantined\"]} stale={res[\"stale_suspected\"]}', file=sys.stderr)
+" 2>/dev/null
+        echo "$NOW_CONS" > "$CONS_FLAG"
+    fi
+) &
+
+# Save session signature for cross-session warm start (all modes)
+"$PY" -c "
+import sys, os, time
+sys.path.insert(0, '/root/token-savior/src')
+from pathlib import Path
+from token_savior.session_warmstart import SessionWarmStart
+from token_savior import memory_db
+
+try:
+    sid = $SESSION_ID
+    project = '$PROJECT'
+    db = memory_db.get_db()
+    row = db.execute(
+        'SELECT created_at_epoch, ended_at_epoch, tokens_injected FROM sessions WHERE id=?',
+        [sid],
+    ).fetchone()
+    if row:
+        created, ended, tokens_injected = row[0], row[1] or int(time.time()), row[2] or 0
+        duration_min = max(0.0, (ended - created) / 60.0)
+    else:
+        duration_min = 0.0
+
+    try:
+        mode = memory_db.get_current_mode(project_root=project or None)
+        mode_name = mode.get('name', 'code')
+    except Exception:
+        mode_name = 'code'
+
+    # Tool counts from access_count on observations (proxy — real tool call
+    # sequences are tracked by PPMPrefetcher which doesn't persist per-session).
+    obs_rows = memory_db.observation_get_by_session(sid)
+    symbols = [o.get('symbol') for o in obs_rows if o.get('symbol')]
+
+    # Derive tool_counts from PPMPrefetcher tail (recent call sequence).
+    from token_savior.markov_prefetcher import PPMPrefetcher
+    stats_dir = Path(os.path.expanduser('~/.local/share/token-savior'))
+    prefetcher = PPMPrefetcher(stats_dir)
+    tool_counts = {}
+    for st in prefetcher.call_sequence[-200:]:
+        tool_counts[st.tool] = tool_counts.get(st.tool, 0) + 1
+
+    turns = sum(tool_counts.values())
+    obs_accessed = sum(1 for o in obs_rows if (o.get('access_count') or 0) > 0)
+
+    ws = SessionWarmStart(stats_dir)
+    ws.save_session_signature(sid, project, {
+        'tool_counts': tool_counts,
+        'duration_min': duration_min,
+        'turns': turns,
+        'obs_accessed': obs_accessed,
+        'symbols': symbols,
+        'mode': mode_name,
+    })
+    db.close()
+except Exception as e:
+    print(f'[warmstart] save failed: {e}', file=sys.stderr)
+" 2>/dev/null
+
 # Compute tokens_saved_est for session (all modes)
 "$PY" -c "
 import sys

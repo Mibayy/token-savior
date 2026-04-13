@@ -51,7 +51,10 @@ class TestToolSchemas:
         # +2 v2.3 Step B (memory_roi_gc, memory_roi_stats) = 88.
         # +2 v2.3 Step C (get_community, get_leiden_stats) = 90.
         # +1 v2.3 Step D (memory_distill) = 91.
-        assert len(TOOL_SCHEMAS) == 91, f"Expected 91 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 v2.3 Prompt3 Step A (get_linucb_stats) = 92.
+        # +1 v2.3 Prompt3 Step B (get_warmstart_stats) = 93.
+        # +2 v2.3 Prompt3 Step C (memory_consistency, memory_quarantine_list) = 95.
+        assert len(TOOL_SCHEMAS) == 95, f"Expected 95 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
