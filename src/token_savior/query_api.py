@@ -151,7 +151,7 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
             {
                 "name": f.name,
                 "qualified_name": f.qualified_name,
-                "lines": [_display_function_start_line(metadata, f), f.line_range.end],
+                "lines": list(_effective_function_range(metadata, f)),
                 "params": f.parameters,
                 "is_method": f.is_method,
                 "parent_class": f.parent_class,
@@ -192,7 +192,8 @@ def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Calla
             return f"Error: function '{name}' is ambiguous; use a fully qualified signature"
         if func is None:
             return f"Error: function '{name}' not found"
-        return "\n".join(metadata.lines[func.line_range.start - 1 : func.line_range.end])
+        start, end = _effective_function_range(metadata, func)
+        return "\n".join(metadata.lines[start - 1 : end])
 
     def get_class_source(name: str, level: int = 0) -> str:
         """Source of a class by name."""
@@ -446,6 +447,36 @@ def _display_function_start_line(meta: StructuralMetadata, func: FunctionInfo) -
         if name_pattern.search(line):
             return line_no
     return func.line_range.start
+
+
+def _effective_function_range(meta: StructuralMetadata, func: FunctionInfo) -> tuple[int, int]:
+    start = _display_function_start_line(meta, func)
+    if not str(meta.source_name).endswith(".java"):
+        return start, func.line_range.end
+
+    max_end = min(len(meta.lines), max(start, func.line_range.end))
+    if start > max_end:
+        return func.line_range.start, func.line_range.end
+
+    seen_body = False
+    brace_depth = 0
+    for line_no in range(start, max_end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if not seen_body and "{" not in line and stripped.endswith(";"):
+            return start, line_no
+        for ch in line:
+            if ch == "{":
+                brace_depth += 1
+                seen_body = True
+            elif ch == "}":
+                brace_depth = max(0, brace_depth - 1)
+        if seen_body and brace_depth == 0:
+            return start, line_no
+
+    return start, func.line_range.end
 
 
 def _infer_component_end_line(meta: StructuralMetadata, func) -> int:
@@ -747,7 +778,7 @@ class ProjectQueryEngine:
                         {
                             "name": f.name,
                             "qualified_name": f.qualified_name,
-                            "lines": [_display_function_start_line(meta, f), f.line_range.end],
+                            "lines": list(_effective_function_range(meta, f)),
                             "params": f.parameters,
                             "is_method": f.is_method,
                             "parent_class": f.parent_class,
@@ -891,14 +922,16 @@ class ProjectQueryEngine:
             meta = _resolve_file(index, path)
             if meta is None:
                 continue
+            for cls in meta.classes:
+                qualified_name = cls.qualified_name or cls.name
+                if cls.name == name or qualified_name == name:
+                    return ("class", meta, cls)
             for func in meta.functions:
                 if func.name == name or func.qualified_name == name:
                     return ("function", meta, func)
             for cls in meta.classes:
-                if cls.name == name:
-                    return ("class", meta, cls)
                 for method in cls.methods:
-                    if method.qualified_name == name:
+                    if method.name == name or method.qualified_name == name:
                         return ("function", meta, method)
         return None
 

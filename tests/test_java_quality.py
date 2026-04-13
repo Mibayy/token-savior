@@ -128,6 +128,45 @@ class TestJavaPerformanceHotspots:
 
         assert "blocking wait" not in result
 
+    def test_does_not_treat_lookup_method_as_blocking_when_class_has_future_field(self, tmp_path):
+        root = tmp_path / "perf-false-positive-project"
+        _write_file(
+            root / "src/main/java/com/acme/runtime/LookupExamples.java",
+            """\
+            package com.acme.runtime;
+
+            import java.util.Map;
+            import java.util.concurrent.CompletableFuture;
+
+            final class JsonNode {
+                JsonNode get(String key) {
+                    return this;
+                }
+            }
+
+            public final class LookupExamples {
+                public String waitForFuture() throws Exception {
+                    CompletableFuture<String> future = CompletableFuture.completedFuture("x");
+                    return future.get();
+                }
+
+                public String read(Map<String, String> values, JsonNode node) {
+                    String left = values.get("left");
+                    JsonNode right = node.get("right");
+                    return left == null ? "" : left + right;
+                }
+            }
+            """,
+        )
+
+        index = ProjectIndexer(str(root)).index()
+        result = find_performance_hotspots(index)
+
+        assert "com.acme.runtime.LookupExamples.waitForFuture()" in result
+        for line in result.splitlines():
+            if "com.acme.runtime.LookupExamples.read(Map<String,String>,JsonNode)" in line:
+                assert "blocking wait" not in line
+
     def test_returns_empty_message_when_no_java_perf_issues_found(self, tmp_path):
         root = tmp_path / "clean-project"
         _write_file(

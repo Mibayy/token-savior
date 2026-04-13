@@ -634,6 +634,54 @@ class TestProjectQueryFunctions:
         assert "[L2] class Runner" in src
         assert "methods:" in src
 
+    def test_get_class_source_level_2_prefers_class_over_constructor_named_symbol(self):
+        source = "class SampleNode:\n    pass\n"
+        lines = source.split("\n")
+        constructor = FunctionInfo(
+            name="SampleNode",
+            qualified_name="pkg.SampleNode.SampleNode()",
+            line_range=LineRange(1, 1),
+            parameters=[],
+            decorators=[],
+            docstring=None,
+            is_method=True,
+            parent_class="SampleNode",
+        )
+        cls = ClassInfo(
+            name="SampleNode",
+            qualified_name="pkg.SampleNode",
+            line_range=LineRange(1, 2),
+            base_classes=[],
+            methods=[constructor],
+            decorators=[],
+            docstring="Synthetic node.",
+        )
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/node.py": StructuralMetadata(
+                    source_name="src/node.py",
+                    total_lines=len(lines),
+                    total_chars=len(source),
+                    lines=lines,
+                    line_char_offsets=[],
+                    functions=[constructor],
+                    classes=[cls],
+                )
+            },
+            symbol_table={
+                "SampleNode": "src/node.py",
+                "pkg.SampleNode": "src/node.py",
+                "pkg.SampleNode.SampleNode()": "src/node.py",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        src = funcs["get_class_source"]("SampleNode", level=2)
+
+        assert src.startswith("[L2] class SampleNode")
+        assert "methods: 1" in src
+
     def test_get_class_source_not_found(self):
         result = self.funcs["get_class_source"]("Nonexistent")
         assert "Error" in result

@@ -115,7 +115,43 @@ def _class_source(meta: StructuralMetadata, cls: ClassInfo | None) -> str:
 
 
 def _function_source(meta: StructuralMetadata, func: FunctionInfo) -> str:
-    return "\n".join(meta.lines[func.line_range.start - 1 : func.line_range.end])
+    start = max(1, func.line_range.start)
+    end = min(len(meta.lines), func.line_range.end)
+    name_pattern = re.compile(rf"\b{re.escape(func.name)}\s*\(")
+    for line_no in range(start, end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if name_pattern.search(line):
+            start = line_no
+            break
+
+    if not str(meta.source_name).endswith(".java"):
+        return "\n".join(meta.lines[start - 1 : end])
+
+    seen_body = False
+    brace_depth = 0
+    effective_end = end
+    for line_no in range(start, end + 1):
+        line = meta.lines[line_no - 1]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("@"):
+            continue
+        if not seen_body and "{" not in line and stripped.endswith(";"):
+            effective_end = line_no
+            break
+        for ch in line:
+            if ch == "{":
+                brace_depth += 1
+                seen_body = True
+            elif ch == "}":
+                brace_depth = max(0, brace_depth - 1)
+        if seen_body and brace_depth == 0:
+            effective_end = line_no
+            break
+
+    return "\n".join(meta.lines[start - 1 : effective_end])
 
 
 def _shared_state_penalty(meta: StructuralMetadata, func: FunctionInfo) -> tuple[int, float, str] | None:
