@@ -270,6 +270,14 @@ def _looks_like_template(value: str) -> bool:
     return "${" in value or "%(" in value or "<" in value and ">" in value
 
 
+def _looks_like_structured_config(value: str) -> bool:
+    stripped = value.strip()
+    return (
+        (stripped.startswith("{") and stripped.endswith("}"))
+        or (stripped.startswith("[") and stripped.endswith("]"))
+    )
+
+
 def _mask_value(value: str) -> str:
     """Return a masked representation: first 4 + **** + last 4 chars."""
     if len(value) <= 8:
@@ -288,6 +296,8 @@ def _is_non_secret_pattern(value: str) -> bool:
     if _FILE_PATH_RE.search(value):
         return True
     if _BOOL_LIKE_RE.match(value):
+        return True
+    if _looks_like_structured_config(value):
         return True
     return False
 
@@ -461,6 +471,17 @@ def _detect_lang(source_name: str) -> str | None:
     return _EXT_TO_LANG.get(ext.lower())
 
 
+def _is_test_file(source_name: str) -> bool:
+    normalized = source_name.replace("\\", "/").lower()
+    basename = os.path.basename(normalized)
+    return (
+        "/test/" in normalized
+        or "/tests/" in normalized
+        or basename.startswith("test_")
+        or basename.endswith(("_test.py", ".spec.ts", ".test.ts", "test.java", "tests.java"))
+    )
+
+
 def _pick_key_from_match(m: re.Match[str]) -> str | None:
     """Pick the meaningful key group from a regex match.
 
@@ -517,6 +538,7 @@ def check_orphans(
     issues: list[ConfigIssue] = []
     convention_patterns = (
         "gradle.properties",
+        "gradle-wrapper.properties",
         "package.json",
         "tsconfig.json",
         "tsconfig.",
@@ -524,6 +546,13 @@ def check_orphans(
         "application.yml",
         "log4j2.xml",
     )
+    convention_key_allowlist = {
+        "networks",
+        "scripts",
+        "devDependencies",
+        "compilerOptions",
+        "references",
+    }
 
     # ------------------------------------------------------------------
     # Collect level-1 keys from config files
@@ -549,6 +578,8 @@ def check_orphans(
     # Check 1 — Orphan keys (config keys not used in code)
     # ------------------------------------------------------------------
     for key, occurrences in config_keys.items():
+        if key in convention_key_allowlist:
+            continue
         # Primary: access-pattern match
         if key in referenced_keys:
             continue
@@ -574,6 +605,10 @@ def check_orphans(
     # ------------------------------------------------------------------
     defined_keys = set(config_keys.keys())
     for key, refs in referenced_keys.items():
+        if key.startswith("VITE_"):
+            continue
+        if all(_is_test_file(ref_file) for ref_file, _ in refs):
+            continue
         if key not in defined_keys:
             # Report once per unique (file, line) reference
             for ref_file, ref_line in refs:
@@ -598,7 +633,15 @@ def check_orphans(
     for source_name, meta in config_files.items():
         basename = os.path.basename(source_name)
         normalized = source_name.replace("\\", "/")
-        if basename in convention_patterns or basename.startswith("tsconfig.") or normalized.startswith(".github/workflows/") or "/.github/workflows/" in normalized:
+        if (
+            basename in convention_patterns
+            or basename.startswith("tsconfig.")
+            or basename.startswith("docker-compose")
+            or normalized.startswith(".github/workflows/")
+            or "/.github/workflows/" in normalized
+            or normalized.startswith("config/deploy/")
+            or "/config/deploy/" in normalized
+        ):
             continue
         if not any(basename in line for line in all_code_text):
             issues.append(

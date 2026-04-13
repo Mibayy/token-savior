@@ -383,6 +383,15 @@ class TestCheckSecrets:
         issues = check_secrets({"app.env": meta})
         assert issues == []
 
+    def test_flow_style_structured_value_not_flagged_as_entropy(self):
+        """Inline structured YAML config should not trip entropy detection."""
+        meta = _make_simple_meta(
+            "config/deploy/local.yaml",
+            ["trades: { latenessMs: 100, latePolicy: apply, reorderBufferSize: 32 }"],
+        )
+        issues = check_secrets({"config/deploy/local.yaml": meta})
+        assert issues == []
+
 
 # ---------------------------------------------------------------------------
 # TestCheckOrphans
@@ -514,7 +523,14 @@ class TestCheckOrphans:
         """Build/runtime convention files should not require filename references."""
         config = {
             "gradle.properties": _make_config_with_key("gradle.properties", "ORG_GRADLE_PROJECT"),
+            "gradle/wrapper/gradle-wrapper.properties": _make_config_with_key(
+                "gradle/wrapper/gradle-wrapper.properties", "distributionUrl"
+            ),
             "ui/package.json": _make_config_with_key("ui/package.json", "name"),
+            "deployment/docker-compose.local.yml": _make_config_with_key(
+                "deployment/docker-compose.local.yml", "services"
+            ),
+            "config/deploy/local.yaml": _make_config_with_key("config/deploy/local.yaml", "trades"),
             ".github/workflows/ci.yml": _make_config_with_key(".github/workflows/ci.yml", "jobs"),
             "application.yaml": _make_config_with_key("application.yaml", "server"),
             "log4j2.xml": _make_config_with_key("log4j2.xml", "Configuration"),
@@ -523,6 +539,35 @@ class TestCheckOrphans:
         issues = check_orphans(config, code)
         orphan_files = [i for i in issues if i.check == "orphan_file"]
         assert orphan_files == []
+
+    def test_convention_keys_and_vite_ghosts_are_not_flagged(self):
+        config = {
+            "ui/package.json": _make_config_with_key("ui/package.json", "scripts"),
+            "ui/tsconfig.json": _make_config_with_key("ui/tsconfig.json", "compilerOptions"),
+        }
+        code = {
+            "ui/src/main.ts": _make_code_meta(
+                "ui/src/main.ts",
+                ["const api = import.meta.env.VITE_API_URL;"],
+            )
+        }
+
+        issues = check_orphans(config, code)
+
+        assert not any(i.check == "orphan" and i.key in {"scripts", "compilerOptions"} for i in issues)
+        assert not any(i.check == "ghost" and i.key == "VITE_API_URL" for i in issues)
+
+    def test_test_only_ghost_keys_are_not_flagged(self):
+        code = {
+            "tests/test_config.py": _make_code_meta(
+                "tests/test_config.py",
+                ['value = os.getenv("UW_SUB_JSON")'],
+            )
+        }
+
+        issues = check_orphans({}, code)
+
+        assert not any(i.check == "ghost" and i.key == "UW_SUB_JSON" for i in issues)
 
 
 # ---------------------------------------------------------------------------

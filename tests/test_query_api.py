@@ -1001,6 +1001,223 @@ class TestComponentQueries:
             }
         ]
 
+    def test_get_components_repairs_collapsed_arrow_component_range(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "ui/components/CTAButton.tsx": StructuralMetadata(
+                    source_name="CTAButton.tsx",
+                    total_lines=8,
+                    total_chars=160,
+                    lines=[
+                        "export const CTAButton = ({ title }: Props) => (",
+                        "  <button>",
+                        "    <span>{title}</span>",
+                        "  </button>",
+                        ");",
+                        "",
+                        "",
+                        "",
+                    ],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="CTAButton",
+                            qualified_name="CTAButton",
+                            line_range=LineRange(1, 1),
+                            parameters=["destructured", "title"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=False,
+                            parent_class=None,
+                        )
+                    ],
+                )
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        components = funcs["get_components"]()
+
+        assert components[0]["line_range"] == "1-5"
+
+
+class TestCallChainAliasResolution:
+    def test_get_call_chain_resolves_signatureless_neighbors(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/app.java": StructuralMetadata(
+                    source_name="app.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="main",
+                            qualified_name="com.acme.App.main(String[])",
+                            line_range=LineRange(1, 1),
+                            parameters=["String[]"],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="App",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="App",
+                            qualified_name="com.acme.App",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="main",
+                                    qualified_name="com.acme.App.main(String[])",
+                                    line_range=LineRange(1, 1),
+                                    parameters=["String[]"],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="App",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/graphs.java": StructuralMetadata(
+                    source_name="graphs.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="register",
+                            qualified_name="com.acme.CryptoCycleGraphs.register()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="CryptoCycleGraphs",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoCycleGraphs",
+                            qualified_name="com.acme.CryptoCycleGraphs",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="register",
+                                    qualified_name="com.acme.CryptoCycleGraphs.register()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="CryptoCycleGraphs",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.java": StructuralMetadata(
+                    source_name="factories.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="cryptoAssetAggregationFactory",
+                            qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            qualified_name="com.acme.Factories",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="cryptoAssetAggregationFactory",
+                                    qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.java": StructuralMetadata(
+                    source_name="node.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoAssetAggregationNode",
+                            qualified_name="com.acme.CryptoAssetAggregationNode",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "com.acme.App.main(String[])": {"com.acme.CryptoCycleGraphs.register"},
+                "com.acme.CryptoCycleGraphs.register()": {"com.acme.Factories.cryptoAssetAggregationFactory"},
+                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoAssetAggregationNode"},
+            },
+            reverse_dependency_graph={
+                "com.acme.CryptoCycleGraphs.register": {"com.acme.App.main(String[])"},
+                "com.acme.Factories.cryptoAssetAggregationFactory": {"com.acme.CryptoCycleGraphs.register()"},
+                "com.acme.CryptoAssetAggregationNode": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
+            },
+            symbol_table={
+                "com.acme.App": "src/app.java",
+                "com.acme.App.main(String[])": "src/app.java",
+                "com.acme.CryptoCycleGraphs": "src/graphs.java",
+                "com.acme.CryptoCycleGraphs.register()": "src/graphs.java",
+                "com.acme.Factories": "src/factories.java",
+                "com.acme.Factories.cryptoAssetAggregationFactory()": "src/factories.java",
+                "com.acme.CryptoAssetAggregationNode": "src/node.java",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"]("com.acme.App", "com.acme.CryptoAssetAggregationNode")
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert "com.acme.CryptoCycleGraphs.register()" in names
+        assert "com.acme.Factories.cryptoAssetAggregationFactory()" in names
+
 
 # ---------------------------------------------------------------------------
 # System prompt instructions
