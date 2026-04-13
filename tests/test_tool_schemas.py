@@ -49,7 +49,8 @@ class TestToolSchemas:
         # +1 v2.2 Prompt3 Step A (get_dcp_stats) = 84.
         # +2 v2.2 Prompt3 Step B (get_coactive_symbols, get_tca_stats) = 86.
         # +1 Java duplicate-classes = 87.
-        assert len(TOOL_SCHEMAS) == 87, f"Expected 87 tools, got {len(TOOL_SCHEMAS)}"
+        # +2 Java quality tools = 89.
+        assert len(TOOL_SCHEMAS) == 89, f"Expected 89 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

@@ -822,6 +822,46 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "find_allocation_hotspots": {
+        "description": (
+            "Rank Java functions by allocation-heavy ULL antipatterns such as object construction, "
+            "collection creation, stream pipelines, boxing helpers, and formatting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of Java functions to report (default: 20).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum allocation score to include (default: 1).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "find_performance_hotspots": {
+        "description": (
+            "Rank Java functions by non-allocation ULL antipatterns such as blocking calls, locks, "
+            "synchronized sections, blocking I/O, and shared mutable state without cache-line padding."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of Java functions to report (default: 20).",
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum performance score to include (default: 1).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "detect_breaking_changes": {
         "description": (
             "Detect breaking API changes between the current code and a git ref. "

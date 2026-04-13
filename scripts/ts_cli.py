@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -141,10 +140,16 @@ def cmd_get(args) -> int:
     except Exception:
         links = {"related": [], "contradicts": [], "supersedes": []}
     if links.get("related"):
-        parts = [f"#{l['id']} [{l['type']}] {l['title']}" for l in links["related"][:5]]
+        parts = [
+            f"#{link['id']} [{link['type']}] {link['title']}"
+            for link in links["related"][:5]
+        ]
         print("\n🔗 See also: " + " · ".join(parts))
     if links.get("contradicts"):
-        parts = [f"#{l['id']} [{l['type']}] {l['title']}" for l in links["contradicts"][:5]]
+        parts = [
+            f"#{link['id']} [{link['type']}] {link['title']}"
+            for link in links["contradicts"][:5]
+        ]
         print("⚠️ Contradicts: " + " · ".join(parts))
     return 0
 

@@ -58,6 +58,10 @@ from token_savior.config_analyzer import analyze_config as run_config_analysis
 from token_savior.cross_project import find_cross_project_deps as run_cross_project
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
+from token_savior.java_quality import (
+    find_allocation_hotspots as run_allocation_hotspots,
+    find_performance_hotspots as run_performance_hotspots,
+)
 from token_savior.slot_manager import SlotManager, _ProjectSlot
 from token_savior.markov_prefetcher import MarkovPrefetcher
 from token_savior.tca_engine import TCAEngine
@@ -1020,6 +1024,24 @@ def _h_find_hotspots(slot, args):
     )
 
 
+def _h_find_allocation_hotspots(slot, args):
+    _prep(slot)
+    return run_allocation_hotspots(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 20),
+        min_score=args.get("min_score", 1.0),
+    )
+
+
+def _h_find_performance_hotspots(slot, args):
+    _prep(slot)
+    return run_performance_hotspots(
+        slot.indexer._project_index,
+        max_results=args.get("max_results", 20),
+        min_score=args.get("min_score", 1.0),
+    )
+
+
 def _h_detect_breaking_changes(slot, args):
     _prep(slot)
     result = run_breaking_changes(
@@ -1962,6 +1984,8 @@ _SLOT_HANDLERS: dict[str, object] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
     "find_hotspots": _h_find_hotspots,
+    "find_allocation_hotspots": _h_find_allocation_hotspots,
+    "find_performance_hotspots": _h_find_performance_hotspots,
     "detect_breaking_changes": _h_detect_breaking_changes,
     "find_cross_project_deps": _h_find_cross_project_deps,
     "analyze_docker": _h_analyze_docker,
