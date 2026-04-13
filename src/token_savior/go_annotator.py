@@ -16,6 +16,27 @@ from token_savior.models import (
     StructuralMetadata,
 )
 
+# ---------------------------------------------------------------------------
+# Dependency graph helpers
+# ---------------------------------------------------------------------------
+
+_IDENT_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
+
+_GO_KEYWORDS = frozenset({
+    # Language keywords
+    "break", "case", "chan", "const", "continue", "default", "defer",
+    "else", "fallthrough", "for", "func", "go", "goto", "if", "import",
+    "interface", "map", "package", "range", "return", "select", "struct",
+    "switch", "type", "var",
+    # Built-in identifiers and types
+    "append", "any", "bool", "byte", "cap", "clear", "close", "complex",
+    "complex64", "complex128", "copy", "delete", "error", "false",
+    "float32", "float64", "imag", "int", "int8", "int16", "int32", "int64",
+    "iota", "len", "make", "max", "min", "new", "nil", "panic", "print",
+    "println", "real", "recover", "rune", "string", "true", "uint", "uint8",
+    "uint16", "uint32", "uint64", "uintptr",
+})
+
 
 def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
     offsets: list[int] = []
@@ -24,6 +45,34 @@ def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
         offsets.append(pos)
         pos += len(line) + 1
     return offsets
+
+
+def _build_dependency_graph(
+    functions: list[FunctionInfo],
+    classes: list[ClassInfo],
+    lines: list[str],
+    defined_names: set[str],
+) -> dict[str, list[str]]:
+    """Build intra-file dependency graph for functions and structs."""
+    graph: dict[str, list[str]] = {}
+
+    for func in functions:
+        start = func.line_range.start - 1  # 0-indexed
+        end = func.line_range.end  # exclusive
+        body_text = "\n".join(lines[start:end])
+        refs = set(_IDENT_RE.findall(body_text))
+        deps = sorted((refs & defined_names) - {func.name} - _GO_KEYWORDS)
+        graph[func.name] = deps
+
+    for cls in classes:
+        start = cls.line_range.start - 1
+        end = cls.line_range.end
+        body_text = "\n".join(lines[start:end])
+        refs = set(_IDENT_RE.findall(body_text))
+        deps = sorted((refs & defined_names) - {cls.name} - _GO_KEYWORDS)
+        graph[cls.name] = deps
+
+    return graph
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +502,10 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         else:
             updated_classes.append(cls)
 
+    # Build intra-file dependency graph
+    defined_names = {f.name for f in functions} | {c.name for c in updated_classes}
+    dependency_graph = _build_dependency_graph(functions, updated_classes, lines, defined_names)
+
     return StructuralMetadata(
         source_name=source_name,
         total_lines=total_lines,
@@ -462,4 +515,5 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         functions=functions,
         classes=updated_classes,
         imports=imports,
+        dependency_graph=dependency_graph,
     )
