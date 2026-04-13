@@ -278,6 +278,30 @@ except Exception:
 " 2>&1
 fi
 
+# End-of-session: MDL distillation suggestion (end mode only)
+if [ "$HOOK_MODE" = "end" ]; then
+    "$PY" -c "
+import sys
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+project = '$PROJECT'
+try:
+    res = memory_db.run_mdl_distillation(project, dry_run=True)
+    undistilled = memory_db.get_db().execute(
+        \"SELECT COUNT(*) FROM observations WHERE project_root=? AND archived=0 \"
+        \"AND (tags IS NULL OR (tags NOT LIKE '%mdl-distilled%' AND tags NOT LIKE '%mdl-abstraction%'))\",
+        [project],
+    ).fetchone()[0]
+    if undistilled > 20 and res.get('clusters_found', 0) > 0:
+        print('', file=sys.stderr)
+        print(f\"💡 MDL: {res['clusters_found']} distillation candidates \"
+              f\"(~{res['tokens_freed_estimate']:,}t freed) — run memory_distill to compress\",
+              file=sys.stderr)
+except Exception:
+    pass
+" 2>&1
+fi
+
 # End-of-session: backup to markdown (end mode only)
 if [ "$HOOK_MODE" = "end" ]; then
     (
