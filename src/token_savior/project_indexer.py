@@ -20,6 +20,55 @@ logger = logging.getLogger(__name__)
 _WORD_BOUNDARY_CACHE: dict[str, re.Pattern] = {}
 
 
+def _parse_gitignore(root_path: str) -> list[str]:
+    """Read .gitignore from root_path and convert entries to fnmatch exclude patterns.
+
+    Handles the most common gitignore syntax:
+    - blank lines and ``#`` comments are skipped
+    - ``!`` negation patterns are skipped (too complex to invert safely)
+    - a trailing ``/`` marks a directory-only pattern
+    - a leading ``/`` marks a root-relative pattern; stripped before conversion
+    - all other patterns are treated as anywhere-in-tree patterns
+
+    Returns a list of patterns compatible with ``_is_excluded`` / fnmatch.
+    """
+    gitignore = os.path.join(root_path, ".gitignore")
+    if not os.path.isfile(gitignore):
+        return []
+
+    patterns: list[str] = []
+    try:
+        with open(gitignore, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.rstrip("\n").rstrip("\r")
+
+                # skip comments and blanks
+                if not line or line.startswith("#"):
+                    continue
+                # skip negation patterns
+                if line.startswith("!"):
+                    continue
+
+                is_dir_only = line.endswith("/")
+                # strip leading/trailing slashes for normalization
+                line = line.strip("/")
+                if not line:
+                    continue
+
+                if is_dir_only:
+                    # match the directory itself and anything inside it
+                    patterns.append(f"**/{line}/**")
+                    patterns.append(f"{line}/**")
+                else:
+                    # file or generic pattern: match anywhere in tree
+                    patterns.append(f"**/{line}")
+                    patterns.append(f"**/{line}/**")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.debug("Could not read .gitignore at %s: %s", gitignore, exc)
+
+    return patterns
+
+
 def _word_boundary_re(name: str) -> re.Pattern:
     pat = _WORD_BOUNDARY_CACHE.get(name)
     if pat is None:
@@ -100,6 +149,8 @@ class ProjectIndexer:
             "**/_deps/**",
             # Claude Code worktrees (duplicates of the project)
             "**/.claude/worktrees/**",
+            # git worktrees checked out inside the repo
+            "**/.worktrees/**",
         ]
         self.max_file_size_bytes = max_file_size_bytes or int(
             os.environ.get("TOKEN_SAVIOR_MAX_FILE_SIZE", "500000")
@@ -107,6 +158,18 @@ class ProjectIndexer:
         self.max_files = max_files or int(
             os.environ.get("TOKEN_SAVIOR_MAX_FILES", "10000")
         )
+
+        # Append patterns from .gitignore (when caller didn't supply custom excludes)
+        if exclude_patterns is None:
+            self.exclude_patterns.extend(_parse_gitignore(self.root_path))
+
+        # Append patterns from TOKEN_SAVIOR_EXCLUDE_PATTERNS env var (colon-separated)
+        env_excludes = os.environ.get("TOKEN_SAVIOR_EXCLUDE_PATTERNS", "")
+        if env_excludes:
+            self.exclude_patterns.extend(
+                p.strip() for p in env_excludes.split(":") if p.strip()
+            )
+
         self._project_index: ProjectIndex | None = None
 
     # ------------------------------------------------------------------
@@ -452,15 +515,19 @@ class ProjectIndexer:
         """Check if a relative path matches any exclude pattern."""
         # Normalize separators to forward slashes for matching
         normalized = rel_path.replace(os.sep, "/")
+        parts = normalized.split("/")
         for pattern in self.exclude_patterns:
             if fnmatch.fnmatch(normalized, pattern):
                 return True
-            # Also check if any path component matches
-            # e.g., "__pycache__" in the path
-            parts = normalized.split("/")
-            # Check simple directory name exclusions
+            # For patterns starting with "**/" strip the prefix and retry.
+            # fnmatch's "*" matches "/" so "*.log" matches "sub/dir/file.log".
+            if pattern.startswith("**/"):
+                if fnmatch.fnmatch(normalized, pattern[3:]):
+                    return True
+            # Also check if any path component matches a simple name
+            # e.g., "__pycache__" or ".worktrees" present as a directory segment
             pattern_parts = pattern.replace("**/", "").replace("/**", "").strip("/")
-            if pattern_parts in parts:
+            if "/" not in pattern_parts and pattern_parts in parts:
                 return True
         return False
 

@@ -16,7 +16,7 @@ import textwrap
 
 import pytest
 
-from token_savior.project_indexer import ProjectIndexer
+from token_savior.project_indexer import ProjectIndexer, _parse_gitignore
 
 
 # ---------------------------------------------------------------------------
@@ -656,6 +656,162 @@ class TestRustProject:
         if lib_path in idx.import_graph:
             imports = idx.import_graph[lib_path]
             assert models_path in imports or utils_path in imports
+
+
+class TestParseGitignore:
+    """Tests for the _parse_gitignore helper."""
+
+    def test_returns_empty_when_no_gitignore(self, tmp_path):
+        patterns = _parse_gitignore(str(tmp_path))
+        assert patterns == []
+
+    def test_skips_comments_and_blanks(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("# comment\n\n*.log\n")
+        patterns = _parse_gitignore(str(tmp_path))
+        assert any("*.log" in p for p in patterns)
+        # comment and blank lines should not produce extra patterns
+        assert not any("comment" in p for p in patterns)
+
+    def test_directory_pattern_produces_glob(self, tmp_path):
+        (tmp_path / ".gitignore").write_text(".worktrees/\n")
+        patterns = _parse_gitignore(str(tmp_path))
+        assert "**/.worktrees/**" in patterns
+
+    def test_file_pattern_produces_anywhere_glob(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("*.log\n")
+        patterns = _parse_gitignore(str(tmp_path))
+        assert "**/*.log" in patterns
+
+    def test_negation_patterns_skipped(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("!important.log\n")
+        patterns = _parse_gitignore(str(tmp_path))
+        assert patterns == []
+
+    def test_leading_slash_stripped(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("/build/\n")
+        patterns = _parse_gitignore(str(tmp_path))
+        assert "**/.worktrees/**" not in patterns
+        assert any("build" in p for p in patterns)
+
+
+class TestGitignoreExclusion:
+    """Tests for file discovery respecting .gitignore patterns."""
+
+    def test_gitignored_directory_excluded_from_index(self, tmp_path):
+        """Files inside a gitignored directory should not appear in the index."""
+        # Create .gitignore that ignores .worktrees/
+        (tmp_path / ".gitignore").write_text(".worktrees/\n")
+
+        # Create source files: one real, one in ignored dir
+        src = tmp_path / "main.py"
+        src.write_text("def hello(): pass\n")
+
+        wt_dir = tmp_path / ".worktrees" / "feat-branch" / "app"
+        wt_dir.mkdir(parents=True)
+        (wt_dir / "server.py").write_text("def serve(): pass\n")
+
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        assert any("main.py" in p for p in indexed_paths)
+        assert not any(".worktrees" in p for p in indexed_paths)
+
+    def test_gitignore_file_pattern_excludes_matching_files(self, tmp_path):
+        """Files matching a .gitignore glob should be excluded."""
+        (tmp_path / ".gitignore").write_text("*.generated.py\n")
+
+        (tmp_path / "real.py").write_text("def real(): pass\n")
+        (tmp_path / "auto.generated.py").write_text("def generated(): pass\n")
+
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        assert any("real.py" in p for p in indexed_paths)
+        assert not any("auto.generated.py" in p for p in indexed_paths)
+
+    def test_custom_exclude_patterns_override_gitignore(self, tmp_path):
+        """Explicitly passed exclude_patterns skip .gitignore loading."""
+        (tmp_path / ".gitignore").write_text("ignored_dir/\n")
+
+        (tmp_path / "file.py").write_text("x = 1\n")
+        ignored = tmp_path / "ignored_dir"
+        ignored.mkdir()
+        (ignored / "other.py").write_text("y = 2\n")
+
+        # Pass custom exclude_patterns — .gitignore should NOT be applied
+        indexer = ProjectIndexer(
+            str(tmp_path),
+            include_patterns=["**/*.py"],
+            exclude_patterns=["**/node_modules/**"],  # custom, doesn't exclude ignored_dir
+        )
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        # ignored_dir/other.py should be indexed because gitignore was not applied
+        assert any("other.py" in p for p in indexed_paths)
+
+    def test_worktrees_excluded_by_default(self, tmp_path):
+        """The .worktrees/ directory is excluded even without a .gitignore."""
+        (tmp_path / "app.py").write_text("def app(): pass\n")
+
+        wt = tmp_path / ".worktrees" / "my-branch"
+        wt.mkdir(parents=True)
+        (wt / "app.py").write_text("def app(): pass\n")
+
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        assert not any(".worktrees" in p for p in indexed_paths)
+
+
+class TestExcludePatternsEnvVar:
+    """Tests for TOKEN_SAVIOR_EXCLUDE_PATTERNS environment variable."""
+
+    def test_env_var_patterns_applied(self, tmp_path, monkeypatch):
+        """Patterns from TOKEN_SAVIOR_EXCLUDE_PATTERNS are excluded."""
+        monkeypatch.setenv("TOKEN_SAVIOR_EXCLUDE_PATTERNS", "**/secret/**")
+
+        (tmp_path / "public.py").write_text("def pub(): pass\n")
+        sec = tmp_path / "secret"
+        sec.mkdir()
+        (sec / "private.py").write_text("def priv(): pass\n")
+
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        assert any("public.py" in p for p in indexed_paths)
+        assert not any("private.py" in p for p in indexed_paths)
+
+    def test_env_var_colon_separated(self, tmp_path, monkeypatch):
+        """Multiple patterns can be separated by colons."""
+        monkeypatch.setenv("TOKEN_SAVIOR_EXCLUDE_PATTERNS", "**/aaa/**:**/bbb/**")
+
+        (tmp_path / "main.py").write_text("x = 1\n")
+        for d in ("aaa", "bbb"):
+            (tmp_path / d).mkdir()
+            (tmp_path / d / "mod.py").write_text("y = 2\n")
+
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        indexed_paths = list(idx.files.keys())
+        assert any("main.py" in p for p in indexed_paths)
+        assert not any("aaa" in p for p in indexed_paths)
+        assert not any("bbb" in p for p in indexed_paths)
+
+    def test_empty_env_var_ignored(self, tmp_path, monkeypatch):
+        """An empty TOKEN_SAVIOR_EXCLUDE_PATTERNS should not break indexing."""
+        monkeypatch.setenv("TOKEN_SAVIOR_EXCLUDE_PATTERNS", "")
+
+        (tmp_path / "ok.py").write_text("z = 3\n")
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        assert idx.total_files == 1
 
 
 class TestIntegration:
