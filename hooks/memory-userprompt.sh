@@ -21,6 +21,10 @@ try:
         'rappelle-toi', 'rappelle toi', 'note que', 'à retenir',
         'règle', 'regle', 'ne jamais', 'toujours',
         'remember that', 'note that', 'important', 'rule:', 'never ', 'always ',
+        'ruled out', 'ruled-out', 'ruled_out',
+        'ne pas ', 'do not ',
+        'essayé ', 'essaye ', 'tried ', 'tested ',
+        'on a déjà', 'on a deja', 'already tried',
     )
     low = text.lower()
     if any(low.startswith(s) for s in TRIGGER_STARTS):
@@ -57,6 +61,31 @@ try:
     for r in top3:
         sym = f\" ({r['symbol']})\" if r.get('symbol') else ''
         print(f\"  #{r['id']}  [{r['type']}]  {r['title']}{sym}\")
+except Exception:
+    pass
+" 2>/dev/null
+
+# --- Reasoning Trace injection (synchronous) -----------------------------
+/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+
+try:
+    payload = json.loads('''$PAYLOAD''')
+    text = (payload.get('prompt') or '').strip()
+    if len(text) < 20:
+        sys.exit(0)
+    db = memory_db.get_db()
+    row = db.execute(
+        'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+    ).fetchone()
+    db.close()
+    if not row:
+        sys.exit(0)
+    hint = memory_db.reasoning_inject(row[0], text)
+    if hint:
+        print(hint)
 except Exception:
     pass
 " 2>/dev/null
@@ -132,6 +161,11 @@ TRIGGER_PATTERNS = [
     (r'(?i)^config\s*:\s*(.+)$', 'config'),
     (r'(?i)^id[ée]e\s*:\s*(.+)$', 'idea'),
     (r'(?i)^research\s*:\s*(.+)$', 'research'),
+    # --- Negative memory (ruled_out) ---
+    (r'(?i)^(?:ruled[- ]out|écart[ée]?|ecart[ée]?)\s*:\s*(.+)$', 'ruled_out'),
+    (r'(?i)^(?:ne pas|do not)\s+(.+?)\s+(?:car|because|parce que)\s+(.+)$', 'ruled_out'),
+    (r'(?i)^(?:essay[ée]|tried|tested)\s+(.+?),?\s+(?:[éa] (?:échou[ée]|fail)|fails?|ne marche pas|does not work)\b.*$', 'ruled_out'),
+    (r'(?i)^(?:on a (?:déjà|deja) essay[ée]|already tried)\s+(.+)$', 'ruled_out'),
 ]
 
 if project:

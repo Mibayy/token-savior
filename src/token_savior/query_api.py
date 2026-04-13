@@ -1087,13 +1087,16 @@ class ProjectQueryEngine:
         budget: int = 10,
         include_reverse: bool = True,
     ) -> str:
-        """Return the top-*budget* symbols mathematically closest to *name* via RWR."""
+        """Return the top-*budget* symbols closest to *name* via RWR ⊕ TCA.
+
+        Final score = 0.6 × RWR(name, sym) + 0.4 × NPMI(name, sym), where
+        NPMI comes from the Tenseur de Co-Activation. When TCA has no
+        observations yet (new install), RWR alone drives the ranking.
+        """
         from token_savior.graph_ranker import random_walk_with_restart
 
         index = self.index
 
-        # Combined graph: forward + (optional) reverse deps. Use sets to
-        # union-merge.
         combined: dict[str, set[str]] = {}
         for sym, deps in index.global_dependency_graph.items():
             combined[sym] = set(deps)
@@ -1111,19 +1114,54 @@ class ProjectQueryEngine:
 
         iterations = int(scores.pop("__iterations__", 0))
 
+        # Pull TCA scores (NPMI) for this seed if an engine snapshot is available.
+        tca_scores: dict[str, float] = {}
+        tca_used = False
+        try:
+            from pathlib import Path
+            import os
+            from token_savior.tca_engine import TCAEngine
+
+            stats_dir = Path(os.path.expanduser("~/.local/share/token-savior"))
+            if (stats_dir / "tca_coactivation.json").exists():
+                engine = TCAEngine(stats_dir)
+                co = engine.get_coactive_symbols(name, top_k=200, min_coactivation=1)
+                if co:
+                    tca_used = True
+                    tca_scores = {sym: pmi for sym, pmi in co}
+        except Exception:
+            pass
+
+        def _combined(sym: str) -> float:
+            rwr = scores.get(sym, 0.0)
+            pmi = tca_scores.get(sym, 0.0)
+            # Map NPMI ∈ [-1, 1] → [0, 1] so negative PMI doesn't punish strong RWR.
+            pmi_01 = max(0.0, (pmi + 1.0) / 2.0) if pmi > 0 else 0.0
+            return 0.6 * rwr + 0.4 * pmi_01
+
         ranked = sorted(
-            ((sym, sc) for sym, sc in scores.items() if sym != name),
+            ((sym, _combined(sym)) for sym in scores if sym != name),
             key=lambda x: x[1],
             reverse=True,
         )[:budget]
 
-        lines: list[str] = [
-            f"RWR Relevance cluster for '{name}' (top {budget}, converged in {iterations} iter):",
-            "-" * 60,
-        ]
+        header = (
+            f"RWR+TCA Relevance cluster for '{name}' "
+            f"(top {budget}, converged in {iterations} iter"
+            + (", TCA active" if tca_used else "")
+            + "):"
+        )
+        lines: list[str] = [header, "-" * 60]
         for sym, score in ranked:
             file_path = index.symbol_table.get(sym, "?")
-            lines.append(f"  {score:.4f}  {sym}  ({file_path})")
+            rwr_part = scores.get(sym, 0.0)
+            pmi_part = tca_scores.get(sym)
+            extra = (
+                f"  [rwr={rwr_part:.4f}"
+                + (f", pmi={pmi_part:+.2f}" if pmi_part is not None else "")
+                + "]"
+            )
+            lines.append(f"  {score:.4f}  {sym}  ({file_path}){extra}")
 
         lines.append(
             f"\nNote: use pack_context(query='{name}', budget_tokens=N) "

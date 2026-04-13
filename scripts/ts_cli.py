@@ -305,6 +305,57 @@ def cmd_doctor(args) -> int:
     return 0
 
 
+def cmd_bus(args) -> int:
+    project = _resolve_project(args.project)
+    if not project:
+        print("No project found.", file=sys.stderr)
+        return 1
+    if args.action == "push":
+        if not (args.agent and args.title and args.content):
+            print("push requires --agent, --title, --content", file=sys.stderr)
+            return 1
+        oid = memory_db.observation_save_volatile(
+            project_root=project,
+            agent_id=args.agent,
+            title=args.title,
+            content=args.content,
+            ttl_days=args.ttl_days or memory_db.DEFAULT_VOLATILE_TTL_DAYS,
+        )
+        if oid is None:
+            print("Bus push skipped (duplicate or invalid).")
+            return 0
+        print(f"🤖 Bus push #{oid} from agent '{args.agent}': {args.title}")
+        return 0
+    rows = memory_db.memory_bus_list(
+        project_root=project,
+        agent_id=args.agent,
+        limit=args.limit,
+        include_expired=args.include_expired,
+    )
+    if not rows:
+        scope = f" (agent '{args.agent}')" if args.agent else ""
+        print(f"Bus is quiet{scope}.")
+        return 0
+    print(f"🤖 Inter-agent bus ({len(rows)} live message(s)):")
+    for r in rows:
+        print(
+            f"  #{r['id']}  [{r.get('agent_id') or '?'}]  "
+            f"{r['title']}  —  {r.get('age', '?')}"
+        )
+    return 0
+
+
+def cmd_budget(args) -> int:
+    project = _resolve_project(args.project)
+    if not project:
+        print("No project found.", file=sys.stderr)
+        return 1
+    budget = args.budget or memory_db.DEFAULT_SESSION_BUDGET_TOKENS
+    stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
+    print(memory_db.format_session_budget_box(stats))
+    return 0
+
+
 def cmd_export(args) -> int:
     from export_markdown import export_all
     res = export_all(args.output_dir)
@@ -387,6 +438,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id", type=int)
     s.add_argument("--query")
     s.set_defaults(func=cmd_why)
+
+    s = msub.add_parser("budget")
+    s.add_argument("--project")
+    s.add_argument("--budget", type=int, help="Soft budget cap in tokens (default 200000)")
+    s.set_defaults(func=cmd_budget)
+
+    s = msub.add_parser("bus", help="Inter-agent memory bus")
+    s.add_argument("action", choices=["list", "push"], default="list", nargs="?")
+    s.add_argument("--project")
+    s.add_argument("--agent", help="Subagent id (filter for list, required for push)")
+    s.add_argument("--title")
+    s.add_argument("--content")
+    s.add_argument("--ttl-days", type=int, dest="ttl_days")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--include-expired", action="store_true", dest="include_expired")
+    s.set_defaults(func=cmd_bus)
 
     s = msub.add_parser("top")
     s.add_argument("--project")

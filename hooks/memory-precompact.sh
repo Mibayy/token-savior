@@ -37,6 +37,18 @@ print('## Memory Context (pre-compaction)')
 print(f'Mode: {mode_name} | Project: {project}')
 print()
 
+# --- Session budget (Step B) — auto-inject when pct_used > 75% -----------
+try:
+    bstats = memory_db.get_session_budget_stats(project)
+    if bstats.get('pct_used', 0) > 75:
+        print('### Session Budget (auto-injected: > 75% used)')
+        print('\`\`\`')
+        print(memory_db.format_session_budget_box(bstats))
+        print('\`\`\`')
+        print()
+except Exception:
+    pass
+
 if summaries:
     print('### Recent Summaries')
     for s in summaries:

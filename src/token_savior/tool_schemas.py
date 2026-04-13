@@ -17,6 +17,17 @@ _PROJECT_PARAM = {
     }
 }
 
+# TCS — compressed output toggle for structural listing tools
+_COMPRESS_PARAM = {
+    "compress": {
+        "type": "boolean",
+        "description": (
+            "Compact each row using @F/@S/@L/@T/@P tokens (default true). "
+            "Set false to get full JSON."
+        ),
+    }
+}
+
 TOOL_SCHEMAS: dict[str, dict] = {
     # ── Meta tools ────────────────────────────────────────────────────────
     "list_projects": {
@@ -437,6 +448,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
@@ -454,6 +466,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
@@ -471,6 +484,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
@@ -484,6 +498,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "string",
                     "description": "Symbol name to find (e.g. 'ProjectIndexer', 'annotate', 'MyClass.run').",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -502,6 +517,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum number of results to return (0 = unlimited, default 0).",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -524,6 +540,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum total characters in the response (default 50000, 0 = unlimited).",
                 },
+                **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -892,6 +909,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                         "guardrail", "error_pattern", "decision", "convention",
                         "bugfix", "warning", "note",
                         "command", "research", "infra", "config", "idea",
+                        "ruled_out",
                     ],
                     "description": "Observation type",
                 },
@@ -1330,6 +1348,163 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
             "required": ["name", "question"],
         },
+    },
+    "memory_bus_push": {
+        "description": (
+            "Push a volatile (short-TTL) observation onto the inter-agent memory bus, "
+            "tagged with agent_id so subagents can hand off context."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Subagent identifier (e.g. 'Explore', 'code-reviewer')."},
+                "title": {"type": "string", "description": "Short message title."},
+                "content": {"type": "string", "description": "Message body."},
+                "type": {"type": "string", "description": "Underlying obs type (default 'note')."},
+                "symbol": {"type": "string", "description": "Optional related symbol."},
+                "file_path": {"type": "string", "description": "Optional related file."},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "ttl_days": {"type": "integer", "description": "Volatile TTL in days (default 1)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["agent_id", "title", "content"],
+        },
+    },
+    "memory_bus_list": {
+        "description": "List recent live messages on the inter-agent memory bus, optionally filtered by agent_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Filter by subagent id (optional)."},
+                "limit": {"type": "integer", "description": "Max rows (default 20)."},
+                "include_expired": {"type": "boolean", "description": "Show expired bus rows too."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "get_lattice_stats": {
+        "description": (
+            "Show the adaptive lattice's Beta-Binomial posteriors per "
+            "(context_type, level). Mean = α/(α+β), trials = α+β−2."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context_type": {
+                    "type": "string",
+                    "description": "Filter to one context (navigation/edit/review/unknown).",
+                },
+            },
+        },
+    },
+    "get_session_budget": {
+        "description": (
+            "Show the current session's token budget consumption "
+            "(injected vs. saved vs. cap) with 🟢/🟡/🔴 status indicator."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "Soft budget cap in tokens (default 200000).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "reasoning_save": {
+        "description": (
+            "Persist a compressed reasoning trace (goal + steps + conclusion) "
+            "so future similar prompts can reuse it instead of re-deriving."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string", "description": "What the reasoning was trying to resolve."},
+                "steps": {
+                    "type": "array",
+                    "description": "Ordered steps: [{tool, args, observation}, ...]",
+                    "items": {"type": "object"},
+                },
+                "conclusion": {"type": "string", "description": "Final conclusion / outcome."},
+                "confidence": {
+                    "type": "number",
+                    "description": "Confidence in the conclusion (0.0-1.0, default 0.8).",
+                },
+                "evidence_obs_ids": {
+                    "type": "array",
+                    "description": "Optional observation IDs backing this reasoning.",
+                    "items": {"type": "integer"},
+                },
+                "ttl_days": {
+                    "type": "integer",
+                    "description": "Optional expiry in days (omit for permanent).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["goal", "steps", "conclusion"],
+        },
+    },
+    "reasoning_search": {
+        "description": (
+            "Search stored reasoning chains by goal similarity (FTS5 + Jaccard). "
+            "Returns previous chains whose goal overlaps the query."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Goal-like query text."},
+                "threshold": {
+                    "type": "number",
+                    "description": "Minimum Jaccard similarity (default 0.3).",
+                },
+                "limit": {"type": "integer", "description": "Max rows (default 5)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["query"],
+        },
+    },
+    "reasoning_list": {
+        "description": "List stored reasoning chains sorted by access_count then recency.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max rows (default 50)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "get_dcp_stats": {
+        "description": (
+            "DCP chunk registry stats: stable chunks, cache benefit estimate."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "get_coactive_symbols": {
+        "description": (
+            "Symbols most often accessed together with the seed via TCA "
+            "(normalized PMI-scored, higher = more co-active)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Seed symbol."},
+                "top_k": {"type": "integer", "description": "Max results (default 5)."},
+            },
+            "required": ["name"],
+        },
+    },
+    "get_tca_stats": {
+        "description": "TCA co-activation matrix stats: symbols tracked, top pairs.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "get_speculation_stats": {
+        "description": (
+            "Show Speculative Tool Tree Execution stats: beam branches explored, "
+            "warmed in cache, hit by subsequent calls, and rough tokens saved."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
     },
 }
 

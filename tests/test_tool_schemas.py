@@ -41,7 +41,14 @@ class TestToolSchemas:
     def test_tool_count(self):
         # v2.0.0: 53 core + 16 memory engine = 69 tools.
         # +1 P5 +1 P6 +1 P7 +1 P8 +2 P9 (verify_edit + find_semantic_duplicates) = 75.
-        assert len(TOOL_SCHEMAS) == 75, f"Expected 75 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 v2.2 Step B (get_session_budget) = 76.
+        # +2 v2.2 Step C (memory_bus_push, memory_bus_list) = 78.
+        # +1 v2.2 Step D (get_lattice_stats) = 79.
+        # +3 v2.2 Prompt2 Step A (reasoning_save/search/list) = 82.
+        # +1 v2.2 Prompt2 Step B (get_speculation_stats) = 83.
+        # +1 v2.2 Prompt3 Step A (get_dcp_stats) = 84.
+        # +2 v2.2 Prompt3 Step B (get_coactive_symbols, get_tca_stats) = 86.
+        assert len(TOOL_SCHEMAS) == 86, f"Expected 86 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

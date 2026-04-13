@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS observations (
     created_at      TEXT NOT NULL,
     created_at_epoch INTEGER NOT NULL,
     updated_at      TEXT NOT NULL,
-    archived        INTEGER NOT NULL DEFAULT 0
+    archived        INTEGER NOT NULL DEFAULT 0,
+    agent_id        TEXT  -- Step C: subagent identifier for the inter-agent memory bus
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project_root);
@@ -50,6 +51,11 @@ CREATE INDEX IF NOT EXISTS idx_obs_file ON observations(file_path);
 CREATE INDEX IF NOT EXISTS idx_obs_hash ON observations(content_hash, project_root);
 CREATE INDEX IF NOT EXISTS idx_obs_epoch ON observations(created_at_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_obs_archived ON observations(archived);
+
+-- Step C: inter-agent memory bus (volatile observations carry agent_id).
+-- Note: column is added via ALTER TABLE migration in get_db() for legacy DBs;
+-- this index is created here so fresh installs get it consistently.
+CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id) WHERE agent_id IS NOT NULL;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
     title,
@@ -90,6 +96,48 @@ CREATE TABLE IF NOT EXISTS observation_links (
 
 CREATE INDEX IF NOT EXISTS idx_links_source ON observation_links(source_id);
 CREATE INDEX IF NOT EXISTS idx_links_target ON observation_links(target_id);
+
+-- Reasoning Trace Compression (v2.2 Step A) --------------------------------
+CREATE TABLE IF NOT EXISTS reasoning_chains (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_root      TEXT NOT NULL,
+    goal              TEXT NOT NULL,
+    goal_hash         TEXT NOT NULL,
+    steps             TEXT NOT NULL,           -- JSON array of {tool,args,observation}
+    conclusion        TEXT NOT NULL,
+    confidence        REAL NOT NULL DEFAULT 0.8,
+    evidence_hash     TEXT,
+    access_count      INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL,
+    created_at_epoch  INTEGER NOT NULL,
+    expires_at_epoch  INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_rc_project ON reasoning_chains(project_root);
+CREATE INDEX IF NOT EXISTS idx_rc_hash ON reasoning_chains(goal_hash);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS reasoning_chains_fts USING fts5(
+    goal, conclusion,
+    content='reasoning_chains', content_rowid='id',
+    tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS rc_fts_insert AFTER INSERT ON reasoning_chains BEGIN
+    INSERT INTO reasoning_chains_fts(rowid, goal, conclusion)
+    VALUES (new.id, new.goal, new.conclusion);
+END;
+
+CREATE TRIGGER IF NOT EXISTS rc_fts_delete AFTER DELETE ON reasoning_chains BEGIN
+    INSERT INTO reasoning_chains_fts(reasoning_chains_fts, rowid, goal, conclusion)
+    VALUES ('delete', old.id, old.goal, old.conclusion);
+END;
+
+CREATE TRIGGER IF NOT EXISTS rc_fts_update AFTER UPDATE ON reasoning_chains BEGIN
+    INSERT INTO reasoning_chains_fts(reasoning_chains_fts, rowid, goal, conclusion)
+    VALUES ('delete', old.id, old.goal, old.conclusion);
+    INSERT INTO reasoning_chains_fts(rowid, goal, conclusion)
+    VALUES (new.id, new.goal, new.conclusion);
+END;
 
 CREATE TABLE IF NOT EXISTS summaries (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,6 +227,17 @@ CREATE TABLE IF NOT EXISTS corpora (
 );
 
 CREATE INDEX IF NOT EXISTS idx_corpora_project ON corpora(project_root);
+
+-- DCP — Differential Context Protocol chunk registry (v2.2 Prompt 3 Step A)
+CREATE TABLE IF NOT EXISTS dcp_chunk_registry (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint      TEXT UNIQUE NOT NULL,
+    content_preview  TEXT NOT NULL,
+    seen_count       INTEGER NOT NULL DEFAULT 1,
+    last_seen_epoch  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dcp_last_seen ON dcp_chunk_registry(last_seen_epoch DESC);
 
 -- Default decay rates per observation type
 INSERT OR IGNORE INTO decay_config VALUES ('guardrail',     1.0,   1.0, 0.0);

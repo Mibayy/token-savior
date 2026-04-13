@@ -12,9 +12,12 @@ TOOL=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); pr
 SHORT_TOOL="${TOOL##*__}"
 
 CODE_TOOLS_RE='^(get_function_source|get_class_source|get_edit_context|find_symbol|get_file_dependencies)$'
+EDIT_TOOLS_RE='^(replace_symbol_source|insert_near_symbol|apply_symbol_change_and_validate|apply_symbol_change_validate_with_rollback)$'
 
 if [[ "$SHORT_TOOL" =~ $CODE_TOOLS_RE ]]; then
     MODE=code
+elif [[ "$SHORT_TOOL" =~ $EDIT_TOOLS_RE ]] || [[ "$TOOL" == "Edit" ]] || [[ "$TOOL" == "Write" ]] || [[ "$TOOL" == "MultiEdit" ]]; then
+    MODE=edit
 elif [[ "$TOOL" == "Bash" ]]; then
     MODE=bash
 else
@@ -54,6 +57,46 @@ if mode == 'code':
             stale = '⚠️ ' if o.get('stale') else ''
             glob = '🌐 ' if o.get('is_global') else ''
             print(f\"  #{o['id']}  [{o['type']}]  {stale}{glob}{o['title']}  —  {age}\")
+    sys.exit(0)
+
+if mode == 'edit':
+    # Surface ruled_out negative memory aggressively before any mutation.
+    symbol = args.get('symbol_name') or args.get('name', '')
+    file_path = args.get('file_path', '')
+    target = symbol or file_path
+    try:
+        conn = memory_db.get_db()
+        if target:
+            tgt_like = f'%{target}%'
+            rows = conn.execute(
+                \"SELECT id, title, content, why, symbol, file_path, created_at_epoch \"
+                \"FROM observations \"
+                \"WHERE archived=0 AND type='ruled_out' \"
+                \"  AND (project_root=? OR is_global=1) \"
+                \"  AND (symbol LIKE ? OR file_path LIKE ? OR title LIKE ? OR content LIKE ?) \"
+                \"ORDER BY created_at_epoch DESC LIMIT 5\",
+                (project, tgt_like, tgt_like, tgt_like, tgt_like),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                \"SELECT id, title, content, why, symbol, file_path, created_at_epoch \"
+                \"FROM observations \"
+                \"WHERE archived=0 AND type='ruled_out' \"
+                \"  AND (project_root=? OR is_global=1) \"
+                \"ORDER BY created_at_epoch DESC LIMIT 5\",
+                (project,),
+            ).fetchall()
+        conn.close()
+    except Exception:
+        sys.exit(0)
+    if rows:
+        label = target or 'this edit'
+        print(f'🚫 Ruled-out memory for {label}:')
+        for r in rows:
+            d = dict(r)
+            age = memory_db.relative_age(d.get('created_at_epoch'))
+            why = f\" — {d['why']}\" if d.get('why') else ''
+            print(f\"  #{d['id']}  {d['title']}{why}  {age}\")
     sys.exit(0)
 
 # mode == 'bash'

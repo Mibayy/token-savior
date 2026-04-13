@@ -60,6 +60,7 @@ from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 from token_savior.slot_manager import SlotManager, _ProjectSlot
 from token_savior.markov_prefetcher import MarkovPrefetcher
+from token_savior.tca_engine import TCAEngine
 from token_savior import memory_db
 
 # ---------------------------------------------------------------------------
@@ -97,9 +98,119 @@ _MAX_SESSION_HISTORY = 200
 
 # Markov prefetcher (P8) — first-order model on tool-call sequences.
 _prefetcher = MarkovPrefetcher(Path(_STATS_DIR))
+# TCA — Tenseur de Co-Activation (PMI on symbol co-activation).
+_tca_engine = TCAEngine(Path(_STATS_DIR))
 # Pre-warm cache populated by the daemon thread; key = predicted state.
 _prefetch_cache: dict[str, str] = {}
 _prefetch_lock = threading.Lock()
+
+# STTE (Speculative Tool Tree Execution) counters
+_spec_branches_explored = 0
+_spec_branches_warmed = 0
+_spec_branches_hit = 0
+_spec_tokens_saved = 0
+
+# TCS (Schema compression) counters
+_tcs_calls = 0
+_tcs_chars_before = 0
+_tcs_chars_after = 0
+
+# DCP (Differential Context Protocol) counters
+_dcp_calls = 0
+_dcp_stable_chunks = 0
+_dcp_total_chunks = 0
+
+_DCP_ELIGIBLE_TOOLS = frozenset({
+    "get_functions",
+    "get_classes",
+    "get_imports",
+    "find_symbol",
+    "get_dependents",
+    "get_dependencies",
+    "memory_search",
+    "memory_index",
+})
+_DCP_MIN_BYTES = 500
+
+_COMPRESSIBLE_TOOLS = frozenset({
+    "get_functions",
+    "get_classes",
+    "get_imports",
+    "find_symbol",
+    "get_dependents",
+    "get_dependencies",
+})
+
+
+def _fmt_lines(entry: dict) -> str:
+    lines = entry.get("lines") or entry.get("line_range")
+    if isinstance(lines, (list, tuple)) and len(lines) == 2:
+        return f"{lines[0]}-{lines[1]}"
+    if isinstance(lines, int):
+        return str(lines)
+    line = entry.get("line") or entry.get("start_line")
+    end = entry.get("end_line")
+    if line and end and end != line:
+        return f"{line}-{end}"
+    if line:
+        return str(line)
+    return ""
+
+
+def compress_symbol_output(tool_name: str, result: object) -> str:
+    """Compact list-of-dicts / dict output using @F/@S/@L/@T/@P tokens.
+
+    Skips error entries and leaves non-dict/list payloads untouched.
+    Returns the compressed string (never raises).
+    """
+    def _row(tool: str, e: dict) -> str:
+        if not isinstance(e, dict) or "error" in e or e.get("truncated"):
+            return json.dumps(e, separators=(",", ":"), default=str)
+        parts: list[str] = []
+        fpath = e.get("file") or e.get("file_path")
+        if fpath:
+            parts.append(f"@F:{fpath}")
+        if tool == "get_imports":
+            mod = e.get("module")
+            if mod:
+                parts.append(f"@S:{mod}")
+            names = e.get("names") or []
+            if names:
+                parts.append(f"@T:{'from' if e.get('is_from_import') else 'import'}")
+                parts.append(f"@P:{','.join(str(n) for n in names)}")
+        else:
+            sym = e.get("name") or e.get("qualified_name") or e.get("symbol")
+            if sym:
+                parts.append(f"@S:{sym}")
+            stype = e.get("type")
+            if not stype:
+                if "methods" in e or "bases" in e:
+                    stype = "class"
+                elif "params" in e or e.get("is_method"):
+                    stype = "method" if e.get("is_method") else "fn"
+            if stype:
+                parts.append(f"@T:{stype}")
+            params = e.get("params") or e.get("parameters")
+            if isinstance(params, list) and params:
+                parts.append(f"@P:({','.join(str(p) for p in params)})")
+        lines_tok = _fmt_lines(e)
+        if lines_tok:
+            parts.append(f"@L:{lines_tok}")
+        sig = e.get("signature")
+        if sig and "@P:" not in " ".join(parts):
+            parts.append(f"@P:{sig}")
+        return " ".join(parts) if parts else json.dumps(e, separators=(",", ":"), default=str)
+
+    try:
+        if isinstance(result, list):
+            return "\n".join(_row(tool_name, e) for e in result)
+        if isinstance(result, dict):
+            if "error" in result:
+                return json.dumps(result, separators=(",", ":"), default=str)
+            return _row(tool_name, result)
+        return str(result)
+    except Exception:
+        return json.dumps(result, separators=(",", ":"), default=str)
 
 
 def _detect_client_name() -> str:
@@ -318,10 +429,29 @@ def _count_and_wrap_result(
 ) -> list[types.TextContent]:
     """Update usage counters for a tool result and return it as text content."""
     global _total_chars_returned, _total_naive_chars
+    global _dcp_calls, _dcp_stable_chunks, _dcp_total_chunks
 
     formatted = _format_result(result)
     _total_chars_returned += len(formatted)
     _total_naive_chars += _estimate_naive_chars_for_call(slot, name, arguments, result)
+
+    # DCP — stabilize chunk order for cache-prefix-friendly outputs
+    if (
+        name in _DCP_ELIGIBLE_TOOLS
+        and arguments.get("dcp", True)
+        and len(formatted) >= _DCP_MIN_BYTES
+    ):
+        try:
+            optimized, stable, total = memory_db.optimize_output_order(formatted)
+            if total > 0:
+                formatted = (
+                    f"{optimized}\n[dcp: {stable}/{total} chunks stable]"
+                )
+                _dcp_calls += 1
+                _dcp_stable_chunks += stable
+                _dcp_total_chunks += total
+        except Exception:
+            pass
 
     if slot.stats_file:
         _flush_stats(slot, _total_naive_chars)
@@ -437,6 +567,39 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
         lines.append(f"Top sequence: {mstats['top_sequence']}")
         with _prefetch_lock:
             lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
+
+    if _dcp_calls > 0 or _dcp_total_chunks > 0:
+        stable_pct = (
+            (_dcp_stable_chunks / _dcp_total_chunks * 100)
+            if _dcp_total_chunks else 0.0
+        )
+        # Each stable chunk ≈ 256B ≈ 64 tokens of cache savings
+        benefit_tokens = (_dcp_stable_chunks * 256) // 4
+        lines.append(
+            f"DCP: {_dcp_total_chunks} chunks registered | "
+            f"{stable_pct:.0f}% stable | "
+            f"est. cache benefit: {benefit_tokens:,}t"
+        )
+
+    if _tcs_calls > 0:
+        tcs_saved = _tcs_chars_before - _tcs_chars_after
+        tcs_pct = (tcs_saved / _tcs_chars_before * 100) if _tcs_chars_before else 0.0
+        lines.append(
+            f"Schema compression: {_tcs_calls} calls, "
+            f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
+            f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
+        )
+
+    if _spec_branches_explored or _spec_branches_warmed:
+        hit_rate = (
+            (_spec_branches_hit / _spec_branches_warmed * 100)
+            if _spec_branches_warmed else 0.0
+        )
+        lines.append(
+            f"Speculative Tree: {_spec_branches_explored} explored, "
+            f"{_spec_branches_warmed} warmed, {_spec_branches_hit} hit "
+            f"({hit_rate:.1f}%), ~{_spec_tokens_saved:,} tokens saved"
+        )
 
     # Symbol-level reindex counters from the last reindex_file call (per slot).
     for root, slot in _slot_mgr.projects.items():
@@ -967,6 +1130,107 @@ def _resolve_memory_project(arguments: dict) -> str:
         return row[0]
 
     return active_root or _resolve_project_root(arguments)
+
+
+def _mh_memory_bus_push(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    agent_id = (args.get("agent_id") or "").strip()
+    if not agent_id:
+        return "Error: agent_id is required."
+    title = args["title"]
+    content = args["content"]
+    obs_id = memory_db.observation_save_volatile(
+        project_root=root,
+        agent_id=agent_id,
+        title=title,
+        content=content,
+        obs_type=args.get("type", "note"),
+        symbol=args.get("symbol"),
+        file_path=args.get("file_path"),
+        tags=list(args.get("tags") or []),
+        ttl_days=int(args.get("ttl_days") or memory_db.DEFAULT_VOLATILE_TTL_DAYS),
+    )
+    if obs_id is None:
+        return "Bus push skipped (duplicate or invalid)."
+    return f"🤖 Bus push #{obs_id} from agent '{agent_id}': {title}"
+
+
+def _mh_memory_bus_list(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    rows = memory_db.memory_bus_list(
+        project_root=root,
+        agent_id=args.get("agent_id") or None,
+        limit=int(args.get("limit") or 20),
+        include_expired=bool(args.get("include_expired", False)),
+    )
+    if not rows:
+        scope = f" (agent '{args.get('agent_id')}')" if args.get("agent_id") else ""
+        return f"Bus is quiet{scope}."
+    lines = [f"🤖 Inter-agent bus ({len(rows)} live message(s)):"]
+    for r in rows:
+        lines.append(
+            f"  #{r['id']}  [{r.get('agent_id') or '?'}]  "
+            f"{r['title']}  —  {r.get('age', '?')}"
+        )
+    return "\n".join(lines)
+
+
+def _mh_reasoning_save(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    goal = (args.get("goal") or "").strip()
+    conclusion = (args.get("conclusion") or "").strip()
+    steps = args.get("steps") or []
+    if not goal or not conclusion:
+        return "Error: goal and conclusion are required."
+    if not isinstance(steps, list):
+        return "Error: steps must be an array."
+    rc_id = memory_db.reasoning_save(
+        project_root=root,
+        goal=goal,
+        steps=steps,
+        conclusion=conclusion,
+        confidence=float(args.get("confidence", 0.8)),
+        evidence_obs_ids=args.get("evidence_obs_ids"),
+        ttl_days=args.get("ttl_days"),
+    )
+    if rc_id is None:
+        return "Reasoning chain already exists (same goal)."
+    return f"🧠 Reasoning chain #{rc_id} saved: {goal[:80]}"
+
+
+def _mh_reasoning_search(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    query = (args.get("query") or "").strip()
+    if not query:
+        return "Error: query is required."
+    rows = memory_db.reasoning_search(
+        root,
+        query,
+        threshold=float(args.get("threshold", 0.3)),
+        limit=int(args.get("limit", 5)),
+    )
+    if not rows:
+        return "No matching reasoning chains."
+    lines = [f"🧠 {len(rows)} matching chain(s):"]
+    for r in rows:
+        sim = float(r.get("relevance", 0.0) or 0.0)
+        lines.append(
+            f"  #{r['id']}  sim={sim:.2f}  {r['goal'][:80]}\n    → {r['conclusion'][:100]}"
+        )
+    return "\n".join(lines)
+
+
+def _mh_reasoning_list(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    rows = memory_db.reasoning_list(root, limit=int(args.get("limit", 50)))
+    if not rows:
+        return "No reasoning chains stored."
+    lines = [f"🧠 {len(rows)} reasoning chain(s):"]
+    for r in rows:
+        lines.append(
+            f"  #{r['id']}  [access={r.get('access_count', 0)}]  {r['goal'][:80]}"
+        )
+    return "\n".join(lines)
 
 
 def _mh_memory_save(args: dict) -> str:
@@ -1640,6 +1904,11 @@ def _mh_memory_prompts(args: dict) -> str:
 
 
 _MEMORY_HANDLERS: dict[str, object] = {
+    "memory_bus_push": _mh_memory_bus_push,
+    "memory_bus_list": _mh_memory_bus_list,
+    "reasoning_save": _mh_reasoning_save,
+    "reasoning_search": _mh_reasoning_search,
+    "reasoning_list": _mh_reasoning_list,
     "memory_save": _mh_memory_save,
     "memory_search": _mh_memory_search,
     "memory_get": _mh_memory_get,
@@ -1883,7 +2152,14 @@ def _csc_maybe_serve(
 
 def _q_get_class_source(qfns, args: dict) -> str:
     slot, _ = _slot_mgr.resolve(args.get("project"))
-    return _csc_maybe_serve(
+    explicit_level = "level" in args and args.get("level") is not None
+    if explicit_level:
+        chosen_level = int(args.get("level") or 0)
+        ctx_type = None
+    else:
+        ctx_type = memory_db._detect_context_type(_prefetcher.call_sequence)
+        chosen_level = memory_db.thompson_sample_level(ctx_type)
+    result = _csc_maybe_serve(
         slot,
         "class",
         args,
@@ -1891,13 +2167,27 @@ def _q_get_class_source(qfns, args: dict) -> str:
             args["name"],
             args.get("file_path"),
             max_lines=args.get("max_lines", 0),
-            level=args.get("level", 0),
+            level=chosen_level,
         ),
     )
+    if ctx_type is not None:
+        try:
+            success = bool(result and not result.startswith("Error"))
+            memory_db.record_lattice_feedback(ctx_type, chosen_level, success)
+        except Exception:
+            pass
+    return result
 
 
 def _q_get_function_source(qfns, args: dict) -> str:
     slot, _ = _slot_mgr.resolve(args.get("project"))
+    explicit_level = "level" in args and args.get("level") is not None
+    if explicit_level:
+        chosen_level = int(args.get("level") or 0)
+        ctx_type = None
+    else:
+        ctx_type = memory_db._detect_context_type(_prefetcher.call_sequence)
+        chosen_level = memory_db.thompson_sample_level(ctx_type)
     result = _csc_maybe_serve(
         slot,
         "function",
@@ -1906,9 +2196,18 @@ def _q_get_function_source(qfns, args: dict) -> str:
             args["name"],
             args.get("file_path"),
             max_lines=args.get("max_lines", 0),
-            level=args.get("level", 0),
+            level=chosen_level,
         ),
     )
+    if ctx_type is not None:
+        # Optimistic feedback: a non-empty result at the sampled level counts as
+        # a success. Subsequent calls that re-request the same symbol at level=0
+        # will register failures naturally as the prior corrects itself.
+        try:
+            success = bool(result and not result.startswith("Error"))
+            memory_db.record_lattice_feedback(ctx_type, chosen_level, success)
+        except Exception:
+            pass
     try:
         project_root = _resolve_project_root(args)
         symbol_name = args["name"]
@@ -1924,6 +2223,15 @@ def _q_get_function_source(qfns, args: dict) -> str:
                 glob = "🌐 " if r.get("is_global") else ""
                 lines.append(f"  #{r['id']}  [{r['type']}]  {stale}{glob}{r['title']}  — {age}")
             result += "\n".join(lines)
+    except Exception:
+        pass
+    try:
+        coactives = _tca_engine.get_coactive_symbols(args["name"], top_k=3)
+        if coactives:
+            co_lines = ["\n🔄 Often accessed together:"]
+            for co_sym, pmi in coactives:
+                co_lines.append(f"  {co_sym} (PMI: {pmi:.2f})")
+            result += "\n".join(co_lines)
     except Exception:
         pass
     return result
@@ -2030,21 +2338,64 @@ _QFN_HANDLERS: dict[str, object] = {
 }
 
 
+_PREFETCHABLE_TOOLS = frozenset({
+    "get_function_source",
+    "get_class_source",
+    "get_dependents",
+    "get_dependencies",
+    "find_symbol",
+})
+
+
 def _warm_cache_async(
-    predictions: list[tuple[str, float]], slot, min_prob: float = 0.25
+    predictions: list[tuple[str, float]],
+    slot,
+    min_prob: float = 0.25,
+    tool_name: str = "",
+    symbol_name: str = "",
 ) -> None:
     """Spawn a daemon thread to pre-render likely next responses.
+
+    Uses the Markov prefetcher's ``beam_search_continuations`` to expand
+    ``beam_width=3`` × ``max_depth=3`` branches when possible, falling back
+    to the flat *predictions* list otherwise. Safe tools listed in
+    ``_PREFETCHABLE_TOOLS`` are executed; results land in ``_prefetch_cache``
+    keyed by state.
 
     daemon=True is critical: if the MCP server shuts down mid-prefetch, the
     thread is killed with the process instead of holding it open.
     """
-    if not predictions:
+    if not predictions and not tool_name:
         return
 
     def _worker() -> None:
+        global _spec_branches_explored, _spec_branches_warmed
         try:
             qfns = slot.query_fns if slot is not None else None
-            for state, prob in predictions:
+            # Collect states to warm: beam frontier + direct predictions.
+            states_to_warm: list[tuple[str, float]] = []
+            seen: set[str] = set()
+            if tool_name:
+                try:
+                    beams = _prefetcher.beam_search_continuations(
+                        tool_name, symbol_name,
+                        beam_width=3, max_depth=3, min_prob=0.15,
+                    )
+                except Exception:
+                    beams = []
+                for path, joint in beams:
+                    _spec_branches_explored += 1
+                    for st in path:
+                        if st in seen:
+                            continue
+                        seen.add(st)
+                        states_to_warm.append((st, joint))
+            for st, prob in predictions:
+                if st not in seen:
+                    seen.add(st)
+                    states_to_warm.append((st, prob))
+
+            for state, prob in states_to_warm:
                 if prob < min_prob:
                     continue
                 if ":" not in state:
@@ -2052,15 +2403,11 @@ def _warm_cache_async(
                 next_tool, next_symbol = state.split(":", 1)
                 if not next_symbol or qfns is None:
                     continue
-                _PREFETCHABLE = {
-                    "get_function_source",
-                    "get_class_source",
-                    "get_dependents",
-                    "get_dependencies",
-                    "find_symbol",
-                }
-                if next_tool not in _PREFETCHABLE:
+                if next_tool not in _PREFETCHABLE_TOOLS:
                     continue
+                with _prefetch_lock:
+                    if state in _prefetch_cache:
+                        continue
                 try:
                     result = qfns[next_tool](next_symbol)
                 except Exception:
@@ -2069,6 +2416,7 @@ def _warm_cache_async(
                     _prefetch_cache[state] = (
                         result if isinstance(result, str) else str(result)
                     )
+                    _spec_branches_warmed += 1
                     if len(_prefetch_cache) > 64:
                         # Bound memory; drop oldest entries (insertion order).
                         for stale_key in list(_prefetch_cache)[:32]:
@@ -2084,18 +2432,134 @@ def _warm_cache_async(
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     global _total_chars_returned, _total_naive_chars
 
+    global _spec_branches_hit, _spec_tokens_saved
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
     _record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
         _prefetcher.record_call(name, _record_symbol or "")
     except Exception:
         pass
+    # TCA — record symbol activation for co-activation learning
+    if _record_symbol:
+        try:
+            _tca_engine.record_activation(_record_symbol)
+        except Exception:
+            pass
+    # STTE hit tracking: did this call match a speculatively-warmed branch?
+    if _record_symbol and name in _PREFETCHABLE_TOOLS:
+        _hit_key = f"{name}:{_record_symbol}"
+        with _prefetch_lock:
+            cached = _prefetch_cache.get(_hit_key)
+        if cached is not None:
+            _spec_branches_hit += 1
+            _spec_tokens_saved += len(cached) // 4
 
     try:
         # ── Meta tools (no slot needed) ───────────────────────────────────
 
         if name == "get_usage_stats":
             return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
+
+        if name == "get_session_budget":
+            project = _resolve_memory_project(arguments)
+            budget = int(arguments.get("budget_tokens") or memory_db.DEFAULT_SESSION_BUDGET_TOKENS)
+            stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
+            return [TextContent(type="text", text=memory_db.format_session_budget_box(stats))]
+
+        if name == "get_coactive_symbols":
+            seed = (arguments.get("name") or "").strip()
+            if not seed:
+                return [TextContent(type="text", text="Error: 'name' required.")]
+            top_k = int(arguments.get("top_k", 5))
+            co = _tca_engine.get_coactive_symbols(seed, top_k=top_k)
+            if not co:
+                return [TextContent(
+                    type="text",
+                    text=f"No co-activation data yet for '{seed}'.",
+                )]
+            lines = [f"🔄 Co-active with '{seed}' (top {len(co)}):"]
+            for sym, pmi in co:
+                lines.append(f"  {pmi:+.3f}  {sym}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_tca_stats":
+            stats = _tca_engine.get_stats()
+            lines = [
+                "Tenseur de Co-Activation (TCA):",
+                f"  Symbols tracked      : {stats['symbols_tracked']}",
+                f"  Co-activation pairs  : {stats['co_activation_pairs']}",
+                f"  Sessions flushed     : {stats['sessions_flushed']}",
+                f"  Current session      : {stats['session_activations']} symbols active",
+            ]
+            if stats["top_pairs"]:
+                lines.append("  Top pairs:")
+                for a, b, c in stats["top_pairs"]:
+                    lines.append(f"    ×{c}  {a}  ↔  {b}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_dcp_stats":
+            stats = memory_db.dcp_stats()
+            lines = [
+                "Differential Context Protocol (DCP):",
+                f"  Registered chunks : {stats['total']}",
+                f"  Stable (seen>1)   : {stats['stable']}",
+                f"  Total sightings   : {stats['total_seen']:,}",
+            ]
+            if _dcp_calls:
+                sess_pct = (
+                    (_dcp_stable_chunks / _dcp_total_chunks * 100)
+                    if _dcp_total_chunks else 0.0
+                )
+                lines.append(
+                    f"  Session: {_dcp_calls} DCP calls, "
+                    f"{_dcp_stable_chunks}/{_dcp_total_chunks} chunks stable "
+                    f"({sess_pct:.1f}%)"
+                )
+            if stats["top"]:
+                lines.append("  Top chunks:")
+                for t in stats["top"]:
+                    preview = (t["content_preview"] or "").replace("\n", " ")[:40]
+                    lines.append(
+                        f"    {t['fingerprint']}  ×{t['seen_count']}  "
+                        f"{preview!r}"
+                    )
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_speculation_stats":
+            with _prefetch_lock:
+                cache_size = len(_prefetch_cache)
+            hit_rate = (
+                (_spec_branches_hit / _spec_branches_warmed * 100)
+                if _spec_branches_warmed else 0.0
+            )
+            lines = [
+                "Speculative Tool Tree Execution:",
+                f"  Branches explored : {_spec_branches_explored}",
+                f"  Branches warmed   : {_spec_branches_warmed}",
+                f"  Branches hit      : {_spec_branches_hit}",
+                f"  Hit rate          : {hit_rate:.1f}%",
+                f"  Tokens saved (est): {_spec_tokens_saved:,}",
+                f"  Warm cache size   : {cache_size}",
+            ]
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_lattice_stats":
+            ctx_filter = arguments.get("context_type") or None
+            rows = memory_db.get_lattice_stats(context_type=ctx_filter)
+            if not rows:
+                return [TextContent(type="text", text="Adaptive lattice has no entries yet.")]
+            header = (
+                f"Adaptive lattice "
+                f"({'context=' + ctx_filter if ctx_filter else 'all contexts'}):"
+            )
+            lines = [header, f"  {'CONTEXT':<12} {'LVL':>3} {'α':>6} {'β':>6} {'mean':>6} {'trials':>7}  age"]
+            for r in rows:
+                lines.append(
+                    f"  {r['context_type']:<12} {r['level']:>3} "
+                    f"{r['alpha']:>6.1f} {r['beta']:>6.1f} "
+                    f"{r['mean']:>6.3f} {r['trials']:>7d}  {r['age']}"
+                )
+            return [TextContent(type="text", text="\n".join(lines))]
 
         if name == "get_call_predictions":
             tool_name = arguments.get("tool_name", "")
@@ -2215,13 +2679,32 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                     )
                 ]
             result = qfn_handler(slot.query_fns, arguments)
+            # TCS: compress structural output if enabled (default true)
+            if name in _COMPRESSIBLE_TOOLS and arguments.get("compress", True):
+                global _tcs_calls, _tcs_chars_before, _tcs_chars_after
+                raw = _format_result(result)
+                compressed = compress_symbol_output(name, result)
+                before = len(raw)
+                after = len(compressed)
+                if after < before and compressed:
+                    saved_pct = (1 - after / before) * 100 if before else 0.0
+                    result = (
+                        f"{compressed}\n"
+                        f"[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
+                    )
+                    _tcs_calls += 1
+                    _tcs_chars_before += before
+                    _tcs_chars_after += after
             # Markov: predict next likely calls and pre-warm in a daemon thread
             try:
                 preds = _prefetcher.predict_next(
                     name, _record_symbol or "", top_k=3
                 )
                 if preds:
-                    _warm_cache_async(preds, slot)
+                    _warm_cache_async(
+                        preds, slot,
+                        tool_name=name, symbol_name=_record_symbol or "",
+                    )
             except Exception:
                 pass
             return _count_and_wrap_result(slot, name, arguments, result)

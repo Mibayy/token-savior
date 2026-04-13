@@ -74,6 +74,24 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
         conn.execute("ALTER TABLE observations ADD COLUMN expires_at_epoch INTEGER")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
         conn.commit()
+    # Step C: inter-agent memory bus — volatile observations carry agent_id.
+    if obs_cols and "agent_id" not in obs_cols:
+        conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
+        conn.commit()
+
+    # Step D: adaptive lattice — Beta-Binomial Thompson sampling per (context, level).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS adaptive_lattice ("
+        "  context_type TEXT NOT NULL,"
+        "  level INTEGER NOT NULL,"
+        "  alpha REAL NOT NULL DEFAULT 1.0,"
+        "  beta REAL NOT NULL DEFAULT 1.0,"
+        "  updated_at_epoch INTEGER NOT NULL,"
+        "  PRIMARY KEY (context_type, level)"
+        ")"
+    )
+    conn.commit()
 
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(schema_sql)
@@ -278,6 +296,7 @@ _DEFAULT_TTL_DAYS = {
     "note": 60,
     "idea": 120,
     "bugfix": 180,
+    "ruled_out": 180,
 }
 _DECAY_MAX_AGE_SEC = 90 * 86400        # obs older than 90 days are candidates
 _DECAY_UNREAD_SEC = 30 * 86400         # must also be unread for at least 30 days
@@ -502,6 +521,585 @@ def observation_save(
         return None
 
 
+def observation_save_ruled_out(
+    project_root: str,
+    title: str,
+    content: str,
+    *,
+    why: str | None = None,
+    symbol: str | None = None,
+    file_path: str | None = None,
+    tags: list[str] | None = None,
+    ttl_days: int = 180,
+    session_id: int | None = None,
+) -> int | None:
+    """Save a `ruled_out` observation: an approach explicitly rejected.
+
+    Negative memory — what NOT to try, with optional explanation.
+    Default TTL 180d (same as bugfix). Higher type_score (0.95) than
+    convention so it surfaces aggressively when an edit-sensitive tool
+    is about to operate on the same area.
+    """
+    merged_tags = list(tags or [])
+    if "ruled-out" not in merged_tags:
+        merged_tags.append("ruled-out")
+    return observation_save(
+        session_id=session_id,
+        project_root=project_root,
+        type="ruled_out",
+        title=title,
+        content=content,
+        why=why,
+        symbol=symbol,
+        file_path=file_path,
+        tags=merged_tags,
+        importance=7,
+        ttl_days=ttl_days,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step C: inter-agent memory bus
+# ---------------------------------------------------------------------------
+
+# Volatile observations are short-lived signals between subagents (or between
+# a subagent and the parent). They expire fast (default 1 day) so the bus
+# never accumulates stale chatter.
+DEFAULT_VOLATILE_TTL_DAYS = 1
+
+
+def observation_save_volatile(
+    project_root: str,
+    agent_id: str,
+    title: str,
+    content: str,
+    *,
+    obs_type: str = "note",
+    symbol: str | None = None,
+    file_path: str | None = None,
+    tags: list[str] | None = None,
+    ttl_days: int = DEFAULT_VOLATILE_TTL_DAYS,
+    session_id: int | None = None,
+) -> int | None:
+    """Push a volatile, agent-tagged observation onto the bus.
+
+    `agent_id` is required (a free-form subagent identifier such as
+    "Explore", "code-reviewer", or a worktree name). The row is tagged
+    `bus` + `volatile` for filtering and gets a short TTL so the bus
+    self-cleans without explicit retention work.
+    """
+    if not agent_id:
+        return None
+    merged_tags = list(tags or [])
+    for t in ("bus", "volatile"):
+        if t not in merged_tags:
+            merged_tags.append(t)
+
+    obs_id = observation_save(
+        session_id=session_id,
+        project_root=project_root,
+        type=obs_type,
+        title=title,
+        content=content,
+        symbol=symbol,
+        file_path=file_path,
+        tags=merged_tags,
+        importance=4,
+        ttl_days=ttl_days,
+    )
+    if obs_id is None:
+        return None
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE observations SET agent_id=? WHERE id=?",
+            (agent_id, obs_id),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] observation_save_volatile agent tag error: {exc}", file=sys.stderr)
+    return obs_id
+
+
+def memory_bus_list(
+    project_root: str,
+    *,
+    agent_id: str | None = None,
+    limit: int = 20,
+    include_expired: bool = False,
+) -> list[dict]:
+    """Return live bus messages for *project_root*, newest first.
+
+    Filters on agent_id when provided. Skips expired rows by default.
+    """
+    try:
+        conn = get_db()
+        sql = (
+            "SELECT id, type, title, content, symbol, file_path, agent_id, "
+            "       created_at, created_at_epoch, expires_at_epoch "
+            "FROM observations "
+            "WHERE archived=0 AND agent_id IS NOT NULL "
+            "  AND project_root=? "
+        )
+        params: list = [project_root]
+        if agent_id:
+            sql += "AND agent_id=? "
+            params.append(agent_id)
+        if not include_expired:
+            sql += "AND (expires_at_epoch IS NULL OR expires_at_epoch > ?) "
+            params.append(int(time.time()))
+        sql += "ORDER BY created_at_epoch DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] memory_bus_list error: {exc}", file=sys.stderr)
+        return []
+    out = [dict(r) for r in rows]
+    for r in out:
+        r["age"] = relative_age(r.get("created_at_epoch"))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Reasoning Trace Compression (v2.2 Step A)
+# ---------------------------------------------------------------------------
+
+
+def reasoning_save(
+    project_root: str,
+    goal: str,
+    steps: list[dict],
+    conclusion: str,
+    *,
+    confidence: float = 0.8,
+    evidence_obs_ids: list[int] | None = None,
+    ttl_days: int | None = None,
+) -> int | None:
+    """Persist a reasoning chain (goal → steps → conclusion) for later recall."""
+    if not goal or not conclusion:
+        return None
+    goal_norm = " ".join((goal or "").lower().split())
+    ghash = observation_hash(project_root, goal_norm, conclusion)
+    ehash = (
+        observation_hash(project_root, ",".join(str(i) for i in evidence_obs_ids), "")
+        if evidence_obs_ids
+        else None
+    )
+    now = _now_iso()
+    epoch = _now_epoch()
+    expires = epoch + int(ttl_days) * 86400 if ttl_days else None
+    try:
+        conn = get_db()
+        # Dedup on goal_hash within a project.
+        existing = conn.execute(
+            "SELECT id FROM reasoning_chains WHERE project_root=? AND goal_hash=?",
+            (project_root, ghash),
+        ).fetchone()
+        if existing is not None:
+            conn.close()
+            return existing[0]
+        cur = conn.execute(
+            "INSERT INTO reasoning_chains "
+            "(project_root, goal, goal_hash, steps, conclusion, confidence, "
+            " evidence_hash, created_at, created_at_epoch, expires_at_epoch) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                project_root, goal, ghash,
+                _json_dumps(steps or []), conclusion,
+                float(confidence), ehash, now, epoch, expires,
+            ),
+        )
+        conn.commit()
+        rid = cur.lastrowid
+        conn.close()
+        return rid
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] reasoning_save error: {exc}", file=sys.stderr)
+        return None
+
+
+def _fts5_safe_query(text: str, max_tokens: int = 12) -> str:
+    """Build an FTS5 OR query from alphanumeric tokens (>=3 chars)."""
+    import re as _re
+    toks = _re.findall(r"[A-Za-zÀ-ÿ0-9_]{3,}", text or "")
+    stop = {
+        "que", "qui", "les", "des", "une", "aux", "pour", "avec", "dans",
+        "sur", "par", "est", "sont", "the", "and", "for", "with", "this",
+        "that", "you", "are", "how", "what", "can", "will", "from",
+    }
+    toks = [t for t in toks if t.lower() not in stop][:max_tokens]
+    return " OR ".join(f'"{t}"' for t in toks)
+
+
+def reasoning_search(
+    project_root: str,
+    query: str,
+    *,
+    threshold: float = 0.3,
+    limit: int = 5,
+) -> list[dict]:
+    """Return reasoning chains matching *query*, scored by Jaccard on the goal."""
+    rows: list = []
+    try:
+        conn = get_db()
+        fts_q = _fts5_safe_query(query)
+        if fts_q:
+            try:
+                rows = conn.execute(
+                    "SELECT rc.id, rc.goal, rc.conclusion, rc.confidence, rc.steps, "
+                    "       rc.created_at_epoch, rc.access_count "
+                    "FROM reasoning_chains_fts f "
+                    "JOIN reasoning_chains rc ON rc.id = f.rowid "
+                    "WHERE reasoning_chains_fts MATCH ? AND rc.project_root=? "
+                    "ORDER BY rank LIMIT ?",
+                    (fts_q, project_root, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        # Fallback: if FTS yielded nothing, widen to a LIKE scan.
+        if not rows:
+            like = f"%{(query or '')[:60]}%"
+            rows = conn.execute(
+                "SELECT id, goal, conclusion, confidence, steps, "
+                "       created_at_epoch, access_count "
+                "FROM reasoning_chains "
+                "WHERE project_root=? AND (goal LIKE ? OR conclusion LIKE ?) "
+                "ORDER BY created_at_epoch DESC LIMIT ?",
+                (project_root, like, like, limit),
+            ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] reasoning_search error: {exc}", file=sys.stderr)
+        return []
+
+    results: list[dict] = []
+    permissive = len(rows) <= 2
+    for row in rows:
+        d = dict(row)
+        score = _jaccard(query or "", d.get("goal") or "")
+        if score >= threshold or permissive:
+            d["relevance"] = round(score, 3)
+            d["age"] = relative_age(d.get("created_at_epoch"))
+            results.append(d)
+    results.sort(key=lambda x: x["relevance"], reverse=True)
+    return results
+
+
+def reasoning_inject(project_root: str, prompt: str) -> str | None:
+    """Return a formatted hint if the prompt matches a past reasoning goal."""
+    if not prompt or len(prompt.strip()) < 10:
+        return None
+    chains = reasoning_search(project_root, prompt, threshold=0.3, limit=3)
+    if not chains:
+        return None
+    best = chains[0]
+    if float(best.get("relevance", 0)) < 0.3:
+        return None
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE reasoning_chains SET access_count=access_count+1 WHERE id=?",
+            (best["id"],),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
+    try:
+        steps = json.loads(best.get("steps") or "[]")
+    except Exception:
+        steps = []
+    lines = [
+        f"🧠 Similar reasoning trace found (relevance: {best['relevance']:.2f}):",
+        f"Goal: {best['goal']}",
+        "─" * 40,
+    ]
+    for i, step in enumerate(steps[:5], 1):
+        tool = step.get("tool", "")
+        obs = (step.get("observation") or "")[:80]
+        lines.append(f"  {i}. [{tool}] {obs}")
+    if len(steps) > 5:
+        lines.append(f"  ... ({len(steps) - 5} more steps)")
+    lines.append(f"→ CONCLUSION: {best['conclusion']}")
+    lines.append(
+        f"  Confidence: {float(best.get('confidence', 0.8)):.0%} | "
+        f"Used {int(best.get('access_count', 0)) + 1} times"
+    )
+    return "\n".join(lines)
+
+
+def register_chunks(chunks: list) -> list:
+    """Update dcp_chunk_registry with *chunks*; annotate each chunk in place.
+
+    A chunk is *stable* if its fingerprint existed before this call. The
+    ``seen_count`` and ``last_seen_epoch`` fields are bumped per fingerprint.
+    Returns the input list (same objects) so callers can chain.
+    """
+    if not chunks:
+        return chunks
+    try:
+        conn = get_db()
+        now = _now_epoch()
+        for chunk in chunks:
+            fp = chunk.fingerprint
+            existing = conn.execute(
+                "SELECT seen_count FROM dcp_chunk_registry WHERE fingerprint=?",
+                (fp,),
+            ).fetchone()
+            if existing:
+                chunk.is_stable = True
+                chunk.cache_hit_count = int(existing["seen_count"])
+                conn.execute(
+                    "UPDATE dcp_chunk_registry "
+                    "SET seen_count=seen_count+1, last_seen_epoch=? "
+                    "WHERE fingerprint=?",
+                    (now, fp),
+                )
+            else:
+                preview = (chunk.content or "")[:50]
+                conn.execute(
+                    "INSERT INTO dcp_chunk_registry "
+                    "(fingerprint, content_preview, seen_count, last_seen_epoch) "
+                    "VALUES (?, ?, 1, ?)",
+                    (fp, preview, now),
+                )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] register_chunks error: {exc}", file=sys.stderr)
+    return chunks
+
+
+def optimize_output_order(content: str) -> tuple[str, int, int]:
+    """Reorder *content* so stable chunks (cache-hot) come first.
+
+    Returns (optimized_content, stable_count, total_count). The footer
+    ``[dcp: N/M chunks stable]`` is appended by the caller.
+    """
+    try:
+        from token_savior.dcp_chunker import chunk_content
+    except Exception:
+        return content, 0, 0
+    chunks = chunk_content(content)
+    if not chunks:
+        return content, 0, 0
+    register_chunks(chunks)
+    stable = [c for c in chunks if c.is_stable]
+    unstable = [c for c in chunks if not c.is_stable]
+    reordered = "".join(c.content for c in (stable + unstable))
+    return reordered, len(stable), len(chunks)
+
+
+def dcp_stats() -> dict:
+    """Registry-level stats for DCP: total chunks, hit counts, top fingerprints."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "       COALESCE(SUM(seen_count), 0) AS total_seen, "
+            "       COALESCE(SUM(CASE WHEN seen_count > 1 THEN 1 ELSE 0 END), 0) AS stable "
+            "FROM dcp_chunk_registry"
+        ).fetchone()
+        top = conn.execute(
+            "SELECT fingerprint, content_preview, seen_count "
+            "FROM dcp_chunk_registry ORDER BY seen_count DESC LIMIT 5"
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] dcp_stats error: {exc}", file=sys.stderr)
+        return {"total": 0, "stable": 0, "total_seen": 0, "top": []}
+    return {
+        "total": int(row["total"] or 0),
+        "stable": int(row["stable"] or 0),
+        "total_seen": int(row["total_seen"] or 0),
+        "top": [dict(r) for r in top],
+    }
+
+
+def reasoning_list(project_root: str, limit: int = 50) -> list[dict]:
+    """Return all reasoning chains for a project with basic stats."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, goal, conclusion, confidence, access_count, "
+            "       created_at, created_at_epoch "
+            "FROM reasoning_chains WHERE project_root=? "
+            "ORDER BY access_count DESC, created_at_epoch DESC LIMIT ?",
+            (project_root, limit),
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] reasoning_list error: {exc}", file=sys.stderr)
+        return []
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["age"] = relative_age(d.get("created_at_epoch"))
+        out.append(d)
+    return out
+
+
+
+# ---------------------------------------------------------------------------
+# Step D: Adaptive Lattice (Beta-Binomial Thompson sampling on granularity)
+# ---------------------------------------------------------------------------
+
+# Granularity levels for source-fetching tools:
+#   0 = full source (no compression)
+#   1 = signature + docstring + first/last lines
+#   2 = signature only
+#   3 = name + line range only
+LATTICE_LEVELS = (0, 1, 2, 3)
+LATTICE_CONTEXTS = ("navigation", "edit", "review", "unknown")
+
+
+def _detect_context_type(call_sequence: list[str] | None, lookback: int = 5) -> str:
+    """Classify the current context from the recent prefetcher call sequence.
+
+    Heuristics:
+      - 'edit'       → any of the last *lookback* states starts with an edit/mutate tool
+      - 'review'     → any of the last states is a git/diff/changed-symbols tool
+      - 'navigation' → the last states are read-only structural lookups
+      - 'unknown'    → empty sequence
+    """
+    if not call_sequence:
+        return "unknown"
+    recent = call_sequence[-lookback:]
+    edit_tools = {
+        "replace_symbol_source", "insert_near_symbol",
+        "apply_symbol_change_and_validate",
+        "apply_symbol_change_validate_with_rollback",
+        "Edit", "Write", "MultiEdit",
+    }
+    review_tools = {
+        "get_git_status", "get_changed_symbols", "get_changed_symbols_since_ref",
+        "summarize_patch_by_symbol", "build_commit_summary",
+        "detect_breaking_changes", "compare_checkpoint_by_symbol",
+    }
+    nav_tools = {
+        "get_function_source", "get_class_source", "find_symbol",
+        "search_codebase", "get_dependencies", "get_dependents",
+        "get_call_chain", "list_files", "get_structure_summary",
+    }
+    for state in reversed(recent):
+        head = state.split(":", 1)[0]
+        if head in edit_tools:
+            return "edit"
+        if head in review_tools:
+            return "review"
+        if head in nav_tools:
+            return "navigation"
+    return "unknown"
+
+
+def _ensure_lattice_row(conn, context_type: str, level: int) -> None:
+    epoch = _now_epoch()
+    conn.execute(
+        "INSERT OR IGNORE INTO adaptive_lattice "
+        "(context_type, level, alpha, beta, updated_at_epoch) VALUES (?, ?, 1.0, 1.0, ?)",
+        (context_type, level, epoch),
+    )
+
+
+def thompson_sample_level(context_type: str = "unknown") -> int:
+    """Sample a granularity level via Beta-Binomial Thompson sampling.
+
+    For each level draws from Beta(α, β) and returns the argmax. Cold-start
+    rows have α=β=1 (uniform prior). Falls back to level 0 on any error.
+    """
+    if context_type not in LATTICE_CONTEXTS:
+        context_type = "unknown"
+    try:
+        import random as _rnd
+        conn = get_db()
+        for lv in LATTICE_LEVELS:
+            _ensure_lattice_row(conn, context_type, lv)
+        conn.commit()
+        rows = conn.execute(
+            "SELECT level, alpha, beta FROM adaptive_lattice WHERE context_type=?",
+            (context_type,),
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] thompson_sample_level error: {exc}", file=sys.stderr)
+        return 0
+
+    samples: list[tuple[int, float]] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            draw = _rnd.betavariate(max(d["alpha"], 0.01), max(d["beta"], 0.01))
+        except ValueError:
+            draw = 0.0
+        samples.append((int(d["level"]), draw))
+    if not samples:
+        return 0
+    return max(samples, key=lambda x: x[1])[0]
+
+
+def record_lattice_feedback(context_type: str, level: int, success: bool) -> None:
+    """Update the Beta posterior for (context_type, level): success → α+1, else β+1."""
+    if context_type not in LATTICE_CONTEXTS:
+        context_type = "unknown"
+    if level not in LATTICE_LEVELS:
+        return
+    try:
+        epoch = _now_epoch()
+        conn = get_db()
+        _ensure_lattice_row(conn, context_type, level)
+        col = "alpha" if success else "beta"
+        conn.execute(
+            f"UPDATE adaptive_lattice SET {col}={col}+1.0, updated_at_epoch=? "
+            "WHERE context_type=? AND level=?",
+            (epoch, context_type, level),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] record_lattice_feedback error: {exc}", file=sys.stderr)
+
+
+def get_lattice_stats(context_type: str | None = None) -> list[dict]:
+    """Return the current Beta posteriors with derived mean and trial count.
+
+    Filter by *context_type* when provided. Sorted by (context_type, level).
+    """
+    try:
+        conn = get_db()
+        if context_type:
+            rows = conn.execute(
+                "SELECT context_type, level, alpha, beta, updated_at_epoch "
+                "FROM adaptive_lattice WHERE context_type=? "
+                "ORDER BY level",
+                (context_type,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT context_type, level, alpha, beta, updated_at_epoch "
+                "FROM adaptive_lattice ORDER BY context_type, level"
+            ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] get_lattice_stats error: {exc}", file=sys.stderr)
+        return []
+    out = []
+    for r in rows:
+        d = dict(r)
+        a, b = float(d["alpha"]), float(d["beta"])
+        trials = a + b - 2.0  # subtract the uniform prior counts
+        mean = a / (a + b) if (a + b) > 0 else 0.0
+        d["mean"] = round(mean, 3)
+        d["trials"] = max(0, int(round(trials)))
+        d["age"] = relative_age(d.get("updated_at_epoch"))
+        out.append(d)
+    return out
+
+
+
+
+
 def observation_search(
     project_root: str,
     query: str,
@@ -516,7 +1114,7 @@ def observation_search(
         sql = (
             "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
             "  snippet(observations_fts, 1, '»', '«', '...', 40) AS excerpt, "
-            "  o.created_at, o.created_at_epoch, o.is_global "
+            "  o.created_at, o.created_at_epoch, o.is_global, o.agent_id "
             "FROM observations_fts AS f "
             "JOIN observations AS o ON o.id = f.rowid "
             "WHERE observations_fts MATCH ? AND o.archived = 0 "
@@ -757,7 +1355,7 @@ def summary_save(
 
 
 _TYPE_SCORES = {
-    "guardrail": 1.0, "convention": 0.9, "warning": 0.8,
+    "guardrail": 1.0, "ruled_out": 0.95, "convention": 0.9, "warning": 0.8,
     "command": 0.7, "infra": 0.7, "config": 0.7,
     "decision": 0.6, "bugfix": 0.5, "error_pattern": 0.5,
     "research": 0.3, "note": 0.2, "idea": 0.2,
@@ -903,7 +1501,8 @@ def get_recent_index(
 
         rows = conn.execute(
             f"SELECT id, type, title, symbol, importance, relevance_score, "
-            f"is_global, created_at, created_at_epoch, access_count, expires_at_epoch "
+            f"is_global, created_at, created_at_epoch, access_count, expires_at_epoch, "
+            f"agent_id "
             f"FROM observations WHERE {where}",
             params,
         ).fetchall()
@@ -1647,6 +2246,129 @@ def get_injection_stats(project_root: str) -> dict:
         print(f"[token-savior:memory] get_injection_stats error: {exc}", file=sys.stderr)
         return {"sessions": 0, "total_injected": 0, "total_saved_est": 0,
                 "avg_injected": 0, "avg_saved": 0, "roi_ratio": 0}
+
+
+# ---------------------------------------------------------------------------
+# Closed-loop budget (Step B)
+# ---------------------------------------------------------------------------
+
+# Claude Max effective context window. Treat as a soft ceiling for budgeting;
+# we measure observable consumption only (tokens we injected via hooks).
+DEFAULT_SESSION_BUDGET_TOKENS = 200_000
+
+
+def get_session_budget_stats(
+    project_root: str,
+    *,
+    budget_tokens: int = DEFAULT_SESSION_BUDGET_TOKENS,
+) -> dict:
+    """Return the current/most-recent session's token budget consumption.
+
+    Picks the active session for *project_root* if one exists, otherwise the
+    most recent completed session. Returns a dict shaped for both the MCP tool
+    and the CLI box renderer.
+
+    Status thresholds:
+      - 🟢 green   : pct_used < 50
+      - 🟡 yellow  : 50 <= pct_used <= 75
+      - 🔴 red     : pct_used > 75   (auto-injected during PreCompact)
+    """
+    out: dict = {
+        "project_root": project_root,
+        "session_id": None,
+        "status_label": "active",
+        "tokens_injected": 0,
+        "tokens_saved_est": 0,
+        "budget_tokens": budget_tokens,
+        "pct_used": 0.0,
+        "pct_saved": 0.0,
+        "indicator": "🟢",
+        "level": "green",
+        "started_at": None,
+    }
+    try:
+        db = get_db()
+        # Prefer active session, else most recent.
+        row = db.execute(
+            "SELECT id, status, COALESCE(tokens_injected, 0) AS tokens_injected, "
+            "       COALESCE(tokens_saved_est, 0) AS tokens_saved_est, "
+            "       created_at, created_at_epoch "
+            "FROM sessions "
+            "WHERE project_root=? AND status='active' "
+            "ORDER BY created_at_epoch DESC LIMIT 1",
+            (project_root,),
+        ).fetchone()
+        if row is None:
+            row = db.execute(
+                "SELECT id, status, COALESCE(tokens_injected, 0) AS tokens_injected, "
+                "       COALESCE(tokens_saved_est, 0) AS tokens_saved_est, "
+                "       created_at, created_at_epoch "
+                "FROM sessions "
+                "WHERE project_root=? "
+                "ORDER BY created_at_epoch DESC LIMIT 1",
+                (project_root,),
+            ).fetchone()
+        db.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] get_session_budget_stats error: {exc}", file=sys.stderr)
+        return out
+
+    if row is None:
+        return out
+
+    d = dict(row)
+    injected = int(d.get("tokens_injected") or 0)
+    saved = int(d.get("tokens_saved_est") or 0)
+    pct_used = (injected / budget_tokens * 100.0) if budget_tokens else 0.0
+    pct_saved = (saved / budget_tokens * 100.0) if budget_tokens else 0.0
+    if pct_used > 75:
+        indicator, level = "🔴", "red"
+    elif pct_used >= 50:
+        indicator, level = "🟡", "yellow"
+    else:
+        indicator, level = "🟢", "green"
+
+    out.update(
+        session_id=d["id"],
+        status_label=d.get("status") or "active",
+        tokens_injected=injected,
+        tokens_saved_est=saved,
+        pct_used=round(pct_used, 1),
+        pct_saved=round(pct_saved, 1),
+        indicator=indicator,
+        level=level,
+        started_at=d.get("created_at"),
+    )
+    return out
+
+
+def format_session_budget_box(stats: dict) -> str:
+    """Render get_session_budget_stats() as a 60-char status box."""
+    pct = stats.get("pct_used", 0.0)
+    bar_w = 40
+    filled = max(0, min(bar_w, int(round(pct / 100.0 * bar_w))))
+    bar = "█" * filled + "·" * (bar_w - filled)
+    sid = stats.get("session_id") or "—"
+    project = stats.get("project_root") or "(none)"
+    status = stats.get("status_label", "?")
+    indicator = stats.get("indicator", "🟢")
+    level = stats.get("level", "green")
+    injected = stats.get("tokens_injected", 0)
+    saved = stats.get("tokens_saved_est", 0)
+    budget = stats.get("budget_tokens", DEFAULT_SESSION_BUDGET_TOKENS)
+    pct_saved = stats.get("pct_saved", 0.0)
+    started = (stats.get("started_at") or "")[:19]
+    proj_name = project.rstrip("/").split("/")[-1] or project
+    lines = [
+        "┌─ Session Budget ─────────────────────────────────────────┐",
+        f"│ Session #{sid}  · {status:<10} · started {started:<19} │",
+        f"│ Project: {proj_name[:48]:<48}      │",
+        f"│ Injected : {injected:>7,} tok  ({pct:>5.1f}% of {budget:>6,})        │",
+        f"│ Saved est: {saved:>7,} tok  ({pct_saved:>5.1f}% of {budget:>6,})        │",
+        f"│ {indicator}  {level.upper():<6}  [{bar}]  │",
+        "└──────────────────────────────────────────────────────────┘",
+    ]
+    return "\n".join(lines)
 
 
 def _jaccard(a: str, b: str) -> float:

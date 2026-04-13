@@ -110,6 +110,7 @@ VALID_OBS_TYPES = (
     "infra",
     "config",
     "idea",
+    "ruled_out",
 )
 
 
@@ -402,6 +403,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   --type-error_pattern: #ff6b35;
   --type-note: #64748b;
   --type-project: #3b82f6;
+  --type-ruled_out: #dc2626;
   --type-reference: #8b8b9e;
   --type-user: #ec4899;
   --type-command: #06b6d4;
@@ -558,6 +560,7 @@ body { min-height: 100vh; }
 .type-badge[data-type="error_pattern"] { color: var(--type-error_pattern); border-color: rgba(255,107,53,0.3); background: rgba(255,107,53,0.08); }
 .type-badge[data-type="note"]          { color: var(--type-note);          border-color: rgba(100,116,139,0.3);background: rgba(100,116,139,0.08); }
 .type-badge[data-type="project"]       { color: var(--type-project);       border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.08); }
+.type-badge[data-type="ruled_out"]     { color: var(--type-ruled_out);     border-color: rgba(220,38,38,0.4);  background: rgba(220,38,38,0.10); }
 
 /* ---------- Type breakdown bars ---------- */
 .type-bars { display: flex; flex-direction: column; gap: 8px; }

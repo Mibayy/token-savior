@@ -83,6 +83,60 @@ class MarkovPrefetcher:
         )
         return ranked[:top_k]
 
+    def beam_search_continuations(
+        self,
+        tool_name: str,
+        symbol_name: str = "",
+        *,
+        beam_width: int = 3,
+        max_depth: int = 3,
+        min_prob: float = 0.15,
+    ) -> list[tuple[list[str], float]]:
+        """Return top beams as (path, joint_probability) pairs.
+
+        Starting from *(tool_name, symbol_name)*, expand up to *max_depth*
+        transitions ahead, keeping only the top *beam_width* partial paths
+        ranked by joint probability. A branch whose next-step probability
+        falls below *min_prob* is pruned (dead-end).
+        """
+        start = self._state(tool_name, symbol_name)
+        if start not in self.transitions:
+            return []
+        # Seed beams with the direct successors.
+        beams: list[tuple[list[str], float]] = []
+        for nxt, prob in self.predict_next(tool_name, symbol_name, top_k=beam_width):
+            if prob >= min_prob:
+                beams.append(([nxt], prob))
+        if not beams:
+            return []
+        for _ in range(max_depth - 1):
+            expanded: list[tuple[list[str], float]] = []
+            grew = False
+            for path, joint in beams:
+                last = path[-1]
+                if ":" in last:
+                    nt, ns = last.split(":", 1)
+                else:
+                    nt, ns = last, ""
+                succ = self.predict_next(nt, ns, top_k=beam_width)
+                if not succ:
+                    expanded.append((path, joint))
+                    continue
+                kept_any = False
+                for nxt, prob in succ:
+                    if prob < min_prob:
+                        continue
+                    expanded.append((path + [nxt], joint * prob))
+                    kept_any = True
+                    grew = True
+                if not kept_any:
+                    expanded.append((path, joint))
+            expanded.sort(key=lambda x: x[1], reverse=True)
+            beams = expanded[:beam_width]
+            if not grew:
+                break
+        return beams
+
     def get_stats(self) -> dict:
         total_states = len(self.transitions)
         total_transitions = sum(sum(v.values()) for v in self.transitions.values())

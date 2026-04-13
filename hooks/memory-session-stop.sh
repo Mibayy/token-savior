@@ -31,6 +31,22 @@ except Exception:
     pass
 " 2>/dev/null
 
+# TCA — flush session co-activations into the persistent tensor.
+"$PY" -c "
+import os, sys
+sys.path.insert(0, '/root/token-savior/src')
+try:
+    from pathlib import Path
+    from token_savior.tca_engine import TCAEngine
+    stats_dir = Path(os.path.expanduser('~/.local/share/token-savior'))
+    engine = TCAEngine(stats_dir)
+    pairs = engine.flush_session()
+    if pairs:
+        print(f'TCA: flushed {pairs} co-activation pairs.', file=sys.stderr)
+except Exception:
+    pass
+" 2>/dev/null
+
 # 1. Resolve active session + attached observations (fallback: claim orphans <2h).
 SESSION_JSON=$("$PY" -c "
 import sys, os, json, time
