@@ -335,3 +335,61 @@ def test_deleted_java_file_reports_breaking(git_repo):
 
     assert "BREAKING" in result
     assert "com.acme.pricing.PriceEngine" in result
+
+
+def test_private_java_method_not_reported_as_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    private int normalize(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    private int normalize(int input, int scale) {\n"
+            "        return input * scale;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "normalize" not in result
+
+
+def test_package_private_java_method_not_reported_as_breaking(git_repo):
+    api_file = os.path.join(git_repo, "PriceEngine.java")
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    int normalize(int input) {\n"
+            "        return input;\n"
+            "    }\n"
+            "}\n"
+        )
+    _commit_all(git_repo, "initial")
+
+    with open(api_file, "w") as f:
+        f.write(
+            "package com.acme.pricing;\n\n"
+            "public final class PriceEngine {\n"
+            "    int normalize(int input, int scale) {\n"
+            "        return input * scale;\n"
+            "    }\n"
+            "}\n"
+        )
+
+    index = _make_index(git_repo)
+    result = detect_breaking_changes(index, since_ref="HEAD")
+
+    assert "normalize" not in result

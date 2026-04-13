@@ -2252,19 +2252,44 @@ def _q_get_edit_context(qfns, args):
     max_deps = args.get("max_deps", 10)
     max_callers = args.get("max_callers", 10)
     ctx: dict = {"symbol": sym_name}
+    location = None
     try:
-        ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+        location = qfns["find_symbol"](sym_name)
+    except Exception:
+        location = None
+
+    is_class = isinstance(location, dict) and location.get("type") == "class"
+    try:
+        if is_class:
+            ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+        else:
+            ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
     except Exception:
         try:
-            ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
+            if is_class:
+                ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
+            else:
+                ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
         except Exception:
             ctx["source"] = None
+    ctx["location"] = location
     try:
-        ctx["location"] = qfns["find_symbol"](sym_name)
-    except Exception:
-        ctx["location"] = None
-    try:
-        ctx["dependencies"] = qfns["get_dependencies"](sym_name, max_results=max_deps)
+        dependencies = qfns["get_dependencies"](sym_name, max_results=max_deps)
+        if is_class:
+            class_name = location.get("name") if isinstance(location, dict) else None
+            filtered_dependencies = []
+            for dep in dependencies:
+                dep_name = dep.get("name") if isinstance(dep, dict) else None
+                dep_type = dep.get("type") if isinstance(dep, dict) else None
+                if dep_type == "method" and dep_name and dep_name.endswith("()"):
+                    owner = dep_name.rsplit(".", 1)[0] if "." in dep_name else None
+                    method_base = dep_name.rsplit(".", 1)[-1].split("(", 1)[0]
+                    owner_simple = owner.rsplit(".", 1)[-1] if owner else None
+                    if owner and class_name == owner and method_base == owner_simple:
+                        continue
+                filtered_dependencies.append(dep)
+            dependencies = filtered_dependencies
+        ctx["dependencies"] = dependencies
     except Exception:
         ctx["dependencies"] = []
     try:

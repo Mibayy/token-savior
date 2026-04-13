@@ -80,6 +80,12 @@ class _ClassSig:
     methods: list[_FuncSig]
 
 
+@dataclass
+class _JavaApiSig:
+    visibility: str
+    return_type: str | None
+
+
 # ---------------------------------------------------------------------------
 # AST-level signature extraction
 # ---------------------------------------------------------------------------
@@ -517,8 +523,13 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
     new_classes = _java_class_map(new_meta)
     old_methods = _java_method_map(old_meta)
     new_methods = _java_method_map(new_meta)
+    old_api = _java_api_signature_map(old_meta)
+    new_api = _java_api_signature_map(new_meta)
 
     for qualified_name, cls in old_classes.items():
+        class_api = old_api.get(qualified_name)
+        if class_api is not None and class_api.visibility not in {"public", "protected"}:
+            continue
         if qualified_name not in new_classes:
             changes.append(
                 BreakingChange(
@@ -531,6 +542,9 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
             )
 
     for qualified_name, func in old_methods.items():
+        old_sig = old_api.get(qualified_name)
+        if old_sig is None or old_sig.visibility not in {"public", "protected"}:
+            continue
         if qualified_name not in new_methods:
             changes.append(
                 BreakingChange(
@@ -543,8 +557,11 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
             )
             continue
 
-        old_return_type = _extract_java_return_type(old_meta, func)
-        new_return_type = _extract_java_return_type(new_meta, new_methods[qualified_name])
+        new_sig = new_api.get(qualified_name)
+        if new_sig is None:
+            continue
+        old_return_type = old_sig.return_type
+        new_return_type = new_sig.return_type
         if (
             old_return_type is not None
             and new_return_type is not None
@@ -569,9 +586,13 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
 def _collect_deleted_java_symbols(old_source: str, file_path: str) -> list[BreakingChange]:
     """Collect breaking removals from a deleted Java file."""
     meta = annotate_java(old_source, file_path)
+    api_map = _java_api_signature_map(meta)
     changes: list[BreakingChange] = []
 
     for qualified_name, cls in _java_class_map(meta).items():
+        class_api = api_map.get(qualified_name)
+        if class_api is not None and class_api.visibility not in {"public", "protected"}:
+            continue
         changes.append(
             BreakingChange(
                 file=file_path,
@@ -582,6 +603,9 @@ def _collect_deleted_java_symbols(old_source: str, file_path: str) -> list[Break
             )
         )
     for qualified_name, func in _java_method_map(meta).items():
+        sig = api_map.get(qualified_name)
+        if sig is None or sig.visibility not in {"public", "protected"}:
+            continue
         changes.append(
             BreakingChange(
                 file=file_path,
@@ -629,6 +653,57 @@ def _extract_java_return_type(meta, func) -> str | None:
         if match:
             return match.group(1).strip()
     return None
+
+
+def _java_api_signature_map(meta) -> dict[str, _JavaApiSig]:
+    api_map: dict[str, _JavaApiSig] = {}
+    class_decl_re = re.compile(
+        r"\b(public|protected|private)?\s*(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)*"
+        r"(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+    method_decl_re = re.compile(
+        r"\b(public|protected|private)?\s*"
+        r"(?:(?:static|final|abstract|synchronized|native|default|strictfp)\s+)*"
+        r"([A-Za-z_][A-Za-z0-9_<>\[\].?,\s]*)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("
+    )
+
+    for cls in meta.classes:
+        visibility = "package"
+        for line in meta.lines[cls.line_range.start - 1 : min(len(meta.lines), cls.line_range.start + 2)]:
+            match = class_decl_re.search(" ".join(line.strip().split()))
+            if match and match.group(3) == cls.name:
+                visibility = match.group(1) or "package"
+                break
+        api_map[cls.qualified_name or cls.name] = _JavaApiSig(visibility=visibility, return_type=None)
+
+    for func in meta.functions:
+        visibility = "package"
+        return_type = _extract_java_return_type(meta, func)
+        if func.parent_class and func.name == func.parent_class:
+            constructor_re = re.compile(
+                rf"\b(public|protected|private)?\s*"
+                rf"(?:(?:static|final|abstract|synchronized|native|default|strictfp)\s+)*"
+                rf"{re.escape(func.name)}\s*\("
+            )
+            for line in meta.lines[func.line_range.start - 1 : func.line_range.end]:
+                match = constructor_re.search(" ".join(line.strip().split()))
+                if match:
+                    visibility = match.group(1) or "package"
+                    break
+            api_map[func.qualified_name] = _JavaApiSig(visibility=visibility, return_type=None)
+            continue
+
+        for line in meta.lines[func.line_range.start - 1 : func.line_range.end]:
+            normalized = " ".join(line.strip().split())
+            match = method_decl_re.search(normalized)
+            if match and match.group(3) == func.name:
+                visibility = match.group(1) or "package"
+                if match.group(2):
+                    return_type = match.group(2).strip()
+                break
+        api_map[func.qualified_name] = _JavaApiSig(visibility=visibility, return_type=return_type)
+
+    return api_map
 
 
 # ---------------------------------------------------------------------------
