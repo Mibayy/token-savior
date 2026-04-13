@@ -2052,21 +2052,17 @@ def _warm_cache_async(
                 next_tool, next_symbol = state.split(":", 1)
                 if not next_symbol or qfns is None:
                     continue
-                produce = None
-                if next_tool == "get_function_source":
-                    produce = lambda s=next_symbol: qfns["get_function_source"](s)
-                elif next_tool == "get_class_source":
-                    produce = lambda s=next_symbol: qfns["get_class_source"](s)
-                elif next_tool == "get_dependents":
-                    produce = lambda s=next_symbol: qfns["get_dependents"](s)
-                elif next_tool == "get_dependencies":
-                    produce = lambda s=next_symbol: qfns["get_dependencies"](s)
-                elif next_tool == "find_symbol":
-                    produce = lambda s=next_symbol: qfns["find_symbol"](s)
-                if produce is None:
+                _PREFETCHABLE = {
+                    "get_function_source",
+                    "get_class_source",
+                    "get_dependents",
+                    "get_dependencies",
+                    "find_symbol",
+                }
+                if next_tool not in _PREFETCHABLE:
                     continue
                 try:
-                    result = produce()
+                    result = qfns[next_tool](next_symbol)
                 except Exception:
                     continue
                 with _prefetch_lock:

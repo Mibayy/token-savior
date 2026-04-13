@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+
+# ── Private assets ─────────────────────────────
+assets/
 .mcpregistry_*
 *.pem
 *.key
