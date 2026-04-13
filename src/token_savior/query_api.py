@@ -59,6 +59,14 @@ def _graph_name_matches(candidate: str, name: str) -> bool:
     return False
 
 
+def _is_constructor_symbol(name: str) -> bool:
+    base_name, signature = _split_signature_suffix(name)
+    if not signature or "." not in base_name:
+        return False
+    owner_name, _, method_name = base_name.rpartition(".")
+    return bool(owner_name) and owner_name.rsplit(".", 1)[-1] == method_name
+
+
 def _find_matching_functions(functions, name: str) -> list:
     return [func for func in functions if _function_matches_name(func, name)]
 
@@ -926,14 +934,13 @@ class ProjectQueryEngine:
 
         # BFS
         target_names = self._get_graph_target_names(resolved_to)
-        visited = set(self._resolve_graph_candidate_names(resolved_from))
-        visited.add(resolved_from)
+        visited = {resolved_from}
         queue: deque[list[str]] = deque([[resolved_from]])
         path_names: list[str] | None = None
         while queue:
             path = queue.popleft()
             current = path[-1]
-            neighbors = self._get_aggregated_dependencies(current) or set()
+            neighbors = self._get_call_chain_neighbors(current)
             expanded_neighbors: list[tuple[str, str]] = []
             for neighbor in neighbors:
                 candidates = self._resolve_graph_candidate_names(neighbor)
@@ -1964,10 +1971,26 @@ class ProjectQueryEngine:
         return names
 
     @staticmethod
-    def _call_chain_neighbor_key(name: str) -> tuple[int, int, str]:
+    def _call_chain_neighbor_key(name: str) -> tuple[int, int, int, str]:
         is_qualified = "." in name
         is_method = "(" in name
-        return (0 if is_method else 1, 0 if is_qualified else 1, name)
+        is_constructor = _is_constructor_symbol(name)
+        return (0 if is_method else 1, 1 if is_constructor else 0, 0 if is_qualified else 1, name)
+
+    def _get_call_chain_neighbors(self, resolved_name: str) -> set[str]:
+        class_symbol = self._find_class_by_qualified_name(resolved_name)
+        if class_symbol is None:
+            return set(self._get_aggregated_dependencies(resolved_name) or set())
+
+        neighbors: set[str] = set()
+        for alias in {resolved_name, class_symbol.name}:
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                neighbors.update(deps)
+        for method in class_symbol.methods:
+            if self._has_any_graph_presence(method.qualified_name):
+                neighbors.add(method.qualified_name)
+        return neighbors
 
     def _has_any_graph_presence(self, name: str) -> bool:
         if name in self.index.global_dependency_graph or name in self.index.reverse_dependency_graph:

@@ -1138,6 +1138,13 @@ class ProjectIndexer:
         for source, targets in self._build_java_framework_entry_edges(files).items():
             global_graph.setdefault(source, set()).update(targets)
 
+        for source, targets in self._build_java_spring_wiring_edges(
+            files,
+            symbol_table,
+            java_package_symbols,
+        ).items():
+            global_graph.setdefault(source, set()).update(targets)
+
         for source, targets in self._build_java_runtime_entry_edges(files, java_hierarchy).items():
             global_graph.setdefault(source, set()).update(targets)
 
@@ -1276,6 +1283,84 @@ class ProjectIndexer:
                         edges.setdefault(source, set()).add(method.qualified_name)
         return edges
 
+    def _build_java_spring_wiring_edges(
+        self,
+        files: dict[str, StructuralMetadata],
+        symbol_table: dict[str, str],
+        java_package_symbols: dict[str, dict[str, str]],
+    ) -> dict[str, set[str]]:
+        edges: dict[str, set[str]] = {}
+        managed_classes: dict[str, tuple[object, StructuralMetadata, dict[str, str], set[str]]] = {}
+        application_main_methods: set[str] = set()
+
+        for file_path, metadata in files.items():
+            if not file_path.endswith(".java"):
+                continue
+            imported_names = self._build_java_imported_names(metadata, symbol_table, java_package_symbols)
+            for cls in metadata.classes:
+                qualified_name = getattr(cls, "qualified_name", None) or cls.name
+                decorators = self._decorator_names(getattr(cls, "decorators", []))
+                if decorators & _SPRING_CLASS_DECORATORS:
+                    managed_classes[qualified_name] = (cls, metadata, imported_names, decorators)
+                if "SpringBootApplication" not in decorators:
+                    continue
+                for method in cls.methods:
+                    if method.name == "main":
+                        application_main_methods.add(method.qualified_name)
+
+        preferred_bootstrap_targets = {
+            qualified_name
+            for qualified_name, (_, _, _, decorators) in managed_classes.items()
+            if decorators
+            & {
+                "Service",
+                "Repository",
+                "Controller",
+                "RestController",
+                "Configuration",
+                "ConfigurationProperties",
+            }
+        }
+        bootstrap_targets = preferred_bootstrap_targets or set(managed_classes)
+        for main_method in application_main_methods:
+            targets = edges.setdefault(main_method, set())
+            for qualified_name in bootstrap_targets:
+                if qualified_name != main_method.rsplit(".", 1)[0]:
+                    targets.add(qualified_name)
+
+        for qualified_name, (cls, metadata, imported_names, _) in managed_classes.items():
+            constructors = [method for method in cls.methods if method.name == cls.name]
+            autowired_ctors = [
+                method
+                for method in constructors
+                if "Autowired" in self._decorator_names(getattr(method, "decorators", []))
+            ]
+            injection_points = autowired_ctors or constructors
+            if len(constructors) > 1 and not autowired_ctors:
+                injection_points = []
+
+            for method in injection_points:
+                deps = self._resolve_java_signature_types(
+                    method.qualified_name,
+                    imported_names,
+                    symbol_table,
+                )
+                if not deps:
+                    continue
+                edges.setdefault(qualified_name, set()).update(dep for dep in deps if dep != qualified_name)
+                edges.setdefault(method.qualified_name, set()).update(
+                    dep for dep in deps if dep != method.qualified_name
+                )
+
+            for method in cls.methods:
+                if "Bean" not in self._decorator_names(getattr(method, "decorators", [])):
+                    continue
+                bean_deps = metadata.dependency_graph.get(method.qualified_name)
+                if bean_deps:
+                    edges.setdefault(qualified_name, set()).update(bean_deps)
+
+        return edges
+
     @staticmethod
     def _method_signature_key(func) -> tuple[str, int]:
         return func.name, len(getattr(func, "parameters", []))
@@ -1329,6 +1414,93 @@ class ProjectIndexer:
         if dep in all_symbols:
             resolved.add(dep)
         return resolved
+
+    @staticmethod
+    def _split_java_signature_params(signature: str) -> list[str]:
+        start = signature.find("(")
+        end = signature.rfind(")")
+        if start < 0 or end <= start:
+            return []
+        raw = signature[start + 1 : end]
+        if not raw:
+            return []
+
+        params: list[str] = []
+        current: list[str] = []
+        angle_depth = 0
+        bracket_depth = 0
+        paren_depth = 0
+        for ch in raw:
+            if ch == "<":
+                angle_depth += 1
+            elif ch == ">":
+                angle_depth = max(0, angle_depth - 1)
+            elif ch == "[":
+                bracket_depth += 1
+            elif ch == "]":
+                bracket_depth = max(0, bracket_depth - 1)
+            elif ch == "(":
+                paren_depth += 1
+            elif ch == ")":
+                paren_depth = max(0, paren_depth - 1)
+            elif ch == "," and angle_depth == 0 and bracket_depth == 0 and paren_depth == 0:
+                part = "".join(current).strip()
+                if part:
+                    params.append(part)
+                current = []
+                continue
+            current.append(ch)
+        tail = "".join(current).strip()
+        if tail:
+            params.append(tail)
+        return params
+
+    @staticmethod
+    def _extract_java_signature_type_name(type_name: str) -> str | None:
+        cleaned = type_name.replace("...", "").replace("[]", "").strip()
+        if not cleaned:
+            return None
+        result: list[str] = []
+        generic_depth = 0
+        for ch in cleaned:
+            if ch == "<":
+                generic_depth += 1
+                continue
+            if ch == ">":
+                generic_depth = max(0, generic_depth - 1)
+                continue
+            if generic_depth == 0:
+                result.append(ch)
+        base = "".join(result).strip()
+        if not base:
+            return None
+        simple = base.rsplit(".", 1)[-1]
+        if not simple or not simple[0].isupper():
+            return None
+        return base
+
+    def _resolve_java_signature_types(
+        self,
+        qualified_name: str,
+        imported_names: dict[str, str],
+        symbol_table: dict[str, str],
+    ) -> set[str]:
+        deps: set[str] = set()
+        for param in self._split_java_signature_params(qualified_name):
+            type_name = self._extract_java_signature_type_name(param)
+            if not type_name:
+                continue
+            if type_name in imported_names:
+                deps.add(imported_names[type_name])
+                continue
+            simple_name = type_name.rsplit(".", 1)[-1]
+            if simple_name in imported_names:
+                deps.add(imported_names[simple_name])
+                continue
+            if type_name in symbol_table:
+                deps.add(type_name)
+                continue
+        return deps
 
     def _build_java_imported_names(
         self,

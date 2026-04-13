@@ -469,6 +469,101 @@ class TestJavaProjectIndexer:
         dependents = idx.reverse_dependency_graph[run_symbol]
         assert "__runtime__.java.dispatch:Runnable.run" in dependents
 
+    def test_get_call_chain_reaches_node_through_spring_boot_wiring(self, tmp_path):
+        root = tmp_path / "spring-project"
+        root.mkdir()
+        _write_file(
+            root / "src/main/java/com/acme/app/TradeResearchApiApplication.java",
+            """\
+            package com.acme.app;
+
+            import org.springframework.boot.SpringApplication;
+            import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+            @SpringBootApplication
+            public final class TradeResearchApiApplication {
+                public static void main(String[] args) {
+                    SpringApplication.run(TradeResearchApiApplication.class, args);
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/LiveIngressCoordinator.java",
+            """\
+            package com.acme.app;
+
+            import org.springframework.stereotype.Service;
+
+            @Service
+            public final class LiveIngressCoordinator {
+                private final CryptoCycleGraphs graphs;
+
+                public LiveIngressCoordinator(CryptoCycleGraphs graphs) {
+                    this.graphs = graphs;
+                }
+
+                public void start() {
+                    graphs.register();
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/CryptoCycleGraphs.java",
+            """\
+            package com.acme.app;
+
+            import org.springframework.stereotype.Component;
+
+            @Component
+            public final class CryptoCycleGraphs {
+                public void register() {
+                    GraphDefinition.register(Factories::cryptoAssetAggregationFactory);
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/Factories.java",
+            """\
+            package com.acme.app;
+
+            import java.util.function.Supplier;
+
+            public final class Factories {
+                public static Supplier<CryptoAssetAggregationNode> cryptoAssetAggregationFactory() {
+                    return () -> new CryptoAssetAggregationNode();
+                }
+            }
+            """,
+        )
+        _write_file(
+            root / "src/main/java/com/acme/app/CryptoAssetAggregationNode.java",
+            """\
+            package com.acme.app;
+
+            public final class CryptoAssetAggregationNode {
+            }
+            """,
+        )
+
+        idx = ProjectIndexer(str(root)).index()
+        funcs = create_project_query_functions(idx)
+
+        result = funcs["get_call_chain"](
+            "TradeResearchApiApplication",
+            "CryptoAssetAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert "com.acme.app.TradeResearchApiApplication.main(String[])" in names
+        assert "com.acme.app.LiveIngressCoordinator.start()" in names
+        assert "com.acme.app.CryptoCycleGraphs.register()" in names
+        assert "com.acme.app.Factories.cryptoAssetAggregationFactory()" in names
+        assert names[-1] == "com.acme.app.CryptoAssetAggregationNode"
+
     def test_reports_duplicate_java_classes(self, tmp_path):
         root = tmp_path / "java-project"
         root.mkdir()

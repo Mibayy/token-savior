@@ -674,7 +674,7 @@ class TestProjectQueryFunctions:
         result = self.funcs["get_call_chain"]("Engine", "helper")
         assert "chain" in result
         names = [s.get("name", s) for s in result["chain"]]
-        assert names == ["Engine", "helper"]
+        assert names == ["Engine", "Engine.run", "helper"]
 
     def test_get_call_chain_same(self):
         result = self.funcs["get_call_chain"]("helper", "helper")
