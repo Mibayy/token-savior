@@ -99,6 +99,8 @@ class CacheManager:
                 "signature_hash": fi.signature_hash,
                 "body_hash": fi.body_hash,
                 "decorator_details": fi.decorator_details,
+                "visibility": fi.visibility,
+                "return_type": fi.return_type,
             }
 
         def _ci(ci) -> dict:
@@ -112,6 +114,7 @@ class CacheManager:
                 "body_hash": ci.body_hash,
                 "qualified_name": ci.qualified_name,
                 "decorator_details": ci.decorator_details,
+                "visibility": ci.visibility,
             }
 
         def _ii(ii) -> dict:
@@ -195,6 +198,8 @@ class CacheManager:
                 signature_hash=d.get("signature_hash", ""),
                 body_hash=d.get("body_hash", ""),
                 decorator_details=d.get("decorator_details", {}),
+                visibility=d.get("visibility"),
+                return_type=d.get("return_type"),
             )
 
         def _ci(d: dict) -> ClassInfo:
@@ -208,6 +213,7 @@ class CacheManager:
                 body_hash=d.get("body_hash", ""),
                 qualified_name=d.get("qualified_name"),
                 decorator_details=d.get("decorator_details", {}),
+                visibility=d.get("visibility"),
             )
 
         def _ii(d: dict) -> ImportInfo:

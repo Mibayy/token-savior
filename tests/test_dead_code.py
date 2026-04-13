@@ -670,7 +670,14 @@ class TestFrameworkAndDispatchHeuristics:
                 "}",
             ],
         )
-        index = _make_index({"src/main/java/com/acme/runtime/Factories.java": meta})
+        index = _make_index(
+            {"src/main/java/com/acme/runtime/Factories.java": meta},
+            reverse_dependency_graph={
+                "com.acme.runtime.Factories.sampleAggregationFactory()": {
+                    "com.acme.runtime.GraphRegistry.register()"
+                }
+            },
+        )
         result = find_dead_code(index)
         assert "sampleAggregationFactory()" not in result
 
@@ -712,7 +719,12 @@ class TestFrameworkAndDispatchHeuristics:
             {
                 "src/main/java/com/acme/runtime/Factories.java": factory_meta,
                 "src/main/java/com/acme/runtime/TradingGraphs.java": graph_meta,
-            }
+            },
+            reverse_dependency_graph={
+                "com.acme.runtime.Factories.sampleAggregationFactory()": {
+                    "com.acme.runtime.TradingGraphs.register()"
+                }
+            },
         )
         result = find_dead_code(index)
         assert "sampleAggregationFactory()" not in result

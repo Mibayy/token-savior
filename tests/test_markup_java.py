@@ -74,6 +74,13 @@ class TestJavaTypeAndMethodExtraction:
         apply = next(func for func in meta.functions if func.name == "apply")
         assert apply.qualified_name == "com.acme.pricing.PriceEngine.apply(int)"
         assert apply.parameters == ["input"]
+        assert engine.visibility == "public"
+        assert apply.visibility == "public"
+        assert apply.return_type == "int"
+
+        helper = next(func for func in meta.functions if func.name == "helper")
+        assert helper.visibility == "private"
+        assert helper.return_type == "void"
 
     def test_dependency_graph_tracks_local_and_imported_references(self):
         meta = annotate_java(SOURCE_COMPLEX, "PriceEngine.java")

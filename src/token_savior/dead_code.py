@@ -8,7 +8,6 @@ dispatch hooks, etc.).
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 
 from token_savior.models import ClassInfo, FunctionInfo, ProjectIndex
@@ -113,7 +112,6 @@ _JAVA_VALUE_CLASS_SUFFIXES = frozenset(
         "Query",
     }
 )
-_METHOD_REFERENCE_RE = re.compile(r"(?<![\w$])([A-Za-z_][\w.]*)::([A-Za-z_]\w*)")
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -197,59 +195,6 @@ def _is_java_record_class(cls: ClassInfo, file_path: str, meta) -> bool:
         return False
     declaration_text = _class_declaration_text(cls, meta)
     return " record " in f" {declaration_text} "
-
-
-def _find_enclosing_class(meta, line_number: int) -> ClassInfo | None:
-    enclosing = [
-        cls
-        for cls in meta.classes
-        if cls.line_range.start <= line_number <= cls.line_range.end
-    ]
-    if not enclosing:
-        return None
-    return min(enclosing, key=lambda cls: cls.line_range.end - cls.line_range.start)
-
-
-def _class_matches_owner_token(cls: ClassInfo, owner_token: str) -> bool:
-    qualified_name = cls.qualified_name or cls.name
-    return (
-        owner_token == cls.name
-        or owner_token == qualified_name
-        or qualified_name.endswith(f".{owner_token}")
-    )
-
-
-def _collect_method_reference_live_symbols(index: ProjectIndex) -> set[str]:
-    live_symbols: set[str] = set()
-    class_index = _class_name_index(index)
-    for _, meta in index.files.items():
-        if not meta.lines:
-            continue
-        for line_number, line in enumerate(meta.lines, start=1):
-            for owner_token, method_name in _METHOD_REFERENCE_RE.findall(line):
-                if owner_token in {"this", "super"}:
-                    matching_classes: list[ClassInfo] = []
-                    enclosing_class = _find_enclosing_class(meta, line_number)
-                    if enclosing_class is not None:
-                        matching_classes.append(enclosing_class)
-                else:
-                    matching_classes = []
-                    seen_classes: set[str] = set()
-                    for candidate_classes in class_index.values():
-                        for cls in candidate_classes:
-                            qualified_name = cls.qualified_name or cls.name
-                            if qualified_name in seen_classes:
-                                continue
-                            if _class_matches_owner_token(cls, owner_token):
-                                matching_classes.append(cls)
-                                seen_classes.add(qualified_name)
-                for cls in matching_classes:
-                    qualified_name = cls.qualified_name or cls.name
-                    live_symbols.add(qualified_name)
-                    for method in cls.methods:
-                        if method.name == method_name:
-                            live_symbols.add(method.qualified_name)
-    return live_symbols
 
 
 def _class_has_java_main_method(cls: ClassInfo) -> bool:
@@ -541,9 +486,8 @@ def _collect_dead_symbols(
 ) -> list[_DeadSymbol]:
     rdg = index.reverse_dependency_graph
     dead: list[_DeadSymbol] = []
-    live_method_reference_symbols = _collect_method_reference_live_symbols(index)
     cross_project_live_symbols = _cross_project_live_symbols(index, sibling_indices)
-    pre_live_symbols = live_method_reference_symbols | cross_project_live_symbols
+    pre_live_symbols = cross_project_live_symbols
     signature_propagated_live_symbols = _collect_signature_propagated_live_symbols(
         index, pre_live_symbols
     )

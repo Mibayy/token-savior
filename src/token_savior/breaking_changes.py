@@ -678,23 +678,6 @@ def _is_local_java_symbol(name: str) -> bool:
     return "::<local>." in name
 
 
-def _extract_java_return_type(meta, func) -> str | None:
-    if func.parent_class and func.name == func.parent_class:
-        return None
-    declaration_re = re.compile(
-        rf"(?:public|protected|private|static|final|abstract|synchronized|native|default|\s)+"
-        rf"([A-Za-z_][A-Za-z0-9_<>\[\].?,\s]*)\s+{re.escape(func.name)}\s*\("
-    )
-    for line in meta.lines[func.line_range.start - 1 : func.line_range.end]:
-        if func.name not in line:
-            continue
-        normalized = " ".join(line.strip().split())
-        match = declaration_re.search(normalized)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
 def _split_java_param_types(signature: str) -> tuple[str, ...]:
     start = signature.find("(")
     end = signature.rfind(")")
@@ -751,51 +734,17 @@ def _format_java_method_signature(qualified_name: str) -> str:
 
 def _java_api_signature_map(meta) -> dict[str, _JavaApiSig]:
     api_map: dict[str, _JavaApiSig] = {}
-    class_decl_re = re.compile(
-        r"\b(public|protected|private)?\s*(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)*"
-        r"(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
-    )
-    method_decl_re = re.compile(
-        r"\b(public|protected|private)?\s*"
-        r"(?:(?:static|final|abstract|synchronized|native|default|strictfp)\s+)*"
-        r"([A-Za-z_][A-Za-z0-9_<>\[\].?,\s]*)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("
-    )
-
     for cls in meta.classes:
-        visibility = "package"
-        for line in meta.lines[cls.line_range.start - 1 : min(len(meta.lines), cls.line_range.start + 2)]:
-            match = class_decl_re.search(" ".join(line.strip().split()))
-            if match and match.group(3) == cls.name:
-                visibility = match.group(1) or "package"
-                break
-        api_map[cls.qualified_name or cls.name] = _JavaApiSig(visibility=visibility, return_type=None)
+        api_map[cls.qualified_name or cls.name] = _JavaApiSig(
+            visibility=cls.visibility or "package",
+            return_type=None,
+        )
 
     for func in meta.functions:
-        visibility = "package"
-        return_type = _extract_java_return_type(meta, func)
-        if func.parent_class and func.name == func.parent_class:
-            constructor_re = re.compile(
-                rf"\b(public|protected|private)?\s*"
-                rf"(?:(?:static|final|abstract|synchronized|native|default|strictfp)\s+)*"
-                rf"{re.escape(func.name)}\s*\("
-            )
-            for line in meta.lines[func.line_range.start - 1 : func.line_range.end]:
-                match = constructor_re.search(" ".join(line.strip().split()))
-                if match:
-                    visibility = match.group(1) or "package"
-                    break
-            api_map[func.qualified_name] = _JavaApiSig(visibility=visibility, return_type=None)
-            continue
-
-        for line in meta.lines[func.line_range.start - 1 : func.line_range.end]:
-            normalized = " ".join(line.strip().split())
-            match = method_decl_re.search(normalized)
-            if match and match.group(3) == func.name:
-                visibility = match.group(1) or "package"
-                if match.group(2):
-                    return_type = match.group(2).strip()
-                break
-        api_map[func.qualified_name] = _JavaApiSig(visibility=visibility, return_type=return_type)
+        api_map[func.qualified_name] = _JavaApiSig(
+            visibility=func.visibility or "package",
+            return_type=func.return_type,
+        )
 
     return api_map
 

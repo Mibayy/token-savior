@@ -49,6 +49,8 @@ class FunctionInfo:
     signature_hash: str = ""  # SHA-256[:16] of public signature
     body_hash: str = ""  # SHA-256[:16] of normalized body
     decorator_details: dict[str, str] = field(default_factory=dict)
+    visibility: str | None = None
+    return_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class ClassInfo:
     body_hash: str = ""  # SHA-256[:16] of full normalized class body
     qualified_name: str | None = None
     decorator_details: dict[str, str] = field(default_factory=dict)
+    visibility: str | None = None
 
 
 @dataclass(frozen=True)

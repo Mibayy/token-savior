@@ -234,6 +234,35 @@ def _extract_annotation_names(node: Node, source_bytes: bytes) -> list[str]:
     return [name for name, _ in _extract_annotations(node, source_bytes)]
 
 
+def _modifier_tokens(node: Node | None, source_bytes: bytes) -> set[str]:
+    if node is None:
+        return set()
+    text = _node_text(node, source_bytes)
+    return {
+        token
+        for token in ("public", "protected", "private", "static", "final", "abstract")
+        if re.search(rf"\b{token}\b", text)
+    }
+
+
+def _visibility_from_modifiers(node: Node | None, source_bytes: bytes) -> str:
+    modifiers = _modifier_tokens(node, source_bytes)
+    if "public" in modifiers:
+        return "public"
+    if "protected" in modifiers:
+        return "protected"
+    if "private" in modifiers:
+        return "private"
+    return "package"
+
+
+def _return_type_text(node: Node, source_bytes: bytes) -> str | None:
+    type_node = node.child_by_field_name("type")
+    if type_node is not None:
+        return _normalize_ws(_node_text(type_node, source_bytes))
+    return None
+
+
 def _declaration_metadata(
     node: Node, lines: list[str], source_bytes: bytes
 ) -> tuple[list[str], dict[str, str], int, str | None]:
@@ -386,6 +415,7 @@ def _method_info(
         raw_params = ""
     params = _extract_params(raw_params)
     param_types = _extract_param_types(raw_params)
+    modifiers = next((child for child in node.children if child.type == "modifiers"), None)
 
     decorators, decorator_details, start_line_0, docstring = _declaration_metadata(
         node, lines, source_bytes
@@ -400,6 +430,8 @@ def _method_info(
         is_method=True,
         parent_class=owner_name,
         decorator_details=decorator_details,
+        visibility=_visibility_from_modifiers(modifiers, source_bytes),
+        return_type=_return_type_text(node, source_bytes),
     )
 
 
@@ -480,6 +512,7 @@ def _extract_type_tree(
     decorators, decorator_details, start_line_0, docstring = _declaration_metadata(
         node, lines, source_bytes
     )
+    modifiers = next((child for child in node.children if child.type == "modifiers"), None)
     body_node = node.child_by_field_name("body")
     field_types_by_class[qualified_name] = _collect_field_types(body_node, source_bytes)
 
@@ -525,6 +558,7 @@ def _extract_type_tree(
         docstring=docstring,
         qualified_name=qualified_name,
         decorator_details=decorator_details,
+        visibility=_visibility_from_modifiers(modifiers, source_bytes),
     )
     return [class_info] + nested_classes, direct_methods + nested_functions
 
