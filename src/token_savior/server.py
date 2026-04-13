@@ -2281,11 +2281,16 @@ def _q_get_edit_context(qfns, args):
             for dep in dependencies:
                 dep_name = dep.get("name") if isinstance(dep, dict) else None
                 dep_type = dep.get("type") if isinstance(dep, dict) else None
-                if dep_type == "method" and dep_name and dep_name.endswith("()"):
+                if dep_name and dep_name.endswith("()"):
                     owner = dep_name.rsplit(".", 1)[0] if "." in dep_name else None
                     method_base = dep_name.rsplit(".", 1)[-1].split("(", 1)[0]
                     owner_simple = owner.rsplit(".", 1)[-1] if owner else None
-                    if owner and class_name == owner and method_base == owner_simple:
+                    if (
+                        owner
+                        and class_name == owner
+                        and method_base == owner_simple
+                        and dep_type in {None, "method"}
+                    ):
                         continue
                 filtered_dependencies.append(dep)
             dependencies = filtered_dependencies

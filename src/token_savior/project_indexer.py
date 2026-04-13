@@ -158,11 +158,16 @@ class ProjectIndexer:
         ]
         self.exclude_patterns = exclude_patterns or [
             "**/__pycache__/**",
+            ".gradle/**",
+            "**/.gradle/**",
+            ".idea/**",
+            "**/.idea/**",
             "**/node_modules/**",
             "**/.git/**",
             "**/.venv/**",
             "**/venv/**",
             "**/*.egg-info/**",
+            "target/**",
             "**/target/**",
             "**/vendor/**",
             "**/package-lock.json",
@@ -170,7 +175,9 @@ class ProjectIndexer:
             "**/composer.lock",
             # Next.js / build output dirs
             "**/.next/**",
+            "dist/**",
             "**/dist/**",
+            "build/**",
             "**/build/**",
             "**/.turbo/**",
             "**/.vercel/**",
