@@ -4,10 +4,10 @@
 
 # ⚡ Token Savior Recall
 
-> **97% token reduction** · **Persistent memory** · **75 MCP tools** · **Python 3.11+**
+> **97% token reduction** · **Persistent memory** · **78 MCP tools** · **Python 3.11+**
 
 [![Version](https://img.shields.io/badge/version-2.1.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.1.0)
-[![Tools](https://img.shields.io/badge/tools-75-green)]()
+[![Tools](https://img.shields.io/badge/tools-78-green)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Tests](https://img.shields.io/badge/tests-891%2F891-brightgreen)]()
 [![Memory](https://img.shields.io/badge/memory-SQLite%20WAL%20%2B%20FTS5-orange)]()
@@ -55,7 +55,7 @@ get_backward_slice("parse_invoice", variable="total", line=42)
 | Tokens saved | ~203M |
 | Estimated cost saved | $609+ |
 | Projects supported | 17 |
-| Tool count | **75** |
+| Tool count | **78** |
 
 > "Tokens saved" = estimated tokens the agent would have consumed navigating
 > with `cat`/`grep` versus with Token Savior Recall. Model-agnostic: the index
@@ -111,7 +111,7 @@ incremental reindex cost by **19x** on targeted edits.
 
 ---
 
-## 53 tools
+## 78 tools
 
 ### Navigation
 | Tool | What it does |
@@ -147,6 +147,7 @@ incremental reindex cost by **19x** on targeted edits.
 | `get_file_dependencies` | Files imported by a given file |
 | `get_file_dependents` | Files that import from a given file |
 | `get_symbol_cluster` | All functionally related symbols via label propagation community detection — one call instead of chaining dependency queries |
+| `get_duplicate_classes` | Find duplicate Java classes by fully qualified name, or group by simple name to surface shadowed class names across files |
 | `get_entry_points` | Score functions by likelihood of being execution entry points (routes ×3, handlers ×1.5, main ×2, zero callers) |
 
 ### Git & diffs
@@ -196,6 +197,8 @@ Supported formats: `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.properties`, `.en
 |------|-------------|
 | `find_dead_code` | Find functions/classes with zero callers (excludes entry points, tests, decorated routes) |
 | `find_hotspots` | Rank functions by complexity score (lines, branches, nesting, parameter count) |
+| `find_allocation_hotspots` | Rank Java functions by allocation-heavy ULL antipatterns such as object construction, collection creation, streams, boxing, and formatting |
+| `find_performance_hotspots` | Rank Java functions by non-allocation ULL antipatterns such as blocking, locks, synchronized sections, blocking I/O, and missing cache-line padding hints |
 | `detect_breaking_changes` | Compare current function signatures against a git ref — flags removed/renamed params, changed defaults |
 
 ### Docker
@@ -346,8 +349,9 @@ You MUST use token-savior-recall MCP tools FIRST.
 `replace_symbol_source` · `insert_near_symbol` ·
 `apply_symbol_change_and_validate` · `find_impacted_test_files`
 
-### Analysis (6)
+### Analysis (8)
 `find_hotspots` · `find_dead_code` · `detect_breaking_changes` ·
+`find_allocation_hotspots` · `find_performance_hotspots` ·
 `analyze_config` · `analyze_docker` · `run_impacted_tests`
 
 ### Project (7)
