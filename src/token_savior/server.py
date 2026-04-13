@@ -62,6 +62,8 @@ from token_savior.slot_manager import SlotManager, _ProjectSlot
 from token_savior.markov_prefetcher import PPMPrefetcher
 from token_savior.tca_engine import TCAEngine
 from token_savior.leiden_communities import LeidenCommunities
+from token_savior.linucb_injector import LinUCBInjector
+from token_savior.session_warmstart import SessionWarmStart
 from token_savior import memory_db
 
 # ---------------------------------------------------------------------------
@@ -103,6 +105,13 @@ _prefetcher = PPMPrefetcher(Path(_STATS_DIR))
 _tca_engine = TCAEngine(Path(_STATS_DIR))
 # Leiden community detector — clusters the symbol dependency graph.
 _leiden = LeidenCommunities(Path(_STATS_DIR))
+# LinUCB contextual bandit — ranks observations for injection.
+_linucb = LinUCBInjector(Path(_STATS_DIR))
+# Cross-session warm start — finds historical sessions with similar signature.
+_warm_start = SessionWarmStart(Path(_STATS_DIR))
+# Track symbols injected by memory_index so we can credit them as reward
+# when a subsequent call references them.
+_linucb_pending: dict[int, dict] = {}  # obs_id -> {features, context, injected_epoch}
 # Pre-warm cache populated by the daemon thread; key = predicted state.
 _prefetch_cache: dict[str, str] = {}
 _prefetch_lock = threading.Lock()
@@ -602,6 +611,39 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
             f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
         )
+
+    try:
+        linucb_s = _linucb.get_stats()
+        if linucb_s.get("updates", 0) > 0 or linucb_s.get("scored", 0) > 0:
+            lines.append(
+                f"LinUCB: {linucb_s['updates']} updates | "
+                f"{linucb_s['scored']} scored | "
+                f"top feature: {linucb_s['top_feature']} ({linucb_s['top_weight']:+.2f})"
+            )
+    except Exception:
+        pass
+
+    try:
+        ws_s = _warm_start.get_stats()
+        if ws_s.get("signatures", 0) > 0:
+            lines.append(
+                f"Warm Start: {ws_s['signatures']} sessions | "
+                f"avg similarity: {ws_s.get('avg_pairwise_similarity', 0.0):.0%}"
+            )
+    except Exception:
+        pass
+
+    try:
+        cs_s = memory_db.get_consistency_stats()
+        if cs_s.get("scored", 0) > 0:
+            lines.append(
+                f"Consistency: {cs_s['scored']} scored | "
+                f"{cs_s['quarantined']} quarantined | "
+                f"{cs_s['stale_suspected']} stale | "
+                f"avg validity: {cs_s['avg_validity']:.0%}"
+            )
+    except Exception:
+        pass
 
     try:
         ls = _leiden.get_stats()
@@ -1636,6 +1678,9 @@ def _mh_memory_search(args: dict) -> str:
 def _mh_memory_get(args: dict) -> str:
     ids = args["ids"]
     full = bool(args.get("full", False))
+    # LinUCB reward: if any of the requested ids was recently injected by
+    # memory_index, credit it (reward=1). That's the direct click-through.
+    _linucb_credit_reward(ids, reward=1.0)
     all_obs = memory_db.observation_get(ids)
     obs_map = {o["id"]: o for o in all_obs}
     blocks = []
@@ -1704,22 +1749,106 @@ def _mh_memory_delete(args: dict) -> str:
     return f"Observation #{args['id']} archived."
 
 
+def _linucb_credit_reward(obs_ids: list[int], reward: float = 1.0) -> None:
+    """Apply LinUCB online update for previously-injected obs ids."""
+    now = int(time.time())
+    for oid in obs_ids:
+        slot = _linucb_pending.pop(oid, None)
+        if slot is None:
+            continue
+        # Only credit if the click happened within ~30 min of injection.
+        if now - slot.get("injected_epoch", now) > 1800:
+            continue
+        try:
+            phi = slot["features"]
+            for i in range(_linucb.FEATURE_DIM):
+                for j in range(_linucb.FEATURE_DIM):
+                    _linucb.A[i][j] += phi[i] * phi[j]
+                _linucb.b[i] += reward * phi[i]
+            _linucb.updates += 1
+            if _linucb.updates % 5 == 0:
+                _linucb.save()
+        except Exception:
+            pass
+
+
+def _build_linucb_context(root: str, prompt: str = "") -> dict:
+    """Build the feature context used by the LinUCB bandit."""
+    try:
+        mode_info = memory_db.get_current_mode(root)
+    except Exception:
+        mode_info = {}
+    auto_types = frozenset(mode_info.get("auto_capture_types") or [])
+    last_tool = ""
+    if _prefetcher.call_sequence:
+        last = _prefetcher.call_sequence[-1]
+        last_tool = last.split(":", 1)[0] if ":" in last else last
+    recent_symbols: list[str] = []
+    for st in reversed(_prefetcher.call_sequence[-12:]):
+        if ":" in st:
+            _, sym = st.split(":", 1)
+            if sym and sym not in recent_symbols:
+                recent_symbols.append(sym)
+        if len(recent_symbols) >= 8:
+            break
+    # Tokens-used proxy: cap at 200k ≈ context budget.
+    tokens_used = _total_chars_returned / 4.0
+    tokens_used_pct = min(1.0, tokens_used / 200_000.0)
+    return {
+        "prompt": prompt,
+        "auto_capture_types": auto_types,
+        "last_tool": last_tool,
+        "recent_symbols": tuple(recent_symbols),
+        "tokens_used_pct": tokens_used_pct,
+        "now_epoch": int(time.time()),
+    }
+
+
 def _mh_memory_index(args: dict) -> str:
     root = _resolve_memory_project(args)
+    desired_limit = int(args.get("limit") or 10)
+    pool_limit = max(30, desired_limit * 3)
     rows = memory_db.get_recent_index(
         project_root=root,
-        limit=args.get("limit", 30),
+        limit=pool_limit,
         type_filter=args.get("type_filter"),
     )
     if not rows:
         return "No observations yet for this project."
-    lines = ["| ID | Type | Title | Imp. | Score | Age |", "|---|---|---|---|---|---|"]
-    for r in rows:
-        age = r.get("age") or "?"
-        score = f"{r.get('relevance_score', 1.0):.2f}"
-        glob = "🌐 " if r.get("is_global") else ""
-        lines.append(f"| {r['id']} | {r['type']} | {glob}{r['title']} | {r['importance']} | {score} | {age} |")
-    lines.append(f"\n{len(rows)} observations. Use `memory_get` with IDs for full details.")
+
+    ctx = _build_linucb_context(root, prompt=args.get("prompt") or "")
+    ranked = _linucb.rank_observations(rows, ctx, top_k=desired_limit)
+    if not ranked:
+        ranked = [(r, float(r.get("relevance_score", 1.0))) for r in rows[:desired_limit]]
+
+    # Track injected obs for reward attribution.
+    now = int(time.time())
+    for obs, _score in ranked:
+        oid = obs.get("id")
+        if oid is not None:
+            _linucb_pending[oid] = {
+                "features": _linucb.extract_features(obs, ctx),
+                "context": ctx,
+                "injected_epoch": now,
+                "access_count_at_inject": int(obs.get("access_count") or 0),
+            }
+
+    lines = [
+        "| ID | Type | Title | Imp. | Rel. | UCB | Age |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for obs, ucb in ranked:
+        age = obs.get("age") or "?"
+        rel = f"{obs.get('relevance_score', 1.0):.2f}"
+        glob = "🌐 " if obs.get("is_global") else ""
+        lines.append(
+            f"| {obs['id']} | {obs['type']} | {glob}{obs['title']} | "
+            f"{obs['importance']} | {rel} | {ucb:+.3f} | {age} |"
+        )
+    lines.append(
+        f"\n{len(ranked)} obs (LinUCB-ranked from {len(rows)} candidates). "
+        "Use `memory_get` with IDs for full details."
+    )
     return "\n".join(lines)
 
 
@@ -2720,6 +2849,76 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             for m in comm["members"]:
                 marker = " ← query" if m == sym else ""
                 lines.append(f"  {m}{marker}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_linucb_stats":
+            s = _linucb.get_stats()
+            lines = [
+                "LinUCB Injection Model:",
+                "  Feature weights (θ):",
+            ]
+            for i, fw in enumerate(s["feature_weights"]):
+                marker = "  ← top feature" if i == 0 else ""
+                lines.append(f"    {fw['name']:<14}: {fw['weight']:+.4f}{marker}")
+            lines.append(
+                f"  Updates: {s['updates']} | Observations scored: {s['scored']}"
+            )
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_warmstart_stats":
+            s = _warm_start.get_stats()
+            lines = [
+                "Cross-session Warm Start:",
+                f"  Signatures stored   : {s['signatures']}",
+                f"  Avg pairwise cosine : {s.get('avg_pairwise_similarity', 0.0):.3f}",
+            ]
+            by_proj = s.get("by_project") or {}
+            if by_proj:
+                lines.append("  By project:")
+                for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:5]:
+                    label = p if p != "(none)" else "(unknown)"
+                    lines.append(f"    {label} — {n}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "memory_consistency":
+            proj = arguments.get("project_root") or None
+            limit = int(arguments.get("limit") or 100)
+            dry = bool(arguments.get("dry_run") or False)
+            res = memory_db.run_consistency_check(
+                project_root=proj, limit=limit, dry_run=dry,
+            )
+            stats = memory_db.get_consistency_stats(project_root=proj)
+            tag = " [dry-run]" if dry else ""
+            lines = [
+                f"Self-consistency check{tag}:",
+                f"  Checked            : {res['checked']}",
+                f"  Failures (moved)   : {res['failed']}",
+                f"  → quarantined      : {res['quarantined']}",
+                f"  → stale_suspected  : {res['stale_suspected']}",
+                "",
+                "Aggregate:",
+                f"  Scored obs         : {stats['scored']}",
+                f"  Currently quarantined : {stats['quarantined']}",
+                f"  Currently stale       : {stats['stale_suspected']}",
+                f"  Average validity   : {stats['avg_validity']:.2%}",
+            ]
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "memory_quarantine_list":
+            proj = arguments.get("project_root") or None
+            limit = int(arguments.get("limit") or 50)
+            rows = memory_db.list_quarantined_observations(
+                project_root=proj, limit=limit,
+            )
+            if not rows:
+                return [TextContent(type="text", text="No quarantined observations.")]
+            lines = [f"⚠️  Quarantined observations ({len(rows)}):"]
+            for r in rows:
+                sym = f" [{r['symbol']}]" if r.get("symbol") else ""
+                lines.append(
+                    f"  #{r['id']}  [{r['type']}]  {r['title']}{sym}  "
+                    f"validity={r['validity']:.0%}  {r['age']}"
+                )
             return [TextContent(type="text", text="\n".join(lines))]
 
         if name == "get_leiden_stats":

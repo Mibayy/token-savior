@@ -283,6 +283,45 @@ def cmd_distill(args) -> int:
     return 0
 
 
+def cmd_consistency(args) -> int:
+    project = _resolve_project(args.project) if args.project else None
+    res = memory_db.run_consistency_check(
+        project_root=project, limit=args.limit, dry_run=args.dry_run,
+    )
+    stats = memory_db.get_consistency_stats(project_root=project)
+    tag = " (dry run)" if args.dry_run else ""
+    print(f"Self-consistency check{tag}:")
+    print(f"  Checked            : {res['checked']}")
+    print(f"  Failures (moved)   : {res['failed']}")
+    print(f"  → quarantined      : {res['quarantined']}")
+    print(f"  → stale_suspected  : {res['stale_suspected']}")
+    print()
+    print("Aggregate:")
+    print(f"  Scored obs         : {stats['scored']}")
+    print(f"  Currently quarantined : {stats['quarantined']}")
+    print(f"  Currently stale       : {stats['stale_suspected']}")
+    print(f"  Average validity   : {stats['avg_validity']:.2%}")
+    return 0
+
+
+def cmd_quarantine(args) -> int:
+    project = _resolve_project(args.project) if args.project else None
+    rows = memory_db.list_quarantined_observations(
+        project_root=project, limit=args.limit,
+    )
+    if not rows:
+        print("No quarantined observations.")
+        return 0
+    print(f"Quarantined observations ({len(rows)}):")
+    for r in rows:
+        sym = f" [{r['symbol']}]" if r.get("symbol") else ""
+        print(
+            f"  #{r['id']}  [{r['type']}]  {r['title']}{sym}  "
+            f"validity={r['validity']:.0%}  {r['age']}"
+        )
+    return 0
+
+
 def cmd_relink(args) -> int:
     project = _resolve_project(args.project)
     if not project:
@@ -493,6 +532,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, default=20)
     s.add_argument("--sort", choices=["score", "access_count", "age"], default="score")
     s.set_defaults(func=cmd_top)
+
+    s = msub.add_parser("consistency", help="Bayesian self-consistency check")
+    s.add_argument("--project")
+    s.add_argument("--limit", type=int, default=100)
+    s.add_argument("--dry-run", action="store_true", dest="dry_run")
+    s.set_defaults(func=cmd_consistency)
+
+    s = msub.add_parser("quarantine", help="List quarantined observations")
+    s.add_argument("--project")
+    s.add_argument("--limit", type=int, default=50)
+    s.set_defaults(func=cmd_quarantine)
 
     return p
 

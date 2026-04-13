@@ -91,6 +91,22 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
         "  PRIMARY KEY (context_type, level)"
         ")"
     )
+    # v2.3 Prompt3 Step C: self-consistency — Beta-Binomial validity per obs.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS consistency_scores ("
+        "  obs_id INTEGER PRIMARY KEY,"
+        "  validity_alpha REAL NOT NULL DEFAULT 2.0,"
+        "  validity_beta REAL NOT NULL DEFAULT 1.0,"
+        "  last_checked_epoch INTEGER,"
+        "  stale_suspected INTEGER NOT NULL DEFAULT 0,"
+        "  quarantine INTEGER NOT NULL DEFAULT 0,"
+        "  FOREIGN KEY(obs_id) REFERENCES observations(id) ON DELETE CASCADE"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consistency_quarantine "
+        "ON consistency_scores(quarantine)"
+    )
     conn.commit()
 
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
@@ -194,6 +210,230 @@ def compute_continuity_score(project_root: str) -> dict:
         print(f"[token-savior:memory] compute_continuity_score error: {exc}", file=sys.stderr)
         return {"score": 0, "valid": 0, "total": 0, "recent": 0,
                 "potentially_stale": 0, "label": "Error"}
+
+
+# ---------------------------------------------------------------------------
+# Self-consistency (Bayesian validity) — Step C
+# ---------------------------------------------------------------------------
+
+#: Validity below this threshold quarantines the observation.
+CONSISTENCY_QUARANTINE_THRESHOLD = 0.40
+#: Validity below this threshold flags the observation as stale-suspected (⚠️).
+CONSISTENCY_STALE_THRESHOLD = 0.60
+
+
+def get_validity_score(obs_id: int) -> dict:
+    """Return current Bayesian validity for an observation.
+
+    Validity = α / (α + β). New observations default to (α=2.0, β=1.0) which
+    biases the prior toward "valid" — only repeated negative checks flip it.
+    """
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT validity_alpha, validity_beta, last_checked_epoch, "
+            "stale_suspected, quarantine FROM consistency_scores WHERE obs_id=?",
+            [obs_id],
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] get_validity_score error: {exc}", file=sys.stderr)
+        return {"obs_id": obs_id, "validity": 1.0, "alpha": 2.0, "beta": 1.0,
+                "last_checked_epoch": None, "stale_suspected": False,
+                "quarantine": False, "exists": False}
+    if row is None:
+        return {"obs_id": obs_id, "validity": 2.0 / 3.0, "alpha": 2.0, "beta": 1.0,
+                "last_checked_epoch": None, "stale_suspected": False,
+                "quarantine": False, "exists": False}
+    a, b = row["validity_alpha"], row["validity_beta"]
+    return {
+        "obs_id": obs_id,
+        "validity": a / (a + b) if (a + b) > 0 else 1.0,
+        "alpha": a, "beta": b,
+        "last_checked_epoch": row["last_checked_epoch"],
+        "stale_suspected": bool(row["stale_suspected"]),
+        "quarantine": bool(row["quarantine"]),
+        "exists": True,
+    }
+
+
+def update_consistency_score(obs_id: int, success: bool) -> dict:
+    """Record one Bayesian check outcome — bumps α on success, β on failure.
+
+    Recomputes ``stale_suspected`` and ``quarantine`` flags from the new
+    posterior validity. Returns the updated record.
+    """
+    try:
+        conn = get_db()
+        now = int(time.time())
+        row = conn.execute(
+            "SELECT validity_alpha, validity_beta FROM consistency_scores WHERE obs_id=?",
+            [obs_id],
+        ).fetchone()
+        if row is None:
+            alpha, beta = 2.0, 1.0
+        else:
+            alpha, beta = row["validity_alpha"], row["validity_beta"]
+        if success:
+            alpha += 1.0
+        else:
+            beta += 1.0
+        validity = alpha / (alpha + beta)
+        quarantine = 1 if validity < CONSISTENCY_QUARANTINE_THRESHOLD else 0
+        stale = 1 if (not quarantine and validity < CONSISTENCY_STALE_THRESHOLD) else 0
+        conn.execute(
+            "INSERT INTO consistency_scores "
+            "(obs_id, validity_alpha, validity_beta, last_checked_epoch, "
+            "stale_suspected, quarantine) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(obs_id) DO UPDATE SET "
+            "validity_alpha=excluded.validity_alpha, "
+            "validity_beta=excluded.validity_beta, "
+            "last_checked_epoch=excluded.last_checked_epoch, "
+            "stale_suspected=excluded.stale_suspected, "
+            "quarantine=excluded.quarantine",
+            [obs_id, alpha, beta, now, stale, quarantine],
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] update_consistency_score error: {exc}", file=sys.stderr)
+        return {"obs_id": obs_id, "validity": 0.0, "alpha": 0.0, "beta": 0.0,
+                "stale_suspected": False, "quarantine": False}
+    return {
+        "obs_id": obs_id, "validity": validity, "alpha": alpha, "beta": beta,
+        "stale_suspected": bool(stale), "quarantine": bool(quarantine),
+    }
+
+
+def run_consistency_check(
+    project_root: str | None = None,
+    *,
+    limit: int = 100,
+    dry_run: bool = False,
+) -> dict:
+    """Sweep symbol-linked observations and update Bayesian validity.
+
+    Failure = ``check_symbol_staleness`` says the symbol moved after the obs
+    was created. We pick the ``limit`` candidates with the oldest
+    ``last_checked_epoch`` (NULL first) so freshly-added obs get vetted.
+    """
+    try:
+        conn = get_db()
+        params: list = []
+        sql = (
+            "SELECT o.id, o.project_root, o.symbol, o.created_at_epoch "
+            "FROM observations AS o "
+            "LEFT JOIN consistency_scores AS c ON c.obs_id = o.id "
+            "WHERE o.archived = 0 AND o.symbol IS NOT NULL AND o.symbol != '' "
+        )
+        if project_root:
+            sql += "AND o.project_root = ? "
+            params.append(project_root)
+        sql += "ORDER BY (c.last_checked_epoch IS NULL) DESC, c.last_checked_epoch ASC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] run_consistency_check error: {exc}", file=sys.stderr)
+        return {"checked": 0, "failed": 0, "quarantined": 0, "stale_suspected": 0}
+
+    checked = 0
+    failed = 0
+    quarantined_now = 0
+    stale_now = 0
+    for r in rows:
+        moved = check_symbol_staleness(r["project_root"], r["symbol"], r["created_at_epoch"] or 0)
+        success = not moved
+        checked += 1
+        if not success:
+            failed += 1
+        if dry_run:
+            continue
+        res = update_consistency_score(r["id"], success)
+        if res.get("quarantine"):
+            quarantined_now += 1
+        elif res.get("stale_suspected"):
+            stale_now += 1
+
+    return {
+        "checked": checked,
+        "failed": failed,
+        "quarantined": quarantined_now,
+        "stale_suspected": stale_now,
+        "dry_run": dry_run,
+    }
+
+
+def get_consistency_stats(project_root: str | None = None) -> dict:
+    """Aggregate quarantine / stale counts across observations."""
+    try:
+        conn = get_db()
+        params: list = []
+        join = (
+            "FROM consistency_scores AS c "
+            "JOIN observations AS o ON o.id = c.obs_id "
+            "WHERE o.archived = 0 "
+        )
+        if project_root:
+            join += "AND o.project_root = ? "
+            params.append(project_root)
+        scored = conn.execute("SELECT COUNT(*) " + join, params).fetchone()[0]
+        quarantined = conn.execute(
+            "SELECT COUNT(*) " + join + "AND c.quarantine = 1", params,
+        ).fetchone()[0]
+        stale = conn.execute(
+            "SELECT COUNT(*) " + join + "AND c.stale_suspected = 1", params,
+        ).fetchone()[0]
+        avg_row = conn.execute(
+            "SELECT AVG(c.validity_alpha / (c.validity_alpha + c.validity_beta)) " + join,
+            params,
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] get_consistency_stats error: {exc}", file=sys.stderr)
+        return {"scored": 0, "quarantined": 0, "stale_suspected": 0, "avg_validity": 0.0}
+    avg = float(avg_row[0]) if avg_row and avg_row[0] is not None else 0.0
+    return {
+        "scored": scored,
+        "quarantined": quarantined,
+        "stale_suspected": stale,
+        "avg_validity": avg,
+    }
+
+
+def list_quarantined_observations(
+    project_root: str | None = None, *, limit: int = 50,
+) -> list[dict]:
+    """List quarantined observations with their validity score."""
+    try:
+        conn = get_db()
+        params: list = []
+        sql = (
+            "SELECT o.id, o.type, o.title, o.symbol, o.project_root, "
+            "  o.created_at_epoch, c.validity_alpha, c.validity_beta, "
+            "  c.last_checked_epoch "
+            "FROM consistency_scores AS c "
+            "JOIN observations AS o ON o.id = c.obs_id "
+            "WHERE c.quarantine = 1 AND o.archived = 0 "
+        )
+        if project_root:
+            sql += "AND o.project_root = ? "
+            params.append(project_root)
+        sql += "ORDER BY (c.validity_alpha / (c.validity_alpha + c.validity_beta)) ASC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] list_quarantined_observations error: {exc}", file=sys.stderr)
+        return []
+    out = []
+    for r in rows:
+        a, b = r["validity_alpha"], r["validity_beta"]
+        d = dict(r)
+        d["validity"] = a / (a + b) if (a + b) > 0 else 0.0
+        d["age"] = relative_age(r["created_at_epoch"])
+        out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1106,21 +1346,33 @@ def observation_search(
     *,
     type_filter: str | None = None,
     limit: int = 20,
+    include_quarantine: bool = False,
 ) -> list[dict]:
-    """FTS5 search across observations. Returns compact index dicts."""
+    """FTS5 search across observations. Returns compact index dicts.
+
+    Quarantined observations (Bayesian validity < 40%) are filtered out by
+    default; pass ``include_quarantine=True`` to see them. Stale-suspected
+    obs are returned but flagged via the ``stale_suspected`` key — callers
+    can prepend ⚠️ to the title in formatted output.
+    """
     try:
         conn = get_db()
         params: list = []
         sql = (
             "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
             "  snippet(observations_fts, 1, '»', '«', '...', 40) AS excerpt, "
-            "  o.created_at, o.created_at_epoch, o.is_global, o.agent_id "
+            "  o.created_at, o.created_at_epoch, o.is_global, o.agent_id, "
+            "  c.quarantine, c.stale_suspected "
             "FROM observations_fts AS f "
             "JOIN observations AS o ON o.id = f.rowid "
+            "LEFT JOIN consistency_scores AS c ON c.obs_id = o.id "
             "WHERE observations_fts MATCH ? AND o.archived = 0 "
             "  AND (o.project_root = ? OR o.is_global = 1) "
         )
         params.extend([query, project_root])
+
+        if not include_quarantine:
+            sql += "AND (c.quarantine IS NULL OR c.quarantine = 0) "
 
         if type_filter:
             sql += "AND o.type = ? "
@@ -1133,6 +1385,8 @@ def observation_search(
         result = [dict(r) for r in rows]
         for r in result:
             r["age"] = relative_age(r.get("created_at_epoch"))
+            r["stale_suspected"] = bool(r.get("stale_suspected"))
+            r["quarantine"] = bool(r.get("quarantine"))
         conn.close()
 
         if result:
@@ -1463,12 +1717,18 @@ def get_recent_index(
     limit: int = 30,
     type_filter: str | list | None = None,
     mode: str | None = None,
+    include_quarantine: bool = False,
 ) -> list[dict]:
-    """Layer 1: compact index for SessionStart injection, ordered by LRU score."""
+    """Layer 1: compact index for SessionStart injection, ordered by LRU score.
+
+    Quarantined observations are filtered out by default; stale-suspected
+    ones are annotated (``stale_suspected`` key) so the caller can prefix
+    ⚠️ in the rendered index.
+    """
     try:
         conn = get_db()
         _ensure_memory_cache(conn)
-        cache_key = f"{project_root}:{mode or 'default'}"
+        cache_key = f"{project_root}:{mode or 'default'}:{int(bool(include_quarantine))}"
         ttl = 3600
 
         cached = conn.execute(
@@ -1485,30 +1745,38 @@ def get_recent_index(
             except Exception:
                 cached_ids = None
 
-        where = "archived=0 AND (project_root=? OR is_global=1)"
+        where = "o.archived=0 AND (o.project_root=? OR o.is_global=1)"
         params: list = [project_root]
         if type_filter:
             if isinstance(type_filter, str):
-                where += " AND type=?"
+                where += " AND o.type=?"
                 params.append(type_filter)
             else:
                 types = list(type_filter)
                 if "guardrail" not in types:
                     types.append("guardrail")
                 placeholders = ",".join("?" * len(types))
-                where += f" AND type IN ({placeholders})"
+                where += f" AND o.type IN ({placeholders})"
                 params.extend(types)
 
+        if not include_quarantine:
+            where += " AND (c.quarantine IS NULL OR c.quarantine = 0)"
+
         rows = conn.execute(
-            f"SELECT id, type, title, symbol, importance, relevance_score, "
-            f"is_global, created_at, created_at_epoch, access_count, expires_at_epoch, "
-            f"agent_id "
-            f"FROM observations WHERE {where}",
+            f"SELECT o.id, o.type, o.title, o.symbol, o.importance, o.relevance_score, "
+            f"o.is_global, o.created_at, o.created_at_epoch, o.access_count, "
+            f"o.expires_at_epoch, o.agent_id, "
+            f"c.stale_suspected AS stale_suspected, c.quarantine AS quarantine "
+            f"FROM observations AS o "
+            f"LEFT JOIN consistency_scores AS c ON c.obs_id = o.id "
+            f"WHERE {where}",
             params,
         ).fetchall()
         all_obs = [dict(r) for r in rows]
         for r in all_obs:
             r["score"] = cached_scores.get(str(r["id"])) or compute_obs_score(r)
+            r["stale_suspected"] = bool(r.get("stale_suspected"))
+            r["quarantine"] = bool(r.get("quarantine"))
 
         if cached_ids:
             order = {oid: i for i, oid in enumerate(cached_ids)}
