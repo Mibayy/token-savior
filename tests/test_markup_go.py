@@ -348,3 +348,98 @@ class TestGoEdgeCases:
         meta = annotate_go(src)
         assert len(meta.functions) == 1
         assert meta.functions[0].name == "query"
+
+
+class TestGoDependencyGraph:
+    """Tests for intra-file dependency graph construction."""
+
+    def test_empty_dependency_graph_for_independent_functions(self):
+        src = (
+            "func foo() int {\n"
+            "\treturn 1\n"
+            "}\n"
+            "\n"
+            "func bar() int {\n"
+            "\treturn 2\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        assert "foo" in meta.dependency_graph
+        assert "bar" in meta.dependency_graph
+        assert meta.dependency_graph["foo"] == []
+        assert meta.dependency_graph["bar"] == []
+
+    def test_function_calling_another_function(self):
+        src = (
+            "func helper() int {\n"
+            "\treturn 42\n"
+            "}\n"
+            "\n"
+            "func main() {\n"
+            "\tv := helper()\n"
+            "\t_ = v\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        assert "helper" in meta.dependency_graph["main"]
+        assert "main" not in meta.dependency_graph["helper"]
+
+    def test_method_calling_sibling_method(self):
+        src = (
+            "type Service struct{}\n"
+            "\n"
+            "func (s *Service) init() {}\n"
+            "\n"
+            "func (s *Service) Start() {\n"
+            "\ts.init()\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        # init is referenced inside Start body
+        assert "init" in meta.dependency_graph["Start"]
+
+    def test_go_keywords_excluded_from_deps(self):
+        src = (
+            "func process() {\n"
+            "\tfor i := range []int{} {\n"
+            "\t\tif i > 0 {\n"
+            "\t\t\treturn\n"
+            "\t\t}\n"
+            "\t}\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        deps = meta.dependency_graph.get("process", [])
+        for kw in ("for", "range", "if", "return"):
+            assert kw not in deps
+
+    def test_struct_referencing_other_struct(self):
+        src = (
+            "type Config struct {\n"
+            "\tTimeout int\n"
+            "}\n"
+            "\n"
+            "type Server struct {\n"
+            "\tcfg Config\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        assert "Config" in meta.dependency_graph["Server"]
+
+    def test_dependency_graph_keys_match_defined_symbols(self):
+        src = (
+            "func alpha() {}\n"
+            "func beta() { alpha() }\n"
+            "type Gamma struct{}\n"
+        )
+        meta = annotate_go(src)
+        assert set(meta.dependency_graph.keys()) >= {"alpha", "beta", "Gamma"}
+
+    def test_no_self_dependency(self):
+        src = (
+            "func recursive() {\n"
+            "\trecursive()\n"
+            "}\n"
+        )
+        meta = annotate_go(src)
+        assert "recursive" not in meta.dependency_graph["recursive"]
