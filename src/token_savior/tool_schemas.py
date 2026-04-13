@@ -8,24 +8,12 @@ from __future__ import annotations
 
 # Shared project parameter injected into multi-project tools
 _PROJECT_PARAM = {
-    "project": {
-        "type": "string",
-        "description": (
-            "Optional project name or path to target a specific project. "
-            "Omit to use the active project."
-        ),
-    }
+    "project": {"type": "string", "description": "Project name/path (default: active)."}
 }
 
 # TCS — compressed output toggle for structural listing tools
 _COMPRESS_PARAM = {
-    "compress": {
-        "type": "boolean",
-        "description": (
-            "Compact each row using @F/@S/@L/@T/@P tokens (default true). "
-            "Set false to get full JSON."
-        ),
-    }
+    "compress": {"type": "boolean", "description": "Compact rows (default true)."}
 }
 
 TOOL_SCHEMAS: dict[str, dict] = {
@@ -53,66 +41,37 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "get_changed_symbols": {
-        "description": "Return a compact symbol-oriented summary of changes. Without ref: worktree vs HEAD. With ref: HEAD vs that ref (e.g. 'HEAD~3', branch name).",
+        "description": "Symbol-level summary of changes (worktree, or HEAD vs ref).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "ref": {
-                    "type": "string",
-                    "description": "Git ref to compare against (e.g. 'HEAD~3', 'main'). Omit for current worktree changes.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum changed files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
+                "ref": {"type": "string", "description": "Compare base (omit=worktree)."},
+                "max_files": {"type": "integer", "description": "Default 20."},
+                "max_symbols_per_file": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
         },
     },
     "summarize_patch_by_symbol": {
-        "description": "Summarize a set of changed files as symbol-level entries for compact review instead of textual diffs.",
+        "description": "Symbol-level summary of changed files (compact review vs diff).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed files to summarize. Omit to summarize indexed files currently passed in by caller logic.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
+                "changed_files": {"type": "array", "items": {"type": "string"}},
+                "max_files": {"type": "integer", "description": "Default 20."},
+                "max_symbols_per_file": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
         },
     },
     "build_commit_summary": {
-        "description": "Build a compact commit/review summary from changed files using symbol-level structure instead of textual diffs.",
+        "description": "Symbol-level commit/review summary (vs textual diffs).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed files to summarize.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum files to report (default 20).",
-                },
-                "max_symbols_per_file": {
-                    "type": "integer",
-                    "description": "Maximum symbols to report per file (default 20).",
-                },
+                "changed_files": {"type": "array", "items": {"type": "string"}},
+                "max_files": {"type": "integer", "description": "Default 20."},
+                "max_symbols_per_file": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
             "required": ["changed_files"],
@@ -221,26 +180,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "insert_near_symbol": {
-        "description": "Insert content immediately before or after an indexed symbol, avoiding a file-wide edit payload.",
+        "description": "Insert content before/after an indexed symbol.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Function, method, class, or section name near which to insert.",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Content to insert.",
-                },
-                "position": {
-                    "type": "string",
-                    "description": "Insertion position: 'before' or 'after' (default 'after').",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate symbols.",
-                },
+                "symbol_name": {"type": "string"},
+                "content": {"type": "string"},
+                "position": {"type": "string", "description": "'before' or 'after' (default after)."},
+                "file_path": {"type": "string"},
                 **_PROJECT_PARAM,
             },
             "required": ["symbol_name", "content"],
@@ -252,20 +199,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "changed_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed project files to map to likely impacted tests.",
-                },
-                "symbol_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Changed symbols to map to likely impacted tests.",
-                },
-                "max_tests": {
-                    "type": "integer",
-                    "description": "Maximum impacted test files to return (default 20).",
-                },
+                "changed_files": {"type": "array", "items": {"type": "string"}},
+                "symbol_names": {"type": "array", "items": {"type": "string"}},
+                "max_tests": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
         },
@@ -275,13 +211,13 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "changed_files": {"type": "array", "items": {"type": "string"}, "description": "Changed files"},
-                "symbol_names": {"type": "array", "items": {"type": "string"}, "description": "Changed symbols"},
-                "max_tests": {"type": "integer", "description": "Max test files"},
-                "timeout_sec": {"type": "integer", "description": "Timeout seconds"},
-                "max_output_chars": {"type": "integer", "description": "Max output chars"},
-                "include_output": {"type": "boolean", "description": "Include raw output"},
-                "compact": {"type": "boolean", "description": "Compact result"},
+                "changed_files": {"type": "array", "items": {"type": "string"}},
+                "symbol_names": {"type": "array", "items": {"type": "string"}},
+                "max_tests": {"type": "integer"},
+                "timeout_sec": {"type": "integer"},
+                "max_output_chars": {"type": "integer"},
+                "include_output": {"type": "boolean"},
+                "compact": {"type": "boolean"},
                 **_PROJECT_PARAM,
             },
         },
@@ -291,15 +227,15 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "symbol_name": {"type": "string", "description": "Symbol to replace"},
-                "new_source": {"type": "string", "description": "Replacement source"},
-                "file_path": {"type": "string", "description": "Optional file path"},
-                "rollback_on_failure": {"type": "boolean", "description": "Auto-restore on fail"},
-                "max_tests": {"type": "integer", "description": "Max test files"},
-                "timeout_sec": {"type": "integer", "description": "Timeout seconds"},
-                "max_output_chars": {"type": "integer", "description": "Max output chars"},
-                "include_output": {"type": "boolean", "description": "Include raw output"},
-                "compact": {"type": "boolean", "description": "Compact result"},
+                "symbol_name": {"type": "string"},
+                "new_source": {"type": "string"},
+                "file_path": {"type": "string"},
+                "rollback_on_failure": {"type": "boolean"},
+                "max_tests": {"type": "integer"},
+                "timeout_sec": {"type": "integer"},
+                "max_output_chars": {"type": "integer"},
+                "include_output": {"type": "boolean"},
+                "compact": {"type": "boolean"},
                 **_PROJECT_PARAM,
             },
             "required": ["symbol_name", "new_source"],
@@ -311,26 +247,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "run_project_action": {
-        "description": "Run a previously discovered project action by id with bounded output and timeout.",
+        "description": "Run a discovered project action by id (bounded output/timeout).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "action_id": {
-                    "type": "string",
-                    "description": "Action id returned by discover_project_actions (e.g. 'python:test', 'npm:test').",
-                },
-                "timeout_sec": {
-                    "type": "integer",
-                    "description": "Maximum runtime in seconds (default 120).",
-                },
-                "max_output_chars": {
-                    "type": "integer",
-                    "description": "Maximum stdout/stderr characters to keep (default 12000).",
-                },
-                "include_output": {
-                    "type": "boolean",
-                    "description": "Include bounded raw stdout/stderr in the response. Default false for token efficiency.",
-                },
+                "action_id": {"type": "string", "description": "e.g. 'python:test', 'npm:test'."},
+                "timeout_sec": {"type": "integer", "description": "Default 120."},
+                "max_output_chars": {"type": "integer", "description": "Default 12000."},
+                "include_output": {"type": "boolean"},
                 **_PROJECT_PARAM,
             },
             "required": ["action_id"],
@@ -372,117 +296,68 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_function_source": {
-        "description": "Get the source of a function or method by name. Use `level` to trade detail for tokens (L0 full, L1 signature+doc, L2 semantic summary, L3 one-liner).",
+        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Function or method name (e.g. 'my_func' or 'MyClass.my_method').",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to narrow the search.",
-                },
-                "max_lines": {
-                    "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0). Only applies at level=0.",
-                },
-                "level": {
-                    "type": "integer",
-                    "description": "Abstraction level: 0=full source, 1=signature+doc, 2=semantic summary, 3=one-liner. Default 0.",
-                    "minimum": 0,
-                    "maximum": 3,
-                },
-                "force_full": {
-                    "type": "boolean",
-                    "description": "Bypass the session symbol cache and always return the full body at the requested level. Default false.",
-                },
+                "name": {"type": "string", "description": "Function or method (e.g. 'MyClass.method')."},
+                "file_path": {"type": "string"},
+                "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
+                "level": {"type": "integer", "minimum": 0, "maximum": 3},
+                "force_full": {"type": "boolean", "description": "Bypass symbol cache."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
     },
     "get_class_source": {
-        "description": "Get the source of a class by name. Use `level` to trade detail for tokens (L0 full, L1 signature+doc, L2 semantic summary, L3 one-liner).",
+        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Class name.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to narrow the search.",
-                },
-                "max_lines": {
-                    "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0). Only applies at level=0.",
-                },
-                "level": {
-                    "type": "integer",
-                    "description": "Abstraction level: 0=full source, 1=signature+doc, 2=semantic summary, 3=one-liner. Default 0.",
-                    "minimum": 0,
-                    "maximum": 3,
-                },
-                "force_full": {
-                    "type": "boolean",
-                    "description": "Bypass the session symbol cache and always return the full body at the requested level. Default false.",
-                },
+                "name": {"type": "string"},
+                "file_path": {"type": "string"},
+                "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
+                "level": {"type": "integer", "minimum": 0, "maximum": 3},
+                "force_full": {"type": "boolean", "description": "Bypass symbol cache."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
     },
     "get_functions": {
-        "description": "List all functions (with name, lines, params, file). Filter to a specific file or get all project functions.",
+        "description": "List functions (name, lines, params, file).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project functions.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
+                "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
+                "max_results": {"type": "integer", "description": "0=unlimited."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
     },
     "get_classes": {
-        "description": "List all classes (with name, lines, methods, bases, file). Filter to a specific file or get all project classes.",
+        "description": "List classes (name, lines, methods, bases, file).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project classes.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
+                "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
+                "max_results": {"type": "integer", "description": "0=unlimited."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
     },
     "get_imports": {
-        "description": "List all imports (with module, names, line). Filter to a specific file or get all project imports.",
+        "description": "List imports (module, names, line).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Relative path to filter to a single file. Omit for all project imports.",
-                },
+                "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
+                    "description": "0=unlimited.",
                 },
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -490,14 +365,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "find_symbol": {
-        "description": "Find where a symbol (function, method, class) is defined. Returns file path, line range, type, signature, and a source preview (~20 lines).",
+        "description": "Locate a symbol (file, line, signature, preview).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to find (e.g. 'ProjectIndexer', 'annotate', 'MyClass.run').",
-                },
+                "name": {"type": "string"},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
@@ -505,18 +377,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_dependencies": {
-        "description": "What does this symbol call/use? Returns list of symbols referenced by the named function or class.",
+        "description": "Symbols called/used by this symbol.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to query.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
+                "name": {"type": "string"},
+                "max_results": {"type": "integer", "description": "0=unlimited."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
@@ -524,22 +390,13 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_dependents": {
-        "description": "What calls/uses this symbol? Returns list of symbols that reference the named function or class.",
+        "description": "Symbols that reference this function/class.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to query.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (0 = unlimited, default 0).",
-                },
-                "max_total_chars": {
-                    "type": "integer",
-                    "description": "Maximum total characters in the response (default 50000, 0 = unlimited).",
-                },
+                "name": {"type": "string"},
+                "max_results": {"type": "integer", "description": "0=all."},
+                "max_total_chars": {"type": "integer", "description": "Default 50000."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
@@ -547,26 +404,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_change_impact": {
-        "description": "Analyze the impact of changing a symbol. Returns direct and transitive dependents, each scored with a confidence value (1.0 = direct caller, 0.6 = 2 hops, etc.) and depth.",
+        "description": "Impact of changing a symbol: direct + transitive dependents with confidence/depth.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to analyze.",
-                },
-                "max_direct": {
-                    "type": "integer",
-                    "description": "Maximum number of direct dependents to return (0 = unlimited, default 0).",
-                },
-                "max_transitive": {
-                    "type": "integer",
-                    "description": "Maximum number of transitive dependents to return (0 = unlimited, default 0).",
-                },
-                "max_total_chars": {
-                    "type": "integer",
-                    "description": "Maximum total characters in the response (default 50000, 0 = unlimited).",
-                },
+                "name": {"type": "string"},
+                "max_direct": {"type": "integer", "description": "0=all."},
+                "max_transitive": {"type": "integer", "description": "0=all."},
+                "max_total_chars": {"type": "integer", "description": "Default 50000."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -591,26 +436,13 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_edit_context": {
-        "description": (
-            "All-in-one context for editing a symbol. Returns the symbol source, "
-            "its direct dependencies (what it calls), and its callers (who uses it) "
-            "in a single response. Saves 3 separate tool calls."
-        ),
+        "description": "Symbol source + direct deps + callers in one call.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name to get full edit context for.",
-                },
-                "max_deps": {
-                    "type": "integer",
-                    "description": "Max dependencies to return (default 10).",
-                },
-                "max_callers": {
-                    "type": "integer",
-                    "description": "Max callers to return (default 10).",
-                },
+                "name": {"type": "string"},
+                "max_deps": {"type": "integer", "description": "Default 10."},
+                "max_callers": {"type": "integer", "description": "Default 10."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -694,22 +526,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Feature discovery ─────────────────────────────────────────────────
     "get_feature_files": {
-        "description": (
-            "Find all files related to a feature keyword, then trace imports to build the "
-            "complete feature map. Example: get_feature_files('contrat') returns all routes, "
-            "components, lib, types connected to contracts. Each file is classified by role."
-        ),
+        "description": "Files matching a feature keyword + traced imports, classified by role.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "keyword": {
-                    "type": "string",
-                    "description": "Feature keyword (e.g. 'contrat', 'paiement', 'auth').",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max files to return (0 = all, default 0).",
-                },
+                "keyword": {"type": "string"},
+                "max_results": {"type": "integer", "description": "0=all."},
                 **_PROJECT_PARAM,
             },
             "required": ["keyword"],
@@ -937,22 +759,13 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_duplicate_classes": {
-        "description": "Find duplicate Java classes with the same fully qualified name defined in multiple files, or group by simple class name when requested.",
+        "description": "Find Java classes duplicated across files (by FQN, or simple name).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Optional simple or fully qualified class name to filter duplicates.",
-                },
-                "simple_name_mode": {
-                    "type": "boolean",
-                    "description": "When true, group duplicate classes by simple name across files instead of exact fully qualified name.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max duplicate groups to return (0 = all, default 0).",
-                },
+                "name": {"type": "string", "description": "Filter class."},
+                "simple_name_mode": {"type": "boolean", "description": "Group by simple name."},
+                "max_results": {"type": "integer", "description": "0=all."},
                 **_PROJECT_PARAM,
             },
         },
@@ -972,20 +785,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
                         "command", "research", "infra", "config", "idea",
                         "ruled_out",
                     ],
-                    "description": "Observation type",
                 },
-                "title": {"type": "string", "description": "Short title"},
-                "content": {"type": "string", "description": "Full content"},
-                "why": {"type": "string", "description": "Why it matters"},
-                "how_to_apply": {"type": "string", "description": "How to apply"},
-                "symbol": {"type": "string", "description": "Related code symbol"},
-                "file_path": {"type": "string", "description": "Related file path"},
-                "context": {"type": "string", "description": "Free context: URL, command, config"},
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags list"},
-                "importance": {"type": "integer", "description": "Importance 1-10"},
-                "session_id": {"type": "integer", "description": "Session id"},
-                "is_global": {"type": "boolean", "description": "Visible in all projects"},
-                "ttl_days": {"type": "integer", "description": "TTL in days"},
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "why": {"type": "string"},
+                "how_to_apply": {"type": "string"},
+                "symbol": {"type": "string"},
+                "file_path": {"type": "string"},
+                "context": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "importance": {"type": "integer", "description": "1-10"},
+                "session_id": {"type": "integer"},
+                "is_global": {"type": "boolean"},
+                "ttl_days": {"type": "integer"},
                 **_PROJECT_PARAM,
             },
             "required": ["type", "title", "content"],
@@ -1007,86 +819,68 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_top": {
-        "description": "Classement des observations par score LRU, access_count ou âge.",
+        "description": "Rank obs by score, access_count, or age.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "description": "Nombre d'obs (défaut 20)."},
-                "sort_by": {
-                    "type": "string",
-                    "enum": ["score", "access_count", "age"],
-                    "description": "Critère de tri (défaut score).",
-                },
+                "limit": {"type": "integer", "description": "Default 20."},
+                "sort_by": {"type": "string", "enum": ["score", "access_count", "age"]},
             },
         },
     },
     "memory_why": {
-        "description": "Explique pourquoi une observation apparaît dans les résultats (trace recency, type, symbol, links, FTS match).",
+        "description": "Explain why an obs matched (recency, type, symbol, FTS).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "id": {"type": "integer", "description": "ID de l'observation."},
-                "query": {"type": "string", "description": "Optionnel — query FTS5 pour vérifier le match."},
+                "id": {"type": "integer"},
+                "query": {"type": "string", "description": "Optional FTS query."},
             },
             "required": ["id"],
         },
     },
     "memory_doctor": {
-        "description": "Rapport de santé de la mémoire : orphans, near-duplicates, obs incomplètes.",
+        "description": "Memory health report (orphans, near-dupes, incomplete).",
         "inputSchema": {"type": "object", "properties": {}},
     },
     "memory_distill": {
-        "description": (
-            "MDL distillation: crystallize N similar observations into 1 abstraction + deltas. "
-            "Uses Jaccard clustering + Rissanen MDL (L(abstraction) + Σ L(delta) < Σ L(obs))."
-        ),
+        "description": "MDL distillation: cluster similar obs into abstraction + deltas.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview only (default true)."},
-                "min_cluster_size": {"type": "integer", "description": "Minimum cluster size (default 3)."},
-                "compression_required": {"type": "number", "description": "Minimum MDL compression ratio (default 0.2)."},
+                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
+                "min_cluster_size": {"type": "integer", "description": "Default 3."},
+                "compression_required": {"type": "number", "description": "Default 0.2."},
                 **_PROJECT_PARAM,
             },
         },
     },
     "memory_roi_gc": {
-        "description": (
-            "Token Economy ROI garbage collection. Archive observations whose "
-            "expected ROI = tokens_saved × P(hit) × horizon × type_multiplier − "
-            "tokens_stored falls below threshold. dry_run=true by default."
-        ),
+        "description": "Archive obs with ROI below threshold.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview only (default true)."},
-                "threshold": {"type": "number", "description": "ROI cutoff (default 0.0)."},
+                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
+                "threshold": {"type": "number", "description": "Default 0.0."},
                 **_PROJECT_PARAM,
             },
         },
     },
     "memory_roi_stats": {
-        "description": (
-            "Aggregate Token Economy ROI stats: total tokens stored, expected "
-            "future savings, net ROI, negative-ROI count, breakdown by type."
-        ),
+        "description": "Token Economy ROI stats (net, by type).",
         "inputSchema": {
             "type": "object",
             "properties": {**_PROJECT_PARAM},
         },
     },
     "memory_from_bash": {
-        "description": "Sauvegarde une commande bash comme observation mémoire (type=command par défaut).",
+        "description": "Save a bash command as observation (type=command).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Commande bash complète à mémoriser."},
-                "type": {
-                    "type": "string",
-                    "description": "Type d'observation (command par défaut).",
-                    "enum": ["command", "infra", "config"],
-                },
-                "context": {"type": "string", "description": "Contexte libre (service, composant, ...)."},
+                "command": {"type": "string"},
+                "type": {"type": "string", "enum": ["command", "infra", "config"]},
+                "context": {"type": "string"},
                 **_PROJECT_PARAM,
             },
             "required": ["command"],
@@ -1104,25 +898,13 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_search": {
-        "description": (
-            "Full-text search across all observations. Returns compact results. "
-            "Use memory_get with IDs to fetch full details."
-        ),
+        "description": "FTS5 search over observations (compact rows).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "FTS5 search query (supports AND, OR, NOT, phrases).",
-                },
-                "type_filter": {
-                    "type": "string",
-                    "description": "Filter by observation type (optional).",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results to return (default 20).",
-                },
+                "query": {"type": "string", "description": "FTS5 (AND/OR/NOT/phrase)."},
+                "type_filter": {"type": "string"},
+                "limit": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
             "required": ["query"],
@@ -1231,30 +1013,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "corpus_build": {
-        "description": (
-            "Build a named thematic corpus from observations filtered by type/tags/symbol. "
-            "Returns a summary (count, type breakdown, preview) and stores IDs for later query."
-        ),
+        "description": "Build a thematic corpus from obs (filter type/tags/symbol).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Corpus name (unique per project).",
-                },
-                "filter_type": {
-                    "type": "string",
-                    "description": "Filter by observation type (optional).",
-                },
-                "filter_tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Require at least one matching tag (optional).",
-                },
-                "filter_symbol": {
-                    "type": "string",
-                    "description": "Filter by linked symbol (optional).",
-                },
+                "name": {"type": "string", "description": "Unique per project."},
+                "filter_type": {"type": "string"},
+                "filter_tags": {"type": "array", "items": {"type": "string"}},
+                "filter_symbol": {"type": "string"},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
@@ -1376,54 +1142,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "pack_context": {
-        "description": (
-            "Optimal context bundle for a query within a token budget. "
-            "Knapsack-greedy ranking by value/cost on the indexed symbols."
-        ),
+        "description": "Knapsack-packed context bundle for a query within token budget.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Natural-language query / topic to pack context for.",
-                },
-                "budget_tokens": {
-                    "type": "integer",
-                    "description": "Maximum total estimated tokens (default 4000).",
-                },
-                "max_symbols": {
-                    "type": "integer",
-                    "description": "Maximum number of candidate symbols to consider (default 20).",
-                },
+                "query": {"type": "string"},
+                "budget_tokens": {"type": "integer", "description": "Default 4000."},
+                "max_symbols": {"type": "integer", "description": "Default 20."},
                 **_PROJECT_PARAM,
             },
             "required": ["query"],
         },
     },
     "get_backward_slice": {
-        "description": (
-            "Minimal set of lines affecting `variable` at `line` inside symbol `name`. "
-            "Debug in -70% tokens."
-        ),
+        "description": "Minimal lines affecting `variable` at `line` in symbol `name`.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Function/method name to slice.",
-                },
-                "variable": {
-                    "type": "string",
-                    "description": "Variable whose dependencies you want to trace.",
-                },
-                "line": {
-                    "type": "integer",
-                    "description": "Absolute (1-based) line number where the criterion holds.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate the symbol.",
-                },
+                "name": {"type": "string"},
+                "variable": {"type": "string"},
+                "line": {"type": "integer", "description": "1-based."},
+                "file_path": {"type": "string"},
                 **_PROJECT_PARAM,
             },
             "required": ["name", "variable", "line"],
@@ -1451,21 +1190,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_bus_push": {
-        "description": (
-            "Push a volatile (short-TTL) observation onto the inter-agent memory bus, "
-            "tagged with agent_id so subagents can hand off context."
-        ),
+        "description": "Push a volatile obs to the inter-agent bus (tagged agent_id).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "agent_id": {"type": "string", "description": "Subagent identifier (e.g. 'Explore', 'code-reviewer')."},
-                "title": {"type": "string", "description": "Short message title."},
-                "content": {"type": "string", "description": "Message body."},
-                "type": {"type": "string", "description": "Underlying obs type (default 'note')."},
-                "symbol": {"type": "string", "description": "Optional related symbol."},
-                "file_path": {"type": "string", "description": "Optional related file."},
+                "agent_id": {"type": "string"},
+                "title": {"type": "string"},
+                "content": {"type": "string"},
+                "type": {"type": "string", "description": "Default 'note'."},
+                "symbol": {"type": "string"},
+                "file_path": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
-                "ttl_days": {"type": "integer", "description": "Volatile TTL in days (default 1)."},
+                "ttl_days": {"type": "integer", "description": "Default 1."},
                 **_PROJECT_PARAM,
             },
             "required": ["agent_id", "title", "content"],
@@ -1515,33 +1251,16 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "reasoning_save": {
-        "description": (
-            "Persist a compressed reasoning trace (goal + steps + conclusion) "
-            "so future similar prompts can reuse it instead of re-deriving."
-        ),
+        "description": "Persist a reasoning trace (goal+steps+conclusion) for reuse.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "goal": {"type": "string", "description": "What the reasoning was trying to resolve."},
-                "steps": {
-                    "type": "array",
-                    "description": "Ordered steps: [{tool, args, observation}, ...]",
-                    "items": {"type": "object"},
-                },
-                "conclusion": {"type": "string", "description": "Final conclusion / outcome."},
-                "confidence": {
-                    "type": "number",
-                    "description": "Confidence in the conclusion (0.0-1.0, default 0.8).",
-                },
-                "evidence_obs_ids": {
-                    "type": "array",
-                    "description": "Optional observation IDs backing this reasoning.",
-                    "items": {"type": "integer"},
-                },
-                "ttl_days": {
-                    "type": "integer",
-                    "description": "Optional expiry in days (omit for permanent).",
-                },
+                "goal": {"type": "string"},
+                "steps": {"type": "array", "items": {"type": "object"}, "description": "[{tool,args,observation},...]"},
+                "conclusion": {"type": "string"},
+                "confidence": {"type": "number", "description": "0.0-1.0 (default 0.8)."},
+                "evidence_obs_ids": {"type": "array", "items": {"type": "integer"}},
+                "ttl_days": {"type": "integer"},
                 **_PROJECT_PARAM,
             },
             "required": ["goal", "steps", "conclusion"],
