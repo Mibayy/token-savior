@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from token_savior.git_tracker import get_changed_files
