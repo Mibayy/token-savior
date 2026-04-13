@@ -1,178 +1,53 @@
 """Token Savior Memory Engine — SQLite persistence layer.
 
-All functions open and close their own connections (no global state).
-Only stdlib dependencies (sqlite3, hashlib, json, etc.).
+Core DB primitives + shared utils live in `db_core`; this module re-exports
+them for backward compatibility and owns the higher-level memory operations.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
 import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
-MEMORY_DB_PATH = Path.home() / ".local" / "share" / "token-savior" / "memory.db"
+from . import db_core
+from .db_core import (
+    MEMORY_DB_PATH,
+    _SCHEMA_PATH,
+    _fts5_safe_query,
+    _json_dumps,
+    _migrated_paths,
+    _now_epoch,
+    _now_iso,
+    observation_hash,
+    relative_age,
+    strip_private,
+)
 
-_SCHEMA_PATH = Path(__file__).parent / "memory_schema.sql"
-
-
-# ---------------------------------------------------------------------------
-# Connection + migrations
-# ---------------------------------------------------------------------------
-
-# Migrations run once per DB path (tests use per-tmp_path DBs, so we can't
-# use a single boolean flag — we need per-path tracking).
-_migrated_paths: set[str] = set()
-
-
-def run_migrations(db_path: Path | str | None = None) -> None:
-    """Apply schema + ALTER TABLE migrations once per database path.
-
-    Idempotent. Called explicitly at MCP startup to keep get_db() hot-path
-    free of schema inspection; also invoked lazily from get_db() as a
-    safety net (e.g. for tests that patch MEMORY_DB_PATH).
-    """
-    path = Path(db_path) if db_path else MEMORY_DB_PATH
-    path_str = str(path)
-    if path_str in _migrated_paths:
-        return
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path_str)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-
-    try:
-        # Pre-migration: user_prompts.project_root must exist before executescript
-        # because the schema defines an index that references it.
-        pre_cols = [r[1] for r in conn.execute("PRAGMA table_info(user_prompts)").fetchall()]
-        if pre_cols and "project_root" not in pre_cols:
-            conn.execute("ALTER TABLE user_prompts ADD COLUMN project_root TEXT")
-
-        # Base schema — creates tables if missing (idempotent via IF NOT EXISTS).
-        schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
-        conn.executescript(schema_sql)
-
-        # Post-schema ALTER migrations: add columns that were introduced after
-        # the original schema. Safe to re-check even on fresh DBs.
-        sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
-        if "end_type" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN end_type TEXT")
-        if "tokens_injected" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_injected INTEGER DEFAULT 0")
-        if "tokens_saved_est" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_saved_est INTEGER DEFAULT 0")
-
-        obs_cols = [r[1] for r in conn.execute("PRAGMA table_info(observations)").fetchall()]
-        if "decay_immune" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN decay_immune INTEGER NOT NULL DEFAULT 0")
-        if "last_accessed_epoch" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN last_accessed_epoch INTEGER")
-        if "is_global" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_global ON observations(is_global)")
-        if "context" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN context TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_context ON observations(context)")
-        if "expires_at_epoch" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN expires_at_epoch INTEGER")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
-        # Step C: inter-agent memory bus — volatile observations carry agent_id.
-        if "agent_id" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
-
-        # Step D: adaptive lattice — Beta-Binomial Thompson sampling per (context, level).
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS adaptive_lattice ("
-            "  context_type TEXT NOT NULL,"
-            "  level INTEGER NOT NULL,"
-            "  alpha REAL NOT NULL DEFAULT 1.0,"
-            "  beta REAL NOT NULL DEFAULT 1.0,"
-            "  updated_at_epoch INTEGER NOT NULL,"
-            "  PRIMARY KEY (context_type, level)"
-            ")"
-        )
-        # v2.3 Prompt3 Step C: self-consistency — Beta-Binomial validity per obs.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS consistency_scores ("
-            "  obs_id INTEGER PRIMARY KEY,"
-            "  validity_alpha REAL NOT NULL DEFAULT 2.0,"
-            "  validity_beta REAL NOT NULL DEFAULT 1.0,"
-            "  last_checked_epoch INTEGER,"
-            "  stale_suspected INTEGER NOT NULL DEFAULT 0,"
-            "  quarantine INTEGER NOT NULL DEFAULT 0,"
-            "  FOREIGN KEY(obs_id) REFERENCES observations(id) ON DELETE CASCADE"
-            ")"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consistency_quarantine "
-            "ON consistency_scores(quarantine)"
-        )
-
-        conn.commit()
-    finally:
-        conn.close()
-
-    _migrated_paths.add(path_str)
+__all__ = [
+    "MEMORY_DB_PATH", "_SCHEMA_PATH", "_migrated_paths",
+    "run_migrations", "get_db", "db_session",
+    "_now_iso", "_now_epoch", "_json_dumps",
+    "observation_hash", "strip_private", "relative_age", "_fts5_safe_query",
+]
 
 
-def get_db(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a WAL-mode SQLite connection. Migrations run once per path."""
-    path = db_path or MEMORY_DB_PATH
-    run_migrations(path)  # no-op after first call per path
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
+# Thin wrappers so tests can patch `memory_db.MEMORY_DB_PATH` and affect
+# connections opened via `memory_db.get_db()` / `memory_db.db_session()`.
+def get_db(db_path=None):
+    return db_core.get_db(db_path or MEMORY_DB_PATH)
 
 
-@contextmanager
-def db_session(db_path: Path | None = None):
-    """Context manager for SQLite connections — guarantees close on exit.
-
-    Usage:
-        with db_session() as db:
-            db.execute(...)
-            db.commit()
-    """
-    conn = get_db(db_path)
-    try:
-        yield conn
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+def db_session(db_path=None):
+    return db_core.db_session(db_path or MEMORY_DB_PATH)
 
 
-def relative_age(epoch: int | None) -> str:
-    """Readable relative age ('3d ago', '2w ago', ...) from a unix epoch."""
-    if not epoch:
-        return "?"
-    delta = int(time.time()) - int(epoch)
-    if delta < 0:
-        return "just now"
-    if delta < 3600:
-        return f"{max(1, delta // 60)}m ago"
-    if delta < 86400:
-        return f"{delta // 3600}h ago"
-    if delta < 7 * 86400:
-        return f"{delta // 86400}d ago"
-    if delta < 30 * 86400:
-        return f"{delta // (7 * 86400)}w ago"
-    if delta < 365 * 86400:
-        return f"{delta // (30 * 86400)}mo ago"
-    return f"{delta // (365 * 86400)}y ago"
+def run_migrations(db_path=None):
+    return db_core.run_migrations(db_path or MEMORY_DB_PATH)
 
 
 def check_symbol_staleness(project_root: str, symbol: str, obs_created_epoch: int) -> bool:
@@ -472,41 +347,6 @@ def list_quarantined_observations(
         d["age"] = relative_age(r["created_at_epoch"])
         out.append(d)
     return out
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _now_epoch() -> int:
-    return int(time.time())
-
-
-def _json_dumps(value: list | dict | None) -> str | None:
-    if value is None:
-        return None
-    return json.dumps(value, ensure_ascii=False)
-
-
-def observation_hash(project_root: str, title: str, content: str) -> str:
-    """SHA-256 based content hash for deduplication (16 hex chars)."""
-    raw = f"{project_root}:{title}:{content}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
-
-
-_PRIVATE_RE = re.compile(r"<private>.*?</private>", re.IGNORECASE | re.DOTALL)
-
-
-def strip_private(text: str | None) -> str | None:
-    """Replace <private>...</private> spans with [PRIVATE]. Returns None if input is None."""
-    if text is None:
-        return None
-    return _PRIVATE_RE.sub("[PRIVATE]", text).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -989,19 +829,6 @@ def reasoning_save(
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] reasoning_save error: {exc}", file=sys.stderr)
         return None
-
-
-def _fts5_safe_query(text: str, max_tokens: int = 12) -> str:
-    """Build an FTS5 OR query from alphanumeric tokens (>=3 chars)."""
-    import re as _re
-    toks = _re.findall(r"[A-Za-zÀ-ÿ0-9_]{3,}", text or "")
-    stop = {
-        "que", "qui", "les", "des", "une", "aux", "pour", "avec", "dans",
-        "sur", "par", "est", "sont", "the", "and", "for", "with", "this",
-        "that", "you", "are", "how", "what", "can", "will", "from",
-    }
-    toks = [t for t in toks if t.lower() not in stop][:max_tokens]
-    return " OR ".join(f'"{t}"' for t in toks)
 
 
 def reasoning_search(
