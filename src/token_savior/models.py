@@ -6,6 +6,24 @@ import os
 from dataclasses import dataclass, field
 
 
+def build_line_char_offsets(lines: list[str]) -> list[int]:
+    """Compute character offset of each line start.
+
+    Shared helper used by every language-specific annotator. For input
+    ``lines`` (as produced by ``str.split("\\n")``), returns a list where
+    ``offsets[i]`` is the character position of the start of line ``i+1``
+    in the original text. Assumes a single-byte newline separator.
+
+    Returns an empty list for empty input.
+    """
+    offsets: list[int] = []
+    pos = 0
+    for line in lines:
+        offsets.append(pos)
+        pos += len(line) + 1
+    return offsets
+
+
 @dataclass(frozen=True)
 class LineRange:
     """A range of lines (1-indexed, inclusive on both ends)."""
@@ -26,6 +44,10 @@ class FunctionInfo:
     docstring: str | None
     is_method: bool
     parent_class: str | None  # None for top-level functions
+    # Hashes filled post-annotation by ProjectIndexer.
+    # Empty string means "not computed yet" (e.g. legacy cache, non-py annotator).
+    signature_hash: str = ""  # SHA-256[:16] of public signature
+    body_hash: str = ""  # SHA-256[:16] of normalized body
 
 
 @dataclass(frozen=True)
@@ -38,6 +60,7 @@ class ClassInfo:
     methods: list[FunctionInfo]
     decorators: list[str]
     docstring: str | None
+    body_hash: str = ""  # SHA-256[:16] of full normalized class body
 
 
 @dataclass(frozen=True)
@@ -193,6 +216,16 @@ class ProjectIndex:
 
     # File modification times for change detection (rel_path -> mtime)
     file_mtimes: dict[str, float] = field(default_factory=dict)
+
+    # Per-symbol body hashes for symbol-level reindex.
+    # key = f"{rel_path}:{qualified_name}", value = SHA-256[:16] of body.
+    # Empty/missing entries are treated as "recompute".
+    symbol_hashes: dict[str, str] = field(default_factory=dict)
+
+    # Stats from the last reindex_file (transient, not persisted).
+    last_reindex_symbols_checked: int = 0
+    last_reindex_symbols_unchanged: int = 0
+    last_reindex_symbols_reindexed: int = 0
 
 
 @dataclass

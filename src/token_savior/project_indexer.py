@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from token_savior.annotator import annotate
 from token_savior.models import ProjectIndex, StructuralMetadata
+from token_savior.symbol_hash import fill_hashes
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +218,9 @@ class ProjectIndexer:
             except (OSError, UnicodeDecodeError) as e:
                 logger.warning("Skipping %s: %s", rel_path, e)
                 return None
-            return rel_path, annotate(source, source_name=rel_path), mtime
+            metadata = annotate(source, source_name=rel_path)
+            fill_hashes(metadata, source.splitlines())
+            return rel_path, metadata, mtime
 
         max_workers = min(32, (os.cpu_count() or 1) * 4)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -250,6 +253,18 @@ class ProjectIndexer:
 
         elapsed = time.monotonic() - start_time
 
+        symbol_hashes: dict[str, str] = {}
+        for rel_path, metadata in files.items():
+            for func in metadata.functions:
+                if func.body_hash:
+                    symbol_hashes[f"{rel_path}:{func.qualified_name}"] = func.body_hash
+            for cls in metadata.classes:
+                if cls.body_hash:
+                    symbol_hashes[f"{rel_path}:{cls.name}"] = cls.body_hash
+                for method in cls.methods:
+                    if method.body_hash:
+                        symbol_hashes[f"{rel_path}:{method.qualified_name}"] = method.body_hash
+
         self._project_index = ProjectIndex(
             root_path=self.root_path,
             files=files,
@@ -267,6 +282,7 @@ class ProjectIndexer:
                 sys.getsizeof(m) + sys.getsizeof(m.lines) for m in files.values()
             ),
             file_mtimes=file_mtimes,
+            symbol_hashes=symbol_hashes,
         )
 
         logger.info(
@@ -341,6 +357,54 @@ class ProjectIndexer:
             return
 
         metadata = annotate(source, source_name=rel_path)
+        fill_hashes(metadata, source.splitlines())
+
+        # Symbol-level diffing: count what actually changed vs the old hashes.
+        symbols_checked = 0
+        symbols_unchanged = 0
+        symbols_reindexed = 0
+        changed_symbols: set[str] = set()
+
+        def _check(qname: str, new_hash: str) -> None:
+            nonlocal symbols_checked, symbols_unchanged, symbols_reindexed
+            symbols_checked += 1
+            key = f"{rel_path}:{qname}"
+            old = idx.symbol_hashes.get(key, "")
+            if old and old == new_hash:
+                symbols_unchanged += 1
+            else:
+                symbols_reindexed += 1
+                changed_symbols.add(qname)
+                if new_hash:
+                    idx.symbol_hashes[key] = new_hash
+                else:
+                    idx.symbol_hashes.pop(key, None)
+
+        # Drop stale entries for symbols that disappeared from this file.
+        new_keys: set[str] = set()
+        for func in metadata.functions:
+            new_keys.add(f"{rel_path}:{func.qualified_name}")
+        for cls in metadata.classes:
+            new_keys.add(f"{rel_path}:{cls.name}")
+            for method in cls.methods:
+                new_keys.add(f"{rel_path}:{method.qualified_name}")
+        for key in [k for k in idx.symbol_hashes if k.startswith(f"{rel_path}:")]:
+            if key not in new_keys:
+                idx.symbol_hashes.pop(key, None)
+                # Removed symbols count as "changed" for graph rebuild.
+                changed_symbols.add(key.split(":", 1)[1])
+
+        for func in metadata.functions:
+            _check(func.qualified_name, func.body_hash)
+        for cls in metadata.classes:
+            _check(cls.name, cls.body_hash)
+            for method in cls.methods:
+                _check(method.qualified_name, method.body_hash)
+
+        idx.last_reindex_symbols_checked = symbols_checked
+        idx.last_reindex_symbols_unchanged = symbols_unchanged
+        idx.last_reindex_symbols_reindexed = symbols_reindexed
+
         idx.files[rel_path] = metadata
         idx.file_mtimes[rel_path] = mtime
         idx.total_files = len(idx.files)
@@ -365,7 +429,15 @@ class ProjectIndexer:
         else:
             idx.import_graph.pop(rel_path, None)
 
-        if not skip_graph_rebuild:
+        # If every symbol is unchanged AND imports are identical, the existing
+        # graphs are still valid and we can skip the full rebuild.
+        imports_changed = True
+        if old_metadata is not None:
+            old_imp_keys = {(i.module, tuple(i.names)) for i in old_metadata.imports}
+            new_imp_keys = {(i.module, tuple(i.names)) for i in metadata.imports}
+            imports_changed = old_imp_keys != new_imp_keys
+
+        if not skip_graph_rebuild and (changed_symbols or imports_changed or old_metadata is None):
             # Rebuild reverse import graph
             idx.reverse_import_graph = self._build_reverse_graph(idx.import_graph)
 

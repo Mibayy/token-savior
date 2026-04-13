@@ -4,16 +4,7 @@ import configparser
 import re
 
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    offset = 0
-    for line in lines:
-        offsets.append(offset)
-        offset += len(line) + 1  # +1 for newline
-    return offsets
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 
 def _is_properties_file(source_name: str) -> bool:
@@ -29,7 +20,7 @@ def _parse_properties(text: str, source_name: str) -> StructuralMetadata:
     lines = text.splitlines()
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
 
@@ -78,7 +69,7 @@ def annotate_ini(text: str, source_name: str = "<ini>") -> StructuralMetadata:
     lines = text.splitlines()
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     try:
         parser = configparser.ConfigParser(interpolation=None)

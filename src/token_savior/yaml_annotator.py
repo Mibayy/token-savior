@@ -13,20 +13,11 @@ from token_savior.models import (
     LineRange,
     SectionInfo,
     StructuralMetadata,
+    build_line_char_offsets,
 )
 
 _MAX_DEPTH = 4
 _DISTINGUISHING_FIELDS = ("name", "id", "type", "key", "title")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    """Compute character offset of each line start."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _find_key_line(lines: list[str], key: str, start_from: int = 0) -> int:
@@ -136,7 +127,7 @@ def annotate_yaml(text: str, source_name: str = "<yaml>") -> StructuralMetadata:
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
 

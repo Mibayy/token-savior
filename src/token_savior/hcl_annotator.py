@@ -13,7 +13,7 @@ Detects:
 import re
 
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _MAX_DEPTH = 4
 
@@ -24,16 +24,6 @@ _BLOCK_RE = re.compile(r'^(\s*)(\w+)\s+((?:"[^"]*"\s*)*)\{')
 # Matches key-value pairs like: ami = "value" or count = 3
 # Group 1: indent, Group 2: key name
 _KV_RE = re.compile(r"^(\s*)(\w[\w-]*)\s*=\s*(.*)")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    """Return the character offset of the start of each line."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1  # +1 for newline
-    return offsets
 
 
 def annotate_hcl(text: str, source_name: str = "<hcl>") -> StructuralMetadata:
@@ -51,7 +41,7 @@ def annotate_hcl(text: str, source_name: str = "<hcl>") -> StructuralMetadata:
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
     # depth_stack tracks the depth when each '{' was opened so we can restore

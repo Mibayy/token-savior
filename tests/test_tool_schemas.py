@@ -40,7 +40,8 @@ class TestToolSchemas:
 
     def test_tool_count(self):
         # v2.0.0: 53 core + 16 memory engine = 69 tools.
-        assert len(TOOL_SCHEMAS) == 69, f"Expected 69 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 P5 +1 P6 +1 P7 +1 P8 +2 P9 (verify_edit + find_semantic_duplicates) = 75.
+        assert len(TOOL_SCHEMAS) == 75, f"Expected 75 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

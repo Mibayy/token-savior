@@ -14,6 +14,7 @@ from token_savior.models import (
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    build_line_char_offsets,
 )
 
 # ---------------------------------------------------------------------------
@@ -36,15 +37,6 @@ _GO_KEYWORDS = frozenset({
     "println", "real", "recover", "rune", "string", "true", "uint", "uint8",
     "uint16", "uint32", "uint64", "uintptr",
 })
-
-
-def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _build_dependency_graph(
@@ -307,7 +299,7 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
     lines = source.split("\n")
     total_lines = len(lines)
     total_chars = len(source)
-    line_offsets = _build_line_offsets(source, lines)
+    line_offsets = build_line_char_offsets(lines)
 
     imports = _parse_imports(lines)
 

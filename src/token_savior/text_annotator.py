@@ -2,18 +2,7 @@
 
 import re
 
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
-
-
-def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
-    """Compute character offset of each line start."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        # +1 for the newline character (or end of string)
-        pos += len(line) + 1
-    return offsets
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 
 def annotate_text(text: str, source_name: str = "<text>") -> StructuralMetadata:
@@ -37,7 +26,7 @@ def annotate_text(text: str, source_name: str = "<text>") -> StructuralMetadata:
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(text, lines)
+    line_offsets = build_line_char_offsets(lines)
 
     # First pass: detect headings as (line_index_0based, title, level)
     headings: list[tuple[int, str, int]] = []

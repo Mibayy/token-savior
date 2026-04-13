@@ -22,16 +22,8 @@ from token_savior.models import (
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    build_line_char_offsets,
 )
-
-
-def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _find_brace_end(lines: list[str], start_line_0: int) -> int:
@@ -286,7 +278,7 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
     lines = source.split("\n")
     total_lines = len(lines)
     total_chars = len(source)
-    line_offsets = _build_line_offsets(source, lines)
+    line_offsets = build_line_char_offsets(lines)
 
     imports = _parse_imports(lines)
 

@@ -2,18 +2,9 @@
 
 import re
 
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _ENV_LINE_RE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def annotate_env(text: str, source_name: str = "<env>") -> StructuralMetadata:
@@ -32,7 +23,7 @@ def annotate_env(text: str, source_name: str = "<env>") -> StructuralMetadata:
     lines = text.splitlines()
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
 

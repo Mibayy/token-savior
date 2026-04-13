@@ -15,9 +15,12 @@ from typing import Callable
 from token_savior.community import compute_communities, get_cluster_for_symbol
 from token_savior.entry_points import score_entry_points
 from token_savior.models import (
+    ClassInfo,
+    FunctionInfo,
     ProjectIndex,
     StructuralMetadata,
 )
+from token_savior.symbol_hash import analyze_symbol_semantics
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +239,74 @@ def _resolve_file(index: ProjectIndex, file_path: str) -> StructuralMetadata | N
     return None
 
 
+# ---------------------------------------------------------------------------
+# Abstraction-level formatters (L1/L2/L3).
+# ---------------------------------------------------------------------------
+
+
+def _first_doc_line(doc: str | None) -> str:
+    if not doc:
+        return ""
+    return doc.strip().splitlines()[0]
+
+
+def _format_l1(sym: FunctionInfo | ClassInfo) -> str:
+    """Signature + docstring. No body."""
+    if isinstance(sym, ClassInfo):
+        head = f"class {sym.name}"
+        if sym.base_classes:
+            head += f"({', '.join(sym.base_classes)})"
+        head += ":"
+        lines = [f"@{d}" for d in sym.decorators] + [head]
+        if sym.docstring:
+            lines.append(f'    """{sym.docstring.strip()}"""')
+        return "\n".join(lines)
+    # FunctionInfo
+    params = ", ".join(sym.parameters)
+    lines = [f"@{d}" for d in sym.decorators]
+    lines.append(f"def {sym.name}({params}):")
+    if sym.docstring:
+        lines.append(f'    """{sym.docstring.strip()}"""')
+    return "\n".join(lines)
+
+
+def _format_l2(sym: FunctionInfo | ClassInfo, body: str) -> str:
+    """Semantic summary: raises, side effects, return hints, first doc line."""
+    if isinstance(sym, ClassInfo):
+        header = f"[L2] class {sym.name}"
+        if sym.base_classes:
+            header += f"({', '.join(sym.base_classes)})"
+    else:
+        header = f"[L2] {sym.name}({', '.join(sym.parameters)})"
+
+    analysis = analyze_symbol_semantics(body)
+    out = [header]
+    if isinstance(sym, ClassInfo):
+        out.append(f"  methods: {len(sym.methods)}")
+    if analysis["raises"]:
+        out.append(f"  raises: {', '.join(analysis['raises'])}")
+    if analysis["has_side_effects"]:
+        out.append("  side-effects: yes (io/db/network detected)")
+    if analysis["returns"]:
+        out.append(f"  returns: {analysis['returns'][0][:60]}")
+    doc = _first_doc_line(sym.docstring)
+    if doc:
+        out.append(f"  doc: {doc[:120]}")
+    return "\n".join(out)
+
+
+def _format_l3(sym: FunctionInfo | ClassInfo) -> str:
+    """One-liner for dense indexes."""
+    doc = _first_doc_line(sym.docstring) or "no description"
+    if isinstance(sym, ClassInfo):
+        return f"class {sym.name} - {doc}"
+    params = list(sym.parameters)
+    head = ", ".join(params[:3])
+    if len(params) > 3:
+        head += ", ..."
+    return f"{sym.name}({head}) - {doc}"
+
+
 class ProjectQueryEngine:
     """Query engine bound to a project-wide index.
 
@@ -268,6 +339,10 @@ class ProjectQueryEngine:
         "get_feature_files",
         "get_entry_points",
         "get_symbol_cluster",
+        "get_backward_slice",
+        "pack_context",
+        "get_relevance_cluster",
+        "find_semantic_duplicates",
     ]
 
     def __init__(self, index: ProjectIndex):
@@ -419,13 +494,95 @@ class ProjectQueryEngine:
             result = result[:max_results]
         return result
 
-    def get_function_source(self, name: str, file_path: str | None = None, max_lines: int = 0) -> str:
-        """Source of a function, uses symbol_table to find file if not specified."""
+    def get_function_source(
+        self,
+        name: str,
+        file_path: str | None = None,
+        max_lines: int = 0,
+        level: int = 0,
+    ) -> str:
+        """Source of a function at the requested abstraction level (0-3)."""
+        if level and level > 0:
+            return self.get_symbol_abstract(name, level=level, file_path=file_path)
         return self._get_symbol_source(name, "function", file_path, max_lines)
 
-    def get_class_source(self, name: str, file_path: str | None = None, max_lines: int = 0) -> str:
-        """Source of a class, uses symbol_table to find file if not specified."""
+    def get_class_source(
+        self,
+        name: str,
+        file_path: str | None = None,
+        max_lines: int = 0,
+        level: int = 0,
+    ) -> str:
+        """Source of a class at the requested abstraction level (0-3)."""
+        if level and level > 0:
+            return self.get_symbol_abstract(name, level=level, file_path=file_path)
         return self._get_symbol_source(name, "class", file_path, max_lines)
+
+    # -----------------------------------------------------------------
+    # Abstraction levels (L0-L3) — trade detail for tokens.
+    # -----------------------------------------------------------------
+
+    def get_symbol_abstract(
+        self, name: str, level: int = 2, file_path: str | None = None
+    ) -> str:
+        """Return a symbol (function, method, or class) at an abstraction level.
+
+        L0 — full source (use get_function_source / get_class_source directly).
+        L1 — signature + docstring only.
+        L2 — semantic summary (raises, side effects, returns, doc first line).
+        L3 — one-liner suitable for dense indexes.
+        """
+        if level < 0 or level > 3:
+            return f"Error: level must be in 0..3, got {level}"
+
+        resolved = self._resolve_any_symbol(name, file_path)
+        if resolved is None:
+            return f"Symbol '{name}' not found"
+        kind, meta, sym = resolved
+
+        if level == 0:
+            return self._get_symbol_source(name, kind, file_path)
+
+        if level == 1:
+            return _format_l1(sym)
+        if level == 2:
+            body = "\n".join(
+                meta.lines[sym.line_range.start - 1 : sym.line_range.end]
+            )
+            return _format_l2(sym, body)
+        # level == 3
+        return _format_l3(sym)
+
+    def _resolve_any_symbol(
+        self, name: str, file_path: str | None
+    ) -> tuple[str, StructuralMetadata, FunctionInfo | ClassInfo] | None:
+        """Find a symbol (function/method/class) across the project.
+
+        Returns (kind, metadata, symbol) or None.
+        """
+        index = self.index
+        candidate_paths: list[str] = []
+        if file_path is not None:
+            candidate_paths = [file_path]
+        elif name in index.symbol_table:
+            candidate_paths = [index.symbol_table[name]]
+        else:
+            candidate_paths = list(index.files.keys())
+
+        for path in candidate_paths:
+            meta = _resolve_file(index, path)
+            if meta is None:
+                continue
+            for func in meta.functions:
+                if func.name == name or func.qualified_name == name:
+                    return ("function", meta, func)
+            for cls in meta.classes:
+                if cls.name == name:
+                    return ("class", meta, cls)
+                for method in cls.methods:
+                    if method.qualified_name == name:
+                        return ("function", meta, method)
+        return None
 
     def find_symbol(self, name: str) -> dict:
         """Find where a symbol is defined: {file, line, type, signature, source_preview}."""
@@ -877,6 +1034,251 @@ class ProjectQueryEngine:
         grouped by community detection on the dependency graph.
         Returns {community_id, queried_symbol, size, members: [{name, file, line, type}]}."""
         return get_cluster_for_symbol(name, self._get_communities(), self.index, max_members=max_members)
+
+    # ------------------------------------------------------------------
+    # Semantic duplicate detection (P9 part A integration)
+    # ------------------------------------------------------------------
+
+    def find_semantic_duplicates(self, min_lines: int = 4) -> str:
+        """Group functions whose AST-normalised hash collides.
+
+        *min_lines* skips trivial one-or-two-liner functions where collisions
+        are noise (`return None`, getters, etc).
+        """
+        from token_savior.semantic_hasher import semantic_hash
+
+        index = self.index
+        hash_to_symbols: dict[str, list[str]] = {}
+
+        for file_path, meta in index.files.items():
+            for func in meta.functions:
+                start = func.line_range.start
+                end = func.line_range.end
+                if (end - start + 1) < min_lines:
+                    continue
+                source_lines = meta.lines[start - 1 : end]
+                source = "\n".join(source_lines)
+                if len(source) < 50:
+                    continue
+                h = semantic_hash(source)
+                hash_to_symbols.setdefault(h, []).append(
+                    f"{func.qualified_name}  ({file_path}:{start})"
+                )
+
+        duplicates = [(h, syms) for h, syms in hash_to_symbols.items() if len(syms) > 1]
+        if not duplicates:
+            return "Semantic duplicates: none found."
+
+        lines = [f"Semantic duplicates: {len(duplicates)} group(s) found"]
+        for h, syms in duplicates:
+            lines.append("")
+            lines.append(f"hash {h} ({len(syms)} symbols):")
+            for s in syms:
+                lines.append(f"  - {s}")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # RWR relevance ranking
+    # ------------------------------------------------------------------
+
+    def get_relevance_cluster(
+        self,
+        name: str,
+        budget: int = 10,
+        include_reverse: bool = True,
+    ) -> str:
+        """Return the top-*budget* symbols mathematically closest to *name* via RWR."""
+        from token_savior.graph_ranker import random_walk_with_restart
+
+        index = self.index
+
+        # Combined graph: forward + (optional) reverse deps. Use sets to
+        # union-merge.
+        combined: dict[str, set[str]] = {}
+        for sym, deps in index.global_dependency_graph.items():
+            combined[sym] = set(deps)
+        if include_reverse:
+            for sym, callers in index.reverse_dependency_graph.items():
+                combined.setdefault(sym, set()).update(callers)
+
+        scores = random_walk_with_restart(
+            graph=combined,
+            seed_node=name,
+            restart_prob=0.15,
+        )
+        if not scores:
+            return f"Symbol '{name}' not found in dependency graph"
+
+        iterations = int(scores.pop("__iterations__", 0))
+
+        ranked = sorted(
+            ((sym, sc) for sym, sc in scores.items() if sym != name),
+            key=lambda x: x[1],
+            reverse=True,
+        )[:budget]
+
+        lines: list[str] = [
+            f"RWR Relevance cluster for '{name}' (top {budget}, converged in {iterations} iter):",
+            "-" * 60,
+        ]
+        for sym, score in ranked:
+            file_path = index.symbol_table.get(sym, "?")
+            lines.append(f"  {score:.4f}  {sym}  ({file_path})")
+
+        lines.append(
+            f"\nNote: use pack_context(query='{name}', budget_tokens=N) "
+            f"to get the optimal source bundle."
+        )
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Knapsack context packing
+    # ------------------------------------------------------------------
+
+    def pack_context(
+        self,
+        query: str,
+        budget_tokens: int = 4000,
+        max_symbols: int = 20,
+    ) -> str:
+        """Build the optimal context bundle for *query* under *budget_tokens*."""
+        from token_savior.context_packer import (
+            SymbolCandidate,
+            bfs_distance,
+            pack_context as knapsack,
+            score_symbol,
+        )
+
+        index = self.index
+        graph = index.global_dependency_graph
+
+        # Use the first query token as a coarse "seed" for dep distance scoring.
+        # If the query has multiple tokens and at least one matches an existing
+        # symbol, prefer that one.
+        seed_candidates = [t for t in query.split() if t in index.symbol_table]
+        seed = seed_candidates[0] if seed_candidates else (
+            query.split()[0] if query.split() else ""
+        )
+
+        candidates: list[SymbolCandidate] = []
+        for sym_name, file_path in index.symbol_table.items():
+            metadata = index.files.get(file_path)
+            if metadata is None:
+                continue
+
+            func = next(
+                (f for f in metadata.functions if f.name == sym_name or f.qualified_name == sym_name),
+                None,
+            )
+            if func is None:
+                continue
+
+            start = func.line_range.start
+            end = func.line_range.end
+            body_lines = max(end - start, 1)
+            token_cost = max(body_lines * 8, 20)
+
+            dep_dist = bfs_distance(graph, seed, sym_name)
+
+            value = score_symbol(
+                symbol_name=sym_name,
+                query=query,
+                dep_distance=dep_dist,
+                recency_days=0.0,
+                access_count=0,
+            )
+
+            candidates.append(
+                SymbolCandidate(
+                    name=sym_name,
+                    file_path=file_path,
+                    token_cost=token_cost,
+                    value=value,
+                )
+            )
+
+        # Pre-rank by value to keep the knapsack input bounded.
+        candidates.sort(key=lambda c: c.value, reverse=True)
+        pool = candidates[: max_symbols * 3]
+        selected = knapsack(pool, budget_tokens)
+
+        if not selected:
+            return f"No symbols found for query '{query}'"
+
+        total_cost = sum(s.token_cost for s in selected)
+        lines: list[str] = [
+            f"Context pack for '{query}' "
+            f"({len(selected)} symbols, ~{total_cost} tokens / {budget_tokens} budget)",
+            "-" * 60,
+        ]
+        for sym in selected[:10]:
+            try:
+                source = self._get_symbol_source(
+                    sym.name, "function", file_path=sym.file_path
+                )
+            except Exception:
+                source = "<source unavailable>"
+            lines.append(
+                f"\n# {sym.name}  (value={sym.value:.2f}, cost={sym.token_cost}t, {sym.file_path})"
+            )
+            preview = source if len(source) <= 500 else source[:500] + "..."
+            lines.append(preview)
+        if len(selected) > 10:
+            lines.append(f"\n... ({len(selected) - 10} more symbols selected, sources omitted)")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Program slicing
+    # ------------------------------------------------------------------
+
+    def get_backward_slice(
+        self,
+        name: str,
+        variable: str,
+        line: int,
+        file_path: str | None = None,
+    ) -> str:
+        """Backward slice of *variable* at *line* (1-based, absolute) inside symbol *name*."""
+        from token_savior.program_slicer import backward_slice
+
+        resolved = self._resolve_any_symbol(name, file_path)
+        if resolved is None:
+            return f"Symbol '{name}' not found"
+        kind, meta, sym = resolved
+
+        start = sym.line_range.start
+        end = sym.line_range.end
+        if not (start <= line <= end):
+            return (
+                f"Error: line {line} is outside symbol '{name}' (lines {start}-{end})"
+            )
+
+        body_lines = meta.lines[start - 1 : end]
+        source = "\n".join(body_lines)
+
+        # backward_slice works on 1-based lines relative to *source*, so map.
+        relative_line = line - start + 1
+        result = backward_slice(source, variable, relative_line)
+
+        if not result.lines:
+            return (
+                f"Backward slice: {variable}@{line} in {name} -- "
+                f"no defining statements found (variable may be a parameter or undefined)"
+            )
+
+        header = [
+            f"Backward slice: {variable}@{line} in {name} ({meta.source_name})",
+            f"{result.reduction_pct}% reduction "
+            f"({len(result.lines)} lines / {result.total_lines} total in symbol)",
+            "-" * 50,
+        ]
+        body: list[str] = []
+        for rel_ln, src in zip(result.lines, result.source_lines):
+            abs_ln = rel_ln + start - 1
+            marker = "  <- target" if abs_ln == line else ""
+            body.append(f"  {abs_ln:4d}: {src}{marker}")
+        return "\n".join(header + body)
 
     # ------------------------------------------------------------------
     # Private helpers

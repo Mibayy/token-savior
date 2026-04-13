@@ -1211,8 +1211,8 @@ wheels = [
 ]
 
 [[package]]
-name = "token-savior"
-version = "1.0.0"
+name = "token-savior-recall"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

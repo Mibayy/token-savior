@@ -9,10 +9,12 @@ from __future__ import annotations
 import ast
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 
 from token_savior.git_tracker import get_changed_files
 from token_savior.models import ProjectIndex
+from token_savior.symbol_hash import compute_body_hash
 
 
 # ---------------------------------------------------------------------------
@@ -20,13 +22,27 @@ from token_savior.models import ProjectIndex
 # ---------------------------------------------------------------------------
 
 
+class ChangeType(Enum):
+    """Classification of a symbol-level change.
+
+    Only SIGNATURE_CHANGED and REMOVED count as API-breaking. BODY_ONLY_CHANGED
+    is reported as informational (refactor/bugfix, safe for downstream callers).
+    """
+
+    SIGNATURE_CHANGED = "signature_changed"  # breaking
+    BODY_ONLY_CHANGED = "body_only_changed"  # non-breaking (info)
+    ADDED = "added"                           # non-breaking (info)
+    REMOVED = "removed"                       # breaking
+
+
 @dataclass
 class BreakingChange:
     file: str
     symbol: str
     line: int
-    severity: str  # "breaking" | "warning"
+    severity: str  # "breaking" | "warning" | "info"
     message: str
+    change_type: ChangeType | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +67,8 @@ class _FuncSig:
     return_annotation: str | None  # ast.unparse'd, or None
     is_method: bool
     parent_class: str | None
+    end_line: int = 0  # for body hashing
+    body_hash: str = ""  # filled by _extract_signatures when source is provided
 
 
 @dataclass
@@ -66,23 +84,28 @@ class _ClassSig:
 
 
 def _extract_signatures(source: str) -> tuple[list[_FuncSig], list[_ClassSig]]:
-    """Parse *source* and extract rich function/class signatures."""
+    """Parse *source* and extract rich function/class signatures.
+
+    Each _FuncSig is populated with a body_hash so callers can distinguish
+    body-only edits from signature-level breaking changes.
+    """
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return [], []
 
+    lines = source.splitlines()
     top_funcs: list[_FuncSig] = []
     classes: list[_ClassSig] = []
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            top_funcs.append(_sig_from_func(node, parent_class=None))
+            top_funcs.append(_sig_from_func(node, parent_class=None, lines=lines))
         elif isinstance(node, ast.ClassDef):
             methods: list[_FuncSig] = []
             for item in ast.iter_child_nodes(node):
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    methods.append(_sig_from_func(item, parent_class=node.name))
+                    methods.append(_sig_from_func(item, parent_class=node.name, lines=lines))
             classes.append(_ClassSig(name=node.name, line=node.lineno, methods=methods))
 
     return top_funcs, classes
@@ -91,6 +114,7 @@ def _extract_signatures(source: str) -> tuple[list[_FuncSig], list[_ClassSig]]:
 def _sig_from_func(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     parent_class: str | None,
+    lines: list[str] | None = None,
 ) -> _FuncSig:
     args = node.args
     # Build a flat list of (arg, has_default) for positional args
@@ -130,6 +154,11 @@ def _sig_from_func(
 
     qualified_name = f"{parent_class}.{node.name}" if parent_class else node.name
 
+    end_line = getattr(node, "end_lineno", None) or node.lineno
+    body_hash = ""
+    if lines is not None:
+        body_hash = compute_body_hash(lines, node.lineno, end_line)
+
     return _FuncSig(
         name=node.name,
         qualified_name=qualified_name,
@@ -138,6 +167,8 @@ def _sig_from_func(
         return_annotation=ret_ann,
         is_method=parent_class is not None,
         parent_class=parent_class,
+        end_line=end_line,
+        body_hash=body_hash,
     )
 
 
@@ -255,15 +286,48 @@ def _compare_functions(
                     line=old_func.line,
                     severity="breaking",
                     message=f"function {name}(): was removed",
+                    change_type=ChangeType.REMOVED,
                 )
             )
             continue
 
         new_func = new_map[name]
-        changes.extend(
-            _diff_params(old_func.params, new_func.params, name, new_func.line, file_path)
+        sig_changes = _diff_params(
+            old_func.params, new_func.params, name, new_func.line, file_path
         )
-        changes.extend(_diff_return_type(old_func, new_func, file_path))
+        ret_changes = _diff_return_type(old_func, new_func, file_path)
+        sig_changes_combined = sig_changes + ret_changes
+        for c in sig_changes_combined:
+            c.change_type = ChangeType.SIGNATURE_CHANGED
+        changes.extend(sig_changes_combined)
+
+        # Non-breaking: signature identical, body differs (refactor/bugfix).
+        if not sig_changes_combined and old_func.body_hash and new_func.body_hash:
+            if old_func.body_hash != new_func.body_hash:
+                changes.append(
+                    BreakingChange(
+                        file=file_path,
+                        symbol=name,
+                        line=new_func.line,
+                        severity="info",
+                        message=f"function {name}(): body only (refactor/bugfix)",
+                        change_type=ChangeType.BODY_ONLY_CHANGED,
+                    )
+                )
+
+    # Added functions (non-breaking, info only).
+    for name, new_func in new_map.items():
+        if name not in old_map:
+            changes.append(
+                BreakingChange(
+                    file=file_path,
+                    symbol=name,
+                    line=new_func.line,
+                    severity="info",
+                    message=f"function {name}(): added",
+                    change_type=ChangeType.ADDED,
+                )
+            )
 
     return changes
 
@@ -287,6 +351,7 @@ def _compare_classes(
                     line=old_cls.line,
                     severity="breaking",
                     message=f"class {name}: was removed entirely",
+                    change_type=ChangeType.REMOVED,
                 )
             )
             continue
@@ -305,14 +370,45 @@ def _compare_classes(
                         line=old_m.line,
                         severity="breaking",
                         message=f"class {name}: method {mname}() was removed",
+                        change_type=ChangeType.REMOVED,
                     )
                 )
             else:
                 new_m = new_methods[mname]
-                changes.extend(
-                    _diff_params(old_m.params, new_m.params, symbol, new_m.line, file_path)
+                sig_changes = _diff_params(
+                    old_m.params, new_m.params, symbol, new_m.line, file_path
                 )
-                changes.extend(_diff_return_type(old_m, new_m, file_path))
+                ret_changes = _diff_return_type(old_m, new_m, file_path)
+                sig_changes_combined = sig_changes + ret_changes
+                for c in sig_changes_combined:
+                    c.change_type = ChangeType.SIGNATURE_CHANGED
+                changes.extend(sig_changes_combined)
+
+                if not sig_changes_combined and old_m.body_hash and new_m.body_hash:
+                    if old_m.body_hash != new_m.body_hash:
+                        changes.append(
+                            BreakingChange(
+                                file=file_path,
+                                symbol=symbol,
+                                line=new_m.line,
+                                severity="info",
+                                message=f"method {symbol}(): body only (refactor/bugfix)",
+                                change_type=ChangeType.BODY_ONLY_CHANGED,
+                            )
+                        )
+
+        for mname, new_m in new_methods.items():
+            if mname not in old_methods:
+                changes.append(
+                    BreakingChange(
+                        file=file_path,
+                        symbol=f"{name}.{mname}",
+                        line=new_m.line,
+                        severity="info",
+                        message=f"class {name}: method {mname}() added",
+                        change_type=ChangeType.ADDED,
+                    )
+                )
 
     return changes
 
@@ -417,6 +513,7 @@ def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
 
     breaking = [c for c in changes if c.severity == "breaking"]
     warnings = [c for c in changes if c.severity == "warning"]
+    infos = [c for c in changes if c.severity == "info"]
 
     total = len(changes)
     lines: list[str] = [
@@ -428,12 +525,18 @@ def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
         lines.append("")
         lines.append("BREAKING:")
         for c in breaking:
-            lines.append(f"  {c.file}:{c.line} \u2014 {c.message}")
+            lines.append(f"  {c.file}:{c.line} - {c.message}")
 
     if warnings:
         lines.append("")
         lines.append("WARNING:")
         for c in warnings:
-            lines.append(f"  {c.file}:{c.line} \u2014 {c.message}")
+            lines.append(f"  {c.file}:{c.line} - {c.message}")
+
+    if infos:
+        lines.append("")
+        lines.append("NON-BREAKING:")
+        for c in infos:
+            lines.append(f"  {c.file}:{c.line} - {c.message}")
 
     return "\n".join(lines)

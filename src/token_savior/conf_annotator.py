@@ -2,7 +2,7 @@
 
 import re
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _MAX_DEPTH = 4
 
@@ -14,16 +14,6 @@ _BLOCK_RE = re.compile(r"^(\s*)([A-Za-z_][\w.-]*)\s*\{")
 
 # Comment prefixes
 _COMMENT_RE = re.compile(r"^\s*(#|;|//)")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    """Compute character offset of each line start."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def annotate_conf(text: str, source_name: str = "<conf>") -> StructuralMetadata:
@@ -39,7 +29,7 @@ def annotate_conf(text: str, source_name: str = "<conf>") -> StructuralMetadata:
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
     depth = 0  # current brace nesting depth (0 = top level)

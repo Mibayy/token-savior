@@ -15,16 +15,8 @@ from token_savior.models import (
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    build_line_char_offsets,
 )
-
-
-def _build_line_offsets(text: str, lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +618,7 @@ def annotate_csharp(source: str, source_name: str = "<source>") -> StructuralMet
     lines = source.split("\n")
     total_lines = len(lines)
     total_chars = len(source)
-    line_offsets = _build_line_offsets(source, lines)
+    line_offsets = build_line_char_offsets(lines)
 
     imports = _parse_using_directives(lines)
 

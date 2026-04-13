@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
 from token_savior.checkpoint_ops import create_checkpoint, restore_checkpoint
 from token_savior.edit_ops import replace_symbol_source, resolve_symbol_location
+from token_savior.edit_verifier import verify_edit
 from token_savior.git_ops import build_commit_summary
 from token_savior.impacted_tests import run_impacted_tests
 from token_savior.project_indexer import ProjectIndexer
@@ -30,6 +33,31 @@ def apply_symbol_change_and_validate(
     index = indexer._project_index
     if index is None:
         return {"error": "Project index is not initialized"}
+
+    # P9 — EditSafety certificate: capture old_source, build the cert, attach
+    # to the payload. Static analysis only; never blocks the edit.
+    cert_payload: dict | None = None
+    try:
+        loc = resolve_symbol_location(index, symbol_name, file_path=file_path)
+        if "error" not in loc:
+            old_path = loc["file"]
+            full_path = old_path if os.path.isabs(old_path) else os.path.join(index.root_path, old_path)
+            with open(full_path, "r", encoding="utf-8") as fh:
+                source_lines = fh.read().splitlines()
+            old_source = "\n".join(source_lines[loc["line"] - 1 : loc["end_line"]])
+            cert = verify_edit(old_source, new_source, symbol_name, index.root_path)
+            cert_payload = {
+                "signature_preserved": cert.signature_preserved,
+                "signature_diff": cert.signature_diff,
+                "tests_available": cert.tests_available,
+                "exceptions_unchanged": cert.exceptions_unchanged,
+                "exceptions_diff": cert.exceptions_diff,
+                "side_effects_unchanged": cert.side_effects_unchanged,
+                "all_ok": cert.all_ok,
+                "formatted": cert.format(),
+            }
+    except Exception:
+        cert_payload = None
 
     # Optional checkpoint for rollback
     checkpoint = None
@@ -69,6 +97,9 @@ def apply_symbol_change_and_validate(
             "validation_ok": validation.get("ok"),
         },
     }
+    if cert_payload is not None:
+        payload["edit_safety"] = cert_payload
+        payload["summary"]["edit_safety_ok"] = cert_payload["all_ok"]
 
     # Rollback path
     if rollback_on_failure and checkpoint and not payload["ok"]:

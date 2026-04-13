@@ -176,8 +176,11 @@ def test_new_function_not_flagged(git_repo):
     index = _make_index(git_repo)
     result = detect_breaking_changes(index, since_ref="HEAD")
 
-    assert "brand_new" not in result
-    # Existing unchanged function should not be flagged
+    # New functions surface in the NON-BREAKING section for visibility, but
+    # must never land in BREAKING.
+    breaking_section = result.split("NON-BREAKING:")[0] if "NON-BREAKING:" in result else result
+    assert "brand_new" not in breaking_section
+    # Existing unchanged function should not be flagged anywhere.
     assert "existing" not in result
 
 

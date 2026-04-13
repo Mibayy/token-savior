@@ -3,20 +3,10 @@
 import xml.etree.ElementTree as ET
 
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _MAX_DEPTH = 4
 _DISTINGUISHING_ATTRS = ("name", "id", "type", "key", "title")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    """Compute character offset of each line start."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _find_tag_line(lines: list[str], tag: str, start_from: int) -> int:
@@ -103,7 +93,7 @@ def annotate_xml(text: str, source_name: str = "<xml>") -> StructuralMetadata:
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
     _walk_element(root, lines, 1, sections, 0)

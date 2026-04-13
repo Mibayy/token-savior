@@ -62,7 +62,14 @@ class CacheManager:
             if not isinstance(payload, dict) or payload.get("version") != self.cache_version:
                 print("[token-savior] Cache version mismatch, ignoring", file=sys.stderr)
                 return None
-            return self.index_from_dict(payload["index"])
+            raw_index = payload["index"]
+            # Back-compat guard for the symbol-hash feature: pre-hash caches
+            # lack symbol_hashes and would produce 0% savings on reindex_file.
+            # Invalidate them so the next indexing pass repopulates hashes.
+            if "symbol_hashes" not in raw_index:
+                print("[token-savior] Cache missing symbol_hashes, invalidating", file=sys.stderr)
+                return None
+            return self.index_from_dict(raw_index)
         except Exception as exc:
             print(f"[token-savior] Cache load failed: {exc}", file=sys.stderr)
             return None
@@ -89,6 +96,8 @@ class CacheManager:
                 "docstring": fi.docstring,
                 "is_method": fi.is_method,
                 "parent_class": fi.parent_class,
+                "signature_hash": fi.signature_hash,
+                "body_hash": fi.body_hash,
             }
 
         def _ci(ci) -> dict:
@@ -99,6 +108,7 @@ class CacheManager:
                 "methods": [_fi(m) for m in ci.methods],
                 "decorators": ci.decorators,
                 "docstring": ci.docstring,
+                "body_hash": ci.body_hash,
             }
 
         def _ii(ii) -> dict:
@@ -147,6 +157,7 @@ class CacheManager:
             "index_memory_bytes": index.index_memory_bytes,
             "last_indexed_git_ref": index.last_indexed_git_ref,
             "file_mtimes": index.file_mtimes,
+            "symbol_hashes": index.symbol_hashes,
         }
 
     @staticmethod
@@ -176,6 +187,8 @@ class CacheManager:
                 docstring=d.get("docstring"),
                 is_method=d["is_method"],
                 parent_class=d.get("parent_class"),
+                signature_hash=d.get("signature_hash", ""),
+                body_hash=d.get("body_hash", ""),
             )
 
         def _ci(d: dict) -> ClassInfo:
@@ -186,6 +199,7 @@ class CacheManager:
                 methods=[_fi(m) for m in d["methods"]],
                 decorators=d["decorators"],
                 docstring=d.get("docstring"),
+                body_hash=d.get("body_hash", ""),
             )
 
         def _ii(d: dict) -> ImportInfo:
@@ -238,4 +252,5 @@ class CacheManager:
             index_memory_bytes=data.get("index_memory_bytes", 0),
             last_indexed_git_ref=data.get("last_indexed_git_ref"),
             file_mtimes=data.get("file_mtimes", {}),
+            symbol_hashes=data.get("symbol_hashes", {}),
         )

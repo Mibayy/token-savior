@@ -20,9 +20,11 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 import traceback
 import uuid
+from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -57,6 +59,7 @@ from token_savior.cross_project import find_cross_project_deps as run_cross_proj
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 from token_savior.slot_manager import SlotManager, _ProjectSlot
+from token_savior.markov_prefetcher import MarkovPrefetcher
 from token_savior import memory_db
 
 # ---------------------------------------------------------------------------
@@ -78,9 +81,25 @@ _tool_call_counts: dict[str, int] = {}
 _total_chars_returned: int = 0
 _total_naive_chars: int = 0
 
+# Compact Symbol Cache (CSC) — per-session, in-memory.
+# Tracks symbols already sent this session so repeat reads return a compact
+# stub (cache_token + signature) instead of the full body. Reset on restart.
+# key = f"{kind}:{project_root}:{qualified_name}"
+# value = {"cache_token": str, "body_hash": str, "view_count": int,
+#          "full_source": str, "signature": str}
+_session_symbol_cache: dict[str, dict] = {}
+_csc_hits: int = 0
+_csc_tokens_saved: int = 0  # naive_chars - actual_chars summed across hits
+
 # Persistent stats
 _STATS_DIR = os.path.expanduser("~/.local/share/token-savior")
 _MAX_SESSION_HISTORY = 200
+
+# Markov prefetcher (P8) — first-order model on tool-call sequences.
+_prefetcher = MarkovPrefetcher(Path(_STATS_DIR))
+# Pre-warm cache populated by the daemon thread; key = predicted state.
+_prefetch_cache: dict[str, str] = {}
+_prefetch_lock = threading.Lock()
 
 
 def _detect_client_name() -> str:
@@ -404,6 +423,34 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             f"({_total_chars_returned // 4:,} vs {_total_naive_chars // 4:,} tokens)"
         )
 
+    if _csc_hits > 0:
+        lines.append(
+            f"CSC hits this session: {_csc_hits} ({_csc_tokens_saved:,} tokens saved)"
+        )
+
+    # Markov prefetcher state.
+    mstats = _prefetcher.get_stats()
+    if mstats["transitions"] > 0:
+        lines.append(
+            f"Markov model: {mstats['states']} states, {mstats['transitions']} transitions"
+        )
+        lines.append(f"Top sequence: {mstats['top_sequence']}")
+        with _prefetch_lock:
+            lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
+
+    # Symbol-level reindex counters from the last reindex_file call (per slot).
+    for root, slot in _slot_mgr.projects.items():
+        idx = getattr(slot.indexer, "_project_index", None)
+        if idx is None:
+            continue
+        checked = getattr(idx, "last_reindex_symbols_checked", 0)
+        if checked:
+            reindexed = idx.last_reindex_symbols_reindexed
+            lines.append(
+                f"Symbol-level reindex ({os.path.basename(root)}): "
+                f"{reindexed}/{checked} symbols reindexed (last file change)"
+            )
+
     if include_cumulative:
         all_project_stats = []
         for root, slot in _slot_mgr.projects.items():
@@ -715,6 +762,37 @@ def _h_run_impacted_tests(slot, args):
     return result
 
 
+def _h_verify_edit(slot, args):
+    """P9 — pure static EditSafety certificate, no mutation."""
+    from token_savior.edit_ops import resolve_symbol_location
+    from token_savior.edit_verifier import verify_edit
+
+    _prep(slot)
+    index = slot.indexer._project_index if slot.indexer else None
+    if index is None:
+        return "Error: index not built. Call reindex first."
+    symbol_name = args["symbol_name"]
+    new_source = args["new_source"]
+    loc = resolve_symbol_location(
+        index, symbol_name, file_path=args.get("file_path")
+    )
+    if "error" in loc:
+        return f"Error: {loc['error']}"
+    full_path = (
+        loc["file"]
+        if os.path.isabs(loc["file"])
+        else os.path.join(index.root_path, loc["file"])
+    )
+    try:
+        with open(full_path, "r", encoding="utf-8") as fh:
+            source_lines = fh.read().splitlines()
+    except OSError as exc:
+        return f"Error: cannot read {full_path}: {exc}"
+    old_source = "\n".join(source_lines[loc["line"] - 1 : loc["end_line"]])
+    cert = verify_edit(old_source, new_source, symbol_name, index.root_path)
+    return cert.format()
+
+
 def _h_apply_symbol_change_and_validate(slot, args):
     _prep(slot)
     return apply_symbol_change_and_validate(
@@ -779,11 +857,24 @@ def _h_detect_breaking_changes(slot, args):
         if "no breaking changes" not in result:
             import re
             saved = 0
-            for line in result.splitlines():
-                line = line.strip()
-                if not line or line in ("BREAKING:", "WARNING:"):
+            # Only auto-save observations from the BREAKING: section.
+            # WARNING: and NON-BREAKING: entries are informational and must
+            # not trigger the guardrail flow.
+            in_breaking_section = False
+            for raw in result.splitlines():
+                line = raw.strip()
+                if not line:
                     continue
-                m = re.match(r"(.+?):(\d+)\s+\u2014\s+(.+)", line)
+                if line == "BREAKING:":
+                    in_breaking_section = True
+                    continue
+                if line in ("WARNING:", "NON-BREAKING:"):
+                    in_breaking_section = False
+                    continue
+                if not in_breaking_section:
+                    continue
+                # Accept both the legacy em-dash separator and the new ASCII hyphen.
+                m = re.match(r"(.+?):(\d+)\s+(?:-|\u2014)\s+(.+)", line)
                 if not m:
                     continue
                 file_path, _, message = m.group(1), m.group(2), m.group(3)
@@ -1586,6 +1677,7 @@ _SLOT_HANDLERS: dict[str, object] = {
     "find_impacted_test_files": _h_find_impacted_test_files,
     "run_impacted_tests": _h_run_impacted_tests,
     "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
+    "verify_edit": _h_verify_edit,
     "discover_project_actions": _h_discover_project_actions,
     "run_project_action": _h_run_project_action,
     "analyze_config": _h_analyze_config,
@@ -1600,9 +1692,222 @@ _SLOT_HANDLERS: dict[str, object] = {
 # ── Query-function handlers (qfns dict + arguments → result) ─────────────
 
 
+def _lookup_symbol_meta(slot, args: dict) -> tuple[str, str, str] | None:
+    """Return (kind, body_hash, signature) for a symbol, or None if unresolved."""
+    try:
+        idx = slot.indexer._project_index
+    except AttributeError:
+        return None
+    name = args.get("name")
+    if not name or idx is None:
+        return None
+    file_path = args.get("file_path")
+
+    def _check(meta, rel_path):
+        for func in meta.functions:
+            if func.name == name or func.qualified_name == name:
+                sig = f"def {func.name}({', '.join(func.parameters)})"
+                return ("function", func.body_hash, sig)
+        for cls in meta.classes:
+            if cls.name == name:
+                sig = f"class {cls.name}"
+                if cls.base_classes:
+                    sig += f"({', '.join(cls.base_classes)})"
+                return ("class", cls.body_hash, sig)
+            for method in cls.methods:
+                if method.qualified_name == name:
+                    sig = f"def {method.qualified_name}({', '.join(method.parameters)})"
+                    return ("function", method.body_hash, sig)
+        return None
+
+    if file_path:
+        for rel_path, meta in idx.files.items():
+            if rel_path == file_path or rel_path.endswith(file_path):
+                got = _check(meta, rel_path)
+                if got:
+                    return got
+        return None
+    if name in idx.symbol_table:
+        rel_path = idx.symbol_table[name]
+        meta = idx.files.get(rel_path)
+        if meta is not None:
+            got = _check(meta, rel_path)
+            if got:
+                return got
+    for rel_path, meta in idx.files.items():
+        got = _check(meta, rel_path)
+        if got:
+            return got
+    return None
+
+
+def _csc_compact_response(
+    name: str,
+    signature: str,
+    cache_tok: str,
+    view_count: int,
+    modified: bool,
+    diff_preview: str = "",
+) -> str:
+    """Format a compact CSC hit response."""
+    tag = "[MODIFIED]" if modified else ""
+    header = f"@sym:{cache_tok} [{name}] {tag}".rstrip()
+    lines = [header]
+    if signature:
+        lines.append(f"Signature: {signature}")
+    if modified:
+        lines.append(f"Changed body, prior views: {view_count}")
+        if diff_preview:
+            lines.append("Diff (first lines):")
+            lines.append(diff_preview)
+    else:
+        lines.append(
+            f"(body unchanged since last view - {view_count} view{'s' if view_count != 1 else ''} this session)"
+        )
+    lines.append(
+        "Use force_full=true to bypass the session cache and get the full body."
+    )
+    return "\n".join(lines)
+
+
+def _csc_diff_preview(old_full: str, new_full: str, max_lines: int = 5) -> str:
+    """Return the first `max_lines` diff hunks between two bodies (trivial line diff)."""
+    import difflib
+
+    diff = difflib.unified_diff(
+        old_full.splitlines(),
+        new_full.splitlines(),
+        lineterm="",
+        n=1,
+    )
+    out: list[str] = []
+    for line in diff:
+        if line.startswith("@@") or line.startswith("---") or line.startswith("+++"):
+            continue
+        out.append(line)
+        if len(out) >= max_lines:
+            break
+    return "\n".join(out)
+
+
+def _csc_maybe_serve(
+    slot,
+    kind: str,
+    args: dict,
+    produce_full,
+) -> str:
+    """Entry point for get_function_source / get_class_source with CSC.
+
+    `produce_full` is a zero-arg callable returning the full formatted source.
+    Returns either the compact stub (cache hit, body unchanged) or the full
+    source (miss / force_full / modified).
+    """
+    global _csc_hits, _csc_tokens_saved
+
+    force_full = bool(args.get("force_full", False))
+    level = int(args.get("level", 0) or 0)
+
+    full = produce_full()
+    # Skip cache when:
+    # - caller asked for non-L0 abstraction (already compact by design)
+    # - symbol wasn't resolvable (error messages must pass through verbatim)
+    # - force_full is set
+    if level > 0 or force_full or full.startswith("Error:"):
+        return full
+
+    meta = _lookup_symbol_meta(slot, args)
+    if meta is None:
+        return full
+    _kind, body_hash, signature = meta
+    if not body_hash:
+        return full
+
+    project_root = getattr(slot, "root", "") or ""
+    name = args["name"]
+    key = f"{kind}:{project_root}:{name}"
+    entry = _session_symbol_cache.get(key)
+
+    from token_savior.symbol_hash import cache_token
+
+    tok = cache_token(body_hash)
+
+    if entry is None:
+        # Miss — return full, record.
+        _session_symbol_cache[key] = {
+            "cache_token": tok,
+            "body_hash": body_hash,
+            "view_count": 1,
+            "full_source": full,
+            "signature": signature,
+        }
+        return full
+
+    entry["view_count"] += 1
+    prior_full = entry.get("full_source", "")
+    if entry["body_hash"] == body_hash:
+        compact = _csc_compact_response(
+            name=name,
+            signature=signature,
+            cache_tok=tok,
+            view_count=entry["view_count"],
+            modified=False,
+        )
+        saved = max(0, len(full) - len(compact))
+        _csc_hits += 1
+        _csc_tokens_saved += saved // 4
+        return compact
+
+    # Modified — return compact with diff preview; refresh cache.
+    diff_preview = _csc_diff_preview(prior_full, full)
+    compact = _csc_compact_response(
+        name=name,
+        signature=signature,
+        cache_tok=tok,
+        view_count=entry["view_count"],
+        modified=True,
+        diff_preview=diff_preview,
+    )
+    saved = max(0, len(full) - len(compact))
+    _csc_hits += 1
+    _csc_tokens_saved += saved // 4
+    entry.update(
+        {
+            "cache_token": tok,
+            "body_hash": body_hash,
+            "full_source": full,
+            "signature": signature,
+        }
+    )
+    return compact
+
+
+def _q_get_class_source(qfns, args: dict) -> str:
+    slot, _ = _slot_mgr.resolve(args.get("project"))
+    return _csc_maybe_serve(
+        slot,
+        "class",
+        args,
+        lambda: qfns["get_class_source"](
+            args["name"],
+            args.get("file_path"),
+            max_lines=args.get("max_lines", 0),
+            level=args.get("level", 0),
+        ),
+    )
+
+
 def _q_get_function_source(qfns, args: dict) -> str:
-    result = qfns["get_function_source"](
-        args["name"], args.get("file_path"), max_lines=args.get("max_lines", 0)
+    slot, _ = _slot_mgr.resolve(args.get("project"))
+    result = _csc_maybe_serve(
+        slot,
+        "function",
+        args,
+        lambda: qfns["get_function_source"](
+            args["name"],
+            args.get("file_path"),
+            max_lines=args.get("max_lines", 0),
+            level=args.get("level", 0),
+        ),
     )
     try:
         project_root = _resolve_project_root(args)
@@ -1659,9 +1964,7 @@ _QFN_HANDLERS: dict[str, object] = {
     ),
     "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
     "get_function_source": _q_get_function_source,
-    "get_class_source": lambda q, a: q["get_class_source"](
-        a["name"], a.get("file_path"), max_lines=a.get("max_lines", 0)
-    ),
+    "get_class_source": _q_get_class_source,
     "get_functions": lambda q, a: q["get_functions"](
         a.get("file_path"), max_results=a.get("max_results", 0)
     ),
@@ -1708,7 +2011,77 @@ _QFN_HANDLERS: dict[str, object] = {
     "get_symbol_cluster": lambda q, a: q["get_symbol_cluster"](
         a["name"], max_members=a.get("max_members", 30)
     ),
+    "get_backward_slice": lambda q, a: q["get_backward_slice"](
+        a["name"], a["variable"], a["line"], file_path=a.get("file_path")
+    ),
+    "pack_context": lambda q, a: q["pack_context"](
+        a["query"],
+        budget_tokens=a.get("budget_tokens", 4000),
+        max_symbols=a.get("max_symbols", 20),
+    ),
+    "get_relevance_cluster": lambda q, a: q["get_relevance_cluster"](
+        a["name"],
+        budget=a.get("budget", 10),
+        include_reverse=a.get("include_reverse", True),
+    ),
+    "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
+        min_lines=a.get("min_lines", 4)
+    ),
 }
+
+
+def _warm_cache_async(
+    predictions: list[tuple[str, float]], slot, min_prob: float = 0.25
+) -> None:
+    """Spawn a daemon thread to pre-render likely next responses.
+
+    daemon=True is critical: if the MCP server shuts down mid-prefetch, the
+    thread is killed with the process instead of holding it open.
+    """
+    if not predictions:
+        return
+
+    def _worker() -> None:
+        try:
+            qfns = slot.query_fns if slot is not None else None
+            for state, prob in predictions:
+                if prob < min_prob:
+                    continue
+                if ":" not in state:
+                    continue
+                next_tool, next_symbol = state.split(":", 1)
+                if not next_symbol or qfns is None:
+                    continue
+                produce = None
+                if next_tool == "get_function_source":
+                    produce = lambda s=next_symbol: qfns["get_function_source"](s)
+                elif next_tool == "get_class_source":
+                    produce = lambda s=next_symbol: qfns["get_class_source"](s)
+                elif next_tool == "get_dependents":
+                    produce = lambda s=next_symbol: qfns["get_dependents"](s)
+                elif next_tool == "get_dependencies":
+                    produce = lambda s=next_symbol: qfns["get_dependencies"](s)
+                elif next_tool == "find_symbol":
+                    produce = lambda s=next_symbol: qfns["find_symbol"](s)
+                if produce is None:
+                    continue
+                try:
+                    result = produce()
+                except Exception:
+                    continue
+                with _prefetch_lock:
+                    _prefetch_cache[state] = (
+                        result if isinstance(result, str) else str(result)
+                    )
+                    if len(_prefetch_cache) > 64:
+                        # Bound memory; drop oldest entries (insertion order).
+                        for stale_key in list(_prefetch_cache)[:32]:
+                            _prefetch_cache.pop(stale_key, None)
+        except Exception:
+            pass  # never crash the daemon
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 
 @server.call_tool()
@@ -1716,12 +2089,37 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     global _total_chars_returned, _total_naive_chars
 
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
+    _record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
+    try:
+        _prefetcher.record_call(name, _record_symbol or "")
+    except Exception:
+        pass
 
     try:
         # ── Meta tools (no slot needed) ───────────────────────────────────
 
         if name == "get_usage_stats":
             return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
+
+        if name == "get_call_predictions":
+            tool_name = arguments.get("tool_name", "")
+            symbol_name = arguments.get("symbol_name", "")
+            top_k = int(arguments.get("top_k", 5))
+            preds = _prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
+            if not preds:
+                return [
+                    TextContent(
+                        type="text",
+                        text=(
+                            f"No transitions recorded for state "
+                            f"'{tool_name}:{symbol_name}' yet."
+                        ),
+                    )
+                ]
+            lines = [f"Markov predictions after {tool_name}({symbol_name}):"]
+            for state, prob in preds:
+                lines.append(f"  {prob*100:5.1f}%  {state}")
+            return [TextContent(type="text", text="\n".join(lines))]
 
         if name == "list_projects":
             if not _slot_mgr.projects:
@@ -1821,6 +2219,15 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                     )
                 ]
             result = qfn_handler(slot.query_fns, arguments)
+            # Markov: predict next likely calls and pre-warm in a daemon thread
+            try:
+                preds = _prefetcher.predict_next(
+                    name, _record_symbol or "", top_k=3
+                )
+                if preds:
+                    _warm_cache_async(preds, slot)
+            except Exception:
+                pass
             return _count_and_wrap_result(slot, name, arguments, result)
 
         return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]

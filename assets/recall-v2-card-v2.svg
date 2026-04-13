@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" font-family="Inter, system-ui, sans-serif">
+  <defs>
+    <!-- Left side cold background glow -->
+    <radialGradient id="leftAmbient" cx="50%" cy="55%" r="60%">
+      <stop offset="0%" stop-color="#001a2e" stop-opacity="0.9"/>
+      <stop offset="55%" stop-color="#001a2e" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#001a2e" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Right side hot background glow -->
+    <radialGradient id="rightAmbient" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#1a0a00" stop-opacity="0.9"/>
+      <stop offset="55%" stop-color="#1a0a00" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#1a0a00" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Fission line gradient -->
+    <linearGradient id="fissionGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0"/>
+      <stop offset="10%" stop-color="#00d4ff" stop-opacity="1"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="90%" stop-color="#ff6b35" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#ff6b35" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fissionHalo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#00d4ff" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.8"/>
+      <stop offset="80%" stop-color="#ff6b35" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#ff6b35" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Cyan glow filter for the 97% hero -->
+    <filter id="cyanHeroGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur1"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Orange glow for NOW ADDED label -->
+    <filter id="orangeLabelGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Pill elevation shadow -->
+    <filter id="pillShadow" x="-20%" y="-50%" width="140%" height="200%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+
+    <!-- Noise -->
+    <filter id="noise" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="13"/>
+      <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.04 0"/>
+      <feComposite in2="SourceGraphic" operator="in"/>
+    </filter>
+  </defs>
+
+  <!-- Base -->
+  <rect width="1200" height="675" fill="#0a0a0f"/>
+  <!-- Side ambients -->
+  <rect x="0" y="0" width="600" height="675" fill="url(#leftAmbient)"/>
+  <rect x="600" y="0" width="600" height="675" fill="url(#rightAmbient)"/>
+  <!-- Noise layer -->
+  <rect width="1200" height="675" filter="url(#noise)" opacity="0.55"/>
+
+  <!-- ============ HEADER ============ -->
+  <g transform="translate(60,65)">
+    <text x="0" y="0" font-size="28" font-weight="800" fill="#e2e8f0" letter-spacing="-0.3">
+      <tspan fill="#00d4ff">⚡</tspan><tspan dx="10">Token Savior Recall</tspan>
+    </text>
+
+    <!-- v2.0.0 badge -->
+    <g transform="translate(948,-22)">
+      <rect width="96" height="30" rx="6" fill="#1e1e2e" stroke="#00d4ff" stroke-width="1.2"/>
+      <text x="48" y="20" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" fill="#00d4ff" text-anchor="middle">v2.0.0</text>
+    </g>
+    <!-- NEW badge -->
+    <g transform="translate(1054,-22)">
+      <rect width="56" height="30" rx="6" fill="#ff6b35"/>
+      <text x="28" y="20" font-family="JetBrains Mono, monospace" font-size="13" font-weight="900" fill="#000000" text-anchor="middle">NEW</text>
+    </g>
+  </g>
+
+  <!-- Thin divider under header -->
+  <line x1="60" y1="100" x2="1140" y2="100" stroke="#1a1a24" stroke-width="1"/>
+
+  <!-- ============ FISSION LINE (center) ============ -->
+  <!-- Wide halo -->
+  <rect x="584" y="120" width="32" height="480" fill="url(#fissionHalo)" opacity="0.15"/>
+  <rect x="590" y="120" width="20" height="480" fill="url(#fissionHalo)" opacity="0.28"/>
+  <!-- Core line -->
+  <line x1="600" y1="120" x2="600" y2="600" stroke="url(#fissionGrad)" stroke-width="2"/>
+
+  <!-- ============ LEFT COLUMN : v1 STILL SAVING ============ -->
+  <g transform="translate(60,150)">
+    <!-- Label -->
+    <text x="250" y="0" font-size="11" font-weight="800" fill="#64748b" letter-spacing="3" text-anchor="middle">V1 — STILL SAVING</text>
+
+    <!-- 97% hero with extreme glow -->
+    <g transform="translate(270,200)" text-anchor="middle">
+      <!-- Underlying glow blur copies -->
+      <text x="0" y="0" font-family="JetBrains Mono, monospace" font-size="180" font-weight="900" fill="#00d4ff" opacity="0.18" filter="url(#cyanHeroGlow)">97%</text>
+      <text x="0" y="0" font-family="JetBrains Mono, monospace" font-size="180" font-weight="900" fill="#00d4ff" opacity="0.45" filter="url(#cyanHeroGlow)">97%</text>
+      <!-- Main crisp text -->
+      <text x="0" y="0" font-family="JetBrains Mono, monospace" font-size="180" font-weight="900" fill="#00d4ff" letter-spacing="-6">97%</text>
+    </g>
+
+    <!-- Sub-label under 97% -->
+    <text x="250" y="245" font-size="14" fill="#64748b" letter-spacing="2" text-anchor="middle">TOKEN REDUCTION ON CODE NAVIGATION</text>
+
+    <!-- 3-column stats row -->
+    <g transform="translate(0,305)">
+      <!-- 203M -->
+      <g transform="translate(85,0)" text-anchor="middle">
+        <text x="0" y="30" font-family="JetBrains Mono, monospace" font-size="34" font-weight="800" fill="#e2e8f0">203M</text>
+        <text x="0" y="52" font-size="12" fill="#64748b" letter-spacing="0.5">tokens saved</text>
+      </g>
+      <!-- $609 -->
+      <g transform="translate(250,0)" text-anchor="middle">
+        <text x="0" y="30" font-family="JetBrains Mono, monospace" font-size="34" font-weight="800" fill="#e2e8f0">$609</text>
+        <text x="0" y="52" font-size="12" fill="#64748b" letter-spacing="0.5">est. cost saved</text>
+      </g>
+      <!-- 170 -->
+      <g transform="translate(415,0)" text-anchor="middle">
+        <text x="0" y="30" font-family="JetBrains Mono, monospace" font-size="34" font-weight="800" fill="#e2e8f0">170</text>
+        <text x="0" y="52" font-size="12" fill="#64748b" letter-spacing="0.5">sessions tracked</text>
+      </g>
+    </g>
+
+    <!-- Thin separator lines between stats -->
+    <line x1="160" y1="305" x2="160" y2="365" stroke="#1a1a24" stroke-width="1"/>
+    <line x1="325" y1="305" x2="325" y2="365" stroke="#1a1a24" stroke-width="1"/>
+  </g>
+
+  <!-- ============ RIGHT COLUMN : v2 NOW ADDED ============ -->
+  <g transform="translate(630,150)">
+    <!-- Label with orange glow -->
+    <g filter="url(#orangeLabelGlow)">
+      <text x="250" y="0" font-size="11" font-weight="800" fill="#ff6b35" letter-spacing="3" text-anchor="middle">V2 — NOW ADDED</text>
+    </g>
+
+    <!-- 5 feature pills -->
+    <g font-family="Inter, system-ui, sans-serif">
+
+      <!-- Pill 1: persistent memory (orange) -->
+      <g transform="translate(10,30)" filter="url(#pillShadow)">
+        <rect width="480" height="58" rx="12" fill="#1a0800" stroke="#ff6b35" stroke-width="1.4"/>
+        <text x="24" y="28" font-size="22">🧠</text>
+        <text x="60" y="28" font-size="17" font-weight="800" fill="#ff6b35">persistent memory</text>
+        <text x="60" y="46" font-size="11" fill="#64748b" letter-spacing="0.3">SQLite WAL + FTS5 · 12 observation types</text>
+      </g>
+
+      <!-- Pill 2: cross-session context (green) -->
+      <g transform="translate(10,100)" filter="url(#pillShadow)">
+        <rect width="480" height="58" rx="12" fill="#0d1a0d" stroke="#10b981" stroke-width="1.4"/>
+        <text x="24" y="28" font-size="22">↺</text>
+        <text x="60" y="28" font-size="17" font-weight="800" fill="#10b981">cross-session context</text>
+        <text x="60" y="46" font-size="11" fill="#64748b" letter-spacing="0.3">8 Claude Code lifecycle hooks</text>
+      </g>
+
+      <!-- Pill 3: LRU scoring (amber) -->
+      <g transform="translate(10,170)" filter="url(#pillShadow)">
+        <rect width="480" height="58" rx="12" fill="#1a1400" stroke="#f59e0b" stroke-width="1.4"/>
+        <text x="24" y="28" font-size="22">★</text>
+        <text x="60" y="28" font-size="17" font-weight="800" fill="#f59e0b">LRU scoring</text>
+        <text x="60" y="46" font-size="11" fill="#64748b" letter-spacing="0.3">recency · access · type priority</text>
+      </g>
+
+      <!-- Pill 4: delta injection (cyan) -->
+      <g transform="translate(10,240)" filter="url(#pillShadow)">
+        <rect width="480" height="58" rx="12" fill="#001a2e" stroke="#00d4ff" stroke-width="1.4"/>
+        <text x="24" y="28" font-size="22">⚡</text>
+        <text x="60" y="28" font-size="17" font-weight="800" fill="#00d4ff">delta injection</text>
+        <text x="60" y="46" font-size="11" fill="#64748b" letter-spacing="0.3">only the diff, every session</text>
+      </g>
+
+      <!-- Pill 5: auto-linking (violet) -->
+      <g transform="translate(10,310)" filter="url(#pillShadow)">
+        <rect width="480" height="58" rx="12" fill="#1a0a1a" stroke="#7c3aed" stroke-width="1.4"/>
+        <text x="24" y="28" font-size="22">🔗</text>
+        <text x="60" y="28" font-size="17" font-weight="800" fill="#7c3aed">auto-linking</text>
+        <text x="60" y="46" font-size="11" fill="#64748b" letter-spacing="0.3">contradictions · auto-promote</text>
+      </g>
+
+    </g>
+  </g>
+
+  <!-- ============ FOOTER ============ -->
+  <line x1="60" y1="615" x2="1140" y2="615" stroke="#1a1a24" stroke-width="1"/>
+  <g transform="translate(600,648)" text-anchor="middle">
+    <text x="0" y="0" font-family="JetBrains Mono, monospace" font-size="13" fill="#64748b" letter-spacing="1.5">
+      <tspan fill="#e2e8f0" font-weight="700">69</tspan> MCP tools
+      <tspan dx="6" fill="#2a2a3e">·</tspan>
+      <tspan dx="6">Zero external deps</tspan>
+      <tspan dx="6" fill="#2a2a3e">·</tspan>
+      <tspan dx="6">Python 3.11+</tspan>
+    </text>
+  </g>
+</svg>

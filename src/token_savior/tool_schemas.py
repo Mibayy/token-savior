@@ -361,7 +361,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_function_source": {
-        "description": "Get the full source code of a function or method by name. Uses the symbol table to locate the file automatically.",
+        "description": "Get the source of a function or method by name. Use `level` to trade detail for tokens (L0 full, L1 signature+doc, L2 semantic summary, L3 one-liner).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -375,7 +375,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "max_lines": {
                     "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
+                    "description": "Maximum number of source lines to return (0 = unlimited, default 0). Only applies at level=0.",
+                },
+                "level": {
+                    "type": "integer",
+                    "description": "Abstraction level: 0=full source, 1=signature+doc, 2=semantic summary, 3=one-liner. Default 0.",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+                "force_full": {
+                    "type": "boolean",
+                    "description": "Bypass the session symbol cache and always return the full body at the requested level. Default false.",
                 },
                 **_PROJECT_PARAM,
             },
@@ -383,7 +393,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_class_source": {
-        "description": "Get the full source code of a class by name. Uses the symbol table to locate the file automatically.",
+        "description": "Get the source of a class by name. Use `level` to trade detail for tokens (L0 full, L1 signature+doc, L2 semantic summary, L3 one-liner).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -397,7 +407,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "max_lines": {
                     "type": "integer",
-                    "description": "Maximum number of source lines to return (0 = unlimited, default 0).",
+                    "description": "Maximum number of source lines to return (0 = unlimited, default 0). Only applies at level=0.",
+                },
+                "level": {
+                    "type": "integer",
+                    "description": "Abstraction level: 0=full source, 1=signature+doc, 2=semantic summary, 3=one-liner. Default 0.",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+                "force_full": {
+                    "type": "boolean",
+                    "description": "Bypass the session symbol cache and always return the full body at the requested level. Default false.",
                 },
                 **_PROJECT_PARAM,
             },
@@ -1143,6 +1163,151 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {
             "type": "object",
             "properties": {},
+        },
+    },
+    # ── Program slicing & context packing (Phase 2) ───────────────────────
+    "verify_edit": {
+        "description": (
+            "EditSafety certificate before applying a symbol replacement. "
+            "Static analysis only: signature, exceptions, side-effects, tests."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Symbol that would be replaced.",
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "Proposed replacement source.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate the symbol.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "new_source"],
+        },
+    },
+    "find_semantic_duplicates": {
+        "description": (
+            "Find semantically identical functions across the codebase via "
+            "AST-normalised hashing (alpha-renaming, docstrings stripped)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "min_lines": {
+                    "type": "integer",
+                    "description": "Skip functions shorter than this (default 4).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "get_call_predictions": {
+        "description": (
+            "Predict the next likely tool calls based on the persistent first-order "
+            "Markov model trained on this session and prior sessions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Current tool name (e.g. 'get_function_source').",
+                },
+                "symbol_name": {
+                    "type": "string",
+                    "description": "Optional current symbol focus (e.g. 'observation_save').",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Maximum number of predictions to return (default 5).",
+                },
+            },
+            "required": ["tool_name"],
+        },
+    },
+    "get_relevance_cluster": {
+        "description": (
+            "RWR-ranked relevant symbols. Mathematically optimal context for editing `name`. "
+            "Catches symbols BFS misses through multi-hop reinforcement."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Seed symbol (function/method/class) to centre the random walk on.",
+                },
+                "budget": {
+                    "type": "integer",
+                    "description": "Top-K symbols to return (default 10).",
+                },
+                "include_reverse": {
+                    "type": "boolean",
+                    "description": "Include reverse-dependency edges in the walk graph (default true).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name"],
+        },
+    },
+    "pack_context": {
+        "description": (
+            "Optimal context bundle for a query within a token budget. "
+            "Knapsack-greedy ranking by value/cost on the indexed symbols."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language query / topic to pack context for.",
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "Maximum total estimated tokens (default 4000).",
+                },
+                "max_symbols": {
+                    "type": "integer",
+                    "description": "Maximum number of candidate symbols to consider (default 20).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["query"],
+        },
+    },
+    "get_backward_slice": {
+        "description": (
+            "Minimal set of lines affecting `variable` at `line` inside symbol `name`. "
+            "Debug in -70% tokens."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Function/method name to slice.",
+                },
+                "variable": {
+                    "type": "string",
+                    "description": "Variable whose dependencies you want to trace.",
+                },
+                "line": {
+                    "type": "integer",
+                    "description": "Absolute (1-based) line number where the criterion holds.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path to disambiguate the symbol.",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["name", "variable", "line"],
         },
     },
     "corpus_query": {

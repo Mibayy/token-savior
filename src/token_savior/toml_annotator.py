@@ -11,19 +11,9 @@ import re
 import tomllib
 
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _MAX_DEPTH = 4
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    """Compute character offset of each line start."""
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _find_key_line(lines: list[str], key: str, start_from: int = 0) -> int:
@@ -100,7 +90,7 @@ def annotate_toml(text: str, source_name: str = "<toml>") -> StructuralMetadata:
     # but keep total_lines consistent with actual newline count
     total_lines = len(lines) if not text.endswith("\n") else len(lines) - 1
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
     _walk_structure(parsed, lines, 1, sections, 0)

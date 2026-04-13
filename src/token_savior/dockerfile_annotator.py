@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _INSTRUCTION_RE = re.compile(
     r"^(FROM|RUN|COPY|ADD|ENV|EXPOSE|CMD|ENTRYPOINT|ARG|WORKDIR|LABEL|VOLUME|USER|HEALTHCHECK|SHELL|STOPSIGNAL|ONBUILD)\s+(.+)",
@@ -16,15 +16,6 @@ _STAGE_INSTRUCTIONS = {"FROM"}
 
 # Max length for value summary in title (excluding the instruction keyword)
 _MAX_VALUE_LEN = 60
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1  # +1 for the newline
-    return offsets
 
 
 def _make_title(instruction: str, value: str) -> str:
@@ -49,7 +40,7 @@ def annotate_dockerfile(text: str, source_name: str = "<dockerfile>") -> Structu
     lines = text.splitlines()
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
 
     sections: list[SectionInfo] = []
 
