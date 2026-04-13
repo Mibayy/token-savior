@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 # Per-project slot dataclass
 # ---------------------------------------------------------------------------
 
-_STATS_DIR = os.path.expanduser("~/.local/share/token-savior")
+_STATS_DIR = os.path.expanduser(
+    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+)
 
 
 @dataclasses.dataclass

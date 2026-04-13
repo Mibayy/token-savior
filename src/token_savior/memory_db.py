@@ -12,7 +12,9 @@ import re
 import sqlite3
 import sys
 import time
+from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import Any
 
 from . import db_core
 from .db_core import (
@@ -38,15 +40,17 @@ __all__ = [
 
 # Thin wrappers so tests can patch `memory_db.MEMORY_DB_PATH` and affect
 # connections opened via `memory_db.get_db()` / `memory_db.db_session()`.
-def get_db(db_path=None):
+def get_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     return db_core.get_db(db_path or MEMORY_DB_PATH)
 
 
-def db_session(db_path=None):
+def db_session(
+    db_path: Path | str | None = None,
+) -> AbstractContextManager[sqlite3.Connection]:
     return db_core.db_session(db_path or MEMORY_DB_PATH)
 
 
-def run_migrations(db_path=None):
+def run_migrations(db_path: Path | str | None = None) -> None:
     return db_core.run_migrations(db_path or MEMORY_DB_PATH)
 
 
@@ -74,7 +78,7 @@ def check_symbol_staleness(project_root: str, symbol: str, obs_created_epoch: in
     return False
 
 
-def compute_continuity_score(project_root: str) -> dict:
+def compute_continuity_score(project_root: str) -> dict[str, Any]:
     """Memory continuity score: share of obs not yet stale by the decay heuristic."""
     try:
         conn = get_db()
@@ -137,7 +141,7 @@ CONSISTENCY_QUARANTINE_THRESHOLD = 0.40
 CONSISTENCY_STALE_THRESHOLD = 0.60
 
 
-def get_validity_score(obs_id: int) -> dict:
+def get_validity_score(obs_id: int) -> dict[str, Any]:
     """Return current Bayesian validity for an observation.
 
     Validity = α / (α + β). New observations default to (α=2.0, β=1.0) which
@@ -172,7 +176,7 @@ def get_validity_score(obs_id: int) -> dict:
     }
 
 
-def update_consistency_score(obs_id: int, success: bool) -> dict:
+def update_consistency_score(obs_id: int, success: bool) -> dict[str, Any]:
     """Record one Bayesian check outcome — bumps α on success, β on failure.
 
     Recomputes ``stale_suspected`` and ``quarantine`` flags from the new
@@ -224,7 +228,7 @@ def run_consistency_check(
     *,
     limit: int = 100,
     dry_run: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Sweep symbol-linked observations and update Bayesian validity.
 
     Failure = ``check_symbol_staleness`` says the symbol moved after the obs
@@ -232,7 +236,7 @@ def run_consistency_check(
     ``last_checked_epoch`` (NULL first) so freshly-added obs get vetted.
     """
     try:
-        params: list = []
+        params: list[Any] = []
         sql = (
             "SELECT o.id, o.project_root, o.symbol, o.created_at_epoch "
             "FROM observations AS o "
@@ -277,11 +281,11 @@ def run_consistency_check(
     }
 
 
-def get_consistency_stats(project_root: str | None = None) -> dict:
+def get_consistency_stats(project_root: str | None = None) -> dict[str, Any]:
     """Aggregate quarantine / stale counts across observations."""
     try:
         conn = get_db()
-        params: list = []
+        params: list[Any] = []
         join = (
             "FROM consistency_scores AS c "
             "JOIN observations AS o ON o.id = c.obs_id "
@@ -320,7 +324,7 @@ def list_quarantined_observations(
     """List quarantined observations with their validity score."""
     try:
         conn = get_db()
-        params: list = []
+        params: list[Any] = []
         sql = (
             "SELECT o.id, o.type, o.title, o.symbol, o.project_root, "
             "  o.created_at_epoch, c.validity_alpha, c.validity_beta, "
@@ -753,7 +757,7 @@ def memory_bus_list(
             "WHERE archived=0 AND agent_id IS NOT NULL "
             "  AND project_root=? "
         )
-        params: list = [project_root]
+        params: list[Any] = [project_root]
         if agent_id:
             sql += "AND agent_id=? "
             params.append(agent_id)
@@ -839,7 +843,7 @@ def reasoning_search(
     limit: int = 5,
 ) -> list[dict]:
     """Return reasoning chains matching *query*, scored by Jaccard on the goal."""
-    rows: list = []
+    rows: list[Any] = []
     try:
         conn = get_db()
         fts_q = _fts5_safe_query(query)
@@ -928,7 +932,7 @@ def reasoning_inject(project_root: str, prompt: str) -> str | None:
     return "\n".join(lines)
 
 
-def register_chunks(chunks: list) -> list:
+def register_chunks(chunks: list[Any]) -> list[Any]:
     """Update dcp_chunk_registry with *chunks*; annotate each chunk in place.
 
     A chunk is *stable* if its fingerprint existed before this call. The
@@ -990,7 +994,7 @@ def optimize_output_order(content: str) -> tuple[str, int, int]:
     return reordered, len(stable), len(chunks)
 
 
-def dcp_stats() -> dict:
+def dcp_stats() -> dict[str, Any]:
     """Registry-level stats for DCP: total chunks, hit counts, top fingerprints."""
     try:
         conn = get_db()
@@ -1215,7 +1219,7 @@ def observation_search(
     """
     try:
         conn = get_db()
-        params: list = []
+        params: list[Any] = []
         sql = (
             "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
             "  snippet(observations_fts, 1, '»', '«', '...', 40) AS excerpt, "
@@ -1307,7 +1311,7 @@ def observation_get_by_symbol(
     """Get compact observation list linked to a symbol (for footer injection)."""
     try:
         conn = get_db()
-        params: list = [project_root]
+        params: list[Any] = [project_root]
 
         ctx_like = f"%{symbol}%"
         if file_path:
@@ -1356,7 +1360,7 @@ def observation_update(
 ) -> bool:
     """Update fields on an existing observation. Returns True on success."""
     sets: list[str] = []
-    params: list = []
+    params: list[Any] = []
 
     if title is not None:
         sets.append("title=?")
@@ -1474,7 +1478,7 @@ _TYPE_SCORES = {
 }
 
 
-def compute_obs_score(obs: dict) -> float:
+def compute_obs_score(obs: dict[str, Any]) -> float:
     now = time.time()
     age_days = (now - (obs.get("created_at_epoch") or now)) / 86400
     if age_days < 1:
@@ -1595,7 +1599,7 @@ def get_recent_index(
             [cache_key],
         ).fetchone()
         cached_ids = None
-        cached_scores: dict = {}
+        cached_scores: dict[str, Any] = {}
         if cached and (int(time.time()) - cached["created_at_epoch"] < ttl):
             try:
                 cached_ids = json.loads(cached["obs_ids_ordered"])
@@ -1604,7 +1608,7 @@ def get_recent_index(
                 cached_ids = None
 
         where = "o.archived=0 AND (o.project_root=? OR o.is_global=1)"
-        params: list = [project_root]
+        params: list[Any] = [project_root]
         if type_filter:
             if isinstance(type_filter, str):
                 where += " AND o.type=?"
@@ -1724,7 +1728,7 @@ def event_save(
     type: str,
     *,
     severity: str = "info",
-    data: dict | None = None,
+    data: dict[str, Any] | None = None,
     symbol: str | None = None,
     file_path: str | None = None,
 ) -> int | None:
@@ -1814,12 +1818,12 @@ def prompt_search(
 # ---------------------------------------------------------------------------
 
 
-def get_stats(project_root: str | None = None) -> dict:
+def get_stats(project_root: str | None = None) -> dict[str, Any]:
     """Memory stats: counts by type, project, freshness."""
     try:
         conn = get_db()
         where = ""
-        params: list = []
+        params: list[Any] = []
         if project_root:
             where = "WHERE project_root=? AND archived=0"
             params = [project_root]
@@ -1958,7 +1962,7 @@ _ZERO_ACCESS_RULES = [
 ]
 
 
-def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict:
+def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict[str, Any]:
     """Archive observations eligible for decay. Returns counts + preview."""
     sql, params = _decay_candidates_sql()
     if project_root:
@@ -1980,7 +1984,7 @@ def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict:
                 "WHERE archived=0 AND expires_at_epoch IS NOT NULL "
                 "  AND expires_at_epoch < ? "
             )
-            tparams: list = [now]
+            tparams: list[Any] = [now]
             if project_root:
                 tsql += "AND project_root=? "
                 tparams.append(project_root)
@@ -2001,7 +2005,7 @@ def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict:
                     "WHERE archived=0 AND decay_immune=0 "
                     "  AND type=? AND access_count=0 AND created_at_epoch < ? "
                 )
-                zparams: list = [obs_type, cutoff]
+                zparams: list[Any] = [obs_type, cutoff]
                 if project_root:
                     zsql += "AND project_root=? "
                     zparams.append(project_root)
@@ -2085,7 +2089,7 @@ _ROI_TYPE_MULTIPLIER: dict[str, float] = {
 }
 
 
-def compute_observation_roi(obs: dict, now_epoch: int | None = None) -> dict:
+def compute_observation_roi(obs: dict[str, Any], now_epoch: int | None = None) -> dict[str, Any]:
     """Compute expected ROI of keeping an observation.
 
     Returns a dict with p_hit, tokens_saved_expected, tokens_stored, roi, multiplier.
@@ -2119,7 +2123,7 @@ def run_roi_gc(
     project_root: str | None = None,
     dry_run: bool = True,
     threshold: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Archive observations whose expected ROI falls below *threshold*.
 
     decay_immune observations are always kept.
@@ -2132,7 +2136,7 @@ def run_roi_gc(
                 "       created_at_epoch, last_accessed_epoch, decay_immune "
                 "FROM observations WHERE archived=0 "
             )
-            params: list = []
+            params: list[Any] = []
             if project_root:
                 sql += "AND project_root=? "
                 params.append(project_root)
@@ -2188,7 +2192,7 @@ def run_roi_gc(
         }
 
 
-def get_roi_stats(project_root: str | None = None) -> dict:
+def get_roi_stats(project_root: str | None = None) -> dict[str, Any]:
     """Aggregate ROI statistics across the active corpus."""
     try:
         conn = get_db()
@@ -2197,7 +2201,7 @@ def get_roi_stats(project_root: str | None = None) -> dict:
             "       created_at_epoch, last_accessed_epoch, decay_immune "
             "FROM observations WHERE archived=0 "
         )
-        params: list = []
+        params: list[Any] = []
         if project_root:
             sql += "AND project_root=? "
             params.append(project_root)
@@ -2216,7 +2220,7 @@ def get_roi_stats(project_root: str | None = None) -> dict:
         total_tokens_stored = 0
         total_expected_savings = 0.0
         negative = 0
-        by_type: dict[str, dict] = {}
+        by_type: dict[str, dict[str, Any]] = {}
         for r in rows:
             m = compute_observation_roi(r, now_epoch=now)
             total_tokens_stored += m["tokens_stored"]
@@ -2257,7 +2261,7 @@ def run_mdl_distillation(
     min_cluster_size: int = 3,
     compression_required: float = 0.2,
     jaccard_threshold: float = 0.4,
-) -> dict:
+) -> dict[str, Any]:
     """Detect MDL-compressible clusters and (optionally) crystallize them."""
     from token_savior.mdl_distiller import find_distillation_candidates
 
@@ -2390,12 +2394,12 @@ def run_mdl_distillation(
     }
 
 
-def get_mdl_stats(project_root: str | None = None) -> dict:
+def get_mdl_stats(project_root: str | None = None) -> dict[str, Any]:
     """Counts of abstractions and distilled observations (tag-based)."""
     try:
         conn = get_db()
         base = "SELECT id, tags, project_root FROM observations WHERE archived=0"
-        params: list = []
+        params: list[Any] = []
         if project_root:
             base += " AND project_root=?"
             params.append(project_root)
@@ -2543,7 +2547,7 @@ _TYPE_PRIORITY = {
 }
 
 
-def explain_observation(obs_id: int, query: str | None = None) -> dict:
+def explain_observation(obs_id: int, query: str | None = None) -> dict[str, Any]:
     """Trace why an observation would appear in results."""
     try:
         db = get_db()
@@ -2554,7 +2558,7 @@ def explain_observation(obs_id: int, query: str | None = None) -> dict:
         obs = dict(obs)
 
         reasons: list[str] = []
-        breakdown: dict = {}
+        breakdown: dict[str, Any] = {}
 
         age_sec = int(time.time()) - int(obs.get("created_at_epoch") or 0)
         age_days = age_sec / 86400 if age_sec > 0 else 0
@@ -2643,7 +2647,7 @@ def explain_observation(obs_id: int, query: str | None = None) -> dict:
 
 def global_dedup_check(
     title: str, content: str, obs_type: str, threshold: float = 0.85
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Cross-project dedup for globals. Returns best global match (content_hash or Jaccard)."""
     try:
         db = get_db()
@@ -2679,7 +2683,7 @@ def global_dedup_check(
 
 def semantic_dedup_check(
     project_root: str, title: str, obs_type: str, threshold: float = 0.85
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Return best near-duplicate (same type) if Jaccard(title) >= threshold."""
     try:
         db = get_db()
@@ -2704,7 +2708,7 @@ def semantic_dedup_check(
     return best
 
 
-def get_injection_stats(project_root: str) -> dict:
+def get_injection_stats(project_root: str) -> dict[str, Any]:
     try:
         db = get_db()
         row = db.execute(
@@ -2745,7 +2749,7 @@ def get_session_budget_stats(
     project_root: str,
     *,
     budget_tokens: int = DEFAULT_SESSION_BUDGET_TOKENS,
-) -> dict:
+) -> dict[str, Any]:
     """Return the current/most-recent session's token budget consumption.
 
     Picks the active session for *project_root* if one exists, otherwise the
@@ -2757,7 +2761,7 @@ def get_session_budget_stats(
       - 🟡 yellow  : 50 <= pct_used <= 75
       - 🔴 red     : pct_used > 75   (auto-injected during PreCompact)
     """
-    out: dict = {
+    out: dict[str, Any] = {
         "project_root": project_root,
         "session_id": None,
         "status_label": "active",
@@ -2826,7 +2830,7 @@ def get_session_budget_stats(
     return out
 
 
-def format_session_budget_box(stats: dict) -> str:
+def format_session_budget_box(stats: dict[str, Any]) -> str:
     """Render get_session_budget_stats() as a 60-char status box."""
     pct = stats.get("pct_used", 0.0)
     bar_w = 40
@@ -2863,9 +2867,9 @@ def _jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def run_health_check(project_root: str) -> dict:
+def run_health_check(project_root: str) -> dict[str, Any]:
     """Report orphan symbols, stale obs, near-duplicates, incomplete obs."""
-    issues: dict = {
+    issues: dict[str, Any] = {
         "orphan_symbols": [],
         "stale_obs": [],
         "near_duplicates": [],
@@ -2934,7 +2938,7 @@ def run_health_check(project_root: str) -> dict:
     return issues
 
 
-def relink_all(project_root: str, dry_run: bool = False) -> dict:
+def relink_all(project_root: str, dry_run: bool = False) -> dict[str, Any]:
     """Replay auto_link_observation() over all active obs to backfill links."""
     db = get_db()
     obs_ids = [
@@ -2969,9 +2973,9 @@ def relink_all(project_root: str, dry_run: bool = False) -> dict:
     }
 
 
-def get_linked_observations(obs_id: int) -> dict:
+def get_linked_observations(obs_id: int) -> dict[str, Any]:
     """Return related/contradicts/supersedes links for an obs."""
-    out: dict = {"related": [], "contradicts": [], "supersedes": []}
+    out: dict[str, Any] = {"related": [], "contradicts": [], "supersedes": []}
     try:
         db = get_db()
         rows = db.execute(
@@ -3077,7 +3081,7 @@ def analyze_prompt_patterns(
     return suggestions
 
 
-def run_promotions(project_root: str = "", dry_run: bool = False) -> dict:
+def run_promotions(project_root: str = "", dry_run: bool = False) -> dict[str, Any]:
     """Promote frequently-accessed observations to stronger types.
 
     Empty project_root = scan all projects.
@@ -3094,7 +3098,7 @@ def run_promotions(project_root: str = "", dry_run: bool = False) -> dict:
                 "WHERE type=? AND access_count >= ? AND archived=0 AND decay_immune=0 "
                 "  AND last_accessed_epoch IS NOT NULL AND last_accessed_epoch > ? "
             )
-            params: list = [current_type, min_count, recent_cutoff]
+            params: list[Any] = [current_type, min_count, recent_cutoff]
             if project_root:
                 sql += "AND project_root=? "
                 params.append(project_root)
@@ -3162,7 +3166,7 @@ def observation_list_archived(project_root: str | None = None, limit: int = 50) 
         return []
 
 
-def summary_parse(content: str) -> dict:
+def summary_parse(content: str) -> dict[str, Any]:
     """Parse a structured summary into {changes:[...], memory:[...]}."""
     sections = {"changes": [], "memory": []}
     if not content:
@@ -3198,10 +3202,10 @@ def corpus_build(
     filter_type: str | None = None,
     filter_tags: list[str] | None = None,
     filter_symbol: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Build a corpus from observations matching the filters. Stores IDs."""
     where = ["project_root = ?", "archived = 0"]
-    params: list = [project_root]
+    params: list[Any] = [project_root]
     if filter_type:
         where.append("type = ?")
         params.append(filter_type)
@@ -3272,7 +3276,7 @@ def corpus_build(
         return {"name": name, "count": 0, "observation_ids": [], "type_counts": {}, "preview": []}
 
 
-def corpus_get(project_root: str, name: str) -> dict | None:
+def corpus_get(project_root: str, name: str) -> dict[str, Any] | None:
     """Fetch corpus metadata + observation rows."""
     try:
         conn = get_db()
@@ -3351,7 +3355,7 @@ DEFAULT_MODES = {
 }
 
 
-def _load_mode_file() -> dict:
+def _load_mode_file() -> dict[str, Any]:
     """Load (or bootstrap) the mode config file."""
     if not MODE_CONFIG_PATH.exists():
         MODE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -3395,7 +3399,7 @@ def clear_session_override() -> None:
         pass
 
 
-def get_current_mode(project_root: str | None = None) -> dict:
+def get_current_mode(project_root: str | None = None) -> dict[str, Any]:
     """Resolve the active mode config with origin tracking.
 
     Priority: session override → project default → global current_mode → 'code'.
@@ -3438,7 +3442,7 @@ def list_modes() -> list[dict]:
 ACTIVITY_TRACKER_PATH = Path.home() / ".config" / "token-savior" / "activity_tracker.json"
 
 
-def _read_activity_tracker() -> dict:
+def _read_activity_tracker() -> dict[str, Any]:
     try:
         if ACTIVITY_TRACKER_PATH.exists():
             return json.loads(ACTIVITY_TRACKER_PATH.read_text(encoding="utf-8"))
@@ -3452,7 +3456,7 @@ def _read_activity_tracker() -> dict:
     }
 
 
-def _write_activity_tracker(data: dict) -> None:
+def _write_activity_tracker(data: dict[str, Any]) -> None:
     try:
         ACTIVITY_TRACKER_PATH.parent.mkdir(parents=True, exist_ok=True)
         ACTIVITY_TRACKER_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -3501,7 +3505,7 @@ def set_project_mode(project_root: str, mode_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def notify_telegram(obs: dict) -> None:
+def notify_telegram(obs: dict[str, Any]) -> None:
     """Send a Telegram notification for a critical observation. Silent on failure."""
     import urllib.parse
     import urllib.request

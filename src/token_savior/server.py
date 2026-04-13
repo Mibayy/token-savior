@@ -25,6 +25,7 @@ import time
 import traceback
 import uuid
 from pathlib import Path
+from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -100,7 +101,9 @@ _csc_hits: int = 0
 _csc_tokens_saved: int = 0  # naive_chars - actual_chars summed across hits
 
 # Persistent stats
-_STATS_DIR = os.path.expanduser("~/.local/share/token-savior")
+_STATS_DIR = os.path.expanduser(
+    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+)
 _MAX_SESSION_HISTORY = 200
 
 # Markov prefetcher (P8) — PPM variable-order model on tool-call sequences.
@@ -158,7 +161,7 @@ _COMPRESSIBLE_TOOLS = frozenset({
 })
 
 
-def _fmt_lines(entry: dict) -> str:
+def _fmt_lines(entry: dict[str, Any]) -> str:
     lines = entry.get("lines") or entry.get("line_range")
     if isinstance(lines, (list, tuple)) and len(lines) == 2:
         return f"{lines[0]}-{lines[1]}"
@@ -179,7 +182,7 @@ def compress_symbol_output(tool_name: str, result: object) -> str:
     Skips error entries and leaves non-dict/list payloads untouched.
     Returns the compressed string (never raises).
     """
-    def _row(tool: str, e: dict) -> str:
+    def _row(tool: str, e: dict[str, Any]) -> str:
         if not isinstance(e, dict) or "error" in e or e.get("truncated"):
             return json.dumps(e, separators=(",", ":"), default=str)
         parts: list[str] = []
@@ -287,7 +290,7 @@ def _get_stats_file(project_root: str) -> str:
     return os.path.join(_STATS_DIR, f"{name}-{slug}.json")
 
 
-def _load_cumulative_stats(stats_file: str) -> dict:
+def _load_cumulative_stats(stats_file: str) -> dict[str, Any]:
     """Load cumulative stats from disk, or return empty structure."""
     if not stats_file or not os.path.exists(stats_file):
         return {
@@ -442,7 +445,7 @@ def _format_result(value: object) -> str:
 
 
 def _count_and_wrap_result(
-    slot: _ProjectSlot, name: str, arguments: dict, result: object
+    slot: _ProjectSlot, name: str, arguments: dict[str, Any], result: object
 ) -> list[types.TextContent]:
     """Update usage counters for a tool result and return it as text content."""
     global _total_chars_returned, _total_naive_chars
@@ -477,7 +480,7 @@ def _count_and_wrap_result(
 
 
 def _estimate_naive_chars_for_call(
-    slot: _ProjectSlot, tool_name: str, arguments: dict, result: object
+    slot: _ProjectSlot, tool_name: str, arguments: dict[str, Any], result: object
 ) -> int:
     """Estimate the naive character cost of one tool call."""
     index = slot.indexer._project_index if slot.indexer else None
@@ -1200,7 +1203,7 @@ def _h_analyze_docker(slot, args):
 # ── Memory Engine handlers ────────────────────────────────────────────────
 
 
-def _resolve_project_root(arguments: dict) -> str:
+def _resolve_project_root(arguments: dict[str, Any]) -> str:
     project_hint = arguments.get("project")
     slot, err = _slot_mgr.resolve(project_hint)
     if slot:
@@ -1211,7 +1214,7 @@ def _resolve_project_root(arguments: dict) -> str:
     return os.path.expanduser("~")
 
 
-def _resolve_memory_project(arguments: dict) -> str:
+def _resolve_memory_project(arguments: dict[str, Any]) -> str:
     """Resolve the project_root for memory tools.
 
     Falls back from explicit hint → active slot (if it has observations) →
@@ -1253,7 +1256,7 @@ def _resolve_memory_project(arguments: dict) -> str:
     return active_root or _resolve_project_root(arguments)
 
 
-def _mh_memory_bus_push(args: dict) -> str:
+def _mh_memory_bus_push(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     agent_id = (args.get("agent_id") or "").strip()
     if not agent_id:
@@ -1276,7 +1279,7 @@ def _mh_memory_bus_push(args: dict) -> str:
     return f"🤖 Bus push #{obs_id} from agent '{agent_id}': {title}"
 
 
-def _mh_memory_bus_list(args: dict) -> str:
+def _mh_memory_bus_list(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     rows = memory_db.memory_bus_list(
         project_root=root,
@@ -1296,7 +1299,7 @@ def _mh_memory_bus_list(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_reasoning_save(args: dict) -> str:
+def _mh_reasoning_save(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     goal = (args.get("goal") or "").strip()
     conclusion = (args.get("conclusion") or "").strip()
@@ -1319,7 +1322,7 @@ def _mh_reasoning_save(args: dict) -> str:
     return f"🧠 Reasoning chain #{rc_id} saved: {goal[:80]}"
 
 
-def _mh_reasoning_search(args: dict) -> str:
+def _mh_reasoning_search(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     query = (args.get("query") or "").strip()
     if not query:
@@ -1341,7 +1344,7 @@ def _mh_reasoning_search(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_reasoning_list(args: dict) -> str:
+def _mh_reasoning_list(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     rows = memory_db.reasoning_list(root, limit=int(args.get("limit", 50)))
     if not rows:
@@ -1354,7 +1357,7 @@ def _mh_reasoning_list(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_save(args: dict) -> str:
+def _mh_memory_save(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     obs_type = args["type"]
     title = args["title"]
@@ -1411,7 +1414,7 @@ def _mh_memory_save(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_promote(args: dict) -> str:
+def _mh_memory_promote(args: dict[str, Any]) -> str:
     dry = bool(args.get("dry_run", True))
     root = args.get("project")
     try:
@@ -1431,7 +1434,7 @@ def _mh_memory_promote(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_export_md(args: dict) -> str:
+def _mh_memory_export_md(args: dict[str, Any]) -> str:
     import subprocess
     out_dir = args.get("output_dir") or "/root/memory-backup"
     script = "/root/token-savior/scripts/export_markdown.py"
@@ -1449,7 +1452,7 @@ def _mh_memory_export_md(args: dict) -> str:
         return f"Export error: {exc}"
 
 
-def _mh_memory_relink(args: dict) -> str:
+def _mh_memory_relink(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     dry = bool(args.get("dry_run", False))
     res = memory_db.relink_all(root, dry_run=dry)
@@ -1460,7 +1463,7 @@ def _mh_memory_relink(args: dict) -> str:
     )
 
 
-def _mh_memory_top(args: dict) -> str:
+def _mh_memory_top(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     rows = memory_db.get_top_observations(
         root,
@@ -1487,7 +1490,7 @@ def _mh_memory_top(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_why(args: dict) -> str:
+def _mh_memory_why(args: dict[str, Any]) -> str:
     res = memory_db.explain_observation(int(args["id"]), args.get("query"))
     if "error" in res:
         return res["error"]
@@ -1501,7 +1504,7 @@ def _mh_memory_why(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_doctor(args: dict) -> str:
+def _mh_memory_doctor(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     issues = memory_db.run_health_check(root)
     s = issues["summary"]
@@ -1531,7 +1534,7 @@ def _mh_memory_doctor(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_distill(args: dict) -> str:
+def _mh_memory_distill(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     dry = args.get("dry_run", True)
     mcs = int(args.get("min_cluster_size", 3))
@@ -1568,7 +1571,7 @@ def _mh_memory_distill(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_roi_gc(args: dict) -> str:
+def _mh_memory_roi_gc(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     dry = args.get("dry_run", True)
     threshold = args.get("threshold")
@@ -1592,7 +1595,7 @@ def _mh_memory_roi_gc(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_roi_stats(args: dict) -> str:
+def _mh_memory_roi_stats(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     s = memory_db.get_roi_stats(root)
     lines = [
@@ -1615,7 +1618,7 @@ def _mh_memory_roi_stats(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_patterns(args: dict) -> str:
+def _mh_memory_patterns(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     window = int(args.get("window_days", 14))
     min_occ = int(args.get("min_occurrences", 3))
@@ -1636,7 +1639,7 @@ def _mh_memory_patterns(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_from_bash(args: dict) -> str:
+def _mh_memory_from_bash(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     command = (args.get("command") or "").strip()
     if not command:
@@ -1662,7 +1665,7 @@ def _mh_memory_from_bash(args: dict) -> str:
     return f"Saved bash command #{obs_id}: {title}"
 
 
-def _mh_memory_make_global(args: dict) -> str:
+def _mh_memory_make_global(args: dict[str, Any]) -> str:
     obs_id = int(args["id"])
     conn = memory_db.get_db()
     cur = conn.execute(
@@ -1675,7 +1678,7 @@ def _mh_memory_make_global(args: dict) -> str:
     return f"Observation #{obs_id} is now 🌐 global." if ok else f"Observation #{obs_id} not found."
 
 
-def _mh_memory_make_local(args: dict) -> str:
+def _mh_memory_make_local(args: dict[str, Any]) -> str:
     obs_id = int(args["id"])
     conn = memory_db.get_db()
     cur = conn.execute(
@@ -1688,7 +1691,7 @@ def _mh_memory_make_local(args: dict) -> str:
     return f"Observation #{obs_id} scoped back to its project." if ok else f"Observation #{obs_id} not found."
 
 
-def _mh_memory_search(args: dict) -> str:
+def _mh_memory_search(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     rows = memory_db.observation_search(
         project_root=root,
@@ -1707,7 +1710,7 @@ def _mh_memory_search(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_get(args: dict) -> str:
+def _mh_memory_get(args: dict[str, Any]) -> str:
     ids = args["ids"]
     full = bool(args.get("full", False))
     # LinUCB reward: if any of the requested ids was recently injected by
@@ -1772,7 +1775,7 @@ def _invalidate_injection_hash() -> None:
             pass
 
 
-def _mh_memory_delete(args: dict) -> str:
+def _mh_memory_delete(args: dict[str, Any]) -> str:
     obs_list = memory_db.observation_get([args["id"]])
     if not obs_list:
         return f"Observation #{args['id']} not found."
@@ -1804,7 +1807,7 @@ def _linucb_credit_reward(obs_ids: list[int], reward: float = 1.0) -> None:
             pass
 
 
-def _build_linucb_context(root: str, prompt: str = "") -> dict:
+def _build_linucb_context(root: str, prompt: str = "") -> dict[str, Any]:
     """Build the feature context used by the LinUCB bandit."""
     try:
         mode_info = memory_db.get_current_mode(root)
@@ -1836,7 +1839,7 @@ def _build_linucb_context(root: str, prompt: str = "") -> dict:
     }
 
 
-def _mh_memory_index(args: dict) -> str:
+def _mh_memory_index(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     desired_limit = int(args.get("limit") or 10)
     pool_limit = max(30, desired_limit * 3)
@@ -1884,7 +1887,7 @@ def _mh_memory_index(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_timeline(args: dict) -> str:
+def _mh_memory_timeline(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     obs_id = args["observation_id"]
     window_hours = args.get("window", 24)
@@ -1903,7 +1906,7 @@ def _mh_memory_timeline(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_prompt_save(args: dict) -> str:
+def _mh_prompt_save(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     pid = memory_db.prompt_save(
         None,
@@ -1916,7 +1919,7 @@ def _mh_prompt_save(args: dict) -> str:
     return f"Prompt #{pid} saved."
 
 
-def _mh_prompt_search(args: dict) -> str:
+def _mh_prompt_search(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     rows = memory_db.prompt_search(
         project_root=root,
@@ -1935,7 +1938,7 @@ def _mh_prompt_search(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_get_mode(args: dict) -> str:
+def _mh_memory_get_mode(args: dict[str, Any]) -> str:
     try:
         project = _resolve_memory_project({})
     except Exception:
@@ -1955,7 +1958,7 @@ def _mh_memory_get_mode(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_set_mode(args: dict) -> str:
+def _mh_memory_set_mode(args: dict[str, Any]) -> str:
     mode = args["mode"]
     ok = memory_db.set_mode(mode, source="manual")
     if not ok:
@@ -1967,7 +1970,7 @@ def _mh_memory_set_mode(args: dict) -> str:
     )
 
 
-def _mh_corpus_build(args: dict) -> str:
+def _mh_corpus_build(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     result = memory_db.corpus_build(
         root,
@@ -1989,7 +1992,7 @@ def _mh_corpus_build(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_corpus_query(args: dict) -> str:
+def _mh_corpus_query(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     data = memory_db.corpus_get(root, args["name"])
     if not data:
@@ -2016,7 +2019,7 @@ def _mh_corpus_query(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_decay(args: dict) -> str:
+def _mh_memory_decay(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args) if args.get("project") else None
     dry = args.get("dry_run", True)
     result = memory_db.run_decay(project_root=root, dry_run=dry)
@@ -2040,7 +2043,7 @@ def _mh_memory_decay(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_archived(args: dict) -> str:
+def _mh_memory_archived(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args) if args.get("project") else None
     limit = args.get("limit", 50)
     rows = memory_db.observation_list_archived(project_root=root, limit=limit)
@@ -2055,7 +2058,7 @@ def _mh_memory_archived(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _mh_memory_restore(args: dict) -> str:
+def _mh_memory_restore(args: dict[str, Any]) -> str:
     ok = memory_db.observation_restore(args["id"])
     return (
         f"Observation #{args['id']} restored."
@@ -2064,7 +2067,7 @@ def _mh_memory_restore(args: dict) -> str:
     )
 
 
-def _mh_memory_set_project_mode(args: dict) -> str:
+def _mh_memory_set_project_mode(args: dict[str, Any]) -> str:
     project = args["project"]
     mode_name = args["mode"]
     ok = memory_db.set_project_mode(project, mode_name)
@@ -2073,7 +2076,7 @@ def _mh_memory_set_project_mode(args: dict) -> str:
     return f"Project {project} → mode {mode_name}"
 
 
-def _mh_memory_status(args: dict) -> str:
+def _mh_memory_status(args: dict[str, Any]) -> str:
     project = _resolve_memory_project(args)
     db = memory_db.get_db()
     active = db.execute(
@@ -2134,13 +2137,13 @@ def _mh_memory_status(args: dict) -> str:
     return "\n".join([top] + body + [bot])
 
 
-def _mh_memory_set_global(args: dict) -> str:
+def _mh_memory_set_global(args: dict[str, Any]) -> str:
     if args.get("is_global"):
         return _mh_memory_make_global({"id": args["id"]})
     return _mh_memory_make_local({"id": args["id"]})
 
 
-def _mh_memory_mode(args: dict) -> str:
+def _mh_memory_mode(args: dict[str, Any]) -> str:
     action = args.get("action", "get")
     if action == "get":
         return _mh_memory_get_mode({})
@@ -2151,7 +2154,7 @@ def _mh_memory_mode(args: dict) -> str:
     return f"Unknown action: {action}"
 
 
-def _mh_memory_archive(args: dict) -> str:
+def _mh_memory_archive(args: dict[str, Any]) -> str:
     action = args.get("action", "list")
     if action == "run":
         return _mh_memory_decay({"dry_run": args.get("dry_run", True), "project": args.get("project")})
@@ -2162,7 +2165,7 @@ def _mh_memory_archive(args: dict) -> str:
     return f"Unknown action: {action}"
 
 
-def _mh_memory_maintain(args: dict) -> str:
+def _mh_memory_maintain(args: dict[str, Any]) -> str:
     action = args.get("action")
     if action == "promote":
         return _mh_memory_promote({"dry_run": args.get("dry_run", True), "project": args.get("project")})
@@ -2178,7 +2181,7 @@ def _mh_memory_maintain(args: dict) -> str:
     return f"Unknown action: {action}"
 
 
-def _mh_memory_prompts(args: dict) -> str:
+def _mh_memory_prompts(args: dict[str, Any]) -> str:
     action = args.get("action")
     if action == "save":
         return _mh_prompt_save({
@@ -2201,18 +2204,18 @@ def _mh_memory_prompts(args: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _hm_get_usage_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_usage_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
 
 
-def _hm_get_session_budget(arguments: dict) -> list[types.TextContent]:
+def _hm_get_session_budget(arguments: dict[str, Any]) -> list[types.TextContent]:
     project = _resolve_memory_project(arguments)
     budget = int(arguments.get("budget_tokens") or memory_db.DEFAULT_SESSION_BUDGET_TOKENS)
     stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
     return [TextContent(type="text", text=memory_db.format_session_budget_box(stats))]
 
 
-def _hm_get_coactive_symbols(arguments: dict) -> list[types.TextContent]:
+def _hm_get_coactive_symbols(arguments: dict[str, Any]) -> list[types.TextContent]:
     seed = (arguments.get("name") or "").strip()
     if not seed:
         return [TextContent(type="text", text="Error: 'name' required.")]
@@ -2226,7 +2229,7 @@ def _hm_get_coactive_symbols(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_tca_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_tca_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     stats = _tca_engine.get_stats()
     lines = [
         "Tenseur de Co-Activation (TCA):",
@@ -2242,7 +2245,7 @@ def _hm_get_tca_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_dcp_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_dcp_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     stats = memory_db.dcp_stats()
     lines = [
         "Differential Context Protocol (DCP):",
@@ -2264,7 +2267,7 @@ def _hm_get_dcp_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_community(arguments: dict) -> list[types.TextContent]:
+def _hm_get_community(arguments: dict[str, Any]) -> list[types.TextContent]:
     sym = arguments.get("symbol")
     cname = arguments.get("name")
     if not sym and not cname:
@@ -2283,7 +2286,7 @@ def _hm_get_community(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_linucb_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_linucb_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     s = _linucb.get_stats()
     lines = ["LinUCB Injection Model:", "  Feature weights (θ):"]
     for i, fw in enumerate(s["feature_weights"]):
@@ -2293,7 +2296,7 @@ def _hm_get_linucb_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_warmstart_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_warmstart_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     s = _warm_start.get_stats()
     lines = [
         "Cross-session Warm Start:",
@@ -2309,7 +2312,7 @@ def _hm_get_warmstart_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_memory_consistency(arguments: dict) -> list[types.TextContent]:
+def _hm_memory_consistency(arguments: dict[str, Any]) -> list[types.TextContent]:
     proj = arguments.get("project_root") or None
     limit = int(arguments.get("limit") or 100)
     dry = bool(arguments.get("dry_run") or False)
@@ -2332,7 +2335,7 @@ def _hm_memory_consistency(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_memory_quarantine_list(arguments: dict) -> list[types.TextContent]:
+def _hm_memory_quarantine_list(arguments: dict[str, Any]) -> list[types.TextContent]:
     proj = arguments.get("project_root") or None
     limit = int(arguments.get("limit") or 50)
     rows = memory_db.list_quarantined_observations(project_root=proj, limit=limit)
@@ -2348,7 +2351,7 @@ def _hm_memory_quarantine_list(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_leiden_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_leiden_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     s = _leiden.get_stats()
     lines = [
         "Leiden community detector:",
@@ -2365,7 +2368,7 @@ def _hm_get_leiden_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_speculation_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_speculation_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     with _prefetch_lock:
         cache_size = len(_prefetch_cache)
     hit_rate = (_spec_branches_hit / _spec_branches_warmed * 100) if _spec_branches_warmed else 0.0
@@ -2381,7 +2384,7 @@ def _hm_get_speculation_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_lattice_stats(arguments: dict) -> list[types.TextContent]:
+def _hm_get_lattice_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     ctx_filter = arguments.get("context_type") or None
     rows = memory_db.get_lattice_stats(context_type=ctx_filter)
     if not rows:
@@ -2397,7 +2400,7 @@ def _hm_get_lattice_stats(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_call_predictions(arguments: dict) -> list[types.TextContent]:
+def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextContent]:
     tool_name = arguments.get("tool_name", "")
     symbol_name = arguments.get("symbol_name", "")
     top_k = int(arguments.get("top_k", 5))
@@ -2413,7 +2416,7 @@ def _hm_get_call_predictions(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_list_projects(arguments: dict) -> list[types.TextContent]:
+def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
     if not _slot_mgr.projects:
         return [TextContent(
             type="text",
@@ -2435,7 +2438,7 @@ def _hm_list_projects(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_switch_project(arguments: dict) -> list[types.TextContent]:
+def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     hint = arguments["name"]
     slot, err = _slot_mgr.resolve(hint)
     if err:
@@ -2450,7 +2453,7 @@ def _hm_switch_project(arguments: dict) -> list[types.TextContent]:
     )]
 
 
-def _hm_set_project_root(arguments: dict) -> list[types.TextContent]:
+def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
     new_root = os.path.abspath(arguments["path"])
     if not os.path.isdir(new_root):
         return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
@@ -2464,7 +2467,7 @@ def _hm_set_project_root(arguments: dict) -> list[types.TextContent]:
     return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
 
 
-def _hm_reindex(arguments: dict) -> list[types.TextContent]:
+def _hm_reindex(arguments: dict[str, Any]) -> list[types.TextContent]:
     project_hint = arguments.get("project")
     slot, err = _slot_mgr.resolve(project_hint)
     if err:
@@ -2564,7 +2567,7 @@ _SLOT_HANDLERS: dict[str, object] = {
 # ── Query-function handlers (qfns dict + arguments → result) ─────────────
 
 
-def _lookup_symbol_meta(slot, args: dict) -> tuple[str, str, str] | None:
+def _lookup_symbol_meta(slot, args: dict[str, Any]) -> tuple[str, str, str] | None:
     """Return (kind, body_hash, signature) for a symbol, or None if unresolved."""
     try:
         idx = slot.indexer._project_index
@@ -2665,7 +2668,7 @@ def _csc_diff_preview(old_full: str, new_full: str, max_lines: int = 5) -> str:
 def _csc_maybe_serve(
     slot,
     kind: str,
-    args: dict,
+    args: dict[str, Any],
     produce_full,
 ) -> str:
     """Entry point for get_function_source / get_class_source with CSC.
@@ -2753,7 +2756,7 @@ def _csc_maybe_serve(
     return compact
 
 
-def _q_get_class_source(qfns, args: dict) -> str:
+def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
     slot, _ = _slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
@@ -2782,7 +2785,7 @@ def _q_get_class_source(qfns, args: dict) -> str:
     return result
 
 
-def _q_get_function_source(qfns, args: dict) -> str:
+def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     slot, _ = _slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
@@ -2855,7 +2858,7 @@ def _q_get_edit_context(qfns, args):
     sym_name = args["name"]
     max_deps = args.get("max_deps", 10)
     max_callers = args.get("max_callers", 10)
-    ctx: dict = {"symbol": sym_name}
+    ctx: dict[str, Any] = {"symbol": sym_name}
     location = None
     try:
         location = qfns["find_symbol"](sym_name)
@@ -3108,7 +3111,7 @@ def _recompute_leiden(slot) -> None:
         pass
 
 
-def _track_call(name: str, arguments: dict) -> str:
+def _track_call(name: str, arguments: dict[str, Any]) -> str:
     """Tool-call telemetry: counts, PPM record, TCA activation, STTE hit."""
     global _spec_branches_hit, _spec_tokens_saved
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
@@ -3131,7 +3134,7 @@ def _track_call(name: str, arguments: dict) -> str:
     return record_symbol
 
 
-def _maybe_compress(name: str, arguments: dict, result):
+def _maybe_compress(name: str, arguments: dict[str, Any], result):
     """Apply TCS structural compression if eligible."""
     if name not in _COMPRESSIBLE_TOOLS or not arguments.get("compress", True):
         return result
@@ -3161,7 +3164,7 @@ def _prefetch_next(name: str, record_symbol: str, slot) -> None:
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     global _total_chars_returned, _total_naive_chars
     record_symbol = _track_call(name, arguments)
     try:

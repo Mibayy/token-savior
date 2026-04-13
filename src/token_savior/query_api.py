@@ -1599,7 +1599,11 @@ class ProjectQueryEngine:
             import os
             from token_savior.tca_engine import TCAEngine
 
-            stats_dir = Path(os.path.expanduser("~/.local/share/token-savior"))
+            stats_dir = Path(
+                os.path.expanduser(
+                    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+                )
+            )
             if (stats_dir / "tca_coactivation.json").exists():
                 engine = TCAEngine(stats_dir)
                 co = engine.get_coactive_symbols(name, top_k=200, min_coactivation=1)
