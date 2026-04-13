@@ -194,6 +194,65 @@ class TestBasicDeadCode:
         assert "LvcStore" not in result
         assert "buffer(" not in result
 
+    def test_cross_project_live_symbols_propagate_to_implementations(self):
+        iface_method = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            line_start=2,
+            line_end=2,
+            is_method=True,
+            parent_class="TradeDecoder",
+        )
+        impl_method = _make_func(
+            "decode",
+            qualified_name="com.acme.feed.FastTradeDecoder.decode(byte[])",
+            line_start=6,
+            line_end=8,
+            is_method=True,
+            parent_class="FastTradeDecoder",
+        )
+        iface = _make_class(
+            "TradeDecoder",
+            line_start=1,
+            line_end=3,
+            methods=[iface_method],
+            qualified_name="com.acme.feed.TradeDecoder",
+        )
+        impl = _make_class(
+            "FastTradeDecoder",
+            line_start=5,
+            line_end=9,
+            methods=[impl_method],
+            base_classes=["TradeDecoder"],
+            qualified_name="com.acme.feed.FastTradeDecoder",
+        )
+        index = _make_index(
+            {
+                "src/main/java/com/acme/feed/Decoders.java": _make_meta(
+                    "src/main/java/com/acme/feed/Decoders.java",
+                    functions=[iface_method, impl_method],
+                    classes=[iface, impl],
+                    lines=[
+                        "public interface TradeDecoder {",
+                        "  void decode(byte[] buf);",
+                        "}",
+                        "public final class FastTradeDecoder implements TradeDecoder {",
+                        "}",
+                    ],
+                )
+            }
+        )
+        sibling = ProjectIndex(
+            root_path="/sibling",
+            files={},
+            global_dependency_graph={
+                "com.acme.app.DecoderUser.run()": {"com.acme.feed.TradeDecoder.decode(byte[])"}
+            },
+        )
+
+        result = find_dead_code(index, sibling_indices={"sibling": sibling})
+        assert "FastTradeDecoder.decode" not in result
+
     def test_empty_index_returns_zero(self):
         index = _make_index({})
         result = find_dead_code(index)

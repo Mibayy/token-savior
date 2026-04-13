@@ -542,11 +542,12 @@ def _collect_dead_symbols(
     rdg = index.reverse_dependency_graph
     dead: list[_DeadSymbol] = []
     live_method_reference_symbols = _collect_method_reference_live_symbols(index)
+    cross_project_live_symbols = _cross_project_live_symbols(index, sibling_indices)
+    pre_live_symbols = live_method_reference_symbols | cross_project_live_symbols
     signature_propagated_live_symbols = _collect_signature_propagated_live_symbols(
-        index, live_method_reference_symbols
+        index, pre_live_symbols
     )
-    live_symbols = live_method_reference_symbols | signature_propagated_live_symbols
-    live_symbols |= _cross_project_live_symbols(index, sibling_indices)
+    live_symbols = pre_live_symbols | signature_propagated_live_symbols
     duplicate_classes, duplicate_methods = _duplicate_symbol_sets(index)
 
     for file_path, meta in index.files.items():
