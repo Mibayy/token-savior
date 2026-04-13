@@ -209,8 +209,8 @@ def _parse_package_name(nodes: list[Node], source_bytes: bytes) -> str | None:
     return None
 
 
-def _extract_annotation_names(node: Node, source_bytes: bytes) -> list[str]:
-    names: list[str] = []
+def _extract_annotations(node: Node, source_bytes: bytes) -> list[tuple[str, str]]:
+    annotations: list[tuple[str, str]] = []
     for child in node.children:
         if child.type in {"marker_annotation", "annotation"}:
             name_node = child.child_by_field_name("name")
@@ -220,16 +220,30 @@ def _extract_annotation_names(node: Node, source_bytes: bytes) -> list[str]:
                         name_node = grandchild
                         break
             if name_node is not None:
-                names.append(_node_text(name_node, source_bytes).split(".")[-1])
-    return names
+                name = _node_text(name_node, source_bytes).split(".")[-1]
+                text = _node_text(child, source_bytes)
+                detail = ""
+                if "(" in text and text.rstrip().endswith(")"):
+                    _, _, raw_detail = text.partition("(")
+                    detail = raw_detail[:-1]
+                annotations.append((name, detail))
+    return annotations
 
 
-def _declaration_metadata(node: Node, lines: list[str], source_bytes: bytes) -> tuple[list[str], int, str | None]:
+def _extract_annotation_names(node: Node, source_bytes: bytes) -> list[str]:
+    return [name for name, _ in _extract_annotations(node, source_bytes)]
+
+
+def _declaration_metadata(
+    node: Node, lines: list[str], source_bytes: bytes
+) -> tuple[list[str], dict[str, str], int, str | None]:
     decl_line_0 = node.start_point.row
     fallback_decorators, start_line_0, docstring = _collect_leading_metadata(lines, decl_line_0)
     modifiers = next((child for child in node.children if child.type == "modifiers"), None)
-    decorators = _extract_annotation_names(modifiers, source_bytes) if modifiers else fallback_decorators
-    return decorators or fallback_decorators, start_line_0, docstring
+    annotation_items = _extract_annotations(modifiers, source_bytes) if modifiers else []
+    decorators = [name for name, _ in annotation_items] or fallback_decorators
+    decorator_details = {name: detail for name, detail in annotation_items if detail}
+    return decorators, decorator_details, start_line_0, docstring
 
 
 def _parse_declared_type_names(text: str) -> list[str]:
@@ -373,7 +387,9 @@ def _method_info(
     params = _extract_params(raw_params)
     param_types = _extract_param_types(raw_params)
 
-    decorators, start_line_0, docstring = _declaration_metadata(node, lines, source_bytes)
+    decorators, decorator_details, start_line_0, docstring = _declaration_metadata(
+        node, lines, source_bytes
+    )
     return FunctionInfo(
         name=name,
         qualified_name=_build_method_symbol(owner_qualified_name, name, param_types),
@@ -383,6 +399,7 @@ def _method_info(
         docstring=docstring,
         is_method=True,
         parent_class=owner_name,
+        decorator_details=decorator_details,
     )
 
 
@@ -460,7 +477,9 @@ def _extract_type_tree(
         return [], []
     name = _node_text(name_node, source_bytes)
     qualified_name = f"{parent_qualified_name}.{name}" if parent_qualified_name else f"{package}.{name}" if package else name
-    decorators, start_line_0, docstring = _declaration_metadata(node, lines, source_bytes)
+    decorators, decorator_details, start_line_0, docstring = _declaration_metadata(
+        node, lines, source_bytes
+    )
     body_node = node.child_by_field_name("body")
     field_types_by_class[qualified_name] = _collect_field_types(body_node, source_bytes)
 
@@ -505,6 +524,7 @@ def _extract_type_tree(
         decorators=decorators,
         docstring=docstring,
         qualified_name=qualified_name,
+        decorator_details=decorator_details,
     )
     return [class_info] + nested_classes, direct_methods + nested_functions
 

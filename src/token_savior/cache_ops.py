@@ -98,6 +98,7 @@ class CacheManager:
                 "parent_class": fi.parent_class,
                 "signature_hash": fi.signature_hash,
                 "body_hash": fi.body_hash,
+                "decorator_details": fi.decorator_details,
             }
 
         def _ci(ci) -> dict:
@@ -110,6 +111,7 @@ class CacheManager:
                 "docstring": ci.docstring,
                 "body_hash": ci.body_hash,
                 "qualified_name": ci.qualified_name,
+                "decorator_details": ci.decorator_details,
             }
 
         def _ii(ii) -> dict:
@@ -192,6 +194,7 @@ class CacheManager:
                 parent_class=d.get("parent_class"),
                 signature_hash=d.get("signature_hash", ""),
                 body_hash=d.get("body_hash", ""),
+                decorator_details=d.get("decorator_details", {}),
             )
 
         def _ci(d: dict) -> ClassInfo:
@@ -204,6 +207,7 @@ class CacheManager:
                 docstring=d.get("docstring"),
                 body_hash=d.get("body_hash", ""),
                 qualified_name=d.get("qualified_name"),
+                decorator_details=d.get("decorator_details", {}),
             )
 
         def _ii(d: dict) -> ImportInfo:

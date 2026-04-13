@@ -389,7 +389,56 @@ def _format_l3(sym: FunctionInfo | ClassInfo) -> str:
     if len(params) > 3:
         head += ", ..."
     return f"{sym.name}({head}) - {doc}"
+def _infer_component_end_line(meta: StructuralMetadata, func) -> int:
+    start_0 = max(0, func.line_range.start - 1)
+    if func.line_range.end > func.line_range.start:
+        return func.line_range.end
+    if start_0 >= len(meta.lines):
+        return func.line_range.end
 
+    depth_paren = 0
+    depth_brace = 0
+    depth_bracket = 0
+    seen_arrow = False
+    seen_function_body = False
+
+    for idx in range(start_0, min(len(meta.lines), start_0 + 120)):
+        line = meta.lines[idx]
+        if "=>" in line:
+            seen_arrow = True
+        if re.search(r"\bfunction\b", line):
+            seen_function_body = True
+
+        for ch in line:
+            if ch == "(":
+                depth_paren += 1
+            elif ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+            elif ch == "{":
+                depth_brace += 1
+            elif ch == "}":
+                depth_brace = max(0, depth_brace - 1)
+            elif ch == "[":
+                depth_bracket += 1
+            elif ch == "]":
+                depth_bracket = max(0, depth_bracket - 1)
+
+        stripped = line.strip()
+        if idx == start_0:
+            continue
+
+        if stripped in {"};", "}", ");", ")", "</>"} and depth_brace == 0 and depth_paren == 0:
+            return idx + 1
+        if (
+            (";" in line or stripped.endswith(")") or stripped.endswith("}") or stripped.endswith("};"))
+            and depth_paren == 0
+            and depth_brace == 0
+            and depth_bracket == 0
+            and (seen_arrow or seen_function_body)
+        ):
+            return idx + 1
+
+    return func.line_range.end
 _SPRING_HTTP_METHODS_BY_DECORATOR: dict[str, list[str]] = {
     "GetMapping": ["GET"],
     "PostMapping": ["POST"],
@@ -452,27 +501,25 @@ def _combine_route_paths(prefix_paths: list[str], method_paths: list[str]) -> li
 
 
 def _extract_spring_class_paths(meta: StructuralMetadata, cls) -> list[str]:
-    lines = "\n".join(_spring_declaration_lines(meta, cls.line_range, max_lines=8))
-    match = _SPRING_REQUEST_MAPPING_RE.search(lines)
-    if not match:
+    annotation_block = getattr(cls, "decorator_details", {}).get("RequestMapping", "")
+    if not annotation_block:
         return [""]
-    return _extract_spring_paths(match.group(1))
+    return _extract_spring_paths(annotation_block)
 
 
 def _extract_spring_method_mappings(meta: StructuralMetadata, func) -> list[tuple[list[str], list[str]]]:
-    lines = "\n".join(_spring_declaration_lines(meta, func.line_range))
     mappings: list[tuple[list[str], list[str]]] = []
+    decorator_details = getattr(func, "decorator_details", {})
 
     for decorator, methods in _SPRING_HTTP_METHODS_BY_DECORATOR.items():
         if decorator not in getattr(func, "decorators", []):
             continue
-        for match in re.finditer(rf"@{decorator}\s*(\((.*?)\))?", lines, re.DOTALL):
-            annotation_block = match.group(2) or ""
-            mappings.append((methods, _extract_spring_paths(annotation_block)))
+        annotation_block = decorator_details.get(decorator, "")
+        mappings.append((methods, _extract_spring_paths(annotation_block)))
 
     if "RequestMapping" in getattr(func, "decorators", []):
-        for match in _SPRING_REQUEST_MAPPING_RE.finditer(lines):
-            mappings.append(_extract_spring_request_mapping(match.group(1)))
+        annotation_block = decorator_details.get("RequestMapping", "")
+        mappings.append(_extract_spring_request_mapping(annotation_block))
 
     return mappings
 
@@ -849,7 +896,11 @@ class ProjectQueryEngine:
         with rich info for each hop, so callers don't need follow-up lookups.
         """
         resolved_from = self._resolve_graph_symbol_name(from_name)
-        resolved_to = self._resolve_graph_symbol_name(to_name)
+        resolved_to = (
+            self._resolve_graph_symbol_name(to_name)
+            or self._resolve_exact_class_name(to_name)
+            or self._resolve_symbol_info(to_name).get("name")
+        )
         if resolved_from is None:
             return {"error": f"'{from_name}' not found in dependency graph"}
         if resolved_to is None:
@@ -861,7 +912,7 @@ class ProjectQueryEngine:
 
         # BFS
         target_names = self._get_graph_target_names(resolved_to)
-        visited = set(self._get_class_symbol_aliases(resolved_from))
+        visited = set(self._resolve_graph_candidate_names(resolved_from))
         visited.add(resolved_from)
         queue: deque[list[str]] = deque([[resolved_from]])
         path_names: list[str] | None = None
@@ -869,12 +920,23 @@ class ProjectQueryEngine:
             path = queue.popleft()
             current = path[-1]
             neighbors = self._get_aggregated_dependencies(current) or set()
-            for neighbor in sorted(neighbors, key=self._call_chain_neighbor_key):
-                if neighbor in target_names:
+            expanded_neighbors: list[tuple[str, str]] = []
+            for neighbor in neighbors:
+                candidates = self._resolve_graph_candidate_names(neighbor)
+                if not candidates:
+                    candidates = {neighbor}
+                for candidate in candidates:
+                    expanded_neighbors.append((neighbor, candidate))
+
+            for raw_neighbor, neighbor in sorted(
+                expanded_neighbors,
+                key=lambda item: self._call_chain_neighbor_key(item[1]),
+            ):
+                if neighbor in target_names or raw_neighbor in target_names:
                     path_names = path + [resolved_to if neighbor != resolved_to else neighbor]
                     break
-                if neighbor not in visited:
-                    visited.add(neighbor)
+                if neighbor not in visited and self._has_any_graph_presence(neighbor):
+                    visited.update(self._resolve_graph_candidate_names(neighbor))
                     queue.append(path + [neighbor])
             if path_names is not None:
                 break
@@ -1199,11 +1261,12 @@ class ProjectQueryEngine:
                         comp_type = "default_export"
                 if is_component:
                     params = [param for param in func.parameters if param != "destructured"]
+                    end_line = _infer_component_end_line(meta, func)
                     components.append(
                         {
                             "name": func.name,
                             "file": path,
-                            "line_range": f"{func.line_range.start}-{func.line_range.end}",
+                            "line_range": f"{func.line_range.start}-{end_line}",
                             "params": params,
                             "type": comp_type,
                         }
@@ -1309,6 +1372,12 @@ class ProjectQueryEngine:
             grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
             for path, meta in sorted(self.index.files.items()):
                 for cls in meta.classes:
+                    if (
+                        cls.name.isupper()
+                        and len(cls.name) <= 4
+                        and not any(ch.islower() for ch in cls.name)
+                    ):
+                        continue
                     qualified_name = cls.qualified_name or cls.name
                     grouped[cls.name].append((qualified_name, path))
             for simple_name, entries in sorted(grouped.items()):
@@ -1875,13 +1944,43 @@ class ProjectQueryEngine:
         return aliases
 
     def _get_graph_target_names(self, resolved_name: str) -> set[str]:
-        return self._get_symbol_graph_aliases(resolved_name)
+        names = set(self._get_symbol_graph_aliases(resolved_name))
+        for alias in list(names):
+            names.update(self._resolve_graph_candidate_names(alias))
+        return names
 
     @staticmethod
     def _call_chain_neighbor_key(name: str) -> tuple[int, int, str]:
         is_qualified = "." in name
         is_method = "(" in name
         return (0 if is_method else 1, 0 if is_qualified else 1, name)
+
+    def _has_any_graph_presence(self, name: str) -> bool:
+        if name in self.index.global_dependency_graph or name in self.index.reverse_dependency_graph:
+            return True
+        return self._has_forward_graph_presence(name)
+
+    def _resolve_graph_candidate_names(self, name: str) -> set[str]:
+        candidates = {name}
+        resolved_name = self._resolve_graph_symbol_name(name)
+        if resolved_name:
+            candidates.add(resolved_name)
+        info = self._resolve_symbol_info(name)
+        info_name = info.get("name")
+        if info_name:
+            candidates.add(info_name)
+        if "." in name:
+            base_name, _ = _split_signature_suffix(name)
+            candidates.add(base_name)
+        for meta in self.index.files.values():
+            for func in _find_matching_functions(meta.functions, name):
+                candidates.update(_function_aliases(func))
+            for cls in meta.classes:
+                qualified_name = cls.qualified_name or cls.name
+                if name in {cls.name, qualified_name} or qualified_name.endswith(f".{name}"):
+                    candidates.add(qualified_name)
+                    candidates.update(method.qualified_name for method in cls.methods)
+        return candidates
 
     def _has_forward_graph_presence(self, qualified_name: str) -> bool:
         if qualified_name in self.index.global_dependency_graph:
