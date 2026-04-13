@@ -217,6 +217,23 @@ class TestFileDiscovery:
         for f in idx.files:
             assert "tests/" not in f, f"tests file should be excluded: {f}"
 
+    def test_excludes_root_level_gradle_cache_dirs(self, tmp_path):
+        (tmp_path / ".gradle/8.10.2/dependencies-accessors/foo").mkdir(parents=True)
+        (tmp_path / ".gradle/8.10.2/dependencies-accessors/foo/LibrariesForLibs.java").write_text(
+            "public final class LibrariesForLibs {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "src/main/java/com/acme/App.java").parent.mkdir(parents=True)
+        (tmp_path / "src/main/java/com/acme/App.java").write_text(
+            "package com.acme;\npublic final class App {}\n",
+            encoding="utf-8",
+        )
+
+        idx = ProjectIndexer(str(tmp_path)).index()
+
+        assert "src/main/java/com/acme/App.java" in idx.files
+        assert not any(path.startswith(".gradle/") for path in idx.files)
+
     def test_max_file_size_filtering(self, sample_project):
         # Create a large file
         large_file = sample_project / "big_file.py"

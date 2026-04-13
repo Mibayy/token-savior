@@ -10,6 +10,7 @@ import ast
 import os
 import re
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 
@@ -84,6 +85,13 @@ class _ClassSig:
 class _JavaApiSig:
     visibility: str
     return_type: str | None
+
+
+@dataclass(frozen=True)
+class _JavaMethodShape:
+    owner: str
+    name: str
+    param_types: tuple[str, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +533,10 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
     new_methods = _java_method_map(new_meta)
     old_api = _java_api_signature_map(old_meta)
     new_api = _java_api_signature_map(new_meta)
+    new_methods_by_name: dict[tuple[str, str], list[tuple[str, object]]] = defaultdict(list)
+    for candidate_name, candidate_func in new_methods.items():
+        shape = _java_method_shape(candidate_name)
+        new_methods_by_name[(shape.owner, shape.name)].append((candidate_name, candidate_func))
 
     for qualified_name, cls in old_classes.items():
         class_api = old_api.get(qualified_name)
@@ -546,6 +558,34 @@ def _compare_java_sources(old_source: str, new_source: str, file_path: str) -> l
         if old_sig is None or old_sig.visibility not in {"public", "protected"}:
             continue
         if qualified_name not in new_methods:
+            old_shape = _java_method_shape(qualified_name)
+            sibling_candidates = new_methods_by_name.get((old_shape.owner, old_shape.name), [])
+            if sibling_candidates:
+                matching_candidate = next(
+                    (
+                        candidate_name
+                        for candidate_name, _ in sibling_candidates
+                        if _java_method_shape(candidate_name).param_types == old_shape.param_types
+                    ),
+                    None,
+                )
+                if matching_candidate is not None:
+                    continue
+
+                changes.append(
+                    BreakingChange(
+                        file=file_path,
+                        symbol=qualified_name,
+                        line=func.line_range.start,
+                        severity="breaking",
+                        message=(
+                            f"method {qualified_name}: signature changed from "
+                            f"({_format_java_param_types(old_shape.param_types)}) to "
+                            f"one of {', '.join(_format_java_method_signature(name) for name, _ in sibling_candidates)}"
+                        ),
+                    )
+                )
+                continue
             changes.append(
                 BreakingChange(
                     file=file_path,
@@ -653,6 +693,60 @@ def _extract_java_return_type(meta, func) -> str | None:
         if match:
             return match.group(1).strip()
     return None
+
+
+def _split_java_param_types(signature: str) -> tuple[str, ...]:
+    start = signature.find("(")
+    end = signature.rfind(")")
+    if start < 0 or end <= start + 1:
+        return ()
+    raw = signature[start + 1 : end]
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in raw:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            piece = "".join(current).strip()
+            if piece:
+                parts.append(piece)
+            current = []
+            continue
+        current.append(ch)
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return tuple(_normalize_java_type_name(part) for part in parts if part)
+
+
+def _normalize_java_type_name(type_name: str) -> str:
+    cleaned = type_name.replace("...", "[]").strip()
+    cleaned = re.sub(r"<.*>", "", cleaned)
+    tokens = [token for token in re.split(r"\s+", cleaned) if token]
+    base = tokens[-1] if tokens else cleaned
+    return ".".join(part for part in base.split(".") if part) or cleaned
+
+
+def _java_method_shape(qualified_name: str) -> _JavaMethodShape:
+    base_name = qualified_name[: qualified_name.find("(")] if "(" in qualified_name else qualified_name
+    owner, _, method_name = base_name.rpartition(".")
+    return _JavaMethodShape(
+        owner=owner,
+        name=method_name,
+        param_types=_split_java_param_types(qualified_name),
+    )
+
+
+def _format_java_param_types(param_types: tuple[str, ...]) -> str:
+    return ", ".join(param_types)
+
+
+def _format_java_method_signature(qualified_name: str) -> str:
+    shape = _java_method_shape(qualified_name)
+    return f"{shape.owner}.{shape.name}({_format_java_param_types(shape.param_types)})"
 
 
 def _java_api_signature_map(meta) -> dict[str, _JavaApiSig]:
