@@ -2195,6 +2195,312 @@ def _mh_memory_prompts(args: dict) -> str:
     return f"Unknown action: {action}"
 
 
+# ---------------------------------------------------------------------------
+# Meta handlers — stats/admin tools that don't need a project slot. Each
+# returns a list[TextContent] so call_tool() can delegate directly.
+# ---------------------------------------------------------------------------
+
+
+def _hm_get_usage_stats(arguments: dict) -> list[types.TextContent]:
+    return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
+
+
+def _hm_get_session_budget(arguments: dict) -> list[types.TextContent]:
+    project = _resolve_memory_project(arguments)
+    budget = int(arguments.get("budget_tokens") or memory_db.DEFAULT_SESSION_BUDGET_TOKENS)
+    stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
+    return [TextContent(type="text", text=memory_db.format_session_budget_box(stats))]
+
+
+def _hm_get_coactive_symbols(arguments: dict) -> list[types.TextContent]:
+    seed = (arguments.get("name") or "").strip()
+    if not seed:
+        return [TextContent(type="text", text="Error: 'name' required.")]
+    top_k = int(arguments.get("top_k", 5))
+    co = _tca_engine.get_coactive_symbols(seed, top_k=top_k)
+    if not co:
+        return [TextContent(type="text", text=f"No co-activation data yet for '{seed}'.")]
+    lines = [f"🔄 Co-active with '{seed}' (top {len(co)}):"]
+    for sym, pmi in co:
+        lines.append(f"  {pmi:+.3f}  {sym}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_tca_stats(arguments: dict) -> list[types.TextContent]:
+    stats = _tca_engine.get_stats()
+    lines = [
+        "Tenseur de Co-Activation (TCA):",
+        f"  Symbols tracked      : {stats['symbols_tracked']}",
+        f"  Co-activation pairs  : {stats['co_activation_pairs']}",
+        f"  Sessions flushed     : {stats['sessions_flushed']}",
+        f"  Current session      : {stats['session_activations']} symbols active",
+    ]
+    if stats["top_pairs"]:
+        lines.append("  Top pairs:")
+        for a, b, c in stats["top_pairs"]:
+            lines.append(f"    ×{c}  {a}  ↔  {b}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_dcp_stats(arguments: dict) -> list[types.TextContent]:
+    stats = memory_db.dcp_stats()
+    lines = [
+        "Differential Context Protocol (DCP):",
+        f"  Registered chunks : {stats['total']}",
+        f"  Stable (seen>1)   : {stats['stable']}",
+        f"  Total sightings   : {stats['total_seen']:,}",
+    ]
+    if _dcp_calls:
+        sess_pct = (_dcp_stable_chunks / _dcp_total_chunks * 100) if _dcp_total_chunks else 0.0
+        lines.append(
+            f"  Session: {_dcp_calls} DCP calls, "
+            f"{_dcp_stable_chunks}/{_dcp_total_chunks} chunks stable ({sess_pct:.1f}%)"
+        )
+    if stats["top"]:
+        lines.append("  Top chunks:")
+        for t in stats["top"]:
+            preview = (t["content_preview"] or "").replace("\n", " ")[:40]
+            lines.append(f"    {t['fingerprint']}  ×{t['seen_count']}  {preview!r}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_community(arguments: dict) -> list[types.TextContent]:
+    sym = arguments.get("symbol")
+    cname = arguments.get("name")
+    if not sym and not cname:
+        return [TextContent(type="text", text="Error: provide 'symbol' or 'name'.")]
+    comm = _leiden.get_community_for(sym) if sym else _leiden.get_community(cname)
+    if not comm:
+        hint = sym or cname
+        return [TextContent(type="text", text=f"No community for '{hint}'.")]
+    lines = [
+        f"🏘️  Community '{comm['name']}' — {comm['size']} members",
+        "─" * 60,
+    ]
+    for m in comm["members"]:
+        marker = " ← query" if m == sym else ""
+        lines.append(f"  {m}{marker}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_linucb_stats(arguments: dict) -> list[types.TextContent]:
+    s = _linucb.get_stats()
+    lines = ["LinUCB Injection Model:", "  Feature weights (θ):"]
+    for i, fw in enumerate(s["feature_weights"]):
+        marker = "  ← top feature" if i == 0 else ""
+        lines.append(f"    {fw['name']:<14}: {fw['weight']:+.4f}{marker}")
+    lines.append(f"  Updates: {s['updates']} | Observations scored: {s['scored']}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_warmstart_stats(arguments: dict) -> list[types.TextContent]:
+    s = _warm_start.get_stats()
+    lines = [
+        "Cross-session Warm Start:",
+        f"  Signatures stored   : {s['signatures']}",
+        f"  Avg pairwise cosine : {s.get('avg_pairwise_similarity', 0.0):.3f}",
+    ]
+    by_proj = s.get("by_project") or {}
+    if by_proj:
+        lines.append("  By project:")
+        for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:5]:
+            label = p if p != "(none)" else "(unknown)"
+            lines.append(f"    {label} — {n}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_memory_consistency(arguments: dict) -> list[types.TextContent]:
+    proj = arguments.get("project_root") or None
+    limit = int(arguments.get("limit") or 100)
+    dry = bool(arguments.get("dry_run") or False)
+    res = memory_db.run_consistency_check(project_root=proj, limit=limit, dry_run=dry)
+    stats = memory_db.get_consistency_stats(project_root=proj)
+    tag = " [dry-run]" if dry else ""
+    lines = [
+        f"Self-consistency check{tag}:",
+        f"  Checked            : {res['checked']}",
+        f"  Failures (moved)   : {res['failed']}",
+        f"  → quarantined      : {res['quarantined']}",
+        f"  → stale_suspected  : {res['stale_suspected']}",
+        "",
+        "Aggregate:",
+        f"  Scored obs         : {stats['scored']}",
+        f"  Currently quarantined : {stats['quarantined']}",
+        f"  Currently stale       : {stats['stale_suspected']}",
+        f"  Average validity   : {stats['avg_validity']:.2%}",
+    ]
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_memory_quarantine_list(arguments: dict) -> list[types.TextContent]:
+    proj = arguments.get("project_root") or None
+    limit = int(arguments.get("limit") or 50)
+    rows = memory_db.list_quarantined_observations(project_root=proj, limit=limit)
+    if not rows:
+        return [TextContent(type="text", text="No quarantined observations.")]
+    lines = [f"⚠️  Quarantined observations ({len(rows)}):"]
+    for r in rows:
+        sym = f" [{r['symbol']}]" if r.get("symbol") else ""
+        lines.append(
+            f"  #{r['id']}  [{r['type']}]  {r['title']}{sym}  "
+            f"validity={r['validity']:.0%}  {r['age']}"
+        )
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_leiden_stats(arguments: dict) -> list[types.TextContent]:
+    s = _leiden.get_stats()
+    lines = [
+        "Leiden community detector:",
+        f"  Communities        : {s['total_communities']}",
+        f"  Covered symbols    : {s['covered_symbols']}",
+        f"  Size min/avg/max   : {s['smallest']}/{s['avg_size']}/{s['largest']}",
+        f"  Graph              : {s['nodes']} nodes, {s['edges']} edges",
+        f"  Modularity (Q)     : {s['modularity']}",
+    ]
+    if s.get("top"):
+        lines.append("  Top communities:")
+        for c in s["top"]:
+            lines.append(f"    {c['name']} (n={c['size']})")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_speculation_stats(arguments: dict) -> list[types.TextContent]:
+    with _prefetch_lock:
+        cache_size = len(_prefetch_cache)
+    hit_rate = (_spec_branches_hit / _spec_branches_warmed * 100) if _spec_branches_warmed else 0.0
+    lines = [
+        "Speculative Tool Tree Execution:",
+        f"  Branches explored : {_spec_branches_explored}",
+        f"  Branches warmed   : {_spec_branches_warmed}",
+        f"  Branches hit      : {_spec_branches_hit}",
+        f"  Hit rate          : {hit_rate:.1f}%",
+        f"  Tokens saved (est): {_spec_tokens_saved:,}",
+        f"  Warm cache size   : {cache_size}",
+    ]
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_lattice_stats(arguments: dict) -> list[types.TextContent]:
+    ctx_filter = arguments.get("context_type") or None
+    rows = memory_db.get_lattice_stats(context_type=ctx_filter)
+    if not rows:
+        return [TextContent(type="text", text="Adaptive lattice has no entries yet.")]
+    header = f"Adaptive lattice ({'context=' + ctx_filter if ctx_filter else 'all contexts'}):"
+    lines = [header, f"  {'CONTEXT':<12} {'LVL':>3} {'α':>6} {'β':>6} {'mean':>6} {'trials':>7}  age"]
+    for r in rows:
+        lines.append(
+            f"  {r['context_type']:<12} {r['level']:>3} "
+            f"{r['alpha']:>6.1f} {r['beta']:>6.1f} "
+            f"{r['mean']:>6.3f} {r['trials']:>7d}  {r['age']}"
+        )
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_get_call_predictions(arguments: dict) -> list[types.TextContent]:
+    tool_name = arguments.get("tool_name", "")
+    symbol_name = arguments.get("symbol_name", "")
+    top_k = int(arguments.get("top_k", 5))
+    preds = _prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
+    if not preds:
+        return [TextContent(
+            type="text",
+            text=f"No transitions recorded for state '{tool_name}:{symbol_name}' yet.",
+        )]
+    lines = [f"Markov predictions after {tool_name}({symbol_name}):"]
+    for state, prob in preds:
+        lines.append(f"  {prob*100:5.1f}%  {state}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_list_projects(arguments: dict) -> list[types.TextContent]:
+    if not _slot_mgr.projects:
+        return [TextContent(
+            type="text",
+            text="No projects registered. Call set_project_root('/path') first.",
+        )]
+    lines = [f"Workspace projects ({len(_slot_mgr.projects)}):"]
+    for root, slot in _slot_mgr.projects.items():
+        status = "indexed" if slot.indexer is not None else "not yet loaded"
+        active = " [active]" if root == _slot_mgr.active_root else ""
+        name_part = os.path.basename(root)
+        if slot.indexer and slot.indexer._project_index:
+            idx = slot.indexer._project_index
+            lines.append(
+                f"  {name_part}{active} -- {idx.total_files} files, "
+                f"{idx.total_functions} functions ({root})"
+            )
+        else:
+            lines.append(f"  {name_part}{active} -- {status} ({root})")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _hm_switch_project(arguments: dict) -> list[types.TextContent]:
+    hint = arguments["name"]
+    slot, err = _slot_mgr.resolve(hint)
+    if err:
+        return [TextContent(type="text", text=f"Error: {err}")]
+    _slot_mgr.active_root = slot.root
+    _slot_mgr.ensure(slot)
+    idx = slot.indexer._project_index if slot.indexer else None
+    info = f"{idx.total_files} files" if idx else "index not built"
+    return [TextContent(
+        type="text",
+        text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
+    )]
+
+
+def _hm_set_project_root(arguments: dict) -> list[types.TextContent]:
+    new_root = os.path.abspath(arguments["path"])
+    if not os.path.isdir(new_root):
+        return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
+    if new_root not in _slot_mgr.projects:
+        _slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
+    _slot_mgr.active_root = new_root
+    slot = _slot_mgr.projects[new_root]
+    slot.indexer = None
+    slot.query_fns = None
+    _slot_mgr.build(slot)
+    return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
+
+
+def _hm_reindex(arguments: dict) -> list[types.TextContent]:
+    project_hint = arguments.get("project")
+    slot, err = _slot_mgr.resolve(project_hint)
+    if err:
+        return [TextContent(type="text", text=f"Error: {err}")]
+    slot.indexer = None
+    slot.query_fns = None
+    _slot_mgr.build(slot)
+    _recompute_leiden(slot)
+    return [TextContent(
+        type="text",
+        text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.",
+    )]
+
+
+_META_HANDLERS: dict[str, object] = {
+    "get_usage_stats": _hm_get_usage_stats,
+    "get_session_budget": _hm_get_session_budget,
+    "get_coactive_symbols": _hm_get_coactive_symbols,
+    "get_tca_stats": _hm_get_tca_stats,
+    "get_dcp_stats": _hm_get_dcp_stats,
+    "get_community": _hm_get_community,
+    "get_linucb_stats": _hm_get_linucb_stats,
+    "get_warmstart_stats": _hm_get_warmstart_stats,
+    "memory_consistency": _hm_memory_consistency,
+    "memory_quarantine_list": _hm_memory_quarantine_list,
+    "get_leiden_stats": _hm_get_leiden_stats,
+    "get_speculation_stats": _hm_get_speculation_stats,
+    "get_lattice_stats": _hm_get_lattice_stats,
+    "get_call_predictions": _hm_get_call_predictions,
+    "list_projects": _hm_list_projects,
+    "switch_project": _hm_switch_project,
+    "set_project_root": _hm_set_project_root,
+    "reindex": _hm_reindex,
+}
+
+
 _MEMORY_HANDLERS: dict[str, object] = {
     "memory_bus_push": _mh_memory_bus_push,
     "memory_bus_list": _mh_memory_bus_list,
@@ -2802,400 +3108,96 @@ def _recompute_leiden(slot) -> None:
         pass
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    global _total_chars_returned, _total_naive_chars
-
+def _track_call(name: str, arguments: dict) -> str:
+    """Tool-call telemetry: counts, PPM record, TCA activation, STTE hit."""
     global _spec_branches_hit, _spec_tokens_saved
     _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
-    _record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
+    record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
-        _prefetcher.record_call(name, _record_symbol or "")
+        _prefetcher.record_call(name, record_symbol or "")
     except Exception:
         pass
-    # TCA — record symbol activation for co-activation learning
-    if _record_symbol:
+    if record_symbol:
         try:
-            _tca_engine.record_activation(_record_symbol)
+            _tca_engine.record_activation(record_symbol)
         except Exception:
             pass
-    # STTE hit tracking: did this call match a speculatively-warmed branch?
-    if _record_symbol and name in _PREFETCHABLE_TOOLS:
-        _hit_key = f"{name}:{_record_symbol}"
+    if record_symbol and name in _PREFETCHABLE_TOOLS:
         with _prefetch_lock:
-            cached = _prefetch_cache.get(_hit_key)
+            cached = _prefetch_cache.get(f"{name}:{record_symbol}")
         if cached is not None:
             _spec_branches_hit += 1
             _spec_tokens_saved += len(cached) // 4
+    return record_symbol
 
+
+def _maybe_compress(name: str, arguments: dict, result):
+    """Apply TCS structural compression if eligible."""
+    if name not in _COMPRESSIBLE_TOOLS or not arguments.get("compress", True):
+        return result
+    global _tcs_calls, _tcs_chars_before, _tcs_chars_after
+    raw = _format_result(result)
+    compressed = compress_symbol_output(name, result)
+    before, after = len(raw), len(compressed)
+    if after < before and compressed:
+        saved_pct = (1 - after / before) * 100 if before else 0.0
+        _tcs_calls += 1
+        _tcs_chars_before += before
+        _tcs_chars_after += after
+        return f"{compressed}\n[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
+    return result
+
+
+def _prefetch_next(name: str, record_symbol: str, slot) -> None:
+    """Markov: predict next likely calls and pre-warm in a daemon thread."""
     try:
-        # ── Meta tools (no slot needed) ───────────────────────────────────
-
-        if name == "get_usage_stats":
-            return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
-
-        if name == "get_session_budget":
-            project = _resolve_memory_project(arguments)
-            budget = int(arguments.get("budget_tokens") or memory_db.DEFAULT_SESSION_BUDGET_TOKENS)
-            stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
-            return [TextContent(type="text", text=memory_db.format_session_budget_box(stats))]
-
-        if name == "get_coactive_symbols":
-            seed = (arguments.get("name") or "").strip()
-            if not seed:
-                return [TextContent(type="text", text="Error: 'name' required.")]
-            top_k = int(arguments.get("top_k", 5))
-            co = _tca_engine.get_coactive_symbols(seed, top_k=top_k)
-            if not co:
-                return [TextContent(
-                    type="text",
-                    text=f"No co-activation data yet for '{seed}'.",
-                )]
-            lines = [f"🔄 Co-active with '{seed}' (top {len(co)}):"]
-            for sym, pmi in co:
-                lines.append(f"  {pmi:+.3f}  {sym}")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_tca_stats":
-            stats = _tca_engine.get_stats()
-            lines = [
-                "Tenseur de Co-Activation (TCA):",
-                f"  Symbols tracked      : {stats['symbols_tracked']}",
-                f"  Co-activation pairs  : {stats['co_activation_pairs']}",
-                f"  Sessions flushed     : {stats['sessions_flushed']}",
-                f"  Current session      : {stats['session_activations']} symbols active",
-            ]
-            if stats["top_pairs"]:
-                lines.append("  Top pairs:")
-                for a, b, c in stats["top_pairs"]:
-                    lines.append(f"    ×{c}  {a}  ↔  {b}")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_dcp_stats":
-            stats = memory_db.dcp_stats()
-            lines = [
-                "Differential Context Protocol (DCP):",
-                f"  Registered chunks : {stats['total']}",
-                f"  Stable (seen>1)   : {stats['stable']}",
-                f"  Total sightings   : {stats['total_seen']:,}",
-            ]
-            if _dcp_calls:
-                sess_pct = (
-                    (_dcp_stable_chunks / _dcp_total_chunks * 100)
-                    if _dcp_total_chunks else 0.0
-                )
-                lines.append(
-                    f"  Session: {_dcp_calls} DCP calls, "
-                    f"{_dcp_stable_chunks}/{_dcp_total_chunks} chunks stable "
-                    f"({sess_pct:.1f}%)"
-                )
-            if stats["top"]:
-                lines.append("  Top chunks:")
-                for t in stats["top"]:
-                    preview = (t["content_preview"] or "").replace("\n", " ")[:40]
-                    lines.append(
-                        f"    {t['fingerprint']}  ×{t['seen_count']}  "
-                        f"{preview!r}"
-                    )
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_community":
-            sym = arguments.get("symbol")
-            cname = arguments.get("name")
-            if not sym and not cname:
-                return [TextContent(type="text", text="Error: provide 'symbol' or 'name'.")]
-            comm = (
-                _leiden.get_community_for(sym) if sym
-                else _leiden.get_community(cname)
+        preds = _prefetcher.predict_next(name, record_symbol or "", top_k=3)
+        if preds:
+            _warm_cache_async(
+                preds, slot, tool_name=name, symbol_name=record_symbol or "",
             )
-            if not comm:
-                hint = sym or cname
-                return [TextContent(type="text", text=f"No community for '{hint}'.")]
-            lines = [
-                f"🏘️  Community '{comm['name']}' — {comm['size']} members",
-                "─" * 60,
-            ]
-            for m in comm["members"]:
-                marker = " ← query" if m == sym else ""
-                lines.append(f"  {m}{marker}")
-            return [TextContent(type="text", text="\n".join(lines))]
+    except Exception:
+        pass
 
-        if name == "get_linucb_stats":
-            s = _linucb.get_stats()
-            lines = [
-                "LinUCB Injection Model:",
-                "  Feature weights (θ):",
-            ]
-            for i, fw in enumerate(s["feature_weights"]):
-                marker = "  ← top feature" if i == 0 else ""
-                lines.append(f"    {fw['name']:<14}: {fw['weight']:+.4f}{marker}")
-            lines.append(
-                f"  Updates: {s['updates']} | Observations scored: {s['scored']}"
-            )
-            return [TextContent(type="text", text="\n".join(lines))]
 
-        if name == "get_warmstart_stats":
-            s = _warm_start.get_stats()
-            lines = [
-                "Cross-session Warm Start:",
-                f"  Signatures stored   : {s['signatures']}",
-                f"  Avg pairwise cosine : {s.get('avg_pairwise_similarity', 0.0):.3f}",
-            ]
-            by_proj = s.get("by_project") or {}
-            if by_proj:
-                lines.append("  By project:")
-                for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:5]:
-                    label = p if p != "(none)" else "(unknown)"
-                    lines.append(f"    {label} — {n}")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "memory_consistency":
-            proj = arguments.get("project_root") or None
-            limit = int(arguments.get("limit") or 100)
-            dry = bool(arguments.get("dry_run") or False)
-            res = memory_db.run_consistency_check(
-                project_root=proj, limit=limit, dry_run=dry,
-            )
-            stats = memory_db.get_consistency_stats(project_root=proj)
-            tag = " [dry-run]" if dry else ""
-            lines = [
-                f"Self-consistency check{tag}:",
-                f"  Checked            : {res['checked']}",
-                f"  Failures (moved)   : {res['failed']}",
-                f"  → quarantined      : {res['quarantined']}",
-                f"  → stale_suspected  : {res['stale_suspected']}",
-                "",
-                "Aggregate:",
-                f"  Scored obs         : {stats['scored']}",
-                f"  Currently quarantined : {stats['quarantined']}",
-                f"  Currently stale       : {stats['stale_suspected']}",
-                f"  Average validity   : {stats['avg_validity']:.2%}",
-            ]
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "memory_quarantine_list":
-            proj = arguments.get("project_root") or None
-            limit = int(arguments.get("limit") or 50)
-            rows = memory_db.list_quarantined_observations(
-                project_root=proj, limit=limit,
-            )
-            if not rows:
-                return [TextContent(type="text", text="No quarantined observations.")]
-            lines = [f"⚠️  Quarantined observations ({len(rows)}):"]
-            for r in rows:
-                sym = f" [{r['symbol']}]" if r.get("symbol") else ""
-                lines.append(
-                    f"  #{r['id']}  [{r['type']}]  {r['title']}{sym}  "
-                    f"validity={r['validity']:.0%}  {r['age']}"
-                )
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_leiden_stats":
-            s = _leiden.get_stats()
-            lines = [
-                "Leiden community detector:",
-                f"  Communities        : {s['total_communities']}",
-                f"  Covered symbols    : {s['covered_symbols']}",
-                f"  Size min/avg/max   : {s['smallest']}/{s['avg_size']}/{s['largest']}",
-                f"  Graph              : {s['nodes']} nodes, {s['edges']} edges",
-                f"  Modularity (Q)     : {s['modularity']}",
-            ]
-            if s.get("top"):
-                lines.append("  Top communities:")
-                for c in s["top"]:
-                    lines.append(f"    {c['name']} (n={c['size']})")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_speculation_stats":
-            with _prefetch_lock:
-                cache_size = len(_prefetch_cache)
-            hit_rate = (
-                (_spec_branches_hit / _spec_branches_warmed * 100)
-                if _spec_branches_warmed else 0.0
-            )
-            lines = [
-                "Speculative Tool Tree Execution:",
-                f"  Branches explored : {_spec_branches_explored}",
-                f"  Branches warmed   : {_spec_branches_warmed}",
-                f"  Branches hit      : {_spec_branches_hit}",
-                f"  Hit rate          : {hit_rate:.1f}%",
-                f"  Tokens saved (est): {_spec_tokens_saved:,}",
-                f"  Warm cache size   : {cache_size}",
-            ]
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_lattice_stats":
-            ctx_filter = arguments.get("context_type") or None
-            rows = memory_db.get_lattice_stats(context_type=ctx_filter)
-            if not rows:
-                return [TextContent(type="text", text="Adaptive lattice has no entries yet.")]
-            header = (
-                f"Adaptive lattice "
-                f"({'context=' + ctx_filter if ctx_filter else 'all contexts'}):"
-            )
-            lines = [header, f"  {'CONTEXT':<12} {'LVL':>3} {'α':>6} {'β':>6} {'mean':>6} {'trials':>7}  age"]
-            for r in rows:
-                lines.append(
-                    f"  {r['context_type']:<12} {r['level']:>3} "
-                    f"{r['alpha']:>6.1f} {r['beta']:>6.1f} "
-                    f"{r['mean']:>6.3f} {r['trials']:>7d}  {r['age']}"
-                )
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "get_call_predictions":
-            tool_name = arguments.get("tool_name", "")
-            symbol_name = arguments.get("symbol_name", "")
-            top_k = int(arguments.get("top_k", 5))
-            preds = _prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
-            if not preds:
-                return [
-                    TextContent(
-                        type="text",
-                        text=(
-                            f"No transitions recorded for state "
-                            f"'{tool_name}:{symbol_name}' yet."
-                        ),
-                    )
-                ]
-            lines = [f"Markov predictions after {tool_name}({symbol_name}):"]
-            for state, prob in preds:
-                lines.append(f"  {prob*100:5.1f}%  {state}")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "list_projects":
-            if not _slot_mgr.projects:
-                return [
-                    TextContent(
-                        type="text",
-                        text="No projects registered. Call set_project_root('/path') first.",
-                    )
-                ]
-            lines = [f"Workspace projects ({len(_slot_mgr.projects)}):"]
-            for root, slot in _slot_mgr.projects.items():
-                status = "indexed" if slot.indexer is not None else "not yet loaded"
-                active = " [active]" if root == _slot_mgr.active_root else ""
-                name_part = os.path.basename(root)
-                if slot.indexer and slot.indexer._project_index:
-                    idx = slot.indexer._project_index
-                    lines.append(
-                        f"  {name_part}{active} -- {idx.total_files} files, {idx.total_functions} functions ({root})"
-                    )
-                else:
-                    lines.append(f"  {name_part}{active} -- {status} ({root})")
-            return [TextContent(type="text", text="\n".join(lines))]
-
-        if name == "switch_project":
-            hint = arguments["name"]
-            slot, err = _slot_mgr.resolve(hint)
-            if err:
-                return [TextContent(type="text", text=f"Error: {err}")]
-            _slot_mgr.active_root = slot.root
-            _slot_mgr.ensure(slot)
-            idx = slot.indexer._project_index if slot.indexer else None
-            info = f"{idx.total_files} files" if idx else "index not built"
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
-                )
-            ]
-
-        if name == "set_project_root":
-            new_root = os.path.abspath(arguments["path"])
-            if not os.path.isdir(new_root):
-                return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-            if new_root not in _slot_mgr.projects:
-                _slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
-            _slot_mgr.active_root = new_root
-            slot = _slot_mgr.projects[new_root]
-            slot.indexer = None
-            slot.query_fns = None
-            _slot_mgr.build(slot)
-            return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
-
-        if name == "reindex":
-            project_hint = arguments.get("project")
-            slot, err = _slot_mgr.resolve(project_hint)
-            if err:
-                return [TextContent(type="text", text=f"Error: {err}")]
-            slot.indexer = None
-            slot.query_fns = None
-            _slot_mgr.build(slot)
-            _recompute_leiden(slot)
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.",
-                )
-            ]
-
-        # ── Memory tools (no slot required) ──────────────────────────────
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+    global _total_chars_returned, _total_naive_chars
+    record_symbol = _track_call(name, arguments)
+    try:
+        meta_handler = _META_HANDLERS.get(name)
+        if meta_handler is not None:
+            return meta_handler(arguments)
 
         mem_handler = _MEMORY_HANDLERS.get(name)
         if mem_handler is not None:
-            result = mem_handler(arguments)
-            return [TextContent(type="text", text=result)]
+            return [TextContent(type="text", text=mem_handler(arguments))]
 
-        # ── All other tools need a resolved slot ──────────────────────────
-
-        project_hint = arguments.get("project")
-        slot, err = _slot_mgr.resolve(project_hint)
+        slot, err = _slot_mgr.resolve(arguments.get("project"))
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
 
-        # Slot-level handlers (index operations, git, analysis)
         handler = _SLOT_HANDLERS.get(name)
         if handler is not None:
-            result = handler(slot, arguments)
-            return _count_and_wrap_result(slot, name, arguments, result)
+            return _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
 
-        # Query-function handlers (require qfns)
         qfn_handler = _QFN_HANDLERS.get(name)
         if qfn_handler is not None:
             _prep(slot)
             if slot.query_fns is None:
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Error: index not built for '{slot.root}'. Call reindex first.",
-                    )
-                ]
+                return [TextContent(
+                    type="text",
+                    text=f"Error: index not built for '{slot.root}'. Call reindex first.",
+                )]
             result = qfn_handler(slot.query_fns, arguments)
-            # TCS: compress structural output if enabled (default true)
-            if name in _COMPRESSIBLE_TOOLS and arguments.get("compress", True):
-                global _tcs_calls, _tcs_chars_before, _tcs_chars_after
-                raw = _format_result(result)
-                compressed = compress_symbol_output(name, result)
-                before = len(raw)
-                after = len(compressed)
-                if after < before and compressed:
-                    saved_pct = (1 - after / before) * 100 if before else 0.0
-                    result = (
-                        f"{compressed}\n"
-                        f"[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
-                    )
-                    _tcs_calls += 1
-                    _tcs_chars_before += before
-                    _tcs_chars_after += after
-            # Markov: predict next likely calls and pre-warm in a daemon thread
-            try:
-                preds = _prefetcher.predict_next(
-                    name, _record_symbol or "", top_k=3
-                )
-                if preds:
-                    _warm_cache_async(
-                        preds, slot,
-                        tool_name=name, symbol_name=_record_symbol or "",
-                    )
-            except Exception:
-                pass
+            result = _maybe_compress(name, arguments, result)
+            _prefetch_next(name, record_symbol, slot)
             return _count_and_wrap_result(slot, name, arguments, result)
 
         return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 
     except Exception as e:
-        tb = traceback.format_exc()
-        print(f"[token-savior] Error in {name}: {tb}", file=sys.stderr)
+        print(f"[token-savior] Error in {name}: {traceback.format_exc()}", file=sys.stderr)
         return [TextContent(type="text", text=f"Error: {e}")]
 
 
