@@ -305,12 +305,12 @@ class TestJavaProjectIndexer:
         root = tmp_path / "java-project"
         root.mkdir()
         _write_file(
-            root / "src/main/java/com/acme/runtime/CryptoAssetAggregationNode.java",
+            root / "src/main/java/com/acme/runtime/SampleAggregationNode.java",
             """\
             package com.acme.runtime;
 
-            public final class CryptoAssetAggregationNode {
-                public CryptoAssetAggregationNode() {
+            public final class SampleAggregationNode {
+                public SampleAggregationNode() {
                 }
             }
             """,
@@ -323,8 +323,8 @@ class TestJavaProjectIndexer:
             import java.util.function.Supplier;
 
             public final class Factories {
-                public Supplier<CryptoAssetAggregationNode> nodeFactory() {
-                    return () -> new CryptoAssetAggregationNode();
+                public Supplier<SampleAggregationNode> nodeFactory() {
+                    return () -> new SampleAggregationNode();
                 }
             }
             """,
@@ -333,7 +333,7 @@ class TestJavaProjectIndexer:
         idx = ProjectIndexer(str(root)).index()
 
         factory_symbol = "com.acme.runtime.Factories.nodeFactory()"
-        node_symbol = "com.acme.runtime.CryptoAssetAggregationNode"
+        node_symbol = "com.acme.runtime.SampleAggregationNode"
         deps = idx.global_dependency_graph[factory_symbol]
         assert node_symbol in deps
 
@@ -341,25 +341,25 @@ class TestJavaProjectIndexer:
         root = tmp_path / "java-project"
         root.mkdir()
         _write_file(
-            root / "src/main/java/com/acme/app/TradeResearchApiApplication.java",
+            root / "src/main/java/com/acme/app/SampleGraphApplication.java",
             """\
             package com.acme.app;
 
-            public final class TradeResearchApiApplication {
+            public final class SampleGraphApplication {
                 public static void main(String[] args) {
-                    new CryptoCycleGraphs().register();
+                    new GraphRegistry().register();
                 }
             }
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/app/CryptoCycleGraphs.java",
+            root / "src/main/java/com/acme/app/GraphRegistry.java",
             """\
             package com.acme.app;
 
-            public final class CryptoCycleGraphs {
+            public final class GraphRegistry {
                 public void register() {
-                    GraphDefinition.register(Factories::cryptoAssetAggregationFactory);
+                    GraphDefinition.register(Factories::sampleAggregationFactory);
                 }
             }
             """,
@@ -372,19 +372,19 @@ class TestJavaProjectIndexer:
             import java.util.function.Supplier;
 
             public final class Factories {
-                public static Supplier<CryptoAssetAggregationNode> cryptoAssetAggregationFactory() {
-                    return () -> new CryptoAssetAggregationNode();
+                public static Supplier<SampleAggregationNode> sampleAggregationFactory() {
+                    return () -> new SampleAggregationNode();
                 }
             }
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/app/CryptoAssetAggregationNode.java",
+            root / "src/main/java/com/acme/app/SampleAggregationNode.java",
             """\
             package com.acme.app;
 
-            public final class CryptoAssetAggregationNode {
-                public CryptoAssetAggregationNode() {
+            public final class SampleAggregationNode {
+                public SampleAggregationNode() {
                 }
             }
             """,
@@ -394,16 +394,16 @@ class TestJavaProjectIndexer:
         funcs = create_project_query_functions(idx)
 
         result = funcs["get_call_chain"](
-            "TradeResearchApiApplication",
-            "CryptoAssetAggregationNode",
+            "SampleGraphApplication",
+            "SampleAggregationNode",
         )
 
         assert "chain" in result
         names = [step["name"] for step in result["chain"]]
-        assert names[0] == "com.acme.app.TradeResearchApiApplication"
-        assert "com.acme.app.CryptoCycleGraphs.register()" in names
-        assert "com.acme.app.Factories.cryptoAssetAggregationFactory()" in names
-        assert names[-1] == "com.acme.app.CryptoAssetAggregationNode"
+        assert names[0] == "com.acme.app.SampleGraphApplication"
+        assert "com.acme.app.GraphRegistry.register()" in names
+        assert "com.acme.app.Factories.sampleAggregationFactory()" in names
+        assert names[-1] == "com.acme.app.SampleAggregationNode"
 
     def test_adds_spring_framework_entry_edges(self, tmp_path):
         root = tmp_path / "spring-project"
@@ -473,7 +473,7 @@ class TestJavaProjectIndexer:
         root = tmp_path / "spring-project"
         root.mkdir()
         _write_file(
-            root / "src/main/java/com/acme/app/TradeResearchApiApplication.java",
+            root / "src/main/java/com/acme/app/SampleGraphApplication.java",
             """\
             package com.acme.app;
 
@@ -481,25 +481,25 @@ class TestJavaProjectIndexer:
             import org.springframework.boot.autoconfigure.SpringBootApplication;
 
             @SpringBootApplication
-            public final class TradeResearchApiApplication {
+            public final class SampleGraphApplication {
                 public static void main(String[] args) {
-                    SpringApplication.run(TradeResearchApiApplication.class, args);
+                    SpringApplication.run(SampleGraphApplication.class, args);
                 }
             }
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/app/LiveIngressCoordinator.java",
+            root / "src/main/java/com/acme/app/RuntimeCoordinator.java",
             """\
             package com.acme.app;
 
             import org.springframework.stereotype.Service;
 
             @Service
-            public final class LiveIngressCoordinator {
-                private final CryptoCycleGraphs graphs;
+            public final class RuntimeCoordinator {
+                private final GraphRegistry graphs;
 
-                public LiveIngressCoordinator(CryptoCycleGraphs graphs) {
+                public RuntimeCoordinator(GraphRegistry graphs) {
                     this.graphs = graphs;
                 }
 
@@ -510,16 +510,16 @@ class TestJavaProjectIndexer:
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/app/CryptoCycleGraphs.java",
+            root / "src/main/java/com/acme/app/GraphRegistry.java",
             """\
             package com.acme.app;
 
             import org.springframework.stereotype.Component;
 
             @Component
-            public final class CryptoCycleGraphs {
+            public final class GraphRegistry {
                 public void register() {
-                    GraphDefinition.register(Factories::cryptoAssetAggregationFactory);
+                    GraphDefinition.register(Factories::sampleAggregationFactory);
                 }
             }
             """,
@@ -532,18 +532,18 @@ class TestJavaProjectIndexer:
             import java.util.function.Supplier;
 
             public final class Factories {
-                public static Supplier<CryptoAssetAggregationNode> cryptoAssetAggregationFactory() {
-                    return () -> new CryptoAssetAggregationNode();
+                public static Supplier<SampleAggregationNode> sampleAggregationFactory() {
+                    return () -> new SampleAggregationNode();
                 }
             }
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/app/CryptoAssetAggregationNode.java",
+            root / "src/main/java/com/acme/app/SampleAggregationNode.java",
             """\
             package com.acme.app;
 
-            public final class CryptoAssetAggregationNode {
+            public final class SampleAggregationNode {
             }
             """,
         )
@@ -552,38 +552,38 @@ class TestJavaProjectIndexer:
         funcs = create_project_query_functions(idx)
 
         result = funcs["get_call_chain"](
-            "TradeResearchApiApplication",
-            "CryptoAssetAggregationNode",
+            "SampleGraphApplication",
+            "SampleAggregationNode",
         )
 
         assert result == {
-            "error": "no path from 'TradeResearchApiApplication' to 'CryptoAssetAggregationNode'"
+            "error": "no path from 'SampleGraphApplication' to 'SampleAggregationNode'"
         }
 
         factories_result = funcs["get_call_chain"](
-            "TradeResearchApiApplication",
+            "SampleGraphApplication",
             "Factories",
         )
-        assert factories_result == {"error": "no path from 'TradeResearchApiApplication' to 'Factories'"}
+        assert factories_result == {"error": "no path from 'SampleGraphApplication' to 'Factories'"}
 
     def test_reports_duplicate_java_classes(self, tmp_path):
         root = tmp_path / "java-project"
         root.mkdir()
         _write_file(
-            root / "src/main/java/com/acme/view/HotViewKeys.java",
+            root / "src/main/java/com/acme/view/ViewKeyCatalog.java",
             """\
             package com.acme.view;
 
-            public final class HotViewKeys {
+            public final class ViewKeyCatalog {
             }
             """,
         )
         _write_file(
-            root / "src/generated/java/com/acme/view/HotViewKeys.java",
+            root / "src/generated/java/com/acme/view/ViewKeyCatalog.java",
             """\
             package com.acme.view;
 
-            public final class HotViewKeys {
+            public final class ViewKeyCatalog {
             }
             """,
         )
@@ -591,15 +591,15 @@ class TestJavaProjectIndexer:
         idx = ProjectIndexer(str(root)).index()
         funcs = create_project_query_functions(idx)
 
-        duplicates = funcs["get_duplicate_classes"]("HotViewKeys")
+        duplicates = funcs["get_duplicate_classes"]("ViewKeyCatalog")
         assert duplicates == [
             {
-                "name": "HotViewKeys",
-                "qualified_name": "com.acme.view.HotViewKeys",
+                "name": "ViewKeyCatalog",
+                "qualified_name": "com.acme.view.ViewKeyCatalog",
                 "count": 2,
                 "files": [
-                    "src/generated/java/com/acme/view/HotViewKeys.java",
-                    "src/main/java/com/acme/view/HotViewKeys.java",
+                    "src/generated/java/com/acme/view/ViewKeyCatalog.java",
+                    "src/main/java/com/acme/view/ViewKeyCatalog.java",
                 ],
             }
         ]
@@ -608,20 +608,20 @@ class TestJavaProjectIndexer:
         root = tmp_path / "java-project"
         root.mkdir()
         _write_file(
-            root / "src/main/java/com/acme/view/HotViewKeys.java",
+            root / "src/main/java/com/acme/view/ViewKeyCatalog.java",
             """\
             package com.acme.view;
 
-            public final class HotViewKeys {
+            public final class ViewKeyCatalog {
             }
             """,
         )
         _write_file(
-            root / "src/main/java/com/acme/legacy/HotViewKeys.java",
+            root / "src/main/java/com/acme/legacy/ViewKeyCatalog.java",
             """\
             package com.acme.legacy;
 
-            public final class HotViewKeys {
+            public final class ViewKeyCatalog {
             }
             """,
         )
@@ -629,18 +629,18 @@ class TestJavaProjectIndexer:
         idx = ProjectIndexer(str(root)).index()
         funcs = create_project_query_functions(idx)
 
-        duplicates = funcs["get_duplicate_classes"]("HotViewKeys", simple_name_mode=True)
+        duplicates = funcs["get_duplicate_classes"]("ViewKeyCatalog", simple_name_mode=True)
         assert duplicates == [
             {
-                "name": "HotViewKeys",
+                "name": "ViewKeyCatalog",
                 "qualified_names": [
-                    "com.acme.legacy.HotViewKeys",
-                    "com.acme.view.HotViewKeys",
+                    "com.acme.legacy.ViewKeyCatalog",
+                    "com.acme.view.ViewKeyCatalog",
                 ],
                 "count": 2,
                 "files": [
-                    "src/main/java/com/acme/legacy/HotViewKeys.java",
-                    "src/main/java/com/acme/view/HotViewKeys.java",
+                    "src/main/java/com/acme/legacy/ViewKeyCatalog.java",
+                    "src/main/java/com/acme/view/ViewKeyCatalog.java",
                 ],
             }
         ]

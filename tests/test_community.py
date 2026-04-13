@@ -87,11 +87,11 @@ class TestCommunityDetection:
                     source_name="node.py",
                     total_lines=4,
                     total_chars=60,
-                    lines=["class CryptoAssetAggregationNode:", "    pass", "", ""],
+                    lines=["class SampleAggregationNode:", "    pass", "", ""],
                     line_char_offsets=[],
                     classes=[
                         ClassInfo(
-                            name="CryptoAssetAggregationNode",
+                            name="SampleAggregationNode",
                             line_range=LineRange(1, 2),
                             base_classes=[],
                             methods=[],
@@ -104,23 +104,23 @@ class TestCommunityDetection:
                     source_name="service.py",
                     total_lines=5,
                     total_chars=90,
-                    lines=["class CryptoCycleQueryService:", "    def build(self):", "        return None", "", ""],
+                    lines=["class SampleQueryService:", "    def build(self):", "        return None", "", ""],
                     line_char_offsets=[],
                     functions=[
                         FunctionInfo(
                             name="build",
-                            qualified_name="CryptoCycleQueryService.build",
+                            qualified_name="SampleQueryService.build",
                             line_range=LineRange(2, 3),
                             parameters=["self"],
                             decorators=[],
                             docstring=None,
                             is_method=True,
-                            parent_class="CryptoCycleQueryService",
+                            parent_class="SampleQueryService",
                         )
                     ],
                     classes=[
                         ClassInfo(
-                            name="CryptoCycleQueryService",
+                            name="SampleQueryService",
                             line_range=LineRange(1, 3),
                             base_classes=[],
                             methods=[],
@@ -133,22 +133,22 @@ class TestCommunityDetection:
             global_dependency_graph={},
             reverse_dependency_graph={},
             symbol_table={
-                "CryptoAssetAggregationNode": "src/node.py",
-                "CryptoCycleQueryService": "src/service.py",
-                "CryptoCycleQueryService.build": "src/service.py",
+                "SampleAggregationNode": "src/node.py",
+                "SampleQueryService": "src/service.py",
+                "SampleQueryService.build": "src/service.py",
             },
         )
         communities = {
-            "CryptoAssetAggregationNode": "CryptoCycleQueryService",
-            "CryptoCycleQueryService": "CryptoCycleQueryService",
-            "CryptoCycleQueryService.build": "CryptoCycleQueryService",
+            "SampleAggregationNode": "SampleQueryService",
+            "SampleQueryService": "SampleQueryService",
+            "SampleQueryService.build": "SampleQueryService",
         }
 
-        result = get_cluster_for_symbol("CryptoAssetAggregationNode", communities, index)
+        result = get_cluster_for_symbol("SampleAggregationNode", communities, index)
 
-        assert result["community_id"] == "CryptoCycleQueryService"
+        assert result["community_id"] == "SampleQueryService"
         members = {member["name"]: member for member in result["members"]}
-        assert members["CryptoAssetAggregationNode"]["type"] == "class"
-        assert members["CryptoAssetAggregationNode"]["file"] == "src/node.py"
-        assert members["CryptoCycleQueryService"]["type"] == "class"
-        assert members["CryptoCycleQueryService.build"]["type"] == "method"
+        assert members["SampleAggregationNode"]["type"] == "class"
+        assert members["SampleAggregationNode"]["file"] == "src/node.py"
+        assert members["SampleQueryService"]["type"] == "class"
+        assert members["SampleQueryService.build"]["type"] == "method"

@@ -119,19 +119,19 @@ class TestBasicDeadCode:
     def test_cross_project_callers_keep_symbol_live(self):
         func = _make_func(
             "decode",
-            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.MessageDecoder.decode(byte[])",
             line_start=10,
             is_method=True,
-            parent_class="TradeDecoder",
+            parent_class="MessageDecoder",
         )
         cls = _make_class(
-            "TradeDecoder",
+            "MessageDecoder",
             methods=[func],
-            qualified_name="com.acme.feed.TradeDecoder",
+            qualified_name="com.acme.feed.MessageDecoder",
         )
         index = _make_index(
-            {"src/main/java/com/acme/feed/TradeDecoder.java": _make_meta(
-                "src/main/java/com/acme/feed/TradeDecoder.java",
+            {"src/main/java/com/acme/feed/MessageDecoder.java": _make_meta(
+                "src/main/java/com/acme/feed/MessageDecoder.java",
                 functions=[func],
                 classes=[cls],
             )}
@@ -140,29 +140,29 @@ class TestBasicDeadCode:
             root_path="/sibling",
             files={},
             global_dependency_graph={
-                "com.acme.app.DecoderUser.run()": {"com.acme.feed.TradeDecoder.decode(byte[])"}
+                "com.acme.app.DecoderUser.run()": {"com.acme.feed.MessageDecoder.decode(byte[])"}
             },
         )
         result = find_dead_code(index, sibling_indices={"sibling": sibling})
-        assert "TradeDecoder" not in result
+        assert "MessageDecoder" not in result
         assert "decode(" not in result
 
     def test_cross_project_imports_keep_class_api_live(self):
         func = _make_func(
             "buffer",
-            qualified_name="com.acme.lvc.LvcStore.buffer()",
+            qualified_name="com.acme.store.ByteStore.buffer()",
             line_start=10,
             is_method=True,
-            parent_class="LvcStore",
+            parent_class="ByteStore",
         )
         cls = _make_class(
-            "LvcStore",
+            "ByteStore",
             methods=[func],
-            qualified_name="com.acme.lvc.LvcStore",
+            qualified_name="com.acme.store.ByteStore",
         )
         index = _make_index(
-            {"src/main/java/com/acme/lvc/LvcStore.java": _make_meta(
-                "src/main/java/com/acme/lvc/LvcStore.java",
+            {"src/main/java/com/acme/store/ByteStore.java": _make_meta(
+                "src/main/java/com/acme/store/ByteStore.java",
                 functions=[func],
                 classes=[cls],
             )}
@@ -182,8 +182,8 @@ class TestBasicDeadCode:
         )
         sibling.files["src/main/java/com/acme/app/UseStore.java"].imports = [
             ImportInfo(
-                module="com.acme.lvc.LvcStore",
-                names=["LvcStore"],
+                module="com.acme.store.ByteStore",
+                names=["ByteStore"],
                 alias=None,
                 line_number=1,
                 is_from_import=False,
@@ -191,40 +191,40 @@ class TestBasicDeadCode:
         ]
 
         result = find_dead_code(index, sibling_indices={"sibling": sibling})
-        assert "LvcStore" not in result
+        assert "ByteStore" not in result
         assert "buffer(" not in result
 
     def test_cross_project_live_symbols_propagate_to_implementations(self):
         iface_method = _make_func(
             "decode",
-            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.MessageDecoder.decode(byte[])",
             line_start=2,
             line_end=2,
             is_method=True,
-            parent_class="TradeDecoder",
+            parent_class="MessageDecoder",
         )
         impl_method = _make_func(
             "decode",
-            qualified_name="com.acme.feed.FastTradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.FastMessageDecoder.decode(byte[])",
             line_start=6,
             line_end=8,
             is_method=True,
-            parent_class="FastTradeDecoder",
+            parent_class="FastMessageDecoder",
         )
         iface = _make_class(
-            "TradeDecoder",
+            "MessageDecoder",
             line_start=1,
             line_end=3,
             methods=[iface_method],
-            qualified_name="com.acme.feed.TradeDecoder",
+            qualified_name="com.acme.feed.MessageDecoder",
         )
         impl = _make_class(
-            "FastTradeDecoder",
+            "FastMessageDecoder",
             line_start=5,
             line_end=9,
             methods=[impl_method],
-            base_classes=["TradeDecoder"],
-            qualified_name="com.acme.feed.FastTradeDecoder",
+            base_classes=["MessageDecoder"],
+            qualified_name="com.acme.feed.FastMessageDecoder",
         )
         index = _make_index(
             {
@@ -233,10 +233,10 @@ class TestBasicDeadCode:
                     functions=[iface_method, impl_method],
                     classes=[iface, impl],
                     lines=[
-                        "public interface TradeDecoder {",
+                        "public interface MessageDecoder {",
                         "  void decode(byte[] buf);",
                         "}",
-                        "public final class FastTradeDecoder implements TradeDecoder {",
+                        "public final class FastMessageDecoder implements MessageDecoder {",
                         "}",
                     ],
                 )
@@ -246,12 +246,12 @@ class TestBasicDeadCode:
             root_path="/sibling",
             files={},
             global_dependency_graph={
-                "com.acme.app.DecoderUser.run()": {"com.acme.feed.TradeDecoder.decode(byte[])"}
+                "com.acme.app.DecoderUser.run()": {"com.acme.feed.MessageDecoder.decode(byte[])"}
             },
         )
 
         result = find_dead_code(index, sibling_indices={"sibling": sibling})
-        assert "FastTradeDecoder.decode" not in result
+        assert "FastMessageDecoder.decode" not in result
 
     def test_empty_index_returns_zero(self):
         index = _make_index({})
@@ -438,83 +438,83 @@ class TestFrameworkAndDispatchHeuristics:
     def test_interface_methods_are_not_reported_as_dead(self):
         iface_method = _make_func(
             "decode",
-            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.MessageDecoder.decode(byte[])",
             line_start=2,
             line_end=2,
             is_method=True,
-            parent_class="TradeDecoder",
+            parent_class="MessageDecoder",
         )
         iface = _make_class(
-            "TradeDecoder",
+            "MessageDecoder",
             line_start=1,
             line_end=3,
             methods=[iface_method],
-            qualified_name="com.acme.feed.TradeDecoder",
+            qualified_name="com.acme.feed.MessageDecoder",
         )
         meta = _make_meta(
-            "src/main/java/com/acme/feed/TradeDecoder.java",
+            "src/main/java/com/acme/feed/MessageDecoder.java",
             functions=[iface_method],
             classes=[iface],
             lines=[
-                "public interface TradeDecoder {",
+                "public interface MessageDecoder {",
                 "  void decode(byte[] buf);",
                 "}",
             ],
         )
-        index = _make_index({"src/main/java/com/acme/feed/TradeDecoder.java": meta})
+        index = _make_index({"src/main/java/com/acme/feed/MessageDecoder.java": meta})
         result = find_dead_code(index)
         assert "decode()" not in result
 
     def test_signature_propagates_liveness_from_interface_method(self):
         iface_method = _make_func(
             "decode",
-            qualified_name="com.acme.feed.TradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.MessageDecoder.decode(byte[])",
             line_start=2,
             line_end=2,
             is_method=True,
-            parent_class="TradeDecoder",
+            parent_class="MessageDecoder",
         )
         impl_method = _make_func(
             "decode",
-            qualified_name="com.acme.feed.FastTradeDecoder.decode(byte[])",
+            qualified_name="com.acme.feed.FastMessageDecoder.decode(byte[])",
             line_start=6,
             line_end=8,
             is_method=True,
-            parent_class="FastTradeDecoder",
+            parent_class="FastMessageDecoder",
         )
         iface = _make_class(
-            "TradeDecoder",
+            "MessageDecoder",
             line_start=1,
             line_end=3,
             methods=[iface_method],
-            qualified_name="com.acme.feed.TradeDecoder",
+            qualified_name="com.acme.feed.MessageDecoder",
         )
         impl = _make_class(
-            "FastTradeDecoder",
+            "FastMessageDecoder",
             line_start=5,
             line_end=9,
             methods=[impl_method],
-            base_classes=["TradeDecoder"],
-            qualified_name="com.acme.feed.FastTradeDecoder",
+            base_classes=["MessageDecoder"],
+            qualified_name="com.acme.feed.FastMessageDecoder",
         )
         meta = _make_meta(
             "src/main/java/com/acme/feed/Decoders.java",
             functions=[iface_method, impl_method],
             classes=[iface, impl],
             lines=[
-                "public interface TradeDecoder {",
+                "public interface MessageDecoder {",
                 "  void decode(byte[] buf);",
                 "}",
-                "public final class FastTradeDecoder implements TradeDecoder {",
+                "public final class FastMessageDecoder implements MessageDecoder {",
                 "}",
             ],
         )
         index = _make_index(
             {"src/main/java/com/acme/feed/Decoders.java": meta},
-            reverse_dependency_graph={"com.acme.feed.TradeDecoder.decode(byte[])": {"caller"}},
+            reverse_dependency_graph={"com.acme.feed.MessageDecoder.decode(byte[])": {"caller"}},
         )
         result = find_dead_code(index)
-        assert "FastTradeDecoder.decode" not in result
+        assert "FastMessageDecoder.decode" not in result
     def test_spring_configuration_properties_class_and_accessors_not_flagged(self):
         getter = _make_func(
             "apiKey",
@@ -646,8 +646,8 @@ class TestFrameworkAndDispatchHeuristics:
 
     def test_java_method_reference_target_not_flagged(self):
         factory = _make_func(
-            "cryptoAssetAggregationFactory",
-            qualified_name="com.acme.runtime.Factories.cryptoAssetAggregationFactory()",
+            "sampleAggregationFactory",
+            qualified_name="com.acme.runtime.Factories.sampleAggregationFactory()",
             line_start=2,
             line_end=4,
             is_method=True,
@@ -666,18 +666,18 @@ class TestFrameworkAndDispatchHeuristics:
             classes=[cls],
             lines=[
                 "class Factories {",
-                "  GraphDefinition.register(Factories::cryptoAssetAggregationFactory);",
+                "  GraphDefinition.register(Factories::sampleAggregationFactory);",
                 "}",
             ],
         )
         index = _make_index({"src/main/java/com/acme/runtime/Factories.java": meta})
         result = find_dead_code(index)
-        assert "cryptoAssetAggregationFactory()" not in result
+        assert "sampleAggregationFactory()" not in result
 
     def test_cross_file_method_reference_target_not_flagged(self):
         factory = _make_func(
-            "cryptoAssetAggregationFactory",
-            qualified_name="com.acme.runtime.Factories.cryptoAssetAggregationFactory()",
+            "sampleAggregationFactory",
+            qualified_name="com.acme.runtime.Factories.sampleAggregationFactory()",
             line_start=2,
             line_end=4,
             is_method=True,
@@ -696,7 +696,7 @@ class TestFrameworkAndDispatchHeuristics:
             classes=[factory_cls],
             lines=[
                 "class Factories {",
-                "  static Object cryptoAssetAggregationFactory() { return null; }",
+                "  static Object sampleAggregationFactory() { return null; }",
                 "}",
             ],
         )
@@ -704,7 +704,7 @@ class TestFrameworkAndDispatchHeuristics:
             "src/main/java/com/acme/runtime/TradingGraphs.java",
             lines=[
                 "class TradingGraphs {",
-                "  void register() { GraphDefinition.register(Factories::cryptoAssetAggregationFactory); }",
+                "  void register() { GraphDefinition.register(Factories::sampleAggregationFactory); }",
                 "}",
             ],
         )
@@ -715,7 +715,7 @@ class TestFrameworkAndDispatchHeuristics:
             }
         )
         result = find_dead_code(index)
-        assert "cryptoAssetAggregationFactory()" not in result
+        assert "sampleAggregationFactory()" not in result
 
     def test_java_override_and_runnable_run_not_flagged(self):
         override = _make_func(
@@ -790,56 +790,56 @@ class TestFrameworkAndDispatchHeuristics:
     def test_duplicate_java_classes_and_methods_are_not_reported_as_dead(self):
         method_a = _make_func(
             "render",
-            qualified_name="com.acme.view.HotViewKeys.render()",
+            qualified_name="com.acme.view.ViewKeyCatalog.render()",
             line_start=2,
             line_end=4,
             is_method=True,
-            parent_class="HotViewKeys",
+            parent_class="ViewKeyCatalog",
         )
         method_b = _make_func(
             "render",
-            qualified_name="com.acme.view.HotViewKeys.render()",
+            qualified_name="com.acme.view.ViewKeyCatalog.render()",
             line_start=2,
             line_end=4,
             is_method=True,
-            parent_class="HotViewKeys",
+            parent_class="ViewKeyCatalog",
         )
         class_a = _make_class(
-            "HotViewKeys",
+            "ViewKeyCatalog",
             line_start=1,
             line_end=5,
             methods=[method_a],
-            qualified_name="com.acme.view.HotViewKeys",
+            qualified_name="com.acme.view.ViewKeyCatalog",
         )
         class_b = _make_class(
-            "HotViewKeys",
+            "ViewKeyCatalog",
             line_start=1,
             line_end=5,
             methods=[method_b],
-            qualified_name="com.acme.view.HotViewKeys",
+            qualified_name="com.acme.view.ViewKeyCatalog",
         )
         index = _make_index(
             {
-                "src/main/java/com/acme/view/HotViewKeys.java": _make_meta(
-                    "src/main/java/com/acme/view/HotViewKeys.java",
+                "src/main/java/com/acme/view/ViewKeyCatalog.java": _make_meta(
+                    "src/main/java/com/acme/view/ViewKeyCatalog.java",
                     functions=[method_a],
                     classes=[class_a],
                 ),
-                "src/generated/java/com/acme/view/HotViewKeys.java": _make_meta(
-                    "src/generated/java/com/acme/view/HotViewKeys.java",
+                "src/generated/java/com/acme/view/ViewKeyCatalog.java": _make_meta(
+                    "src/generated/java/com/acme/view/ViewKeyCatalog.java",
                     functions=[method_b],
                     classes=[class_b],
                 ),
             },
             duplicate_classes={
-                "com.acme.view.HotViewKeys": [
-                    "src/generated/java/com/acme/view/HotViewKeys.java",
-                    "src/main/java/com/acme/view/HotViewKeys.java",
+                "com.acme.view.ViewKeyCatalog": [
+                    "src/generated/java/com/acme/view/ViewKeyCatalog.java",
+                    "src/main/java/com/acme/view/ViewKeyCatalog.java",
                 ]
             },
         )
         result = find_dead_code(index)
-        assert "HotViewKeys" not in result
+        assert "ViewKeyCatalog" not in result
         assert "render()" not in result
 
     def test_value_class_accessors_and_mutable_setters_not_flagged(self):

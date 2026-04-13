@@ -86,14 +86,14 @@ class TestEntryPoints:
         idx = _make_indexer(
             tmp_path,
             {
-                "src/main/java/com/acme/app/TradeResearchApiApplication.java": """\
+                "src/main/java/com/acme/app/SampleGraphApplication.java": """\
 package com.acme.app;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public final class TradeResearchApiApplication {
+public final class SampleGraphApplication {
     public static void main(String[] args) {
     }
 
@@ -112,15 +112,15 @@ public final class TradeResearchApiApplication {
         main_entry = next(
             entry
             for entry in result
-            if entry["name"] == "com.acme.app.TradeResearchApiApplication.main(String[])"
+            if entry["name"] == "com.acme.app.SampleGraphApplication.main(String[])"
         )
         benchmark_entry = next(
             entry
             for entry in result
-            if entry["name"] == "com.acme.app.TradeResearchApiApplication.runBenchmark()"
+            if entry["name"] == "com.acme.app.SampleGraphApplication.runBenchmark()"
         )
 
         assert any("spring boot application" in reason for reason in main_entry["reasons"])
-        assert any("entry class (TradeResearchApiApplication)" in reason for reason in main_entry["reasons"])
+        assert any("entry class (SampleGraphApplication)" in reason for reason in main_entry["reasons"])
         assert benchmark_entry["score"] > 0.3
         assert any("benchmark lifecycle" in reason for reason in benchmark_entry["reasons"])

@@ -396,11 +396,11 @@ def test_package_private_java_method_not_reported_as_breaking(git_repo):
 
 
 def test_java_method_not_flagged_when_only_lines_shift(git_repo):
-    api_file = os.path.join(git_repo, "DiagnosticsController.java")
+    api_file = os.path.join(git_repo, "StatusController.java")
     with open(api_file, "w") as f:
         f.write(
             "package com.acme.pricing;\n\n"
-            "public final class DiagnosticsController {\n"
+            "public final class StatusController {\n"
             "    public String health(String env) {\n"
             "        return env;\n"
             "    }\n"
@@ -411,7 +411,7 @@ def test_java_method_not_flagged_when_only_lines_shift(git_repo):
     with open(api_file, "w") as f:
         f.write(
             "package com.acme.pricing;\n\n"
-            "public final class DiagnosticsController {\n"
+            "public final class StatusController {\n"
             "    public String status() {\n"
             "        return \"ok\";\n"
             "    }\n\n"

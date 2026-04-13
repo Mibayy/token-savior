@@ -1098,31 +1098,31 @@ class TestCallChainAliasResolution:
                     functions=[
                         FunctionInfo(
                             name="register",
-                            qualified_name="com.acme.CryptoCycleGraphs.register()",
+                            qualified_name="com.acme.GraphRegistry.register()",
                             line_range=LineRange(1, 1),
                             parameters=[],
                             decorators=[],
                             docstring=None,
                             is_method=True,
-                            parent_class="CryptoCycleGraphs",
+                            parent_class="GraphRegistry",
                         )
                     ],
                     classes=[
                         ClassInfo(
-                            name="CryptoCycleGraphs",
-                            qualified_name="com.acme.CryptoCycleGraphs",
+                            name="GraphRegistry",
+                            qualified_name="com.acme.GraphRegistry",
                             line_range=LineRange(1, 1),
                             base_classes=[],
                             methods=[
                                 FunctionInfo(
                                     name="register",
-                                    qualified_name="com.acme.CryptoCycleGraphs.register()",
+                                    qualified_name="com.acme.GraphRegistry.register()",
                                     line_range=LineRange(1, 1),
                                     parameters=[],
                                     decorators=[],
                                     docstring=None,
                                     is_method=True,
-                                    parent_class="CryptoCycleGraphs",
+                                    parent_class="GraphRegistry",
                                 )
                             ],
                             decorators=[],
@@ -1138,8 +1138,8 @@ class TestCallChainAliasResolution:
                     line_char_offsets=[],
                     functions=[
                         FunctionInfo(
-                            name="cryptoAssetAggregationFactory",
-                            qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                            name="sampleAggregationFactory",
+                            qualified_name="com.acme.Factories.sampleAggregationFactory()",
                             line_range=LineRange(1, 1),
                             parameters=[],
                             decorators=[],
@@ -1156,8 +1156,8 @@ class TestCallChainAliasResolution:
                             base_classes=[],
                             methods=[
                                 FunctionInfo(
-                                    name="cryptoAssetAggregationFactory",
-                                    qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                                    name="sampleAggregationFactory",
+                                    qualified_name="com.acme.Factories.sampleAggregationFactory()",
                                     line_range=LineRange(1, 1),
                                     parameters=[],
                                     decorators=[],
@@ -1179,8 +1179,8 @@ class TestCallChainAliasResolution:
                     line_char_offsets=[],
                     classes=[
                         ClassInfo(
-                            name="CryptoAssetAggregationNode",
-                            qualified_name="com.acme.CryptoAssetAggregationNode",
+                            name="SampleAggregationNode",
+                            qualified_name="com.acme.SampleAggregationNode",
                             line_range=LineRange(1, 1),
                             base_classes=[],
                             methods=[],
@@ -1191,46 +1191,46 @@ class TestCallChainAliasResolution:
                 ),
             },
             global_dependency_graph={
-                "com.acme.App.main(String[])": {"com.acme.CryptoCycleGraphs.register"},
-                "com.acme.CryptoCycleGraphs.register()": {"com.acme.Factories.cryptoAssetAggregationFactory"},
-                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoAssetAggregationNode"},
+                "com.acme.App.main(String[])": {"com.acme.GraphRegistry.register"},
+                "com.acme.GraphRegistry.register()": {"com.acme.Factories.sampleAggregationFactory"},
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.SampleAggregationNode"},
             },
             reverse_dependency_graph={
-                "com.acme.CryptoCycleGraphs.register": {"com.acme.App.main(String[])"},
-                "com.acme.Factories.cryptoAssetAggregationFactory": {"com.acme.CryptoCycleGraphs.register()"},
-                "com.acme.CryptoAssetAggregationNode": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
+                "com.acme.GraphRegistry.register": {"com.acme.App.main(String[])"},
+                "com.acme.Factories.sampleAggregationFactory": {"com.acme.GraphRegistry.register()"},
+                "com.acme.SampleAggregationNode": {"com.acme.Factories.sampleAggregationFactory()"},
             },
             symbol_table={
                 "com.acme.App": "src/app.java",
                 "com.acme.App.main(String[])": "src/app.java",
-                "com.acme.CryptoCycleGraphs": "src/graphs.java",
-                "com.acme.CryptoCycleGraphs.register()": "src/graphs.java",
+                "com.acme.GraphRegistry": "src/graphs.java",
+                "com.acme.GraphRegistry.register()": "src/graphs.java",
                 "com.acme.Factories": "src/factories.java",
-                "com.acme.Factories.cryptoAssetAggregationFactory()": "src/factories.java",
-                "com.acme.CryptoAssetAggregationNode": "src/node.java",
+                "com.acme.Factories.sampleAggregationFactory()": "src/factories.java",
+                "com.acme.SampleAggregationNode": "src/node.java",
             },
         )
         funcs = create_project_query_functions(index)
 
-        result = funcs["get_call_chain"]("com.acme.App", "com.acme.CryptoAssetAggregationNode")
+        result = funcs["get_call_chain"]("com.acme.App", "com.acme.SampleAggregationNode")
 
         assert "chain" in result
         names = [step["name"] for step in result["chain"]]
-        assert "com.acme.CryptoCycleGraphs.register()" in names
-        assert "com.acme.Factories.cryptoAssetAggregationFactory()" in names
+        assert "com.acme.GraphRegistry.register()" in names
+        assert "com.acme.Factories.sampleAggregationFactory()" in names
 
     def test_get_call_chain_matches_suffix_only_graph_nodes(self):
         index = ProjectIndex(
             root_path="/project",
             files={},
             global_dependency_graph={
-                "TradeResearchApiApplication": {"LiveIngressCoordinator.start"},
-                "com.acme.runtime.LiveIngressCoordinator.start()": {"CryptoCycleGraphs.register"},
-                "com.acme.runtime.CryptoCycleGraphs.register()": {
-                    "Factories.cryptoAssetAggregationFactory"
+                "SampleGraphApplication": {"RuntimeCoordinator.start"},
+                "com.acme.runtime.RuntimeCoordinator.start()": {"GraphRegistry.register"},
+                "com.acme.runtime.GraphRegistry.register()": {
+                    "Factories.sampleAggregationFactory"
                 },
-                "com.acme.runtime.Factories.cryptoAssetAggregationFactory()": {
-                    "com.acme.runtime.CryptoAssetAggregationNode"
+                "com.acme.runtime.Factories.sampleAggregationFactory()": {
+                    "com.acme.runtime.SampleAggregationNode"
                 },
             },
             reverse_dependency_graph={},
@@ -1239,14 +1239,14 @@ class TestCallChainAliasResolution:
         funcs = create_project_query_functions(index)
 
         result = funcs["get_call_chain"](
-            "TradeResearchApiApplication",
-            "CryptoAssetAggregationNode",
+            "SampleGraphApplication",
+            "SampleAggregationNode",
         )
 
         assert "chain" in result
         names = [step["name"] for step in result["chain"]]
-        assert "com.acme.runtime.CryptoCycleGraphs.register()" in names
-        assert "com.acme.runtime.Factories.cryptoAssetAggregationFactory()" in names
+        assert "com.acme.runtime.GraphRegistry.register()" in names
+        assert "com.acme.runtime.Factories.sampleAggregationFactory()" in names
 
     def test_get_call_chain_does_not_jump_across_unrelated_sibling_methods(self):
         index = ProjectIndex(
@@ -1261,31 +1261,31 @@ class TestCallChainAliasResolution:
                     functions=[
                         FunctionInfo(
                             name="register",
-                            qualified_name="com.acme.CryptoCycleGraphs.register()",
+                            qualified_name="com.acme.GraphRegistry.register()",
                             line_range=LineRange(1, 1),
                             parameters=[],
                             decorators=[],
                             docstring=None,
                             is_method=True,
-                            parent_class="CryptoCycleGraphs",
+                            parent_class="GraphRegistry",
                         )
                     ],
                     classes=[
                         ClassInfo(
-                            name="CryptoCycleGraphs",
-                            qualified_name="com.acme.CryptoCycleGraphs",
+                            name="GraphRegistry",
+                            qualified_name="com.acme.GraphRegistry",
                             line_range=LineRange(1, 1),
                             base_classes=[],
                             methods=[
                                 FunctionInfo(
                                     name="register",
-                                    qualified_name="com.acme.CryptoCycleGraphs.register()",
+                                    qualified_name="com.acme.GraphRegistry.register()",
                                     line_range=LineRange(1, 1),
                                     parameters=[],
                                     decorators=[],
                                     docstring=None,
                                     is_method=True,
-                                    parent_class="CryptoCycleGraphs",
+                                    parent_class="GraphRegistry",
                                 )
                             ],
                             decorators=[],
@@ -1301,8 +1301,8 @@ class TestCallChainAliasResolution:
                     line_char_offsets=[],
                     functions=[
                         FunctionInfo(
-                            name="cryptoAssetAggregationFactory",
-                            qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                            name="sampleAggregationFactory",
+                            qualified_name="com.acme.Factories.sampleAggregationFactory()",
                             line_range=LineRange(1, 1),
                             parameters=[],
                             decorators=[],
@@ -1311,8 +1311,8 @@ class TestCallChainAliasResolution:
                             parent_class="Factories",
                         ),
                         FunctionInfo(
-                            name="compositeAlphaFactory",
-                            qualified_name="com.acme.Factories.compositeAlphaFactory()",
+                            name="alternateFactory",
+                            qualified_name="com.acme.Factories.alternateFactory()",
                             line_range=LineRange(2, 2),
                             parameters=[],
                             decorators=[],
@@ -1329,8 +1329,8 @@ class TestCallChainAliasResolution:
                             base_classes=[],
                             methods=[
                                 FunctionInfo(
-                                    name="cryptoAssetAggregationFactory",
-                                    qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                                    name="sampleAggregationFactory",
+                                    qualified_name="com.acme.Factories.sampleAggregationFactory()",
                                     line_range=LineRange(1, 1),
                                     parameters=[],
                                     decorators=[],
@@ -1339,8 +1339,8 @@ class TestCallChainAliasResolution:
                                     parent_class="Factories",
                                 ),
                                 FunctionInfo(
-                                    name="compositeAlphaFactory",
-                                    qualified_name="com.acme.Factories.compositeAlphaFactory()",
+                                    name="alternateFactory",
+                                    qualified_name="com.acme.Factories.alternateFactory()",
                                     line_range=LineRange(2, 2),
                                     parameters=[],
                                     decorators=[],
@@ -1362,8 +1362,8 @@ class TestCallChainAliasResolution:
                     line_char_offsets=[],
                     classes=[
                         ClassInfo(
-                            name="CryptoAssetAggregationNode",
-                            qualified_name="com.acme.CryptoAssetAggregationNode",
+                            name="SampleAggregationNode",
+                            qualified_name="com.acme.SampleAggregationNode",
                             line_range=LineRange(1, 1),
                             base_classes=[],
                             methods=[],
@@ -1374,38 +1374,38 @@ class TestCallChainAliasResolution:
                 ),
             },
             global_dependency_graph={
-                "com.acme.CryptoCycleGraphs.register()": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
-                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoAssetAggregationNode"},
-                "com.acme.Factories.compositeAlphaFactory()": {"com.acme.CompositeAlphaNode"},
+                "com.acme.GraphRegistry.register()": {"com.acme.Factories.sampleAggregationFactory()"},
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.SampleAggregationNode"},
+                "com.acme.Factories.alternateFactory()": {"com.acme.AlternateNode"},
             },
             reverse_dependency_graph={
-                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoCycleGraphs.register()"},
-                "com.acme.CryptoAssetAggregationNode": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
-                "com.acme.CompositeAlphaNode": {"com.acme.Factories.compositeAlphaFactory()"},
+                "com.acme.Factories.sampleAggregationFactory()": {"com.acme.GraphRegistry.register()"},
+                "com.acme.SampleAggregationNode": {"com.acme.Factories.sampleAggregationFactory()"},
+                "com.acme.AlternateNode": {"com.acme.Factories.alternateFactory()"},
             },
             symbol_table={
-                "com.acme.CryptoCycleGraphs": "src/graphs.java",
-                "com.acme.CryptoCycleGraphs.register()": "src/graphs.java",
+                "com.acme.GraphRegistry": "src/graphs.java",
+                "com.acme.GraphRegistry.register()": "src/graphs.java",
                 "com.acme.Factories": "src/factories.java",
-                "com.acme.Factories.cryptoAssetAggregationFactory()": "src/factories.java",
-                "com.acme.Factories.compositeAlphaFactory()": "src/factories.java",
-                "com.acme.CryptoAssetAggregationNode": "src/node.java",
+                "com.acme.Factories.sampleAggregationFactory()": "src/factories.java",
+                "com.acme.Factories.alternateFactory()": "src/factories.java",
+                "com.acme.SampleAggregationNode": "src/node.java",
             },
         )
         funcs = create_project_query_functions(index)
 
         result = funcs["get_call_chain"](
-            "com.acme.CryptoCycleGraphs",
-            "com.acme.CryptoAssetAggregationNode",
+            "com.acme.GraphRegistry",
+            "com.acme.SampleAggregationNode",
         )
 
         assert "chain" in result
         names = [step["name"] for step in result["chain"]]
         assert names == [
-            "com.acme.CryptoCycleGraphs",
-            "com.acme.CryptoCycleGraphs.register()",
-            "com.acme.Factories.cryptoAssetAggregationFactory()",
-            "com.acme.CryptoAssetAggregationNode",
+            "com.acme.GraphRegistry",
+            "com.acme.GraphRegistry.register()",
+            "com.acme.Factories.sampleAggregationFactory()",
+            "com.acme.SampleAggregationNode",
         ]
 
     def test_graph_candidate_names_do_not_treat_framework_sources_as_symbol_aliases(self):
@@ -1413,19 +1413,19 @@ class TestCallChainAliasResolution:
             root_path="/project",
             files={},
             global_dependency_graph={
-                "__framework__.spring.boot:application:com.acme.TradeResearchApiApplication": {
-                    "com.acme.PositionsService"
+                "__framework__.spring.boot:application:com.acme.SampleGraphApplication": {
+                    "com.acme.ReportService"
                 },
-                "com.acme.TradeResearchApiApplication.main(String[])": set(),
+                "com.acme.SampleGraphApplication.main(String[])": set(),
             },
             reverse_dependency_graph={},
             symbol_table={},
         )
         engine = ProjectQueryEngine(index)
 
-        candidates = engine._resolve_graph_candidate_names("com.acme.TradeResearchApiApplication")
+        candidates = engine._resolve_graph_candidate_names("com.acme.SampleGraphApplication")
 
-        assert "__framework__.spring.boot:application:com.acme.TradeResearchApiApplication" not in candidates
+        assert "__framework__.spring.boot:application:com.acme.SampleGraphApplication" not in candidates
 
 
 # ---------------------------------------------------------------------------

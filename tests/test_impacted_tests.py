@@ -107,21 +107,21 @@ class TestFindImpactedTestFiles:
         src_main.mkdir(parents=True)
         src_test.mkdir(parents=True)
         (tmp_path / "build.gradle.kts").write_text("plugins { java }\n", encoding="utf-8")
-        (src_main / "CryptoAssetAggregationNode.java").write_text(
+        (src_main / "SampleAggregationNode.java").write_text(
             (
                 "package com.acme.runtime;\n"
-                "public final class CryptoAssetAggregationNode {\n"
-                "  public CryptoAssetAggregationNode() {}\n"
+                "public final class SampleAggregationNode {\n"
+                "  public SampleAggregationNode() {}\n"
                 "}\n"
             ),
             encoding="utf-8",
         )
-        (src_test / "CryptoCycleNodeTest.java").write_text(
+        (src_test / "SampleNodeTest.java").write_text(
             (
                 "package com.acme.runtime;\n"
-                "public final class CryptoCycleNodeTest {\n"
+                "public final class SampleNodeTest {\n"
                 "  public void testNode() {\n"
-                "    new CryptoAssetAggregationNode();\n"
+                "    new SampleAggregationNode();\n"
                 "  }\n"
                 "}\n"
             ),
@@ -133,12 +133,12 @@ class TestFindImpactedTestFiles:
         )
         index = indexer.index()
 
-        result = find_impacted_test_files(index, symbol_names=["CryptoAssetAggregationNode"])
+        result = find_impacted_test_files(index, symbol_names=["SampleAggregationNode"])
 
-        assert "src/test/java/com/acme/runtime/CryptoCycleNodeTest.java" in result["impacted_tests"]
+        assert "src/test/java/com/acme/runtime/SampleNodeTest.java" in result["impacted_tests"]
         assert any(
             reason.startswith("graph_dep:")
-            for reason in result["reason_map"]["src/test/java/com/acme/runtime/CryptoCycleNodeTest.java"]
+            for reason in result["reason_map"]["src/test/java/com/acme/runtime/SampleNodeTest.java"]
         )
 
 
