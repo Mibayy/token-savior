@@ -816,7 +816,7 @@ class TestProjectQueryFunctions:
 
         assert "chain" in result
         names = [step["name"] for step in result["chain"]]
-        assert names == ["App.start", "Factories.make", "Node"]
+        assert names == ["App.start", "Factories.make", "Factories", "Node"]
 
     def test_get_file_dependencies(self):
         deps = self.funcs["get_file_dependencies"]("src/runner_mod.py")
@@ -1246,6 +1246,166 @@ class TestCallChainAliasResolution:
         names = [step["name"] for step in result["chain"]]
         assert "com.acme.runtime.CryptoCycleGraphs.register()" in names
         assert "com.acme.runtime.Factories.cryptoAssetAggregationFactory()" in names
+
+    def test_get_call_chain_does_not_jump_across_unrelated_sibling_methods(self):
+        index = ProjectIndex(
+            root_path="/project",
+            files={
+                "src/graphs.java": StructuralMetadata(
+                    source_name="graphs.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="register",
+                            qualified_name="com.acme.CryptoCycleGraphs.register()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="CryptoCycleGraphs",
+                        )
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoCycleGraphs",
+                            qualified_name="com.acme.CryptoCycleGraphs",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="register",
+                                    qualified_name="com.acme.CryptoCycleGraphs.register()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="CryptoCycleGraphs",
+                                )
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/factories.java": StructuralMetadata(
+                    source_name="factories.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    functions=[
+                        FunctionInfo(
+                            name="cryptoAssetAggregationFactory",
+                            qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                            line_range=LineRange(1, 1),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                        FunctionInfo(
+                            name="compositeAlphaFactory",
+                            qualified_name="com.acme.Factories.compositeAlphaFactory()",
+                            line_range=LineRange(2, 2),
+                            parameters=[],
+                            decorators=[],
+                            docstring=None,
+                            is_method=True,
+                            parent_class="Factories",
+                        ),
+                    ],
+                    classes=[
+                        ClassInfo(
+                            name="Factories",
+                            qualified_name="com.acme.Factories",
+                            line_range=LineRange(1, 2),
+                            base_classes=[],
+                            methods=[
+                                FunctionInfo(
+                                    name="cryptoAssetAggregationFactory",
+                                    qualified_name="com.acme.Factories.cryptoAssetAggregationFactory()",
+                                    line_range=LineRange(1, 1),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                ),
+                                FunctionInfo(
+                                    name="compositeAlphaFactory",
+                                    qualified_name="com.acme.Factories.compositeAlphaFactory()",
+                                    line_range=LineRange(2, 2),
+                                    parameters=[],
+                                    decorators=[],
+                                    docstring=None,
+                                    is_method=True,
+                                    parent_class="Factories",
+                                ),
+                            ],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+                "src/node.java": StructuralMetadata(
+                    source_name="node.java",
+                    total_lines=1,
+                    total_chars=0,
+                    lines=[""],
+                    line_char_offsets=[],
+                    classes=[
+                        ClassInfo(
+                            name="CryptoAssetAggregationNode",
+                            qualified_name="com.acme.CryptoAssetAggregationNode",
+                            line_range=LineRange(1, 1),
+                            base_classes=[],
+                            methods=[],
+                            decorators=[],
+                            docstring=None,
+                        )
+                    ],
+                ),
+            },
+            global_dependency_graph={
+                "com.acme.CryptoCycleGraphs.register()": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
+                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoAssetAggregationNode"},
+                "com.acme.Factories.compositeAlphaFactory()": {"com.acme.CompositeAlphaNode"},
+            },
+            reverse_dependency_graph={
+                "com.acme.Factories.cryptoAssetAggregationFactory()": {"com.acme.CryptoCycleGraphs.register()"},
+                "com.acme.CryptoAssetAggregationNode": {"com.acme.Factories.cryptoAssetAggregationFactory()"},
+                "com.acme.CompositeAlphaNode": {"com.acme.Factories.compositeAlphaFactory()"},
+            },
+            symbol_table={
+                "com.acme.CryptoCycleGraphs": "src/graphs.java",
+                "com.acme.CryptoCycleGraphs.register()": "src/graphs.java",
+                "com.acme.Factories": "src/factories.java",
+                "com.acme.Factories.cryptoAssetAggregationFactory()": "src/factories.java",
+                "com.acme.Factories.compositeAlphaFactory()": "src/factories.java",
+                "com.acme.CryptoAssetAggregationNode": "src/node.java",
+            },
+        )
+        funcs = create_project_query_functions(index)
+
+        result = funcs["get_call_chain"](
+            "com.acme.CryptoCycleGraphs",
+            "com.acme.CryptoAssetAggregationNode",
+        )
+
+        assert "chain" in result
+        names = [step["name"] for step in result["chain"]]
+        assert names == [
+            "com.acme.CryptoCycleGraphs",
+            "com.acme.CryptoCycleGraphs.register()",
+            "com.acme.Factories.cryptoAssetAggregationFactory()",
+            "com.acme.CryptoAssetAggregationNode",
+        ]
 
 
 # ---------------------------------------------------------------------------

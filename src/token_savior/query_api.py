@@ -1980,7 +1980,7 @@ class ProjectQueryEngine:
     def _get_call_chain_neighbors(self, resolved_name: str) -> set[str]:
         class_symbol = self._find_class_by_qualified_name(resolved_name)
         if class_symbol is None:
-            return set(self._get_aggregated_dependencies(resolved_name) or set())
+            return self._get_call_chain_method_dependencies(resolved_name)
 
         neighbors: set[str] = set()
         for alias in {resolved_name, class_symbol.name}:
@@ -1990,6 +1990,37 @@ class ProjectQueryEngine:
         for method in class_symbol.methods:
             if self._has_any_graph_presence(method.qualified_name):
                 neighbors.add(method.qualified_name)
+        return neighbors
+
+    def _get_call_chain_method_dependencies(self, resolved_name: str) -> set[str]:
+        aliases = {resolved_name}
+        base_name, _ = _split_signature_suffix(resolved_name)
+        aliases.add(base_name)
+        parent_classes: set[str] = set()
+
+        info = self._resolve_symbol_info(resolved_name)
+        info_name = info.get("name")
+        if info_name:
+            aliases.add(info_name)
+            info_base, _ = _split_signature_suffix(info_name)
+            aliases.add(info_base)
+
+        for meta in self.index.files.values():
+            for func in _find_matching_functions(meta.functions, resolved_name):
+                aliases.update(_function_aliases(func))
+                if func.parent_class:
+                    parent_classes.add(func.parent_class)
+                    qualified_parent = func.qualified_name.rsplit(".", 1)[0]
+                    parent_classes.add(qualified_parent)
+
+        neighbors: set[str] = set()
+        for alias in aliases:
+            deps = self.index.global_dependency_graph.get(alias)
+            if deps is not None:
+                neighbors.update(deps)
+        for parent_class in parent_classes:
+            if parent_class in self.index.global_dependency_graph or self._has_forward_graph_presence(parent_class):
+                neighbors.add(parent_class)
         return neighbors
 
     def _has_any_graph_presence(self, name: str) -> bool:

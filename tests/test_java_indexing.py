@@ -564,6 +564,14 @@ class TestJavaProjectIndexer:
         assert "com.acme.app.Factories.cryptoAssetAggregationFactory()" in names
         assert names[-1] == "com.acme.app.CryptoAssetAggregationNode"
 
+        factories_result = funcs["get_call_chain"](
+            "TradeResearchApiApplication",
+            "Factories",
+        )
+        assert "chain" in factories_result
+        factory_names = [step["name"] for step in factories_result["chain"]]
+        assert factory_names[-1] == "com.acme.app.Factories"
+
     def test_reports_duplicate_java_classes(self, tmp_path):
         root = tmp_path / "java-project"
         root.mkdir()
