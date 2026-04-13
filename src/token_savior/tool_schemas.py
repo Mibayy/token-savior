@@ -974,6 +974,31 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": "Rapport de santé de la mémoire : orphans, near-duplicates, obs incomplètes.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    "memory_roi_gc": {
+        "description": (
+            "Token Economy ROI garbage collection. Archive observations whose "
+            "expected ROI = tokens_saved × P(hit) × horizon × type_multiplier − "
+            "tokens_stored falls below threshold. dry_run=true by default."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean", "description": "Preview only (default true)."},
+                "threshold": {"type": "number", "description": "ROI cutoff (default 0.0)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "memory_roi_stats": {
+        "description": (
+            "Aggregate Token Economy ROI stats: total tokens stored, expected "
+            "future savings, net ROI, negative-ROI count, breakdown by type."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {**_PROJECT_PARAM},
+        },
+    },
     "memory_from_bash": {
         "description": "Sauvegarde une commande bash comme observation mémoire (type=command par défaut).",
         "inputSchema": {
@@ -1503,6 +1528,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": (
             "Show Speculative Tool Tree Execution stats: beam branches explored, "
             "warmed in cache, hit by subsequent calls, and rough tokens saved."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    "get_community": {
+        "description": (
+            "Return the Leiden community (symbol cluster) for a symbol, or by "
+            "community name. Communities are detected via greedy modularity "
+            "maximization on the symbol dependency graph."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Symbol to look up by membership."},
+                "name": {"type": "string", "description": "Community name to fetch directly."},
+            },
+        },
+    },
+    "get_leiden_stats": {
+        "description": (
+            "Leiden community detector stats: communities, covered symbols, "
+            "size distribution, modularity Q."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },

@@ -59,8 +59,9 @@ from token_savior.cross_project import find_cross_project_deps as run_cross_proj
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 from token_savior.slot_manager import SlotManager, _ProjectSlot
-from token_savior.markov_prefetcher import MarkovPrefetcher
+from token_savior.markov_prefetcher import PPMPrefetcher
 from token_savior.tca_engine import TCAEngine
+from token_savior.leiden_communities import LeidenCommunities
 from token_savior import memory_db
 
 # ---------------------------------------------------------------------------
@@ -96,10 +97,12 @@ _csc_tokens_saved: int = 0  # naive_chars - actual_chars summed across hits
 _STATS_DIR = os.path.expanduser("~/.local/share/token-savior")
 _MAX_SESSION_HISTORY = 200
 
-# Markov prefetcher (P8) — first-order model on tool-call sequences.
-_prefetcher = MarkovPrefetcher(Path(_STATS_DIR))
+# Markov prefetcher (P8) — PPM variable-order model on tool-call sequences.
+_prefetcher = PPMPrefetcher(Path(_STATS_DIR))
 # TCA — Tenseur de Co-Activation (PMI on symbol co-activation).
 _tca_engine = TCAEngine(Path(_STATS_DIR))
+# Leiden community detector — clusters the symbol dependency graph.
+_leiden = LeidenCommunities(Path(_STATS_DIR))
 # Pre-warm cache populated by the daemon thread; key = predicted state.
 _prefetch_cache: dict[str, str] = {}
 _prefetch_lock = threading.Lock()
@@ -565,6 +568,16 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             f"Markov model: {mstats['states']} states, {mstats['transitions']} transitions"
         )
         lines.append(f"Top sequence: {mstats['top_sequence']}")
+        if "ppm_max_order_active" in mstats:
+            coverage = mstats.get("ppm_coverage", {})
+            cov_str = ", ".join(
+                f"{k.replace('order_', 'o')}:{v}" for k, v in coverage.items() if v > 0
+            ) or "none"
+            lines.append(
+                f"PPM Model: {mstats['ppm_max_order_active']} active | "
+                f"last used: order-{mstats.get('ppm_last_order_used', 1)} | "
+                f"coverage: {cov_str}"
+            )
         with _prefetch_lock:
             lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
 
@@ -589,6 +602,30 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
             f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
             f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
         )
+
+    try:
+        ls = _leiden.get_stats()
+        if ls.get("total_communities", 0) > 0:
+            lines.append(
+                f"Leiden: {ls['total_communities']} communities | "
+                f"{ls['covered_symbols']} symbols | "
+                f"Q={ls['modularity']} | avg size={ls['avg_size']}"
+            )
+    except Exception:
+        pass
+
+    try:
+        roi_s = memory_db.get_roi_stats()
+        if roi_s.get("total", 0) > 0:
+            lines.append(
+                f"Token Economy: {roi_s['total']} obs | "
+                f"stored {roi_s['total_tokens_stored']:,}t | "
+                f"expected savings {roi_s['total_expected_savings']:,.0f}t | "
+                f"net ROI {roi_s.get('net_roi', 0):+,.0f} | "
+                f"GC candidates: {roi_s['negative_roi_count']}"
+            )
+    except Exception:
+        pass
 
     if _spec_branches_explored or _spec_branches_warmed:
         hit_rate = (
@@ -1410,6 +1447,53 @@ def _mh_memory_doctor(args: dict) -> str:
     return "\n".join(lines)
 
 
+def _mh_memory_roi_gc(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    dry = args.get("dry_run", True)
+    threshold = args.get("threshold")
+    res = memory_db.run_roi_gc(root, dry_run=dry, threshold=threshold)
+    verb = "Would archive" if dry else "Archived"
+    lines = [
+        f"💰 Token Economy ROI GC {'(dry run)' if dry else ''}",
+        "─" * 60,
+        f"{verb}: {res['candidates'] if dry else res['archived']} "
+        f"| kept: {res['kept']} "
+        f"| threshold: {res['threshold']}",
+    ]
+    if res.get("preview"):
+        lines.append("\nLowest-ROI preview:")
+        for c in res["preview"][:10]:
+            lines.append(
+                f"  #{c['id']} [{c['type']}] roi={c['roi']:+.1f} "
+                f"p_hit={c['p_hit']:.3f} tok={c['tokens_stored']} "
+                f"ac={c['access_count']} '{c['title'][:60]}'"
+            )
+    return "\n".join(lines)
+
+
+def _mh_memory_roi_stats(args: dict) -> str:
+    root = _resolve_memory_project(args)
+    s = memory_db.get_roi_stats(root)
+    lines = [
+        "💰 Token Economy ROI Stats",
+        "─" * 60,
+        f"Observations: {s['total']}",
+        f"Tokens stored: {s['total_tokens_stored']:,}",
+        f"Expected savings (30d horizon): {s['total_expected_savings']:,.0f}",
+        f"Net ROI: {s.get('net_roi', 0):+,.0f}",
+        f"Negative ROI (GC candidates): {s['negative_roi_count']}",
+        f"λ={s.get('lambda', 0.05)} | horizon={s.get('horizon_days', 30)}d",
+    ]
+    if s.get("by_type"):
+        lines.append("\nBy type:")
+        for t, b in sorted(s["by_type"].items(), key=lambda x: -x[1]["expected_savings"])[:12]:
+            lines.append(
+                f"  {t:16s} n={b['count']:4d} tok={b['tokens']:6,d} "
+                f"exp_savings={b['expected_savings']:,.0f}"
+            )
+    return "\n".join(lines)
+
+
 def _mh_memory_patterns(args: dict) -> str:
     root = _resolve_memory_project(args)
     window = int(args.get("window_days", 14))
@@ -1924,6 +2008,8 @@ _MEMORY_HANDLERS: dict[str, object] = {
     "memory_maintain": _mh_memory_maintain,
     "memory_from_bash": _mh_memory_from_bash,
     "memory_doctor": _mh_memory_doctor,
+    "memory_roi_gc": _mh_memory_roi_gc,
+    "memory_roi_stats": _mh_memory_roi_stats,
     "memory_why": _mh_memory_why,
     "memory_top": _mh_memory_top,
     "memory_set_global": _mh_memory_set_global,
@@ -2234,6 +2320,17 @@ def _q_get_function_source(qfns, args: dict) -> str:
             result += "\n".join(co_lines)
     except Exception:
         pass
+    try:
+        comm = _leiden.get_community_for(args["name"])
+        if comm and comm["size"] <= 20:
+            peers = [m for m in comm["members"] if m != args["name"]][:8]
+            if peers:
+                result += (
+                    f"\n🏘️ Community '{comm['name']}' ({comm['size']} members): "
+                    + ", ".join(peers)
+                )
+    except Exception:
+        pass
     return result
 
 
@@ -2394,6 +2491,23 @@ def _warm_cache_async(
                 if st not in seen:
                     seen.add(st)
                     states_to_warm.append((st, prob))
+            # Leiden community pre-warm: if the current call has a symbol that
+            # belongs to a small community (≤20), warm get_function_source for
+            # up to 10 peers. They are likely the next user of this session.
+            if symbol_name:
+                try:
+                    comm = _leiden.get_community_for(symbol_name)
+                    if comm and comm["size"] <= 20:
+                        peers = [m for m in comm["members"] if m != symbol_name][:10]
+                        for peer in peers:
+                            st = f"get_function_source:{peer}"
+                            if st not in seen:
+                                seen.add(st)
+                                # Fixed mid-priority probability — peers are
+                                # plausible but not Markov-predicted.
+                                states_to_warm.append((st, 0.35))
+                except Exception:
+                    pass
 
             for state, prob in states_to_warm:
                 if prob < min_prob:
@@ -2426,6 +2540,20 @@ def _warm_cache_async(
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
+
+
+def _recompute_leiden(slot) -> None:
+    """Run Leiden on the slot's global dependency graph (best-effort)."""
+    try:
+        idx = getattr(slot.indexer, "_project_index", None) if slot and slot.indexer else None
+        if idx is None:
+            return
+        graph = getattr(idx, "global_dependency_graph", None) or {}
+        if not graph:
+            return
+        _leiden.compute(graph, min_size=3, max_size=50)
+    except Exception:
+        pass
 
 
 @server.call_tool()
@@ -2523,6 +2651,43 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                         f"    {t['fingerprint']}  ×{t['seen_count']}  "
                         f"{preview!r}"
                     )
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_community":
+            sym = arguments.get("symbol")
+            cname = arguments.get("name")
+            if not sym and not cname:
+                return [TextContent(type="text", text="Error: provide 'symbol' or 'name'.")]
+            comm = (
+                _leiden.get_community_for(sym) if sym
+                else _leiden.get_community(cname)
+            )
+            if not comm:
+                hint = sym or cname
+                return [TextContent(type="text", text=f"No community for '{hint}'.")]
+            lines = [
+                f"🏘️  Community '{comm['name']}' — {comm['size']} members",
+                "─" * 60,
+            ]
+            for m in comm["members"]:
+                marker = " ← query" if m == sym else ""
+                lines.append(f"  {m}{marker}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if name == "get_leiden_stats":
+            s = _leiden.get_stats()
+            lines = [
+                "Leiden community detector:",
+                f"  Communities        : {s['total_communities']}",
+                f"  Covered symbols    : {s['covered_symbols']}",
+                f"  Size min/avg/max   : {s['smallest']}/{s['avg_size']}/{s['largest']}",
+                f"  Graph              : {s['nodes']} nodes, {s['edges']} edges",
+                f"  Modularity (Q)     : {s['modularity']}",
+            ]
+            if s.get("top"):
+                lines.append("  Top communities:")
+                for c in s["top"]:
+                    lines.append(f"    {c['name']} (n={c['size']})")
             return [TextContent(type="text", text="\n".join(lines))]
 
         if name == "get_speculation_stats":
@@ -2640,6 +2805,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             slot.indexer = None
             slot.query_fns = None
             _slot_mgr.build(slot)
+            _recompute_leiden(slot)
             return [
                 TextContent(
                     type="text",

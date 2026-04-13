@@ -224,6 +224,22 @@ if project:
         echo "$NOW" > "$FLAG"
     fi
 
+    # Monthly Token Economy ROI garbage collection (30-day interval)
+    ROI_FLAG=/root/.local/share/token-savior/last_roi_gc
+    LAST_ROI=0
+    [ -f "$ROI_FLAG" ] && LAST_ROI=$(cat "$ROI_FLAG" 2>/dev/null || echo 0)
+    AGE_ROI=$((NOW - LAST_ROI))
+    if [ "$AGE_ROI" -ge 2592000 ]; then
+        /root/.local/token-savior-venv/bin/python3 -c "
+import sys
+sys.path.insert(0, '/root/token-savior/src')
+from token_savior import memory_db
+res = memory_db.run_roi_gc(dry_run=False)
+print(f'[roi-gc] archived={res.get(\"archived\",0)} kept={res.get(\"kept\",0)} threshold={res.get(\"threshold\",0)}', file=sys.stderr)
+" 2>/dev/null
+        echo "$NOW" > "$ROI_FLAG"
+    fi
+
     # Weekly markdown export (fire-and-forget)
     EXPORT_FLAG=/root/.local/share/token-savior/last_md_export
     LAST_EXP=0

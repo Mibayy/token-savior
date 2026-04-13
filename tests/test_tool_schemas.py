@@ -48,7 +48,9 @@ class TestToolSchemas:
         # +1 v2.2 Prompt2 Step B (get_speculation_stats) = 83.
         # +1 v2.2 Prompt3 Step A (get_dcp_stats) = 84.
         # +2 v2.2 Prompt3 Step B (get_coactive_symbols, get_tca_stats) = 86.
-        assert len(TOOL_SCHEMAS) == 86, f"Expected 86 tools, got {len(TOOL_SCHEMAS)}"
+        # +2 v2.3 Step B (memory_roi_gc, memory_roi_stats) = 88.
+        # +2 v2.3 Step C (get_community, get_leiden_stats) = 90.
+        assert len(TOOL_SCHEMAS) == 90, f"Expected 90 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
