@@ -7,6 +7,7 @@ import time
 from pathlib import PurePosixPath
 
 from token_savior.models import ProjectIndex
+from token_savior.output_helpers import truncate_output
 from token_savior.project_actions import discover_project_actions
 from token_savior.project_actions import summarize_command_output
 
@@ -114,8 +115,8 @@ def run_impacted_tests(
             timeout=timeout_sec,
         )
         duration_sec = round(time.perf_counter() - start, 3)
-        stdout = _truncate_output(result.stdout, max_output_chars)
-        stderr = _truncate_output(result.stderr, max_output_chars)
+        stdout = truncate_output(result.stdout, max_output_chars)
+        stderr = truncate_output(result.stderr, max_output_chars)
         payload = {
             "ok": result.returncode == 0,
             "selection": selection,
@@ -140,8 +141,8 @@ def run_impacted_tests(
         }
         return _compact_workflow_result(payload) if compact else payload
     except subprocess.TimeoutExpired as exc:
-        stdout = _truncate_output(exc.stdout or "", max_output_chars)
-        stderr = _truncate_output(exc.stderr or "", max_output_chars)
+        stdout = truncate_output(exc.stdout or "", max_output_chars)
+        stderr = truncate_output(exc.stderr or "", max_output_chars)
         payload = {
             "ok": False,
             "selection": selection,
@@ -401,14 +402,6 @@ def _java_test_selector(index: ProjectIndex, test_file: str) -> str:
     if meta and meta.module_name:
         return f"{meta.module_name}.{stem}"
     return stem
-
-
-def _truncate_output(value: str, max_output_chars: int) -> str:
-    """Clamp output while preserving compact summaries."""
-    if len(value) <= max_output_chars:
-        return value
-    omitted = len(value) - max_output_chars
-    return value[:max_output_chars] + f"\n... [truncated {omitted} chars]"
 
 
 def _compact_workflow_result(payload: dict) -> dict:

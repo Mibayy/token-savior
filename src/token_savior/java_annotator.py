@@ -15,6 +15,7 @@ from token_savior.models import (
     LineRange,
     SectionInfo,
     StructuralMetadata,
+    build_line_char_offsets,
 )
 
 _JAVA_LANGUAGE = Language(tree_sitter_java.language())
@@ -80,15 +81,6 @@ _JAVA_EXECUTOR_TYPE_SUFFIXES = (
     "ThreadPoolExecutor",
     "ForkJoinPool",
 )
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _normalize_ws(text: str) -> str:
@@ -1176,7 +1168,7 @@ def annotate_java(source: str, source_name: str = "<source>") -> StructuralMetad
     lines = source.split("\n")
     total_lines = len(lines)
     total_chars = len(source)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
     source_bytes = source.encode("utf-8")
 
     parser = Parser(_JAVA_LANGUAGE)

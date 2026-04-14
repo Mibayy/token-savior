@@ -5,22 +5,13 @@ from __future__ import annotations
 import re
 
 from token_savior.generic_annotator import annotate_generic
-from token_savior.models import LineRange, SectionInfo, StructuralMetadata
+from token_savior.models import LineRange, SectionInfo, StructuralMetadata, build_line_char_offsets
 
 _MAX_DEPTH = 4
 _ASSIGNMENT_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*=\s*(.+)$")
 _SETTER_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\.set\(")
 _CALL_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(?:<[^>]+>)?\((.*)\)\s*$")
 _CONTROL_PREFIXES = ("if ", "for ", "while ", "when ", "else", "try", "catch", "do ")
-
-
-def _build_line_offsets(lines: list[str]) -> list[int]:
-    offsets: list[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    return offsets
 
 
 def _normalize_ws(text: str) -> str:
@@ -164,7 +155,7 @@ def annotate_gradle(text: str, source_name: str = "<gradle>") -> StructuralMetad
     lines = text.split("\n")
     total_lines = len(lines)
     total_chars = len(text)
-    line_offsets = _build_line_offsets(lines)
+    line_offsets = build_line_char_offsets(lines)
     sections = _collect_sections(lines)
 
     if not sections:

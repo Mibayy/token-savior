@@ -536,233 +536,291 @@ def _estimate_naive_chars_for_call(
     return max(int(source_chars * multiplier), len(_format_result(result)))
 
 
-def _format_usage_stats(include_cumulative: bool = False) -> str:
-    """Format session usage statistics, optionally with cumulative history."""
-    elapsed = time.time() - _session_start
-    total_calls = sum(_tool_call_counts.values())
-    query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
-
-    source_chars = 0
-    for slot in _slot_mgr.projects.values():
-        if slot.indexer and slot.indexer._project_index:
-            source_chars += sum(m.total_chars for m in slot.indexer._project_index.files.values())
-
+def _usage_session_header(elapsed: float, query_calls: int) -> list[str]:
     lines = [f"Session: {_format_duration(elapsed)}, {query_calls} queries"]
-
     if len(_slot_mgr.projects) > 1:
         loaded = sum(1 for s in _slot_mgr.projects.values() if s.indexer is not None)
         lines.append(
             f"Projects: {loaded}/{len(_slot_mgr.projects)} loaded, active: {os.path.basename(_slot_mgr.active_root)}"
         )
+    return lines
 
-    if _tool_call_counts:
-        top_tools = sorted(
-            ((t, c) for t, c in _tool_call_counts.items() if t != "get_usage_stats"),
-            key=lambda x: -x[1],
-        )
-        tool_str = ", ".join(f"{t}:{c}" for t, c in top_tools[:8])
-        if len(top_tools) > 8:
-            tool_str += f" +{len(top_tools) - 8} more"
-        lines.append(f"Tools: {tool_str}")
 
-    lines.append(f"Chars returned: {_total_chars_returned:,}")
+def _usage_tool_counts() -> list[str]:
+    if not _tool_call_counts:
+        return []
+    top_tools = sorted(
+        ((t, c) for t, c in _tool_call_counts.items() if t != "get_usage_stats"),
+        key=lambda x: -x[1],
+    )
+    tool_str = ", ".join(f"{t}:{c}" for t, c in top_tools[:8])
+    if len(top_tools) > 8:
+        tool_str += f" +{len(top_tools) - 8} more"
+    return [f"Tools: {tool_str}"]
+
+
+def _usage_chars_savings(source_chars: int, query_calls: int) -> list[str]:
+    lines = [f"Chars returned: {_total_chars_returned:,}"]
     if source_chars > 0 and query_calls > 0 and _total_naive_chars > _total_chars_returned:
         reduction = (1 - _total_chars_returned / _total_naive_chars) * 100
         lines.append(
             f"Savings: {reduction:.1f}% "
             f"({_total_chars_returned // 4:,} vs {_total_naive_chars // 4:,} tokens)"
         )
+    return lines
 
-    if _csc_hits > 0:
-        lines.append(
-            f"CSC hits this session: {_csc_hits} ({_csc_tokens_saved:,} tokens saved)"
-        )
 
-    # Markov prefetcher state.
+def _usage_csc() -> list[str]:
+    if _csc_hits <= 0:
+        return []
+    return [f"CSC hits this session: {_csc_hits} ({_csc_tokens_saved:,} tokens saved)"]
+
+
+def _usage_markov() -> list[str]:
     mstats = _prefetcher.get_stats()
-    if mstats["transitions"] > 0:
+    if mstats["transitions"] <= 0:
+        return []
+    lines = [
+        f"Markov model: {mstats['states']} states, {mstats['transitions']} transitions",
+        f"Top sequence: {mstats['top_sequence']}",
+    ]
+    if "ppm_max_order_active" in mstats:
+        coverage = mstats.get("ppm_coverage", {})
+        cov_str = ", ".join(
+            f"{k.replace('order_', 'o')}:{v}" for k, v in coverage.items() if v > 0
+        ) or "none"
         lines.append(
-            f"Markov model: {mstats['states']} states, {mstats['transitions']} transitions"
+            f"PPM Model: {mstats['ppm_max_order_active']} active | "
+            f"last used: order-{mstats.get('ppm_last_order_used', 1)} | "
+            f"coverage: {cov_str}"
         )
-        lines.append(f"Top sequence: {mstats['top_sequence']}")
-        if "ppm_max_order_active" in mstats:
-            coverage = mstats.get("ppm_coverage", {})
-            cov_str = ", ".join(
-                f"{k.replace('order_', 'o')}:{v}" for k, v in coverage.items() if v > 0
-            ) or "none"
-            lines.append(
-                f"PPM Model: {mstats['ppm_max_order_active']} active | "
-                f"last used: order-{mstats.get('ppm_last_order_used', 1)} | "
-                f"coverage: {cov_str}"
-            )
-        with _prefetch_lock:
-            lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
+    with _prefetch_lock:
+        lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
+    return lines
 
-    if _dcp_calls > 0 or _dcp_total_chunks > 0:
-        stable_pct = (
-            (_dcp_stable_chunks / _dcp_total_chunks * 100)
-            if _dcp_total_chunks else 0.0
-        )
-        # Each stable chunk ≈ 256B ≈ 64 tokens of cache savings
-        benefit_tokens = (_dcp_stable_chunks * 256) // 4
-        lines.append(
-            f"DCP: {_dcp_total_chunks} chunks registered | "
-            f"{stable_pct:.0f}% stable | "
-            f"est. cache benefit: {benefit_tokens:,}t"
-        )
 
-    if _tcs_calls > 0:
-        tcs_saved = _tcs_chars_before - _tcs_chars_after
-        tcs_pct = (tcs_saved / _tcs_chars_before * 100) if _tcs_chars_before else 0.0
-        lines.append(
-            f"Schema compression: {_tcs_calls} calls, "
-            f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
-            f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
-        )
+def _usage_dcp() -> list[str]:
+    if _dcp_calls == 0 and _dcp_total_chunks == 0:
+        return []
+    stable_pct = (
+        (_dcp_stable_chunks / _dcp_total_chunks * 100)
+        if _dcp_total_chunks else 0.0
+    )
+    # Each stable chunk ≈ 256B ≈ 64 tokens of cache savings
+    benefit_tokens = (_dcp_stable_chunks * 256) // 4
+    return [
+        f"DCP: {_dcp_total_chunks} chunks registered | "
+        f"{stable_pct:.0f}% stable | "
+        f"est. cache benefit: {benefit_tokens:,}t"
+    ]
 
+
+def _usage_tcs() -> list[str]:
+    if _tcs_calls == 0:
+        return []
+    tcs_saved = _tcs_chars_before - _tcs_chars_after
+    tcs_pct = (tcs_saved / _tcs_chars_before * 100) if _tcs_chars_before else 0.0
+    return [
+        f"Schema compression: {_tcs_calls} calls, "
+        f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
+        f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
+    ]
+
+
+def _usage_linucb() -> list[str]:
     try:
         linucb_s = _linucb.get_stats()
-        if linucb_s.get("updates", 0) > 0 or linucb_s.get("scored", 0) > 0:
-            lines.append(
-                f"LinUCB: {linucb_s['updates']} updates | "
-                f"{linucb_s['scored']} scored | "
-                f"top feature: {linucb_s['top_feature']} ({linucb_s['top_weight']:+.2f})"
-            )
     except Exception:
-        pass
+        return []
+    if linucb_s.get("updates", 0) <= 0 and linucb_s.get("scored", 0) <= 0:
+        return []
+    return [
+        f"LinUCB: {linucb_s['updates']} updates | "
+        f"{linucb_s['scored']} scored | "
+        f"top feature: {linucb_s['top_feature']} ({linucb_s['top_weight']:+.2f})"
+    ]
 
+
+def _usage_warm_start() -> list[str]:
     try:
         ws_s = _warm_start.get_stats()
-        if ws_s.get("signatures", 0) > 0:
-            lines.append(
-                f"Warm Start: {ws_s['signatures']} sessions | "
-                f"avg similarity: {ws_s.get('avg_pairwise_similarity', 0.0):.0%}"
-            )
     except Exception:
-        pass
+        return []
+    if ws_s.get("signatures", 0) <= 0:
+        return []
+    return [
+        f"Warm Start: {ws_s['signatures']} sessions | "
+        f"avg similarity: {ws_s.get('avg_pairwise_similarity', 0.0):.0%}"
+    ]
 
+
+def _usage_consistency() -> list[str]:
     try:
         cs_s = memory_db.get_consistency_stats()
-        if cs_s.get("scored", 0) > 0:
-            lines.append(
-                f"Consistency: {cs_s['scored']} scored | "
-                f"{cs_s['quarantined']} quarantined | "
-                f"{cs_s['stale_suspected']} stale | "
-                f"avg validity: {cs_s['avg_validity']:.0%}"
-            )
     except Exception:
-        pass
+        return []
+    if cs_s.get("scored", 0) <= 0:
+        return []
+    return [
+        f"Consistency: {cs_s['scored']} scored | "
+        f"{cs_s['quarantined']} quarantined | "
+        f"{cs_s['stale_suspected']} stale | "
+        f"avg validity: {cs_s['avg_validity']:.0%}"
+    ]
 
+
+def _usage_leiden() -> list[str]:
     try:
         ls = _leiden.get_stats()
-        if ls.get("total_communities", 0) > 0:
-            lines.append(
-                f"Leiden: {ls['total_communities']} communities | "
-                f"{ls['covered_symbols']} symbols | "
-                f"Q={ls['modularity']} | avg size={ls['avg_size']}"
-            )
     except Exception:
-        pass
+        return []
+    if ls.get("total_communities", 0) <= 0:
+        return []
+    return [
+        f"Leiden: {ls['total_communities']} communities | "
+        f"{ls['covered_symbols']} symbols | "
+        f"Q={ls['modularity']} | avg size={ls['avg_size']}"
+    ]
 
+
+def _usage_mdl() -> list[str]:
     try:
         mdl_s = memory_db.get_mdl_stats()
-        if mdl_s.get("abstractions", 0) > 0 or mdl_s.get("distilled", 0) > 0:
-            lines.append(
-                f"MDL: {mdl_s['abstractions']} abstractions | "
-                f"{mdl_s['distilled']} obs distilled"
-            )
     except Exception:
-        pass
+        return []
+    if mdl_s.get("abstractions", 0) <= 0 and mdl_s.get("distilled", 0) <= 0:
+        return []
+    return [
+        f"MDL: {mdl_s['abstractions']} abstractions | "
+        f"{mdl_s['distilled']} obs distilled"
+    ]
 
+
+def _usage_roi_tokens() -> list[str]:
     try:
         roi_s = memory_db.get_roi_stats()
-        if roi_s.get("total", 0) > 0:
-            lines.append(
-                f"Token Economy: {roi_s['total']} obs | "
-                f"stored {roi_s['total_tokens_stored']:,}t | "
-                f"expected savings {roi_s['total_expected_savings']:,.0f}t | "
-                f"net ROI {roi_s.get('net_roi', 0):+,.0f} | "
-                f"GC candidates: {roi_s['negative_roi_count']}"
-            )
     except Exception:
-        pass
+        return []
+    if roi_s.get("total", 0) <= 0:
+        return []
+    return [
+        f"Token Economy: {roi_s['total']} obs | "
+        f"stored {roi_s['total_tokens_stored']:,}t | "
+        f"expected savings {roi_s['total_expected_savings']:,.0f}t | "
+        f"net ROI {roi_s.get('net_roi', 0):+,.0f} | "
+        f"GC candidates: {roi_s['negative_roi_count']}"
+    ]
 
-    if _spec_branches_explored or _spec_branches_warmed:
-        hit_rate = (
-            (_spec_branches_hit / _spec_branches_warmed * 100)
-            if _spec_branches_warmed else 0.0
-        )
-        lines.append(
-            f"Speculative Tree: {_spec_branches_explored} explored, "
-            f"{_spec_branches_warmed} warmed, {_spec_branches_hit} hit "
-            f"({hit_rate:.1f}%), ~{_spec_tokens_saved:,} tokens saved"
-        )
 
-    # Symbol-level reindex counters from the last reindex_file call (per slot).
+def _usage_speculative_tree() -> list[str]:
+    if not (_spec_branches_explored or _spec_branches_warmed):
+        return []
+    hit_rate = (
+        (_spec_branches_hit / _spec_branches_warmed * 100)
+        if _spec_branches_warmed else 0.0
+    )
+    return [
+        f"Speculative Tree: {_spec_branches_explored} explored, "
+        f"{_spec_branches_warmed} warmed, {_spec_branches_hit} hit "
+        f"({hit_rate:.1f}%), ~{_spec_tokens_saved:,} tokens saved"
+    ]
+
+
+def _usage_symbol_reindex() -> list[str]:
+    lines: list[str] = []
     for root, slot in _slot_mgr.projects.items():
         idx = getattr(slot.indexer, "_project_index", None)
         if idx is None:
             continue
         checked = getattr(idx, "last_reindex_symbols_checked", 0)
-        if checked:
-            reindexed = idx.last_reindex_symbols_reindexed
+        if not checked:
+            continue
+        reindexed = idx.last_reindex_symbols_reindexed
+        lines.append(
+            f"Symbol-level reindex ({os.path.basename(root)}): "
+            f"{reindexed}/{checked} symbols reindexed (last file change)"
+        )
+    return lines
+
+
+def _usage_cumulative() -> list[str]:
+    all_project_stats = []
+    for root, slot in _slot_mgr.projects.items():
+        sf = slot.stats_file or _get_stats_file(root)
+        cum = _load_cumulative_stats(sf)
+        if cum.get("total_calls", 0) > 0:
+            all_project_stats.append((os.path.basename(root.rstrip("/")), cum))
+
+    if not all_project_stats:
+        return []
+
+    lines = ["", "Project | Sessions | Queries | Used | Naive | Savings"]
+    total_chars = total_naive = total_calls_cum = total_sessions = 0
+    for name, cum in sorted(
+        all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)
+    ):
+        c = cum.get("total_chars_returned", 0)
+        n = cum.get("total_naive_chars", 0)
+        s = cum.get("sessions", 0)
+        q = cum.get("total_calls", 0)
+        pct = f"{(1 - c / n) * 100:.0f}%" if n > c > 0 else "--"
+        lines.append(f"{name} | {s} | {q} | {c // 4:,} | {n // 4:,} | {pct}")
+        total_chars += c
+        total_naive += n
+        total_calls_cum += q
+        total_sessions += s
+
+    pct = (
+        f"{(1 - total_chars / total_naive) * 100:.0f}%"
+        if total_naive > total_chars > 0
+        else "--"
+    )
+    lines.append(
+        f"TOTAL | {total_sessions} | {total_calls_cum} | {total_chars // 4:,} | {total_naive // 4:,} | {pct}"
+    )
+
+    latest_name, latest_stats = max(
+        all_project_stats, key=lambda x: x[1].get("last_session", "")
+    )
+    history = latest_stats.get("history", [])[-3:]
+    if history:
+        lines.append("")
+        lines.append(f"Recent ({latest_name}):")
+        for entry in history:
+            when = entry.get("timestamp", "")[5:19].replace("T", " ")
             lines.append(
-                f"Symbol-level reindex ({os.path.basename(root)}): "
-                f"{reindexed}/{checked} symbols reindexed (last file change)"
+                f"  {when} | {entry.get('query_calls', 0)} queries | "
+                f"{entry.get('tokens_used', 0):,} / {entry.get('tokens_naive', 0):,} | "
+                f"{entry.get('savings_pct', 0):.0f}%"
             )
+    return lines
 
-    if include_cumulative:
-        all_project_stats = []
-        for root, slot in _slot_mgr.projects.items():
-            sf = slot.stats_file or _get_stats_file(root)
-            cum = _load_cumulative_stats(sf)
-            if cum.get("total_calls", 0) > 0:
-                all_project_stats.append((os.path.basename(root.rstrip("/")), cum))
 
-        if all_project_stats:
-            lines.append("")
-            lines.append("Project | Sessions | Queries | Used | Naive | Savings")
-            total_chars = total_naive = total_calls_cum = total_sessions = 0
+def _usage_memory_engine_roi() -> list[str]:
+    try:
+        active_root = _slot_mgr.active_root or ""
+        if not active_root:
+            return []
+        roi = memory_db.get_injection_stats(active_root)
+    except Exception:
+        return []
+    if roi.get("sessions", 0) <= 0:
+        return []
+    return [
+        "",
+        "──────────────────────────────",
+        "MEMORY ENGINE ROI",
+        "──────────────────────────────",
+        f"Sessions tracked : {roi['sessions']}",
+        f"Tokens injected  : {roi['total_injected']} "
+        f"(avg {roi['avg_injected']}/session)",
+        f"Tokens saved est.: {roi['total_saved_est']} "
+        f"(avg {roi['avg_saved']}/session)",
+        f"ROI ratio        : {roi['roi_ratio']}x",
+    ]
 
-            for name, cum in sorted(
-                all_project_stats, key=lambda x: -x[1].get("total_naive_chars", 0)
-            ):
-                c = cum.get("total_chars_returned", 0)
-                n = cum.get("total_naive_chars", 0)
-                s = cum.get("sessions", 0)
-                q = cum.get("total_calls", 0)
-                pct = f"{(1 - c / n) * 100:.0f}%" if n > c > 0 else "--"
-                lines.append(f"{name} | {s} | {q} | {c // 4:,} | {n // 4:,} | {pct}")
-                total_chars += c
-                total_naive += n
-                total_calls_cum += q
-                total_sessions += s
 
-            pct = (
-                f"{(1 - total_chars / total_naive) * 100:.0f}%"
-                if total_naive > total_chars > 0
-                else "--"
-            )
-            lines.append(
-                f"TOTAL | {total_sessions} | {total_calls_cum} | {total_chars // 4:,} | {total_naive // 4:,} | {pct}"
-            )
-
-            latest_name, latest_stats = max(
-                all_project_stats, key=lambda x: x[1].get("last_session", "")
-            )
-            history = latest_stats.get("history", [])[-3:]
-            if history:
-                lines.append("")
-                lines.append(f"Recent ({latest_name}):")
-                for entry in history:
-                    when = entry.get("timestamp", "")[5:19].replace("T", " ")
-                    lines.append(
-                        f"  {when} | {entry.get('query_calls', 0)} queries | "
-                        f"{entry.get('tokens_used', 0):,} / {entry.get('tokens_naive', 0):,} | "
-                        f"{entry.get('savings_pct', 0):.0f}%"
-                    )
-
-    # Memory Engine stats (non-fatal if DB unreachable)
+def _usage_memory_engine() -> list[str]:
     try:
         db = memory_db.get_db()
         obs_row = db.execute(
@@ -776,43 +834,58 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
         prompts_count = db.execute("SELECT COUNT(*) FROM user_prompts").fetchone()[0]
         summaries_count = db.execute("SELECT COUNT(*) FROM summaries").fetchone()[0]
         db.close()
-
-        lines.append("")
-        lines.append("──────────────────────────────")
-        lines.append("MEMORY ENGINE")
-        lines.append("──────────────────────────────")
-        linked = obs_row["linked_to_symbol"] or 0
-        lines.append(f"Observations  : {obs_row['total_obs']} ({linked} liées à un symbole)")
-        lines.append(f"Sessions      : {obs_row['sessions'] or 0}")
-        lines.append(f"Projets       : {obs_row['projects'] or 0}")
-        lines.append(f"Summaries     : {summaries_count}")
-        lines.append(f"Prompts       : {prompts_count}")
-        lines.append(f"Types         : {obs_row['types'] or 0} types distincts")
-
-        try:
-            active_root = _slot_mgr.active_root or ""
-            if active_root:
-                roi = memory_db.get_injection_stats(active_root)
-                if roi.get("sessions", 0) > 0:
-                    lines.append("")
-                    lines.append("──────────────────────────────")
-                    lines.append("MEMORY ENGINE ROI")
-                    lines.append("──────────────────────────────")
-                    lines.append(f"Sessions tracked : {roi['sessions']}")
-                    lines.append(
-                        f"Tokens injected  : {roi['total_injected']} "
-                        f"(avg {roi['avg_injected']}/session)"
-                    )
-                    lines.append(
-                        f"Tokens saved est.: {roi['total_saved_est']} "
-                        f"(avg {roi['avg_saved']}/session)"
-                    )
-                    lines.append(f"ROI ratio        : {roi['roi_ratio']}x")
-        except Exception:
-            pass
     except Exception:
-        pass
+        return []
 
+    linked = obs_row["linked_to_symbol"] or 0
+    lines = [
+        "",
+        "──────────────────────────────",
+        "MEMORY ENGINE",
+        "──────────────────────────────",
+        f"Observations  : {obs_row['total_obs']} ({linked} liées à un symbole)",
+        f"Sessions      : {obs_row['sessions'] or 0}",
+        f"Projets       : {obs_row['projects'] or 0}",
+        f"Summaries     : {summaries_count}",
+        f"Prompts       : {prompts_count}",
+        f"Types         : {obs_row['types'] or 0} types distincts",
+    ]
+    lines.extend(_usage_memory_engine_roi())
+    return lines
+
+
+def _format_usage_stats(include_cumulative: bool = False) -> str:
+    """Format session usage statistics, optionally with cumulative history."""
+    elapsed = time.time() - _session_start
+    total_calls = sum(_tool_call_counts.values())
+    query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
+
+    source_chars = 0
+    for slot in _slot_mgr.projects.values():
+        if slot.indexer and slot.indexer._project_index:
+            source_chars += sum(
+                m.total_chars for m in slot.indexer._project_index.files.values()
+            )
+
+    lines: list[str] = []
+    lines.extend(_usage_session_header(elapsed, query_calls))
+    lines.extend(_usage_tool_counts())
+    lines.extend(_usage_chars_savings(source_chars, query_calls))
+    lines.extend(_usage_csc())
+    lines.extend(_usage_markov())
+    lines.extend(_usage_dcp())
+    lines.extend(_usage_tcs())
+    lines.extend(_usage_linucb())
+    lines.extend(_usage_warm_start())
+    lines.extend(_usage_consistency())
+    lines.extend(_usage_leiden())
+    lines.extend(_usage_mdl())
+    lines.extend(_usage_roi_tokens())
+    lines.extend(_usage_speculative_tree())
+    lines.extend(_usage_symbol_reindex())
+    if include_cumulative:
+        lines.extend(_usage_cumulative())
+    lines.extend(_usage_memory_engine())
     return "\n".join(lines)
 
 

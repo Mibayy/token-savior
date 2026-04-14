@@ -9,6 +9,8 @@ import subprocess
 import time
 import tomllib
 
+from token_savior.output_helpers import truncate_output
+
 
 def discover_project_actions(root_path: str) -> list[dict]:
     """Discover safe, conventional project actions from common build files."""
@@ -235,8 +237,8 @@ def run_project_action(
             timeout=timeout_sec,
         )
         duration_sec = round(time.perf_counter() - start, 3)
-        stdout = _truncate_output(result.stdout, max_output_chars)
-        stderr = _truncate_output(result.stderr, max_output_chars)
+        stdout = truncate_output(result.stdout, max_output_chars)
+        stderr = truncate_output(result.stderr, max_output_chars)
         payload = {
             "ok": result.returncode == 0,
             "action": action,
@@ -257,8 +259,8 @@ def run_project_action(
             "timed_out": False,
         }
     except subprocess.TimeoutExpired as exc:
-        stdout = _truncate_output(exc.stdout or "", max_output_chars)
-        stderr = _truncate_output(exc.stderr or "", max_output_chars)
+        stdout = truncate_output(exc.stdout or "", max_output_chars)
+        stderr = truncate_output(exc.stderr or "", max_output_chars)
         return {
             "ok": False,
             "action": action,
@@ -268,14 +270,6 @@ def run_project_action(
             "summary": summarize_command_output(action_id, stdout, stderr, None),
             **({"stdout": stdout, "stderr": stderr} if include_output else {}),
         }
-
-
-def _truncate_output(value: str, max_output_chars: int) -> str:
-    """Clamp command output so MCP responses remain bounded."""
-    if len(value) <= max_output_chars:
-        return value
-    omitted = len(value) - max_output_chars
-    return value[:max_output_chars] + f"\n... [truncated {omitted} chars]"
 
 
 def summarize_command_output(

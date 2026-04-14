@@ -11,6 +11,7 @@ import fnmatch
 import os
 import re
 from collections import defaultdict, deque
+from functools import partial
 from typing import Callable
 
 from token_savior.community import compute_communities, get_cluster_for_symbol
@@ -88,252 +89,282 @@ def _resolve_unique_function(functions, name: str):
 # ---------------------------------------------------------------------------
 
 
+def _file_structure_summary_impl(metadata: StructuralMetadata) -> str:
+    """Overview of the file: functions, classes, imports, line count."""
+    parts = [f"File: {metadata.source_name} ({metadata.total_lines} lines)"]
+
+    if metadata.imports:
+        modules = sorted({imp.module for imp in metadata.imports})
+        parts.append(f"Imports: {', '.join(modules)}")
+
+    if metadata.classes:
+        for cls in metadata.classes:
+            method_names = [m.name for m in cls.methods]
+            bases = f"({', '.join(cls.base_classes)})" if cls.base_classes else ""
+            parts.append(
+                f"Class {cls.name}{bases} (lines {cls.line_range.start}-{cls.line_range.end}): "
+                f"methods: {', '.join(method_names) if method_names else 'none'}"
+            )
+
+    top_level_funcs = [f for f in metadata.functions if not f.is_method]
+    if top_level_funcs:
+        for func in top_level_funcs:
+            parts.append(
+                f"Function {func.name}({', '.join(func.parameters)}) "
+                f"(lines {func.line_range.start}-{func.line_range.end})"
+            )
+
+    if metadata.sections:
+        for sec in metadata.sections:
+            indent = "  " * (sec.level - 1)
+            parts.append(
+                f"{indent}Section: {sec.title} "
+                f"(lines {sec.line_range.start}-{sec.line_range.end})"
+            )
+
+    return "\n".join(parts)
+
+
+def _file_get_lines_impl(metadata: StructuralMetadata, start: int, end: int) -> str:
+    """Get specific lines (1-indexed, inclusive)."""
+    if start < 1:
+        return "Error: start must be >= 1"
+    if end > metadata.total_lines:
+        end = metadata.total_lines
+    if start > end:
+        return f"Error: start ({start}) > end ({end})"
+    return "\n".join(metadata.lines[start - 1 : end])
+
+
+def _file_line_count_impl(metadata: StructuralMetadata) -> int:
+    return metadata.total_lines
+
+
+def _file_get_functions_impl(metadata: StructuralMetadata) -> list[dict]:
+    return [
+        {
+            "name": f.name,
+            "qualified_name": f.qualified_name,
+            "lines": list(_effective_function_range(metadata, f)),
+            "params": f.parameters,
+            "is_method": f.is_method,
+            "parent_class": f.parent_class,
+        }
+        for f in metadata.functions
+    ]
+
+
+def _file_get_classes_impl(metadata: StructuralMetadata) -> list[dict]:
+    return [
+        {
+            "name": cls.name,
+            "qualified_name": cls.qualified_name or cls.name,
+            "lines": [cls.line_range.start, cls.line_range.end],
+            "methods": sorted({m.name for m in cls.methods}),
+            "method_signatures": [m.qualified_name for m in cls.methods],
+            "bases": cls.base_classes,
+        }
+        for cls in metadata.classes
+    ]
+
+
+def _file_get_imports_impl(metadata: StructuralMetadata) -> list[dict]:
+    return [
+        {
+            "module": imp.module,
+            "names": imp.names,
+            "line": imp.line_number,
+            "is_from_import": imp.is_from_import,
+        }
+        for imp in metadata.imports
+    ]
+
+
+def _file_function_source_impl(metadata: StructuralMetadata, name: str) -> str:
+    """Source of a function by name (searches top-level and methods)."""
+    func, error = _resolve_unique_function(metadata.functions, name)
+    if error == "ambiguous":
+        return f"Error: function '{name}' is ambiguous; use a fully qualified signature"
+    if func is None:
+        return f"Error: function '{name}' not found"
+    start, end = _effective_function_range(metadata, func)
+    return "\n".join(metadata.lines[start - 1 : end])
+
+
+def _file_class_source_impl(
+    metadata: StructuralMetadata, name: str, level: int = 0
+) -> str:
+    """Source of a class by name."""
+    for cls in metadata.classes:
+        if cls.name == name or cls.qualified_name == name:
+            if level == 1:
+                return _format_l1(cls)
+            if level == 2:
+                body = "\n".join(
+                    metadata.lines[cls.line_range.start - 1 : cls.line_range.end]
+                )
+                return _format_l2(cls, body)
+            if level == 3:
+                return _format_l3(cls)
+            return "\n".join(
+                metadata.lines[cls.line_range.start - 1 : cls.line_range.end]
+            )
+    return f"Error: class '{name}' not found"
+
+
+def _file_get_sections_impl(metadata: StructuralMetadata) -> list[dict]:
+    return [
+        {
+            "title": sec.title,
+            "level": sec.level,
+            "lines": [sec.line_range.start, sec.line_range.end],
+        }
+        for sec in metadata.sections
+    ]
+
+
+def _file_section_content_impl(metadata: StructuralMetadata, title: str) -> str:
+    for sec in metadata.sections:
+        if sec.title == title:
+            return "\n".join(
+                metadata.lines[sec.line_range.start - 1 : sec.line_range.end]
+            )
+    return f"Error: section '{title}' not found"
+
+
+def _file_resolve_symbol_impl(metadata: StructuralMetadata, name: str) -> dict:
+    """Resolve a symbol name to rich info from the file metadata."""
+    func, error = _resolve_unique_function(metadata.functions, name)
+    if error == "ambiguous":
+        return {
+            "name": name,
+            "error": f"function '{name}' is ambiguous; use a fully qualified signature",
+        }
+    if func is not None:
+        return {
+            "name": func.qualified_name,
+            "file": metadata.source_name,
+            "line": func.line_range.start,
+            "end_line": func.line_range.end,
+            "type": "method" if func.is_method else "function",
+        }
+    for cls in metadata.classes:
+        if cls.name == name or cls.qualified_name == name:
+            return {
+                "name": cls.qualified_name or cls.name,
+                "file": metadata.source_name,
+                "line": cls.line_range.start,
+                "end_line": cls.line_range.end,
+                "type": "class",
+            }
+    return {"name": name}
+
+
+def _file_get_dependencies_impl(
+    metadata: StructuralMetadata,
+    resolve_symbol: Callable[[str], dict],
+    name: str,
+) -> list[dict]:
+    """What this function/class references."""
+    resolved_name = name
+    resolved_class = None
+    if name not in metadata.dependency_graph:
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+        if func is not None:
+            resolved_name = func.qualified_name
+        else:
+            for cls in metadata.classes:
+                if cls.name == name or cls.qualified_name == name:
+                    resolved_name = cls.qualified_name or cls.name
+                    resolved_class = cls
+                    break
+    deps = metadata.dependency_graph.get(resolved_name)
+    if resolved_class is not None:
+        aggregated_deps = set(deps or [])
+        for method in resolved_class.methods:
+            aggregated_deps.update(
+                metadata.dependency_graph.get(method.qualified_name, [])
+            )
+        deps = sorted(aggregated_deps)
+    if deps is None:
+        return [{"error": f"'{name}' not found in dependency graph"}]
+    return [resolve_symbol(dep) for dep in sorted(deps)]
+
+
+def _file_get_dependents_impl(
+    metadata: StructuralMetadata,
+    resolve_symbol: Callable[[str], dict],
+    name: str,
+) -> list[dict]:
+    """What references this function/class."""
+    resolved_name = name
+    resolved_class = None
+    if name not in metadata.dependency_graph:
+        func, error = _resolve_unique_function(metadata.functions, name)
+        if error == "ambiguous":
+            return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
+        if func is not None:
+            resolved_name = func.qualified_name
+        else:
+            for cls in metadata.classes:
+                if cls.name == name or cls.qualified_name == name:
+                    resolved_name = cls.qualified_name or cls.name
+                    break
+    resolved_targets = {resolved_name}
+    if resolved_class is not None:
+        for method in resolved_class.methods:
+            resolved_targets.add(method.qualified_name)
+    result = []
+    for source, targets in metadata.dependency_graph.items():
+        if any(target in targets for target in resolved_targets):
+            result.append(source)
+    return [resolve_symbol(dep) for dep in sorted(result)]
+
+
+def _file_search_lines_impl(
+    metadata: StructuralMetadata, pattern: str
+) -> list[dict]:
+    """Regex search, returns [{line_number, content}], max 100 results."""
+    try:
+        regex = re.compile(pattern)
+    except re.error as e:
+        return [{"error": f"Invalid regex: {e}"}]
+    results = []
+    for i, line in enumerate(metadata.lines):
+        if regex.search(line):
+            results.append({"line_number": i + 1, "content": line})
+            if len(results) >= 100:
+                break
+    return results
+
+
 def create_file_query_functions(metadata: StructuralMetadata) -> dict[str, Callable]:
     """Create query functions bound to a single file's structural metadata.
 
     Returns a dict mapping function names to callables. Each function returns
     plain dicts or strings suitable for printing in a REPL.
     """
-
-    def get_structure_summary() -> str:
-        """Overview of the file: functions, classes, imports, line count."""
-        parts = [f"File: {metadata.source_name} ({metadata.total_lines} lines)"]
-
-        if metadata.imports:
-            modules = sorted({imp.module for imp in metadata.imports})
-            parts.append(f"Imports: {', '.join(modules)}")
-
-        if metadata.classes:
-            for cls in metadata.classes:
-                method_names = [m.name for m in cls.methods]
-                bases = f"({', '.join(cls.base_classes)})" if cls.base_classes else ""
-                parts.append(
-                    f"Class {cls.name}{bases} (lines {cls.line_range.start}-{cls.line_range.end}): "
-                    f"methods: {', '.join(method_names) if method_names else 'none'}"
-                )
-
-        top_level_funcs = [f for f in metadata.functions if not f.is_method]
-        if top_level_funcs:
-            for func in top_level_funcs:
-                parts.append(
-                    f"Function {func.name}({', '.join(func.parameters)}) "
-                    f"(lines {func.line_range.start}-{func.line_range.end})"
-                )
-
-        if metadata.sections:
-            for sec in metadata.sections:
-                indent = "  " * (sec.level - 1)
-                parts.append(
-                    f"{indent}Section: {sec.title} "
-                    f"(lines {sec.line_range.start}-{sec.line_range.end})"
-                )
-
-        return "\n".join(parts)
-
-    def get_lines(start: int, end: int) -> str:
-        """Get specific lines (1-indexed, inclusive)."""
-        if start < 1:
-            return "Error: start must be >= 1"
-        if end > metadata.total_lines:
-            end = metadata.total_lines
-        if start > end:
-            return f"Error: start ({start}) > end ({end})"
-        # lines are 0-indexed internally
-        return "\n".join(metadata.lines[start - 1 : end])
-
-    def get_line_count() -> int:
-        """Return the total number of lines."""
-        return metadata.total_lines
-
-    def get_functions() -> list[dict]:
-        """All functions with name, qualified_name, lines, params."""
-        return [
-            {
-                "name": f.name,
-                "qualified_name": f.qualified_name,
-                "lines": list(_effective_function_range(metadata, f)),
-                "params": f.parameters,
-                "is_method": f.is_method,
-                "parent_class": f.parent_class,
-            }
-            for f in metadata.functions
-        ]
-
-    def get_classes() -> list[dict]:
-        """All classes with name, lines, methods, bases."""
-        return [
-            {
-                "name": cls.name,
-                "qualified_name": cls.qualified_name or cls.name,
-                "lines": [cls.line_range.start, cls.line_range.end],
-                "methods": sorted({m.name for m in cls.methods}),
-                "method_signatures": [m.qualified_name for m in cls.methods],
-                "bases": cls.base_classes,
-            }
-            for cls in metadata.classes
-        ]
-
-    def get_imports() -> list[dict]:
-        """All imports with module, names, line."""
-        return [
-            {
-                "module": imp.module,
-                "names": imp.names,
-                "line": imp.line_number,
-                "is_from_import": imp.is_from_import,
-            }
-            for imp in metadata.imports
-        ]
-
-    def get_function_source(name: str) -> str:
-        """Source of a function by name (searches top-level and methods)."""
-        func, error = _resolve_unique_function(metadata.functions, name)
-        if error == "ambiguous":
-            return f"Error: function '{name}' is ambiguous; use a fully qualified signature"
-        if func is None:
-            return f"Error: function '{name}' not found"
-        start, end = _effective_function_range(metadata, func)
-        return "\n".join(metadata.lines[start - 1 : end])
-
-    def get_class_source(name: str, level: int = 0) -> str:
-        """Source of a class by name."""
-        for cls in metadata.classes:
-            if cls.name == name or cls.qualified_name == name:
-                if level == 1:
-                    return _format_l1(cls)
-                if level == 2:
-                    body = "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
-                    return _format_l2(cls, body)
-                if level == 3:
-                    return _format_l3(cls)
-                return "\n".join(metadata.lines[cls.line_range.start - 1 : cls.line_range.end])
-        return f"Error: class '{name}' not found"
-
-    def get_sections() -> list[dict]:
-        """Sections for text files."""
-        return [
-            {
-                "title": sec.title,
-                "level": sec.level,
-                "lines": [sec.line_range.start, sec.line_range.end],
-            }
-            for sec in metadata.sections
-        ]
-
-    def get_section_content(title: str) -> str:
-        """Content of a section by title."""
-        for sec in metadata.sections:
-            if sec.title == title:
-                return "\n".join(metadata.lines[sec.line_range.start - 1 : sec.line_range.end])
-        return f"Error: section '{title}' not found"
-
-    def _resolve_file_symbol(name: str) -> dict:
-        """Resolve a symbol name to rich info from the file metadata."""
-        func, error = _resolve_unique_function(metadata.functions, name)
-        if error == "ambiguous":
-            return {
-                "name": name,
-                "error": f"function '{name}' is ambiguous; use a fully qualified signature",
-            }
-        if func is not None:
-            return {
-                "name": func.qualified_name,
-                "file": metadata.source_name,
-                "line": func.line_range.start,
-                "end_line": func.line_range.end,
-                "type": "method" if func.is_method else "function",
-            }
-        for cls in metadata.classes:
-            if cls.name == name or cls.qualified_name == name:
-                return {
-                    "name": cls.qualified_name or cls.name,
-                    "file": metadata.source_name,
-                    "line": cls.line_range.start,
-                    "end_line": cls.line_range.end,
-                    "type": "class",
-                }
-        return {"name": name}
-
-    def get_dependencies(name: str) -> list[dict]:
-        """What this function/class references."""
-        resolved_name = name
-        resolved_class = None
-        if name not in metadata.dependency_graph:
-            func, error = _resolve_unique_function(metadata.functions, name)
-            if error == "ambiguous":
-                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
-            if func is not None:
-                resolved_name = func.qualified_name
-            else:
-                for cls in metadata.classes:
-                    if cls.name == name or cls.qualified_name == name:
-                        resolved_name = cls.qualified_name or cls.name
-                        resolved_class = cls
-                        resolved_class = cls
-                        break
-        deps = metadata.dependency_graph.get(resolved_name)
-        if resolved_class is not None:
-            aggregated_deps = set(deps or [])
-            for method in resolved_class.methods:
-                aggregated_deps.update(metadata.dependency_graph.get(method.qualified_name, []))
-            deps = sorted(aggregated_deps)
-        if deps is None:
-            return [{"error": f"'{name}' not found in dependency graph"}]
-        return [_resolve_file_symbol(dep) for dep in sorted(deps)]
-
-    def get_dependents(name: str) -> list[dict]:
-        """What references this function/class."""
-        resolved_name = name
-        resolved_class = None
-        if name not in metadata.dependency_graph:
-            func, error = _resolve_unique_function(metadata.functions, name)
-            if error == "ambiguous":
-                return [{"error": f"function '{name}' is ambiguous; use a fully qualified signature"}]
-            if func is not None:
-                resolved_name = func.qualified_name
-            else:
-                for cls in metadata.classes:
-                    if cls.name == name or cls.qualified_name == name:
-                        resolved_name = cls.qualified_name or cls.name
-                        break
-        resolved_targets = {resolved_name}
-        if resolved_class is not None:
-            for method in resolved_class.methods:
-                resolved_targets.add(method.qualified_name)
-        result = []
-        for source, targets in metadata.dependency_graph.items():
-            if any(target in targets for target in resolved_targets):
-                result.append(source)
-        return [_resolve_file_symbol(dep) for dep in sorted(result)]
-
-    def search_lines(pattern: str) -> list[dict]:
-        """Regex search, returns [{line_number, content}], max 100 results."""
-        try:
-            regex = re.compile(pattern)
-        except re.error as e:
-            return [{"error": f"Invalid regex: {e}"}]
-        results = []
-        for i, line in enumerate(metadata.lines):
-            if regex.search(line):
-                results.append({"line_number": i + 1, "content": line})
-                if len(results) >= 100:
-                    break
-        return results
-
+    resolve_symbol = partial(_file_resolve_symbol_impl, metadata)
     return {
-        "get_structure_summary": get_structure_summary,
-        "get_lines": get_lines,
-        "get_line_count": get_line_count,
-        "get_functions": get_functions,
-        "get_classes": get_classes,
-        "get_imports": get_imports,
-        "get_function_source": get_function_source,
-        "get_class_source": get_class_source,
-        "get_sections": get_sections,
-        "get_section_content": get_section_content,
-        "get_dependencies": get_dependencies,
-        "get_dependents": get_dependents,
-        "search_lines": search_lines,
+        "get_structure_summary": partial(_file_structure_summary_impl, metadata),
+        "get_lines": partial(_file_get_lines_impl, metadata),
+        "get_line_count": partial(_file_line_count_impl, metadata),
+        "get_functions": partial(_file_get_functions_impl, metadata),
+        "get_classes": partial(_file_get_classes_impl, metadata),
+        "get_imports": partial(_file_get_imports_impl, metadata),
+        "get_function_source": partial(_file_function_source_impl, metadata),
+        "get_class_source": partial(_file_class_source_impl, metadata),
+        "get_sections": partial(_file_get_sections_impl, metadata),
+        "get_section_content": partial(_file_section_content_impl, metadata),
+        "get_dependencies": partial(
+            _file_get_dependencies_impl, metadata, resolve_symbol
+        ),
+        "get_dependents": partial(
+            _file_get_dependents_impl, metadata, resolve_symbol
+        ),
+        "search_lines": partial(_file_search_lines_impl, metadata),
     }
 
 
