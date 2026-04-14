@@ -34,15 +34,12 @@ from token_savior.checkpoint_ops import (
     prune_checkpoints,
     restore_checkpoint,
 )
-from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
+from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
 from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.project_actions import (
     HANDLERS as _PROJECT_ACTION_HANDLERS,
-)
-from token_savior.workflow_ops import (
-    apply_symbol_change_and_validate,
 )
 from token_savior.breaking_changes import detect_breaking_changes as run_breaking_changes
 from token_savior.complexity import find_hotspots as run_hotspots
@@ -530,33 +527,6 @@ def _h_compare_checkpoint_by_symbol(slot, args):
     )
 
 
-def _h_replace_symbol_source(slot, args):
-    _prep(slot)
-    result = replace_symbol_source(
-        slot.indexer._project_index,
-        args["symbol_name"],
-        args["new_source"],
-        file_path=args.get("file_path"),
-    )
-    if result.get("ok"):
-        slot.indexer.reindex_file(result["file"])
-    return result
-
-
-def _h_insert_near_symbol(slot, args):
-    _prep(slot)
-    result = insert_near_symbol(
-        slot.indexer._project_index,
-        args["symbol_name"],
-        args["content"],
-        position=args.get("position", "after"),
-        file_path=args.get("file_path"),
-    )
-    if result.get("ok"):
-        slot.indexer.reindex_file(result["file"])
-    return result
-
-
 def _h_find_impacted_test_files(slot, args):
     _prep(slot)
     return find_impacted_test_files(
@@ -609,53 +579,6 @@ def _h_run_impacted_tests(slot, args):
     except Exception:
         pass
     return result
-
-
-def _h_verify_edit(slot, args):
-    """P9 — pure static EditSafety certificate, no mutation."""
-    from token_savior.edit_ops import resolve_symbol_location
-    from token_savior.edit_verifier import verify_edit
-
-    _prep(slot)
-    index = slot.indexer._project_index if slot.indexer else None
-    if index is None:
-        return "Error: index not built. Call reindex first."
-    symbol_name = args["symbol_name"]
-    new_source = args["new_source"]
-    loc = resolve_symbol_location(
-        index, symbol_name, file_path=args.get("file_path")
-    )
-    if "error" in loc:
-        return f"Error: {loc['error']}"
-    full_path = (
-        loc["file"]
-        if os.path.isabs(loc["file"])
-        else os.path.join(index.root_path, loc["file"])
-    )
-    try:
-        with open(full_path, "r", encoding="utf-8") as fh:
-            source_lines = fh.read().splitlines()
-    except OSError as exc:
-        return f"Error: cannot read {full_path}: {exc}"
-    old_source = "\n".join(source_lines[loc["line"] - 1 : loc["end_line"]])
-    cert = verify_edit(old_source, new_source, symbol_name, index.root_path)
-    return cert.format()
-
-
-def _h_apply_symbol_change_and_validate(slot, args):
-    _prep(slot)
-    return apply_symbol_change_and_validate(
-        slot.indexer,
-        args["symbol_name"],
-        args["new_source"],
-        file_path=args.get("file_path"),
-        max_tests=args.get("max_tests", 20),
-        timeout_sec=args.get("timeout_sec", 120),
-        max_output_chars=args.get("max_output_chars", 12000),
-        include_output=args.get("include_output", False),
-        compact=args.get("compact", False),
-        rollback_on_failure=args.get("rollback_on_failure", False),
-    )
 
 
 def _h_analyze_config(slot, args):
@@ -2106,12 +2029,9 @@ _SLOT_HANDLERS: dict[str, object] = {
     "prune_checkpoints": _h_prune_checkpoints,
     "restore_checkpoint": _h_restore_checkpoint,
     "compare_checkpoint_by_symbol": _h_compare_checkpoint_by_symbol,
-    "replace_symbol_source": _h_replace_symbol_source,
-    "insert_near_symbol": _h_insert_near_symbol,
+    **_EDIT_HANDLERS,
     "find_impacted_test_files": _h_find_impacted_test_files,
     "run_impacted_tests": _h_run_impacted_tests,
-    "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
-    "verify_edit": _h_verify_edit,
     **_PROJECT_ACTION_HANDLERS,
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
