@@ -8,6 +8,7 @@ dispatch hooks, etc.).
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from token_savior.models import ClassInfo, FunctionInfo, ProjectIndex
@@ -471,6 +472,148 @@ def _is_class_entry_point(cls: ClassInfo, file_path: str, meta) -> bool:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Dynamic-reachability pass
+# ---------------------------------------------------------------------------
+#
+# The static call graph in ProjectIndex misses several Python call patterns
+# that are common in this codebase: functions passed as dict values (annotator
+# dispatch tables, handler maps), method calls routed through module-level
+# singleton instances (``state._leiden.compute()``), and intra-class self.X
+# chains whose seed entry only lands in the graph via one of the above.
+#
+# _dynamic_live_symbols does a lightweight textual pass over the project's
+# Python files to mark as "live" anything reachable through those patterns.
+
+_TOKEN_RE = re.compile(r"[A-Za-z_]\w*")
+_CLASS_INSTANTIATION_RE = re.compile(r"\b([A-Z]\w*)\s*\(")
+_METHOD_CALL_RE = re.compile(r"\.([A-Za-z_]\w*)\s*\(")
+_SELF_CALL_RE = re.compile(r"\bself\.(\w+)\s*\(")
+_DICT_VALUE_RE = re.compile(r":\s*([A-Za-z_]\w*)\s*[,}\n]")
+
+
+def _dynamic_live_symbols(
+    index: ProjectIndex,
+    rdg,
+    pre_live: set[str],
+) -> set[str]:
+    """Mark symbols live via registration, dispatch, and singleton patterns."""
+    live: set[str] = set()
+
+    python_files = [(fp, meta) for fp, meta in index.files.items() if fp.endswith(".py")]
+    if not python_files:
+        return live
+
+    file_text: dict[str, str] = {}
+    file_tokens: dict[str, set[str]] = {}
+    for fp, meta in python_files:
+        text = "\n".join(meta.lines)
+        file_text[fp] = text
+        file_tokens[fp] = set(_TOKEN_RE.findall(text))
+
+    toplevel_defs: dict[str, list[tuple[str, FunctionInfo]]] = {}
+    class_by_simple: dict[str, list[tuple[str, ClassInfo]]] = {}
+
+    for fp, meta in python_files:
+        for func in meta.functions:
+            if not func.is_method:
+                toplevel_defs.setdefault(func.name, []).append((fp, func))
+        for cls in meta.classes:
+            qn = cls.qualified_name or cls.name
+            class_by_simple.setdefault(cls.name, []).append((qn, cls))
+
+    # Fix 1 — bare-identifier textual references reach top-level functions
+    # passed as dict values, aliased-imports, decorator args, etc.
+    dict_value_names: set[str] = set()
+    for text in file_text.values():
+        for m in _DICT_VALUE_RE.finditer(text):
+            dict_value_names.add(m.group(1))
+    for name, defs in toplevel_defs.items():
+        def_files = {fp for fp, _ in defs}
+        cross_file = False
+        for fp, tokens in file_tokens.items():
+            if fp in def_files:
+                continue
+            if name in tokens:
+                cross_file = True
+                break
+        if cross_file or name in dict_value_names:
+            for _fp, func in defs:
+                live.add(func.qualified_name)
+            live.add(name)
+
+    # Fix 2 — any class that is instantiated anywhere has every method whose
+    # simple name is called via attribute access marked live. This catches
+    # module-level singletons (``state._leiden.compute()``) and factory-return
+    # chains (``slot_manager._cache_mgr(root).save(index)``).
+    instantiated: set[str] = set()
+    called_method_names: set[str] = set()
+    for text in file_text.values():
+        for m in _CLASS_INSTANTIATION_RE.finditer(text):
+            instantiated.add(m.group(1))
+        for m in _METHOD_CALL_RE.finditer(text):
+            called_method_names.add(m.group(1))
+
+    for simple, clses in class_by_simple.items():
+        if simple not in instantiated:
+            continue
+        for qn, cls in clses:
+            live.add(qn)
+            live.add(simple)
+            for method in cls.methods:
+                if method.name in called_method_names:
+                    live.add(method.qualified_name)
+
+    # Fix 3 — intra-class self.X closure. Any method in a class that is already
+    # live (via rdg, pre_live, Fix 1, or Fix 2) pulls in any sibling method it
+    # calls through ``self.X()`` -- transitively.
+    for _fp, meta in python_files:
+        for cls in meta.classes:
+            method_names = {m.name for m in cls.methods}
+            if not method_names:
+                continue
+            adjacency: dict[str, set[str]] = {}
+            for m in cls.methods:
+                start = max(0, m.line_range.start - 1)
+                end = min(len(meta.lines), m.line_range.end)
+                body_text = "\n".join(meta.lines[start:end])
+                adjacency[m.name] = {
+                    called
+                    for called in _SELF_CALL_RE.findall(body_text)
+                    if called in method_names
+                }
+
+            seeded: set[str] = set()
+            for m in cls.methods:
+                method_qn = m.qualified_name
+                if (
+                    method_qn in live
+                    or method_qn in pre_live
+                    or rdg.get(method_qn)
+                    or rdg.get(m.name)
+                ):
+                    seeded.add(m.name)
+
+            if not seeded:
+                continue
+
+            frontier = set(seeded)
+            while frontier:
+                next_frontier: set[str] = set()
+                for name in frontier:
+                    for target in adjacency.get(name, ()):
+                        if target not in seeded:
+                            seeded.add(target)
+                            next_frontier.add(target)
+                frontier = next_frontier
+
+            name_to_qn = {m.name: m.qualified_name for m in cls.methods}
+            for name in seeded:
+                live.add(name_to_qn[name])
+
+    return live
+
+
 @dataclass
 class _DeadSymbol:
     file_path: str
@@ -492,6 +635,7 @@ def _collect_dead_symbols(
         index, pre_live_symbols
     )
     live_symbols = pre_live_symbols | signature_propagated_live_symbols
+    live_symbols |= _dynamic_live_symbols(index, rdg, live_symbols)
     duplicate_classes, duplicate_methods = _duplicate_symbol_sets(index)
 
     for file_path, meta in index.files.items():
