@@ -18,6 +18,7 @@ import mcp.types as types
 
 from token_savior import memory_db
 from token_savior import server_state as state
+from token_savior.server_handlers.memory import _resolve_memory_project
 from token_savior.server_runtime import _get_stats_file, _load_cumulative_stats
 
 
@@ -402,10 +403,6 @@ def _hm_get_usage_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 
 def _hm_get_session_budget(arguments: dict[str, Any]) -> list[types.TextContent]:
-    # Lazy import to avoid circular dependency: server.py imports this module,
-    # _resolve_memory_project still lives in server.py until step 12.
-    from token_savior.server import _resolve_memory_project
-
     project = _resolve_memory_project(arguments)
     budget = int(arguments.get("budget_tokens") or memory_db.DEFAULT_SESSION_BUDGET_TOKENS)
     stats = memory_db.get_session_budget_stats(project, budget_tokens=budget)
