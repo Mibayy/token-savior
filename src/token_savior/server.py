@@ -72,93 +72,11 @@ from token_savior.session_warmstart import SessionWarmStart
 from token_savior import memory_db
 
 # ---------------------------------------------------------------------------
-# Module-level state
+# Module-level state delegated to server_state
 # ---------------------------------------------------------------------------
 
-server = Server("token-savior-recall")
-
-# Persistent cache
-_CACHE_VERSION = 2  # Bumped: switched from pickle to JSON
-
-# Slot manager encapsulates _projects dict and _active_root
-_slot_mgr = SlotManager(_CACHE_VERSION)
-
-# Session usage stats (aggregated across all projects in this session)
-_session_start: float = time.time()
-_session_id: str = uuid.uuid4().hex[:12]
-_tool_call_counts: dict[str, int] = {}
-_total_chars_returned: int = 0
-_total_naive_chars: int = 0
-
-# Compact Symbol Cache (CSC) — per-session, in-memory.
-# Tracks symbols already sent this session so repeat reads return a compact
-# stub (cache_token + signature) instead of the full body. Reset on restart.
-# key = f"{kind}:{project_root}:{qualified_name}"
-# value = {"cache_token": str, "body_hash": str, "view_count": int,
-#          "full_source": str, "signature": str}
-_session_symbol_cache: dict[str, dict] = {}
-_csc_hits: int = 0
-_csc_tokens_saved: int = 0  # naive_chars - actual_chars summed across hits
-
-# Persistent stats
-_STATS_DIR = os.path.expanduser(
-    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
-)
-_MAX_SESSION_HISTORY = 200
-
-# Markov prefetcher (P8) — PPM variable-order model on tool-call sequences.
-_prefetcher = PPMPrefetcher(Path(_STATS_DIR))
-# TCA — Tenseur de Co-Activation (PMI on symbol co-activation).
-_tca_engine = TCAEngine(Path(_STATS_DIR))
-# Leiden community detector — clusters the symbol dependency graph.
-_leiden = LeidenCommunities(Path(_STATS_DIR))
-# LinUCB contextual bandit — ranks observations for injection.
-_linucb = LinUCBInjector(Path(_STATS_DIR))
-# Cross-session warm start — finds historical sessions with similar signature.
-_warm_start = SessionWarmStart(Path(_STATS_DIR))
-# Track symbols injected by memory_index so we can credit them as reward
-# when a subsequent call references them.
-_linucb_pending: dict[int, dict] = {}  # obs_id -> {features, context, injected_epoch}
-# Pre-warm cache populated by the daemon thread; key = predicted state.
-_prefetch_cache: dict[str, str] = {}
-_prefetch_lock = threading.Lock()
-
-# STTE (Speculative Tool Tree Execution) counters
-_spec_branches_explored = 0
-_spec_branches_warmed = 0
-_spec_branches_hit = 0
-_spec_tokens_saved = 0
-
-# TCS (Schema compression) counters
-_tcs_calls = 0
-_tcs_chars_before = 0
-_tcs_chars_after = 0
-
-# DCP (Differential Context Protocol) counters
-_dcp_calls = 0
-_dcp_stable_chunks = 0
-_dcp_total_chunks = 0
-
-_DCP_ELIGIBLE_TOOLS = frozenset({
-    "get_functions",
-    "get_classes",
-    "get_imports",
-    "find_symbol",
-    "get_dependents",
-    "get_dependencies",
-    "memory_search",
-    "memory_index",
-})
-_DCP_MIN_BYTES = 500
-
-_COMPRESSIBLE_TOOLS = frozenset({
-    "get_functions",
-    "get_classes",
-    "get_imports",
-    "find_symbol",
-    "get_dependents",
-    "get_dependencies",
-})
+from token_savior import server_state as s
+from token_savior.server_state import server
 
 
 def _fmt_lines(entry: dict[str, Any]) -> str:
@@ -271,7 +189,7 @@ def _parse_workspace_roots() -> list[str]:
 
 def _register_roots(roots: list[str]) -> None:
     """Create slots for each root. Index is built lazily on first use."""
-    _slot_mgr.register_roots(roots)
+    s._slot_mgr.register_roots(roots)
 
 
 # Called once at module import so slots exist before any tool call.
@@ -287,7 +205,7 @@ def _get_stats_file(project_root: str) -> str:
     """Return path to the stats JSON file for this project."""
     slug = hashlib.md5(project_root.encode()).hexdigest()[:8]
     name = os.path.basename(project_root.rstrip("/"))
-    return os.path.join(_STATS_DIR, f"{name}-{slug}.json")
+    return os.path.join(s._STATS_DIR, f"{name}-{slug}.json")
 
 
 def _load_cumulative_stats(stats_file: str) -> dict[str, Any]:
@@ -327,38 +245,38 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
     if not slot.stats_file:
         return
     try:
-        os.makedirs(_STATS_DIR, exist_ok=True)
+        os.makedirs(s._STATS_DIR, exist_ok=True)
         cum = _load_cumulative_stats(slot.stats_file)
-        session_calls = sum(_tool_call_counts.values()) - _tool_call_counts.get(
+        session_calls = sum(s._tool_call_counts.values()) - s._tool_call_counts.get(
             "get_usage_stats", 0
         )
         cum["project"] = slot.root
         cum["last_session"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         cum["last_client"] = _CLIENT_NAME
         history = [
-            entry for entry in cum.get("history", []) if entry.get("session_id") != _session_id
+            entry for entry in cum.get("history", []) if entry.get("session_id") != s._session_id
         ]
-        savings_pct = (1 - _total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0.0
+        savings_pct = (1 - s._total_chars_returned / naive_chars) * 100 if naive_chars > 0 else 0.0
         session_entry = {
-            "session_id": _session_id,
+            "session_id": s._session_id,
             "timestamp": cum["last_session"],
             "client_name": _CLIENT_NAME,
             "session_label": _SESSION_LABEL,
-            "duration_sec": round(time.time() - _session_start, 3),
+            "duration_sec": round(time.time() - s._session_start, 3),
             "query_calls": session_calls,
-            "chars_returned": _total_chars_returned,
+            "chars_returned": s._total_chars_returned,
             "naive_chars": naive_chars,
-            "tokens_used": _total_chars_returned // 4,
+            "tokens_used": s._total_chars_returned // 4,
             "tokens_naive": naive_chars // 4,
             "savings_pct": round(savings_pct, 2),
             "tool_counts": {
                 tool: count
-                for tool, count in _tool_call_counts.items()
+                for tool, count in s._tool_call_counts.items()
                 if tool != "get_usage_stats"
             },
         }
         history.append(session_entry)
-        history = history[-_MAX_SESSION_HISTORY:]
+        history = history[-s._MAX_SESSION_HISTORY:]
         cum["history"] = history
         cum["sessions"] = len(history)
         cum["total_calls"] = sum(entry.get("query_calls", 0) for entry in history)
@@ -448,18 +366,15 @@ def _count_and_wrap_result(
     slot: _ProjectSlot, name: str, arguments: dict[str, Any], result: object
 ) -> list[types.TextContent]:
     """Update usage counters for a tool result and return it as text content."""
-    global _total_chars_returned, _total_naive_chars
-    global _dcp_calls, _dcp_stable_chunks, _dcp_total_chunks
-
     formatted = _format_result(result)
-    _total_chars_returned += len(formatted)
-    _total_naive_chars += _estimate_naive_chars_for_call(slot, name, arguments, result)
+    s._total_chars_returned += len(formatted)
+    s._total_naive_chars += _estimate_naive_chars_for_call(slot, name, arguments, result)
 
     # DCP — stabilize chunk order for cache-prefix-friendly outputs
     if (
-        name in _DCP_ELIGIBLE_TOOLS
+        name in s._DCP_ELIGIBLE_TOOLS
         and arguments.get("dcp", True)
-        and len(formatted) >= _DCP_MIN_BYTES
+        and len(formatted) >= s._DCP_MIN_BYTES
     ):
         try:
             optimized, stable, total = memory_db.optimize_output_order(formatted)
@@ -467,14 +382,14 @@ def _count_and_wrap_result(
                 formatted = (
                     f"{optimized}\n[dcp: {stable}/{total} chunks stable]"
                 )
-                _dcp_calls += 1
-                _dcp_stable_chunks += stable
-                _dcp_total_chunks += total
+                s._dcp_calls += 1
+                s._dcp_stable_chunks += stable
+                s._dcp_total_chunks += total
         except Exception:
             pass
 
     if slot.stats_file:
-        _flush_stats(slot, _total_naive_chars)
+        _flush_stats(slot, s._total_naive_chars)
 
     return [TextContent(type="text", text=formatted)]
 
@@ -538,19 +453,19 @@ def _estimate_naive_chars_for_call(
 
 def _usage_session_header(elapsed: float, query_calls: int) -> list[str]:
     lines = [f"Session: {_format_duration(elapsed)}, {query_calls} queries"]
-    if len(_slot_mgr.projects) > 1:
-        loaded = sum(1 for s in _slot_mgr.projects.values() if s.indexer is not None)
+    if len(s._slot_mgr.projects) > 1:
+        loaded = sum(1 for s in s._slot_mgr.projects.values() if s.indexer is not None)
         lines.append(
-            f"Projects: {loaded}/{len(_slot_mgr.projects)} loaded, active: {os.path.basename(_slot_mgr.active_root)}"
+            f"Projects: {loaded}/{len(s._slot_mgr.projects)} loaded, active: {os.path.basename(s._slot_mgr.active_root)}"
         )
     return lines
 
 
 def _usage_tool_counts() -> list[str]:
-    if not _tool_call_counts:
+    if not s._tool_call_counts:
         return []
     top_tools = sorted(
-        ((t, c) for t, c in _tool_call_counts.items() if t != "get_usage_stats"),
+        ((t, c) for t, c in s._tool_call_counts.items() if t != "get_usage_stats"),
         key=lambda x: -x[1],
     )
     tool_str = ", ".join(f"{t}:{c}" for t, c in top_tools[:8])
@@ -560,24 +475,24 @@ def _usage_tool_counts() -> list[str]:
 
 
 def _usage_chars_savings(source_chars: int, query_calls: int) -> list[str]:
-    lines = [f"Chars returned: {_total_chars_returned:,}"]
-    if source_chars > 0 and query_calls > 0 and _total_naive_chars > _total_chars_returned:
-        reduction = (1 - _total_chars_returned / _total_naive_chars) * 100
+    lines = [f"Chars returned: {s._total_chars_returned:,}"]
+    if source_chars > 0 and query_calls > 0 and s._total_naive_chars > s._total_chars_returned:
+        reduction = (1 - s._total_chars_returned / s._total_naive_chars) * 100
         lines.append(
             f"Savings: {reduction:.1f}% "
-            f"({_total_chars_returned // 4:,} vs {_total_naive_chars // 4:,} tokens)"
+            f"({s._total_chars_returned // 4:,} vs {s._total_naive_chars // 4:,} tokens)"
         )
     return lines
 
 
 def _usage_csc() -> list[str]:
-    if _csc_hits <= 0:
+    if s._csc_hits <= 0:
         return []
-    return [f"CSC hits this session: {_csc_hits} ({_csc_tokens_saved:,} tokens saved)"]
+    return [f"CSC hits this session: {s._csc_hits} ({s._csc_tokens_saved:,} tokens saved)"]
 
 
 def _usage_markov() -> list[str]:
-    mstats = _prefetcher.get_stats()
+    mstats = s._prefetcher.get_stats()
     if mstats["transitions"] <= 0:
         return []
     lines = [
@@ -594,42 +509,42 @@ def _usage_markov() -> list[str]:
             f"last used: order-{mstats.get('ppm_last_order_used', 1)} | "
             f"coverage: {cov_str}"
         )
-    with _prefetch_lock:
-        lines.append(f"Prefetch cache: {len(_prefetch_cache)} warmed entries")
+    with s._prefetch_lock:
+        lines.append(f"Prefetch cache: {len(s._prefetch_cache)} warmed entries")
     return lines
 
 
 def _usage_dcp() -> list[str]:
-    if _dcp_calls == 0 and _dcp_total_chunks == 0:
+    if s._dcp_calls == 0 and s._dcp_total_chunks == 0:
         return []
     stable_pct = (
-        (_dcp_stable_chunks / _dcp_total_chunks * 100)
-        if _dcp_total_chunks else 0.0
+        (s._dcp_stable_chunks / s._dcp_total_chunks * 100)
+        if s._dcp_total_chunks else 0.0
     )
     # Each stable chunk ≈ 256B ≈ 64 tokens of cache savings
-    benefit_tokens = (_dcp_stable_chunks * 256) // 4
+    benefit_tokens = (s._dcp_stable_chunks * 256) // 4
     return [
-        f"DCP: {_dcp_total_chunks} chunks registered | "
+        f"DCP: {s._dcp_total_chunks} chunks registered | "
         f"{stable_pct:.0f}% stable | "
         f"est. cache benefit: {benefit_tokens:,}t"
     ]
 
 
 def _usage_tcs() -> list[str]:
-    if _tcs_calls == 0:
+    if s._tcs_calls == 0:
         return []
-    tcs_saved = _tcs_chars_before - _tcs_chars_after
-    tcs_pct = (tcs_saved / _tcs_chars_before * 100) if _tcs_chars_before else 0.0
+    tcs_saved = s._tcs_chars_before - s._tcs_chars_after
+    tcs_pct = (tcs_saved / s._tcs_chars_before * 100) if s._tcs_chars_before else 0.0
     return [
-        f"Schema compression: {_tcs_calls} calls, "
-        f"{_tcs_chars_before:,} → {_tcs_chars_after:,} chars "
+        f"Schema compression: {s._tcs_calls} calls, "
+        f"{s._tcs_chars_before:,} → {s._tcs_chars_after:,} chars "
         f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
     ]
 
 
 def _usage_linucb() -> list[str]:
     try:
-        linucb_s = _linucb.get_stats()
+        linucb_s = s._linucb.get_stats()
     except Exception:
         return []
     if linucb_s.get("updates", 0) <= 0 and linucb_s.get("scored", 0) <= 0:
@@ -643,7 +558,7 @@ def _usage_linucb() -> list[str]:
 
 def _usage_warm_start() -> list[str]:
     try:
-        ws_s = _warm_start.get_stats()
+        ws_s = s._warm_start.get_stats()
     except Exception:
         return []
     if ws_s.get("signatures", 0) <= 0:
@@ -671,7 +586,7 @@ def _usage_consistency() -> list[str]:
 
 def _usage_leiden() -> list[str]:
     try:
-        ls = _leiden.get_stats()
+        ls = s._leiden.get_stats()
     except Exception:
         return []
     if ls.get("total_communities", 0) <= 0:
@@ -713,22 +628,22 @@ def _usage_roi_tokens() -> list[str]:
 
 
 def _usage_speculative_tree() -> list[str]:
-    if not (_spec_branches_explored or _spec_branches_warmed):
+    if not (s._spec_branches_explored or s._spec_branches_warmed):
         return []
     hit_rate = (
-        (_spec_branches_hit / _spec_branches_warmed * 100)
-        if _spec_branches_warmed else 0.0
+        (s._spec_branches_hit / s._spec_branches_warmed * 100)
+        if s._spec_branches_warmed else 0.0
     )
     return [
-        f"Speculative Tree: {_spec_branches_explored} explored, "
-        f"{_spec_branches_warmed} warmed, {_spec_branches_hit} hit "
-        f"({hit_rate:.1f}%), ~{_spec_tokens_saved:,} tokens saved"
+        f"Speculative Tree: {s._spec_branches_explored} explored, "
+        f"{s._spec_branches_warmed} warmed, {s._spec_branches_hit} hit "
+        f"({hit_rate:.1f}%), ~{s._spec_tokens_saved:,} tokens saved"
     ]
 
 
 def _usage_symbol_reindex() -> list[str]:
     lines: list[str] = []
-    for root, slot in _slot_mgr.projects.items():
+    for root, slot in s._slot_mgr.projects.items():
         idx = getattr(slot.indexer, "_project_index", None)
         if idx is None:
             continue
@@ -745,7 +660,7 @@ def _usage_symbol_reindex() -> list[str]:
 
 def _usage_cumulative() -> list[str]:
     all_project_stats = []
-    for root, slot in _slot_mgr.projects.items():
+    for root, slot in s._slot_mgr.projects.items():
         sf = slot.stats_file or _get_stats_file(root)
         cum = _load_cumulative_stats(sf)
         if cum.get("total_calls", 0) > 0:
@@ -761,14 +676,14 @@ def _usage_cumulative() -> list[str]:
     ):
         c = cum.get("total_chars_returned", 0)
         n = cum.get("total_naive_chars", 0)
-        s = cum.get("sessions", 0)
+        sess = cum.get("sessions", 0)
         q = cum.get("total_calls", 0)
         pct = f"{(1 - c / n) * 100:.0f}%" if n > c > 0 else "--"
-        lines.append(f"{name} | {s} | {q} | {c // 4:,} | {n // 4:,} | {pct}")
+        lines.append(f"{name} | {sess} | {q} | {c // 4:,} | {n // 4:,} | {pct}")
         total_chars += c
         total_naive += n
         total_calls_cum += q
-        total_sessions += s
+        total_sessions += sess
 
     pct = (
         f"{(1 - total_chars / total_naive) * 100:.0f}%"
@@ -798,7 +713,7 @@ def _usage_cumulative() -> list[str]:
 
 def _usage_memory_engine_roi() -> list[str]:
     try:
-        active_root = _slot_mgr.active_root or ""
+        active_root = s._slot_mgr.active_root or ""
         if not active_root:
             return []
         roi = memory_db.get_injection_stats(active_root)
@@ -856,12 +771,12 @@ def _usage_memory_engine() -> list[str]:
 
 def _format_usage_stats(include_cumulative: bool = False) -> str:
     """Format session usage statistics, optionally with cumulative history."""
-    elapsed = time.time() - _session_start
-    total_calls = sum(_tool_call_counts.values())
-    query_calls = total_calls - _tool_call_counts.get("get_usage_stats", 0)
+    elapsed = time.time() - s._session_start
+    total_calls = sum(s._tool_call_counts.values())
+    query_calls = total_calls - s._tool_call_counts.get("get_usage_stats", 0)
 
     source_chars = 0
-    for slot in _slot_mgr.projects.values():
+    for slot in s._slot_mgr.projects.values():
         if slot.indexer and slot.indexer._project_index:
             source_chars += sum(
                 m.total_chars for m in slot.indexer._project_index.files.values()
@@ -909,8 +824,8 @@ def _format_duration(seconds: float) -> str:
 
 def _prep(slot: _ProjectSlot) -> None:
     """Ensure slot is indexed and incrementally updated."""
-    _slot_mgr.ensure(slot)
-    _slot_mgr.maybe_update(slot)
+    s._slot_mgr.ensure(slot)
+    s._slot_mgr.maybe_update(slot)
 
 
 # ---------------------------------------------------------------------------
@@ -1169,8 +1084,8 @@ def _h_analyze_config(slot, args):
 def _h_find_dead_code(slot, args):
     _prep(slot)
     loaded: dict[str, ProjectIndex] = {}
-    for root, sibling_slot in _slot_mgr.projects.items():
-        _slot_mgr.ensure(sibling_slot)
+    for root, sibling_slot in s._slot_mgr.projects.items():
+        s._slot_mgr.ensure(sibling_slot)
         if sibling_slot.indexer and sibling_slot.indexer._project_index:
             loaded[os.path.basename(root)] = sibling_slot.indexer._project_index
     return run_dead_code(
@@ -1261,8 +1176,8 @@ def _h_detect_breaking_changes(slot, args):
 
 def _h_find_cross_project_deps(slot, args):
     loaded: dict[str, ProjectIndex] = {}
-    for root, s in _slot_mgr.projects.items():
-        _slot_mgr.ensure(s)
+    for root, s in s._slot_mgr.projects.items():
+        s._slot_mgr.ensure(s)
         if s.indexer and s.indexer._project_index:
             loaded[os.path.basename(root)] = s.indexer._project_index
     return run_cross_project(loaded)
@@ -1278,7 +1193,7 @@ def _h_analyze_docker(slot, args):
 
 def _resolve_project_root(arguments: dict[str, Any]) -> str:
     project_hint = arguments.get("project")
-    slot, err = _slot_mgr.resolve(project_hint)
+    slot, err = s._slot_mgr.resolve(project_hint)
     if slot:
         return slot.root
     roots = _parse_workspace_roots()
@@ -1297,12 +1212,12 @@ def _resolve_memory_project(arguments: dict[str, Any]) -> str:
     """
     hint = arguments.get("project")
     if hint:
-        slot, _ = _slot_mgr.resolve(hint)
+        slot, _ = s._slot_mgr.resolve(hint)
         if slot:
             return slot.root
         return hint
 
-    active_root = _slot_mgr.active_root
+    active_root = s._slot_mgr.active_root
     if active_root:
         conn = memory_db.get_db()
         try:
@@ -1580,7 +1495,7 @@ def _mh_memory_why(args: dict[str, Any]) -> str:
 def _mh_memory_doctor(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     issues = memory_db.run_health_check(root)
-    s = issues["summary"]
+    summary = issues["summary"]
     lines = ["🏥 Memory Health Check", "══════════════════════"]
     if issues["orphan_symbols"]:
         lines.append(f"⚠️  {len(issues['orphan_symbols'])} orphan symbols:")
@@ -1603,7 +1518,7 @@ def _mh_memory_doctor(args: dict[str, Any]) -> str:
             lines.append(f"  #{o['id']} [{o['type']}] {o['title']}")
     else:
         lines.append("✅ No incomplete obs")
-    lines.append(f"\nTotal issues: {s['total_issues']}")
+    lines.append(f"\nTotal issues: {summary['total_issues']}")
     return "\n".join(lines)
 
 
@@ -1670,20 +1585,20 @@ def _mh_memory_roi_gc(args: dict[str, Any]) -> str:
 
 def _mh_memory_roi_stats(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
-    s = memory_db.get_roi_stats(root)
+    stats = memory_db.get_roi_stats(root)
     lines = [
         "💰 Token Economy ROI Stats",
         "─" * 60,
-        f"Observations: {s['total']}",
-        f"Tokens stored: {s['total_tokens_stored']:,}",
-        f"Expected savings (30d horizon): {s['total_expected_savings']:,.0f}",
-        f"Net ROI: {s.get('net_roi', 0):+,.0f}",
-        f"Negative ROI (GC candidates): {s['negative_roi_count']}",
-        f"λ={s.get('lambda', 0.05)} | horizon={s.get('horizon_days', 30)}d",
+        f"Observations: {stats['total']}",
+        f"Tokens stored: {stats['total_tokens_stored']:,}",
+        f"Expected savings (30d horizon): {stats['total_expected_savings']:,.0f}",
+        f"Net ROI: {stats.get('net_roi', 0):+,.0f}",
+        f"Negative ROI (GC candidates): {stats['negative_roi_count']}",
+        f"λ={stats.get('lambda', 0.05)} | horizon={stats.get('horizon_days', 30)}d",
     ]
-    if s.get("by_type"):
+    if stats.get("by_type"):
         lines.append("\nBy type:")
-        for t, b in sorted(s["by_type"].items(), key=lambda x: -x[1]["expected_savings"])[:12]:
+        for t, b in sorted(stats["by_type"].items(), key=lambda x: -x[1]["expected_savings"])[:12]:
             lines.append(
                 f"  {t:16s} n={b['count']:4d} tok={b['tokens']:6,d} "
                 f"exp_savings={b['expected_savings']:,.0f}"
@@ -1701,12 +1616,12 @@ def _mh_memory_patterns(args: dict[str, Any]) -> str:
     if not suggestions:
         return f"No recurring patterns (window={window}d, min={min_occ})."
     lines = [f"Found {len(suggestions)} recurring topics without strong memory:"]
-    for s in suggestions:
+    for sug in suggestions:
         lines.append(
-            f"  · '{s['token']}' mentioned {s['count']}x "
-            f"({s['existing_obs_count']} existing obs)"
+            f"  · '{sug['token']}' mentioned {sug['count']}x "
+            f"({sug['existing_obs_count']} existing obs)"
         )
-        for sp in s["sample_prompts"][:2]:
+        for sp in sug["sample_prompts"][:2]:
             lines.append(f"      > {sp}")
     lines.append("\n💡 Consider memory_save for recurring topics above.")
     return "\n".join(lines)
@@ -1861,7 +1776,7 @@ def _linucb_credit_reward(obs_ids: list[int], reward: float = 1.0) -> None:
     """Apply LinUCB online update for previously-injected obs ids."""
     now = int(time.time())
     for oid in obs_ids:
-        slot = _linucb_pending.pop(oid, None)
+        slot = s._linucb_pending.pop(oid, None)
         if slot is None:
             continue
         # Only credit if the click happened within ~30 min of injection.
@@ -1869,13 +1784,13 @@ def _linucb_credit_reward(obs_ids: list[int], reward: float = 1.0) -> None:
             continue
         try:
             phi = slot["features"]
-            for i in range(_linucb.FEATURE_DIM):
-                for j in range(_linucb.FEATURE_DIM):
-                    _linucb.A[i][j] += phi[i] * phi[j]
-                _linucb.b[i] += reward * phi[i]
-            _linucb.updates += 1
-            if _linucb.updates % 5 == 0:
-                _linucb.save()
+            for i in range(s._linucb.FEATURE_DIM):
+                for j in range(s._linucb.FEATURE_DIM):
+                    s._linucb.A[i][j] += phi[i] * phi[j]
+                s._linucb.b[i] += reward * phi[i]
+            s._linucb.updates += 1
+            if s._linucb.updates % 5 == 0:
+                s._linucb.save()
         except Exception:
             pass
 
@@ -1888,11 +1803,11 @@ def _build_linucb_context(root: str, prompt: str = "") -> dict[str, Any]:
         mode_info = {}
     auto_types = frozenset(mode_info.get("auto_capture_types") or [])
     last_tool = ""
-    if _prefetcher.call_sequence:
-        last = _prefetcher.call_sequence[-1]
+    if s._prefetcher.call_sequence:
+        last = s._prefetcher.call_sequence[-1]
         last_tool = last.split(":", 1)[0] if ":" in last else last
     recent_symbols: list[str] = []
-    for st in reversed(_prefetcher.call_sequence[-12:]):
+    for st in reversed(s._prefetcher.call_sequence[-12:]):
         if ":" in st:
             _, sym = st.split(":", 1)
             if sym and sym not in recent_symbols:
@@ -1900,7 +1815,7 @@ def _build_linucb_context(root: str, prompt: str = "") -> dict[str, Any]:
         if len(recent_symbols) >= 8:
             break
     # Tokens-used proxy: cap at 200k ≈ context budget.
-    tokens_used = _total_chars_returned / 4.0
+    tokens_used = s._total_chars_returned / 4.0
     tokens_used_pct = min(1.0, tokens_used / 200_000.0)
     return {
         "prompt": prompt,
@@ -1925,7 +1840,7 @@ def _mh_memory_index(args: dict[str, Any]) -> str:
         return "No observations yet for this project."
 
     ctx = _build_linucb_context(root, prompt=args.get("prompt") or "")
-    ranked = _linucb.rank_observations(rows, ctx, top_k=desired_limit)
+    ranked = s._linucb.rank_observations(rows, ctx, top_k=desired_limit)
     if not ranked:
         ranked = [(r, float(r.get("relevance_score", 1.0))) for r in rows[:desired_limit]]
 
@@ -1934,8 +1849,8 @@ def _mh_memory_index(args: dict[str, Any]) -> str:
     for obs, _score in ranked:
         oid = obs.get("id")
         if oid is not None:
-            _linucb_pending[oid] = {
-                "features": _linucb.extract_features(obs, ctx),
+            s._linucb_pending[oid] = {
+                "features": s._linucb.extract_features(obs, ctx),
                 "context": ctx,
                 "injected_epoch": now,
                 "access_count_at_inject": int(obs.get("access_count") or 0),
@@ -2293,7 +2208,7 @@ def _hm_get_coactive_symbols(arguments: dict[str, Any]) -> list[types.TextConten
     if not seed:
         return [TextContent(type="text", text="Error: 'name' required.")]
     top_k = int(arguments.get("top_k", 5))
-    co = _tca_engine.get_coactive_symbols(seed, top_k=top_k)
+    co = s._tca_engine.get_coactive_symbols(seed, top_k=top_k)
     if not co:
         return [TextContent(type="text", text=f"No co-activation data yet for '{seed}'.")]
     lines = [f"🔄 Co-active with '{seed}' (top {len(co)}):"]
@@ -2303,7 +2218,7 @@ def _hm_get_coactive_symbols(arguments: dict[str, Any]) -> list[types.TextConten
 
 
 def _hm_get_tca_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    stats = _tca_engine.get_stats()
+    stats = s._tca_engine.get_stats()
     lines = [
         "Tenseur de Co-Activation (TCA):",
         f"  Symbols tracked      : {stats['symbols_tracked']}",
@@ -2326,11 +2241,11 @@ def _hm_get_dcp_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
         f"  Stable (seen>1)   : {stats['stable']}",
         f"  Total sightings   : {stats['total_seen']:,}",
     ]
-    if _dcp_calls:
-        sess_pct = (_dcp_stable_chunks / _dcp_total_chunks * 100) if _dcp_total_chunks else 0.0
+    if s._dcp_calls:
+        sess_pct = (s._dcp_stable_chunks / s._dcp_total_chunks * 100) if s._dcp_total_chunks else 0.0
         lines.append(
-            f"  Session: {_dcp_calls} DCP calls, "
-            f"{_dcp_stable_chunks}/{_dcp_total_chunks} chunks stable ({sess_pct:.1f}%)"
+            f"  Session: {s._dcp_calls} DCP calls, "
+            f"{s._dcp_stable_chunks}/{s._dcp_total_chunks} chunks stable ({sess_pct:.1f}%)"
         )
     if stats["top"]:
         lines.append("  Top chunks:")
@@ -2345,7 +2260,7 @@ def _hm_get_community(arguments: dict[str, Any]) -> list[types.TextContent]:
     cname = arguments.get("name")
     if not sym and not cname:
         return [TextContent(type="text", text="Error: provide 'symbol' or 'name'.")]
-    comm = _leiden.get_community_for(sym) if sym else _leiden.get_community(cname)
+    comm = s._leiden.get_community_for(sym) if sym else s._leiden.get_community(cname)
     if not comm:
         hint = sym or cname
         return [TextContent(type="text", text=f"No community for '{hint}'.")]
@@ -2360,23 +2275,23 @@ def _hm_get_community(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 
 def _hm_get_linucb_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    s = _linucb.get_stats()
+    stats = s._linucb.get_stats()
     lines = ["LinUCB Injection Model:", "  Feature weights (θ):"]
-    for i, fw in enumerate(s["feature_weights"]):
+    for i, fw in enumerate(stats["feature_weights"]):
         marker = "  ← top feature" if i == 0 else ""
         lines.append(f"    {fw['name']:<14}: {fw['weight']:+.4f}{marker}")
-    lines.append(f"  Updates: {s['updates']} | Observations scored: {s['scored']}")
+    lines.append(f"  Updates: {stats['updates']} | Observations scored: {stats['scored']}")
     return [TextContent(type="text", text="\n".join(lines))]
 
 
 def _hm_get_warmstart_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    s = _warm_start.get_stats()
+    stats = s._warm_start.get_stats()
     lines = [
         "Cross-session Warm Start:",
-        f"  Signatures stored   : {s['signatures']}",
-        f"  Avg pairwise cosine : {s.get('avg_pairwise_similarity', 0.0):.3f}",
+        f"  Signatures stored   : {stats['signatures']}",
+        f"  Avg pairwise cosine : {stats.get('avg_pairwise_similarity', 0.0):.3f}",
     ]
-    by_proj = s.get("by_project") or {}
+    by_proj = stats.get("by_project") or {}
     if by_proj:
         lines.append("  By project:")
         for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:5]:
@@ -2425,33 +2340,33 @@ def _hm_memory_quarantine_list(arguments: dict[str, Any]) -> list[types.TextCont
 
 
 def _hm_get_leiden_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    s = _leiden.get_stats()
+    stats = s._leiden.get_stats()
     lines = [
         "Leiden community detector:",
-        f"  Communities        : {s['total_communities']}",
-        f"  Covered symbols    : {s['covered_symbols']}",
-        f"  Size min/avg/max   : {s['smallest']}/{s['avg_size']}/{s['largest']}",
-        f"  Graph              : {s['nodes']} nodes, {s['edges']} edges",
-        f"  Modularity (Q)     : {s['modularity']}",
+        f"  Communities        : {stats['total_communities']}",
+        f"  Covered symbols    : {stats['covered_symbols']}",
+        f"  Size min/avg/max   : {stats['smallest']}/{stats['avg_size']}/{stats['largest']}",
+        f"  Graph              : {stats['nodes']} nodes, {stats['edges']} edges",
+        f"  Modularity (Q)     : {stats['modularity']}",
     ]
-    if s.get("top"):
+    if stats.get("top"):
         lines.append("  Top communities:")
-        for c in s["top"]:
+        for c in stats["top"]:
             lines.append(f"    {c['name']} (n={c['size']})")
     return [TextContent(type="text", text="\n".join(lines))]
 
 
 def _hm_get_speculation_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    with _prefetch_lock:
-        cache_size = len(_prefetch_cache)
-    hit_rate = (_spec_branches_hit / _spec_branches_warmed * 100) if _spec_branches_warmed else 0.0
+    with s._prefetch_lock:
+        cache_size = len(s._prefetch_cache)
+    hit_rate = (s._spec_branches_hit / s._spec_branches_warmed * 100) if s._spec_branches_warmed else 0.0
     lines = [
         "Speculative Tool Tree Execution:",
-        f"  Branches explored : {_spec_branches_explored}",
-        f"  Branches warmed   : {_spec_branches_warmed}",
-        f"  Branches hit      : {_spec_branches_hit}",
+        f"  Branches explored : {s._spec_branches_explored}",
+        f"  Branches warmed   : {s._spec_branches_warmed}",
+        f"  Branches hit      : {s._spec_branches_hit}",
         f"  Hit rate          : {hit_rate:.1f}%",
-        f"  Tokens saved (est): {_spec_tokens_saved:,}",
+        f"  Tokens saved (est): {s._spec_tokens_saved:,}",
         f"  Warm cache size   : {cache_size}",
     ]
     return [TextContent(type="text", text="\n".join(lines))]
@@ -2477,7 +2392,7 @@ def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextConten
     tool_name = arguments.get("tool_name", "")
     symbol_name = arguments.get("symbol_name", "")
     top_k = int(arguments.get("top_k", 5))
-    preds = _prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
+    preds = s._prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
     if not preds:
         return [TextContent(
             type="text",
@@ -2490,15 +2405,15 @@ def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextConten
 
 
 def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
-    if not _slot_mgr.projects:
+    if not s._slot_mgr.projects:
         return [TextContent(
             type="text",
             text="No projects registered. Call set_project_root('/path') first.",
         )]
-    lines = [f"Workspace projects ({len(_slot_mgr.projects)}):"]
-    for root, slot in _slot_mgr.projects.items():
+    lines = [f"Workspace projects ({len(s._slot_mgr.projects)}):"]
+    for root, slot in s._slot_mgr.projects.items():
         status = "indexed" if slot.indexer is not None else "not yet loaded"
-        active = " [active]" if root == _slot_mgr.active_root else ""
+        active = " [active]" if root == s._slot_mgr.active_root else ""
         name_part = os.path.basename(root)
         if slot.indexer and slot.indexer._project_index:
             idx = slot.indexer._project_index
@@ -2513,11 +2428,11 @@ def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     hint = arguments["name"]
-    slot, err = _slot_mgr.resolve(hint)
+    slot, err = s._slot_mgr.resolve(hint)
     if err:
         return [TextContent(type="text", text=f"Error: {err}")]
-    _slot_mgr.active_root = slot.root
-    _slot_mgr.ensure(slot)
+    s._slot_mgr.active_root = slot.root
+    s._slot_mgr.ensure(slot)
     idx = slot.indexer._project_index if slot.indexer else None
     info = f"{idx.total_files} files" if idx else "index not built"
     return [TextContent(
@@ -2530,24 +2445,24 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
     new_root = os.path.abspath(arguments["path"])
     if not os.path.isdir(new_root):
         return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-    if new_root not in _slot_mgr.projects:
-        _slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
-    _slot_mgr.active_root = new_root
-    slot = _slot_mgr.projects[new_root]
+    if new_root not in s._slot_mgr.projects:
+        s._slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
+    s._slot_mgr.active_root = new_root
+    slot = s._slot_mgr.projects[new_root]
     slot.indexer = None
     slot.query_fns = None
-    _slot_mgr.build(slot)
+    s._slot_mgr.build(slot)
     return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
 
 
 def _hm_reindex(arguments: dict[str, Any]) -> list[types.TextContent]:
     project_hint = arguments.get("project")
-    slot, err = _slot_mgr.resolve(project_hint)
+    slot, err = s._slot_mgr.resolve(project_hint)
     if err:
         return [TextContent(type="text", text=f"Error: {err}")]
     slot.indexer = None
     slot.query_fns = None
-    _slot_mgr.build(slot)
+    s._slot_mgr.build(slot)
     _recompute_leiden(slot)
     return [TextContent(
         type="text",
@@ -2750,7 +2665,6 @@ def _csc_maybe_serve(
     Returns either the compact stub (cache hit, body unchanged) or the full
     source (miss / force_full / modified).
     """
-    global _csc_hits, _csc_tokens_saved
 
     force_full = bool(args.get("force_full", False))
     level = int(args.get("level", 0) or 0)
@@ -2773,7 +2687,7 @@ def _csc_maybe_serve(
     project_root = getattr(slot, "root", "") or ""
     name = args["name"]
     key = f"{kind}:{project_root}:{name}"
-    entry = _session_symbol_cache.get(key)
+    entry = s._session_symbol_cache.get(key)
 
     from token_savior.symbol_hash import cache_token
 
@@ -2781,7 +2695,7 @@ def _csc_maybe_serve(
 
     if entry is None:
         # Miss — return full, record.
-        _session_symbol_cache[key] = {
+        s._session_symbol_cache[key] = {
             "cache_token": tok,
             "body_hash": body_hash,
             "view_count": 1,
@@ -2801,8 +2715,8 @@ def _csc_maybe_serve(
             modified=False,
         )
         saved = max(0, len(full) - len(compact))
-        _csc_hits += 1
-        _csc_tokens_saved += saved // 4
+        s._csc_hits += 1
+        s._csc_tokens_saved += saved // 4
         return compact
 
     # Modified — return compact with diff preview; refresh cache.
@@ -2816,8 +2730,8 @@ def _csc_maybe_serve(
         diff_preview=diff_preview,
     )
     saved = max(0, len(full) - len(compact))
-    _csc_hits += 1
-    _csc_tokens_saved += saved // 4
+    s._csc_hits += 1
+    s._csc_tokens_saved += saved // 4
     entry.update(
         {
             "cache_token": tok,
@@ -2830,13 +2744,13 @@ def _csc_maybe_serve(
 
 
 def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
-    slot, _ = _slot_mgr.resolve(args.get("project"))
+    slot, _ = s._slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
         chosen_level = int(args.get("level") or 0)
         ctx_type = None
     else:
-        ctx_type = memory_db._detect_context_type(_prefetcher.call_sequence)
+        ctx_type = memory_db._detect_context_type(s._prefetcher.call_sequence)
         chosen_level = memory_db.thompson_sample_level(ctx_type)
     result = _csc_maybe_serve(
         slot,
@@ -2859,13 +2773,13 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
 
 
 def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
-    slot, _ = _slot_mgr.resolve(args.get("project"))
+    slot, _ = s._slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
         chosen_level = int(args.get("level") or 0)
         ctx_type = None
     else:
-        ctx_type = memory_db._detect_context_type(_prefetcher.call_sequence)
+        ctx_type = memory_db._detect_context_type(s._prefetcher.call_sequence)
         chosen_level = memory_db.thompson_sample_level(ctx_type)
     result = _csc_maybe_serve(
         slot,
@@ -2905,7 +2819,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     except Exception:
         pass
     try:
-        coactives = _tca_engine.get_coactive_symbols(args["name"], top_k=3)
+        coactives = s._tca_engine.get_coactive_symbols(args["name"], top_k=3)
         if coactives:
             co_lines = ["\n🔄 Often accessed together:"]
             for co_sym, pmi in coactives:
@@ -2914,7 +2828,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     except Exception:
         pass
     try:
-        comm = _leiden.get_community_for(args["name"])
+        comm = s._leiden.get_community_for(args["name"])
         if comm and comm["size"] <= 20:
             peers = [m for m in comm["members"] if m != args["name"]][:8]
             if peers:
@@ -3063,7 +2977,7 @@ _QFN_HANDLERS: dict[str, object] = {
 }
 
 
-_PREFETCHABLE_TOOLS = frozenset({
+s._PREFETCHABLE_TOOLS = frozenset({
     "get_function_source",
     "get_class_source",
     "get_dependents",
@@ -3084,7 +2998,7 @@ def _warm_cache_async(
     Uses the Markov prefetcher's ``beam_search_continuations`` to expand
     ``beam_width=3`` × ``max_depth=3`` branches when possible, falling back
     to the flat *predictions* list otherwise. Safe tools listed in
-    ``_PREFETCHABLE_TOOLS`` are executed; results land in ``_prefetch_cache``
+    ``s._PREFETCHABLE_TOOLS`` are executed; results land in ``s._prefetch_cache``
     keyed by state.
 
     daemon=True is critical: if the MCP server shuts down mid-prefetch, the
@@ -3094,7 +3008,7 @@ def _warm_cache_async(
         return
 
     def _worker() -> None:
-        global _spec_branches_explored, _spec_branches_warmed
+
         try:
             qfns = slot.query_fns if slot is not None else None
             # Collect states to warm: beam frontier + direct predictions.
@@ -3102,14 +3016,14 @@ def _warm_cache_async(
             seen: set[str] = set()
             if tool_name:
                 try:
-                    beams = _prefetcher.beam_search_continuations(
+                    beams = s._prefetcher.beam_search_continuations(
                         tool_name, symbol_name,
                         beam_width=3, max_depth=3, min_prob=0.15,
                     )
                 except Exception:
                     beams = []
                 for path, joint in beams:
-                    _spec_branches_explored += 1
+                    s._spec_branches_explored += 1
                     for st in path:
                         if st in seen:
                             continue
@@ -3124,7 +3038,7 @@ def _warm_cache_async(
             # up to 10 peers. They are likely the next user of this session.
             if symbol_name:
                 try:
-                    comm = _leiden.get_community_for(symbol_name)
+                    comm = s._leiden.get_community_for(symbol_name)
                     if comm and comm["size"] <= 20:
                         peers = [m for m in comm["members"] if m != symbol_name][:10]
                         for peer in peers:
@@ -3145,24 +3059,24 @@ def _warm_cache_async(
                 next_tool, next_symbol = state.split(":", 1)
                 if not next_symbol or qfns is None:
                     continue
-                if next_tool not in _PREFETCHABLE_TOOLS:
+                if next_tool not in s._PREFETCHABLE_TOOLS:
                     continue
-                with _prefetch_lock:
-                    if state in _prefetch_cache:
+                with s._prefetch_lock:
+                    if state in s._prefetch_cache:
                         continue
                 try:
                     result = qfns[next_tool](next_symbol)
                 except Exception:
                     continue
-                with _prefetch_lock:
-                    _prefetch_cache[state] = (
+                with s._prefetch_lock:
+                    s._prefetch_cache[state] = (
                         result if isinstance(result, str) else str(result)
                     )
-                    _spec_branches_warmed += 1
-                    if len(_prefetch_cache) > 64:
+                    s._spec_branches_warmed += 1
+                    if len(s._prefetch_cache) > 64:
                         # Bound memory; drop oldest entries (insertion order).
-                        for stale_key in list(_prefetch_cache)[:32]:
-                            _prefetch_cache.pop(stale_key, None)
+                        for stale_key in list(s._prefetch_cache)[:32]:
+                            s._prefetch_cache.pop(stale_key, None)
         except Exception:
             pass  # never crash the daemon
 
@@ -3179,47 +3093,47 @@ def _recompute_leiden(slot) -> None:
         graph = getattr(idx, "global_dependency_graph", None) or {}
         if not graph:
             return
-        _leiden.compute(graph, min_size=3, max_size=50)
+        s._leiden.compute(graph, min_size=3, max_size=50)
     except Exception:
         pass
 
 
 def _track_call(name: str, arguments: dict[str, Any]) -> str:
     """Tool-call telemetry: counts, PPM record, TCA activation, STTE hit."""
-    global _spec_branches_hit, _spec_tokens_saved
-    _tool_call_counts[name] = _tool_call_counts.get(name, 0) + 1
+
+    s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
     record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
-        _prefetcher.record_call(name, record_symbol or "")
+        s._prefetcher.record_call(name, record_symbol or "")
     except Exception:
         pass
     if record_symbol:
         try:
-            _tca_engine.record_activation(record_symbol)
+            s._tca_engine.record_activation(record_symbol)
         except Exception:
             pass
-    if record_symbol and name in _PREFETCHABLE_TOOLS:
-        with _prefetch_lock:
-            cached = _prefetch_cache.get(f"{name}:{record_symbol}")
+    if record_symbol and name in s._PREFETCHABLE_TOOLS:
+        with s._prefetch_lock:
+            cached = s._prefetch_cache.get(f"{name}:{record_symbol}")
         if cached is not None:
-            _spec_branches_hit += 1
-            _spec_tokens_saved += len(cached) // 4
+            s._spec_branches_hit += 1
+            s._spec_tokens_saved += len(cached) // 4
     return record_symbol
 
 
 def _maybe_compress(name: str, arguments: dict[str, Any], result):
     """Apply TCS structural compression if eligible."""
-    if name not in _COMPRESSIBLE_TOOLS or not arguments.get("compress", True):
+    if name not in s._COMPRESSIBLE_TOOLS or not arguments.get("compress", True):
         return result
-    global _tcs_calls, _tcs_chars_before, _tcs_chars_after
+
     raw = _format_result(result)
     compressed = compress_symbol_output(name, result)
     before, after = len(raw), len(compressed)
     if after < before and compressed:
         saved_pct = (1 - after / before) * 100 if before else 0.0
-        _tcs_calls += 1
-        _tcs_chars_before += before
-        _tcs_chars_after += after
+        s._tcs_calls += 1
+        s._tcs_chars_before += before
+        s._tcs_chars_after += after
         return f"{compressed}\n[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
     return result
 
@@ -3227,7 +3141,7 @@ def _maybe_compress(name: str, arguments: dict[str, Any], result):
 def _prefetch_next(name: str, record_symbol: str, slot) -> None:
     """Markov: predict next likely calls and pre-warm in a daemon thread."""
     try:
-        preds = _prefetcher.predict_next(name, record_symbol or "", top_k=3)
+        preds = s._prefetcher.predict_next(name, record_symbol or "", top_k=3)
         if preds:
             _warm_cache_async(
                 preds, slot, tool_name=name, symbol_name=record_symbol or "",
@@ -3238,7 +3152,7 @@ def _prefetch_next(name: str, record_symbol: str, slot) -> None:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    global _total_chars_returned, _total_naive_chars
+
     record_symbol = _track_call(name, arguments)
     try:
         meta_handler = _META_HANDLERS.get(name)
@@ -3249,7 +3163,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         if mem_handler is not None:
             return [TextContent(type="text", text=mem_handler(arguments))]
 
-        slot, err = _slot_mgr.resolve(arguments.get("project"))
+        slot, err = s._slot_mgr.resolve(arguments.get("project"))
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
 

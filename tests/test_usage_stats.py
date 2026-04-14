@@ -9,21 +9,21 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_server_state():
     """Reset server module-level state before each test."""
-    import token_savior.server as srv
+    import token_savior.server_state as state
 
-    srv._session_start = time.time()
-    srv._session_id = "test-session"
-    srv._tool_call_counts.clear()
-    srv._total_chars_returned = 0
-    srv._total_naive_chars = 0
-    srv._slot_mgr.projects.clear()
-    srv._slot_mgr.active_root = ""
+    state._session_start = time.time()
+    state._session_id = "test-session"
+    state._tool_call_counts.clear()
+    state._total_chars_returned = 0
+    state._total_naive_chars = 0
+    state._slot_mgr.projects.clear()
+    state._slot_mgr.active_root = ""
     yield
-    srv._tool_call_counts.clear()
-    srv._total_chars_returned = 0
-    srv._total_naive_chars = 0
-    srv._slot_mgr.projects.clear()
-    srv._slot_mgr.active_root = ""
+    state._tool_call_counts.clear()
+    state._total_chars_returned = 0
+    state._total_naive_chars = 0
+    state._slot_mgr.projects.clear()
+    state._slot_mgr.active_root = ""
 
 
 class TestFormatDuration:
@@ -53,10 +53,11 @@ class TestFormatUsageStats:
 
     def test_with_tool_calls(self):
         import token_savior.server as srv
+        import token_savior.server_state as state
 
-        srv._tool_call_counts["find_symbol"] = 5
-        srv._tool_call_counts["get_function_source"] = 3
-        srv._total_chars_returned = 1234
+        state._tool_call_counts["find_symbol"] = 5
+        state._tool_call_counts["get_function_source"] = 3
+        state._total_chars_returned = 1234
 
         result = srv._format_usage_stats()
         assert "8 queries" in result
@@ -66,9 +67,10 @@ class TestFormatUsageStats:
 
     def test_usage_stats_call_excluded_from_query_count(self):
         import token_savior.server as srv
+        import token_savior.server_state as state
 
-        srv._tool_call_counts["find_symbol"] = 3
-        srv._tool_call_counts["get_usage_stats"] = 2
+        state._tool_call_counts["find_symbol"] = 3
+        state._tool_call_counts["get_usage_stats"] = 2
 
         result = srv._format_usage_stats()
         assert "3 queries" in result
@@ -76,6 +78,7 @@ class TestFormatUsageStats:
 
     def test_with_indexed_project(self, tmp_path):
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
@@ -86,12 +89,12 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._slot_mgr.projects[root] = slot
-        srv._slot_mgr.active_root = root
+        state._slot_mgr.projects[root] = slot
+        state._slot_mgr.active_root = root
 
-        srv._tool_call_counts["find_symbol"] = 5
-        srv._total_chars_returned = 200
-        srv._total_naive_chars = 1000
+        state._tool_call_counts["find_symbol"] = 5
+        state._total_chars_returned = 200
+        state._total_naive_chars = 1000
 
         result = srv._format_usage_stats()
         assert "Savings:" in result
@@ -100,6 +103,7 @@ class TestFormatUsageStats:
     def test_token_savings_uses_per_tool_multipliers(self, tmp_path):
         """Naive estimate should use per-tool cost multipliers, not full codebase per query."""
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
@@ -109,14 +113,14 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._slot_mgr.projects[root] = slot
-        srv._slot_mgr.active_root = root
+        state._slot_mgr.projects[root] = slot
+        state._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
-        srv._tool_call_counts["find_symbol"] = 10
-        srv._total_chars_returned = 500
-        srv._total_naive_chars = int(source_chars * 0.05 * 10)
+        state._tool_call_counts["find_symbol"] = 10
+        state._total_chars_returned = 500
+        state._total_naive_chars = int(source_chars * 0.05 * 10)
 
         result = srv._format_usage_stats()
         assert "Savings:" in result
@@ -125,6 +129,7 @@ class TestFormatUsageStats:
     def test_different_tools_produce_different_costs(self, tmp_path):
         """Tools with different multipliers should produce different naive estimates."""
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
@@ -134,22 +139,22 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._slot_mgr.projects[root] = slot
-        srv._slot_mgr.active_root = root
+        state._slot_mgr.projects[root] = slot
+        state._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
 
         # Test with a cheap tool (list_files: 0.01)
-        srv._tool_call_counts["list_files"] = 1
-        srv._total_chars_returned = 50
-        srv._total_naive_chars = int(source_chars * 0.01)
+        state._tool_call_counts["list_files"] = 1
+        state._total_chars_returned = 50
+        state._total_naive_chars = int(source_chars * 0.01)
         result_cheap = srv._format_usage_stats()
 
         # Reset and test with an expensive tool (get_change_impact: 0.30)
-        srv._tool_call_counts.clear()
-        srv._total_chars_returned = 50
-        srv._total_naive_chars = int(source_chars * 0.30)
-        srv._tool_call_counts["get_change_impact"] = 1
+        state._tool_call_counts.clear()
+        state._total_chars_returned = 50
+        state._total_naive_chars = int(source_chars * 0.30)
+        state._tool_call_counts["get_change_impact"] = 1
         result_expensive = srv._format_usage_stats()
 
         # Both should show savings info with tokens
@@ -173,15 +178,17 @@ class TestFormatUsageStats:
 
     def test_no_savings_section_without_index(self):
         import token_savior.server as srv
+        import token_savior.server_state as state
 
-        srv._tool_call_counts["find_symbol"] = 3
-        srv._total_chars_returned = 100
+        state._tool_call_counts["find_symbol"] = 3
+        state._total_chars_returned = 100
 
         result = srv._format_usage_stats()
         assert "Savings:" not in result
 
     def test_new_workflow_tools_contribute_to_naive_estimate(self, tmp_path):
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.server import _ProjectSlot
 
@@ -191,26 +198,27 @@ class TestFormatUsageStats:
         indexer.index()
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, indexer=indexer)
-        srv._slot_mgr.projects[root] = slot
-        srv._slot_mgr.active_root = root
+        state._slot_mgr.projects[root] = slot
+        state._slot_mgr.active_root = root
 
         source_chars = sum(m.total_chars for m in indexer._project_index.files.values())
-        srv._tool_call_counts["apply_symbol_change_and_validate"] = 1
-        srv._total_chars_returned = 200
-        srv._total_naive_chars = int(source_chars * 0.35)
+        state._tool_call_counts["apply_symbol_change_and_validate"] = 1
+        state._total_chars_returned = 200
+        state._total_naive_chars = int(source_chars * 0.35)
 
         result = srv._format_usage_stats()
         assert "Savings:" in result
 
     def test_flush_stats_persists_session_history_without_double_counting(self, tmp_path):
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.server import _ProjectSlot
 
         stats_file = tmp_path / "stats.json"
         slot = _ProjectSlot(root=str(tmp_path), stats_file=str(stats_file))
-        srv._tool_call_counts["find_symbol"] = 2
-        srv._total_chars_returned = 100
-        srv._session_id = "session-a"
+        state._tool_call_counts["find_symbol"] = 2
+        state._total_chars_returned = 100
+        state._session_id = "session-a"
 
         srv._flush_stats(slot, naive_chars=1000)
         srv._flush_stats(slot, naive_chars=1000)
@@ -228,6 +236,7 @@ class TestFormatUsageStats:
     def test_format_usage_stats_shows_recent_session_log(self, tmp_path):
         import json
         import token_savior.server as srv
+        import token_savior.server_state as state
         from token_savior.server import _ProjectSlot
 
         stats_file = tmp_path / "stats.json"
@@ -268,8 +277,8 @@ class TestFormatUsageStats:
 
         root = str(tmp_path)
         slot = _ProjectSlot(root=root, stats_file=str(stats_file))
-        srv._slot_mgr.projects[root] = slot
-        srv._slot_mgr.active_root = root
+        state._slot_mgr.projects[root] = slot
+        state._slot_mgr.active_root = root
 
         result = srv._format_usage_stats(include_cumulative=True)
         assert "Recent" in result
@@ -278,6 +287,7 @@ class TestFormatUsageStats:
 
     def test_specialized_tools_update_usage_totals(self, tmp_path):
         import token_savior.server as srv
+        import token_savior.server_state as state
 
         (tmp_path / "app.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
         (tmp_path / "test_app.py").write_text(
@@ -298,6 +308,6 @@ class TestFormatUsageStats:
             )
         )
 
-        assert srv._tool_call_counts["run_impacted_tests"] == 1
-        assert srv._total_chars_returned > 0
-        assert srv._total_naive_chars >= srv._total_chars_returned
+        assert state._tool_call_counts["run_impacted_tests"] == 1
+        assert state._total_chars_returned > 0
+        assert state._total_naive_chars >= state._total_chars_returned

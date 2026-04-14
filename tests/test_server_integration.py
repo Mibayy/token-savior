@@ -7,7 +7,8 @@ import os
 import time
 
 
-from token_savior.server import call_tool, _slot_mgr
+from token_savior.server import call_tool
+from token_savior.server_state import _slot_mgr
 from token_savior.cache_ops import CacheManager
 
 
