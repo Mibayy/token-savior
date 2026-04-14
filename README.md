@@ -4,12 +4,12 @@
 
 # ⚡ Token Savior Recall
 
-> **97% token reduction** · **Persistent memory** · **78 MCP tools** · **Python 3.11+**
+> **97% token reduction** · **Persistent memory** · **98 MCP tools** · **Python 3.11+**
 
 [![Version](https://img.shields.io/badge/version-2.1.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.1.0)
-[![Tools](https://img.shields.io/badge/tools-78-green)]()
+[![Tools](https://img.shields.io/badge/tools-98-green)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
-[![Tests](https://img.shields.io/badge/tests-891%2F891-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1125%2F1125-brightgreen)]()
 [![Memory](https://img.shields.io/badge/memory-SQLite%20WAL%20%2B%20FTS5-orange)]()
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -55,7 +55,7 @@ get_backward_slice("parse_invoice", variable="total", line=42)
 | Tokens saved | ~203M |
 | Estimated cost saved | $609+ |
 | Projects supported | 17 |
-| Tool count | **78** |
+| Tool count | **98** |
 
 > "Tokens saved" = estimated tokens the agent would have consumed navigating
 > with `cat`/`grep` versus with Token Savior Recall. Model-agnostic: the index
@@ -111,7 +111,7 @@ incremental reindex cost by **19x** on targeted edits.
 
 ---
 
-## 78 tools
+## 98 tools
 
 ### Navigation
 | Tool | What it does |
@@ -348,7 +348,7 @@ You MUST use token-savior-recall MCP tools FIRST.
 
 ---
 
-## Tools (75)
+## Tools (98)
 
 ### Core Navigation (14)
 `get_function_source` (level=0-3) · `get_class_source` · `find_symbol` ·
@@ -572,13 +572,16 @@ print(engine.get_change_impact("send_message"))
 ```
 src/token_savior/
   server.py            MCP transport, tool routing
-  tool_schemas.py      75 tool schemas
+  tool_schemas.py      98 tool schemas
   slot_manager.py      Multi-project lifecycle, incremental mtime updates
   cache_ops.py         JSON persistence, legacy cache migration
   query_api.py         ProjectQueryEngine — query methods + as_dict()
   models.py            ProjectIndex, LazyLines, AnnotatorProtocol, build_line_char_offsets
   project_indexer.py   File discovery, structural indexing, dependency graphs
-  memory_db.py         SQLite WAL + FTS5 memory engine
+  memory_db.py         89-line façade — re-exports the memory/ subpackage
+  memory/              SQLite WAL + FTS5 engine split into 22 focused modules
+                       (observations, links, decay, roi, distillation, consistency,
+                        reasoning, lattice, budget, bus, events, health, stats, …)
   program_slicer.py    Backward slicing via Data Dependency Graph
   context_packer.py    Greedy fractional knapsack
   graph_ranker.py      Random Walk with Restart on dependency graph
