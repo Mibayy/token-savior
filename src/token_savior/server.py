@@ -33,6 +33,7 @@ from token_savior.server_handlers.project_actions import (
     HANDLERS as _PROJECT_ACTION_HANDLERS,
 )
 from token_savior.server_handlers.analysis import HANDLERS as _ANALYSIS_HANDLERS
+from token_savior.server_handlers.project import HANDLERS as _PROJECT_HANDLERS
 from token_savior.server_handlers.tests import HANDLERS as _TESTS_HANDLERS
 from token_savior.slot_manager import _ProjectSlot
 from token_savior import memory_db
@@ -1677,72 +1678,6 @@ def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextConten
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
-    if not s._slot_mgr.projects:
-        return [TextContent(
-            type="text",
-            text="No projects registered. Call set_project_root('/path') first.",
-        )]
-    lines = [f"Workspace projects ({len(s._slot_mgr.projects)}):"]
-    for root, slot in s._slot_mgr.projects.items():
-        status = "indexed" if slot.indexer is not None else "not yet loaded"
-        active = " [active]" if root == s._slot_mgr.active_root else ""
-        name_part = os.path.basename(root)
-        if slot.indexer and slot.indexer._project_index:
-            idx = slot.indexer._project_index
-            lines.append(
-                f"  {name_part}{active} -- {idx.total_files} files, "
-                f"{idx.total_functions} functions ({root})"
-            )
-        else:
-            lines.append(f"  {name_part}{active} -- {status} ({root})")
-    return [TextContent(type="text", text="\n".join(lines))]
-
-
-def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
-    hint = arguments["name"]
-    slot, err = s._slot_mgr.resolve(hint)
-    if err:
-        return [TextContent(type="text", text=f"Error: {err}")]
-    s._slot_mgr.active_root = slot.root
-    s._slot_mgr.ensure(slot)
-    idx = slot.indexer._project_index if slot.indexer else None
-    info = f"{idx.total_files} files" if idx else "index not built"
-    return [TextContent(
-        type="text",
-        text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
-    )]
-
-
-def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
-    new_root = os.path.abspath(arguments["path"])
-    if not os.path.isdir(new_root):
-        return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-    if new_root not in s._slot_mgr.projects:
-        s._slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
-    s._slot_mgr.active_root = new_root
-    slot = s._slot_mgr.projects[new_root]
-    slot.indexer = None
-    slot.query_fns = None
-    s._slot_mgr.build(slot)
-    return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
-
-
-def _hm_reindex(arguments: dict[str, Any]) -> list[types.TextContent]:
-    project_hint = arguments.get("project")
-    slot, err = s._slot_mgr.resolve(project_hint)
-    if err:
-        return [TextContent(type="text", text=f"Error: {err}")]
-    slot.indexer = None
-    slot.query_fns = None
-    s._slot_mgr.build(slot)
-    _recompute_leiden(slot)
-    return [TextContent(
-        type="text",
-        text=f"Project '{os.path.basename(slot.root)}' re-indexed successfully.",
-    )]
-
-
 _META_HANDLERS: dict[str, object] = {
     "get_usage_stats": _hm_get_usage_stats,
     "get_session_budget": _hm_get_session_budget,
@@ -1758,10 +1693,7 @@ _META_HANDLERS: dict[str, object] = {
     "get_speculation_stats": _hm_get_speculation_stats,
     "get_lattice_stats": _hm_get_lattice_stats,
     "get_call_predictions": _hm_get_call_predictions,
-    "list_projects": _hm_list_projects,
-    "switch_project": _hm_switch_project,
-    "set_project_root": _hm_set_project_root,
-    "reindex": _hm_reindex,
+    **_PROJECT_HANDLERS,
 }
 
 
