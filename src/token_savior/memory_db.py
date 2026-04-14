@@ -358,49 +358,7 @@ def list_quarantined_observations(
 # ---------------------------------------------------------------------------
 
 
-def session_start(project_root: str) -> int:
-    """Create a new active session. Returns the session id."""
-    now = _now_iso()
-    epoch = _now_epoch()
-    try:
-        with db_session() as conn:
-            cur = conn.execute(
-                "INSERT INTO sessions (project_root, status, created_at, created_at_epoch) "
-                "VALUES (?, 'active', ?, ?)",
-                (project_root, now, epoch),
-            )
-            conn.commit()
-            return cur.lastrowid  # type: ignore[return-value]
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] session_start error: {exc}", file=sys.stderr)
-        raise
-
-
-def session_end(
-    session_id: int,
-    summary: str | None = None,
-    symbols_changed: list[str] | None = None,
-    files_changed: list[str] | None = None,
-    end_type: str = "completed",
-) -> None:
-    """Mark a session as closed with optional summary data.
-
-    end_type: "completed" (clean SessionEnd) or "interrupted" (Stop hook).
-    The status column stays "completed" (satisfies existing CHECK constraint);
-    end_type carries the distinction.
-    """
-    now = _now_iso()
-    epoch = _now_epoch()
-    try:
-        with db_session() as conn:
-            conn.execute(
-                "UPDATE sessions SET status='completed', end_type=?, completed_at=?, completed_at_epoch=?, "
-                "summary=?, symbols_changed=?, files_changed=? WHERE id=?",
-                (end_type, now, epoch, summary, _json_dumps(symbols_changed), _json_dumps(files_changed), session_id),
-            )
-            conn.commit()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] session_end error: {exc}", file=sys.stderr)
+from token_savior.memory.sessions import session_end, session_start  # noqa: E402,F401  re-exports
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +638,7 @@ def observation_save_ruled_out(
 # Volatile observations are short-lived signals between subagents (or between
 # a subagent and the parent). They expire fast (default 1 day) so the bus
 # never accumulates stale chatter.
-DEFAULT_VOLATILE_TTL_DAYS = 1
+from token_savior.memory.bus import DEFAULT_VOLATILE_TTL_DAYS  # noqa: E402,F401  re-export
 
 
 def observation_save_volatile(
@@ -737,44 +695,7 @@ def observation_save_volatile(
     return obs_id
 
 
-def memory_bus_list(
-    project_root: str,
-    *,
-    agent_id: str | None = None,
-    limit: int = 20,
-    include_expired: bool = False,
-) -> list[dict]:
-    """Return live bus messages for *project_root*, newest first.
-
-    Filters on agent_id when provided. Skips expired rows by default.
-    """
-    try:
-        conn = get_db()
-        sql = (
-            "SELECT id, type, title, content, symbol, file_path, agent_id, "
-            "       created_at, created_at_epoch, expires_at_epoch "
-            "FROM observations "
-            "WHERE archived=0 AND agent_id IS NOT NULL "
-            "  AND project_root=? "
-        )
-        params: list[Any] = [project_root]
-        if agent_id:
-            sql += "AND agent_id=? "
-            params.append(agent_id)
-        if not include_expired:
-            sql += "AND (expires_at_epoch IS NULL OR expires_at_epoch > ?) "
-            params.append(int(time.time()))
-        sql += "ORDER BY created_at_epoch DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        conn.close()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] memory_bus_list error: {exc}", file=sys.stderr)
-        return []
-    out = [dict(r) for r in rows]
-    for r in out:
-        r["age"] = relative_age(r.get("created_at_epoch"))
-    return out
+from token_savior.memory.bus import memory_bus_list  # noqa: E402,F401  re-export
 
 
 # ---------------------------------------------------------------------------
@@ -1723,33 +1644,7 @@ def get_timeline_around(
 # ---------------------------------------------------------------------------
 
 
-def event_save(
-    session_id: int | None,
-    type: str,
-    *,
-    severity: str = "info",
-    data: dict[str, Any] | None = None,
-    symbol: str | None = None,
-    file_path: str | None = None,
-) -> int | None:
-    """Log a significant event (build fail, test fail, deploy, etc.)."""
-    now = _now_iso()
-    epoch = _now_epoch()
-    try:
-        conn = get_db()
-        cur = conn.execute(
-            "INSERT INTO events "
-            "(session_id, type, severity, data, symbol, file_path, created_at, created_at_epoch) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, type, severity, _json_dumps(data), symbol, file_path, now, epoch),
-        )
-        conn.commit()
-        eid = cur.lastrowid
-        conn.close()
-        return eid
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] event_save error: {exc}", file=sys.stderr)
-        return None
+from token_savior.memory.events import event_save  # noqa: E402,F401  re-export
 
 
 # ---------------------------------------------------------------------------
@@ -1757,60 +1652,7 @@ def event_save(
 # ---------------------------------------------------------------------------
 
 
-def prompt_save(
-    session_id: int | None,
-    project_root: str,
-    prompt_text: str,
-    prompt_number: int | None = None,
-) -> int | None:
-    """Store a user prompt for pattern analysis."""
-    prompt_text = strip_private(prompt_text) or ""
-    if not prompt_text or prompt_text == "[PRIVATE]":
-        return None
-    now = _now_iso()
-    epoch = _now_epoch()
-    try:
-        conn = get_db()
-        cur = conn.execute(
-            "INSERT INTO user_prompts "
-            "(session_id, project_root, prompt_text, prompt_number, created_at, created_at_epoch) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, project_root, prompt_text, prompt_number, now, epoch),
-        )
-        conn.commit()
-        pid = cur.lastrowid
-        conn.close()
-        return pid
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] prompt_save error: {exc}", file=sys.stderr)
-        return None
-
-
-def prompt_search(
-    project_root: str,
-    query: str,
-    *,
-    limit: int = 10,
-) -> list[dict]:
-    """FTS5 search across user prompts. Returns id, prompt_number, excerpt, created_at."""
-    try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT p.id, p.prompt_number, p.created_at, "
-            "snippet(user_prompts_fts, 0, '[', ']', '…', 12) AS excerpt "
-            "FROM user_prompts_fts f "
-            "JOIN user_prompts p ON p.id = f.rowid "
-            "WHERE user_prompts_fts MATCH ? "
-            "  AND (p.project_root = ? OR p.project_root IS NULL) "
-            "ORDER BY p.created_at_epoch DESC LIMIT ?",
-            (query, project_root, limit),
-        ).fetchall()
-        result = [dict(r) for r in rows]
-        conn.close()
-        return result
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] prompt_search error: {exc}", file=sys.stderr)
-        return []
+from token_savior.memory.prompts import prompt_save, prompt_search  # noqa: E402,F401  re-exports
 
 
 # ---------------------------------------------------------------------------
@@ -3002,68 +2844,7 @@ def get_linked_observations(obs_id: int) -> dict[str, Any]:
 from token_savior.memory._text_utils import _STOPWORDS, _TOKEN_RE  # noqa: E402,F401  re-export
 
 
-def analyze_prompt_patterns(
-    project_root: str,
-    *,
-    window_days: int = 14,
-    min_occurrences: int = 3,
-    max_suggestions: int = 5,
-) -> list[dict]:
-    """Find recurring tokens in user prompts → suggest obs topics.
-
-    Returns list of {token, count, sample_prompts, existing_obs_count}.
-    """
-    cutoff = int(time.time()) - window_days * 86400
-    suggestions: list[dict] = []
-    try:
-        db = get_db()
-        rows = db.execute(
-            "SELECT id, prompt_text FROM user_prompts "
-            "WHERE (project_root=? OR project_root IS NULL) AND created_at_epoch >= ? "
-            "ORDER BY created_at_epoch DESC LIMIT 200",
-            (project_root, cutoff),
-        ).fetchall()
-
-        from collections import Counter, defaultdict
-        counter: Counter[str] = Counter()
-        samples: dict[str, list[str]] = defaultdict(list)
-        for r in rows:
-            text = (r["prompt_text"] or "").lower()
-            seen_in_prompt: set[str] = set()
-            for tok in _TOKEN_RE.findall(text):
-                tok_l = tok.lower()
-                if tok_l in _STOPWORDS or len(tok_l) < 4:
-                    continue
-                if tok_l in seen_in_prompt:
-                    continue
-                seen_in_prompt.add(tok_l)
-                counter[tok_l] += 1
-                if len(samples[tok_l]) < 3:
-                    samples[tok_l].append((r["prompt_text"] or "")[:80])
-
-        for tok, cnt in counter.most_common(30):
-            if cnt < min_occurrences:
-                break
-            existing = db.execute(
-                "SELECT COUNT(*) FROM observations "
-                "WHERE (project_root=? OR is_global=1) AND archived=0 "
-                "  AND (title LIKE ? OR content LIKE ? OR context LIKE ?)",
-                (project_root, f"%{tok}%", f"%{tok}%", f"%{tok}%"),
-            ).fetchone()[0]
-            if existing >= 2:
-                continue
-            suggestions.append({
-                "token": tok,
-                "count": cnt,
-                "sample_prompts": samples[tok],
-                "existing_obs_count": existing,
-            })
-            if len(suggestions) >= max_suggestions:
-                break
-        db.close()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] analyze_prompt_patterns error: {exc}", file=sys.stderr)
-    return suggestions
+from token_savior.memory.prompts import analyze_prompt_patterns  # noqa: E402,F401  re-export
 
 
 def run_promotions(project_root: str = "", dry_run: bool = False) -> dict[str, Any]:
@@ -3180,114 +2961,7 @@ def summary_parse(content: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def corpus_build(
-    project_root: str,
-    name: str,
-    *,
-    filter_type: str | None = None,
-    filter_tags: list[str] | None = None,
-    filter_symbol: str | None = None,
-) -> dict[str, Any]:
-    """Build a corpus from observations matching the filters. Stores IDs."""
-    where = ["project_root = ?", "archived = 0"]
-    params: list[Any] = [project_root]
-    if filter_type:
-        where.append("type = ?")
-        params.append(filter_type)
-    if filter_symbol:
-        where.append("symbol = ?")
-        params.append(filter_symbol)
-
-    sql = (
-        "SELECT id, type, title, tags FROM observations "
-        f"WHERE {' AND '.join(where)} "
-        "ORDER BY created_at_epoch DESC"
-    )
-    try:
-        conn = get_db()
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-        if filter_tags:
-            wanted = set(filter_tags)
-            filtered = []
-            for r in rows:
-                tags = []
-                try:
-                    tags = json.loads(r.get("tags") or "[]") or []
-                except Exception:
-                    tags = []
-                if wanted & set(tags):
-                    filtered.append(r)
-            rows = filtered
-
-        ids = [r["id"] for r in rows]
-        type_counts: dict[str, int] = {}
-        for r in rows:
-            type_counts[r["type"]] = type_counts.get(r["type"], 0) + 1
-
-        now = _now_iso()
-        epoch = _now_epoch()
-        conn.execute(
-            "INSERT INTO corpora (project_root, name, filter_type, filter_tags, "
-            "filter_symbol, observation_ids, created_at, created_at_epoch) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(project_root, name) DO UPDATE SET "
-            "filter_type=excluded.filter_type, filter_tags=excluded.filter_tags, "
-            "filter_symbol=excluded.filter_symbol, observation_ids=excluded.observation_ids, "
-            "created_at=excluded.created_at, created_at_epoch=excluded.created_at_epoch",
-            (
-                project_root,
-                name,
-                filter_type,
-                _json_dumps(filter_tags),
-                filter_symbol,
-                json.dumps(ids),
-                now,
-                epoch,
-            ),
-        )
-        conn.commit()
-        conn.close()
-        return {
-            "name": name,
-            "count": len(ids),
-            "observation_ids": ids,
-            "type_counts": type_counts,
-            "preview": [r["title"] for r in rows[:3]],
-            "created_at": now,
-        }
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] corpus_build error: {exc}", file=sys.stderr)
-        return {"name": name, "count": 0, "observation_ids": [], "type_counts": {}, "preview": []}
-
-
-def corpus_get(project_root: str, name: str) -> dict[str, Any] | None:
-    """Fetch corpus metadata + observation rows."""
-    try:
-        conn = get_db()
-        row = conn.execute(
-            "SELECT * FROM corpora WHERE project_root=? AND name=?",
-            (project_root, name),
-        ).fetchone()
-        if not row:
-            conn.close()
-            return None
-        ids = json.loads(row["observation_ids"] or "[]")
-        if not ids:
-            conn.close()
-            return {"corpus": dict(row), "observations": []}
-        placeholders = ",".join("?" * len(ids))
-        obs = conn.execute(
-            f"SELECT id, type, title, content, why, how_to_apply, symbol, file_path, "
-            f"tags, importance, created_at FROM observations WHERE id IN ({placeholders}) "
-            f"AND archived=0 ORDER BY created_at_epoch DESC",
-            ids,
-        ).fetchall()
-        conn.close()
-        return {"corpus": dict(row), "observations": [dict(o) for o in obs]}
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] corpus_get error: {exc}", file=sys.stderr)
-        return None
+from token_savior.memory.corpora import corpus_build, corpus_get  # noqa: E402,F401  re-exports
 
 
 # ---------------------------------------------------------------------------
