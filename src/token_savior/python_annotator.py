@@ -13,21 +13,10 @@ from token_savior.models import (
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    build_line_char_offsets,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _compute_line_offsets(source: str) -> tuple[list[str], list[int]]:
-    """Split source into lines and compute character offsets for each line start."""
-    lines = source.splitlines(keepends=False)
-    offsets: list[int] = []
-    offset = 0
-    for i, line in enumerate(lines):
-        offsets.append(offset)
-        # +1 for the newline character (or the last line which may not have one)
-        offset += len(line) + 1
-    return lines, offsets
 
 
 def _decorator_name(node: ast.expr) -> str:
@@ -241,7 +230,8 @@ def annotate_python(source: str, source_name: str = "<source>") -> StructuralMet
     Returns:
         StructuralMetadata with code structure populated.
     """
-    lines, line_offsets = _compute_line_offsets(source)
+    lines = source.split("\n")
+    line_offsets = build_line_char_offsets(lines)
     total_lines = len(lines)
     total_chars = len(source)
 
