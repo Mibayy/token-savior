@@ -26,7 +26,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
 from token_savior.server_handlers.checkpoints import HANDLERS as _CHECKPOINT_HANDLERS
 from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
@@ -34,6 +33,7 @@ from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.project_actions import (
     HANDLERS as _PROJECT_ACTION_HANDLERS,
 )
+from token_savior.server_handlers.tests import HANDLERS as _TESTS_HANDLERS
 from token_savior.breaking_changes import detect_breaking_changes as run_breaking_changes
 from token_savior.complexity import find_hotspots as run_hotspots
 from token_savior.config_analyzer import analyze_config as run_config_analysis
@@ -480,60 +480,6 @@ async def list_tools() -> list[Tool]:
 
 
 # ── Index-level handlers (slot + ensure + update → result) ────────────────
-
-
-def _h_find_impacted_test_files(slot, args):
-    _prep(slot)
-    return find_impacted_test_files(
-        slot.indexer._project_index,
-        changed_files=args.get("changed_files"),
-        symbol_names=args.get("symbol_names"),
-        max_tests=args.get("max_tests", 20),
-    )
-
-
-def _h_run_impacted_tests(slot, args):
-    _prep(slot)
-    result = run_impacted_tests(
-        slot.indexer._project_index,
-        changed_files=args.get("changed_files"),
-        symbol_names=args.get("symbol_names"),
-        max_tests=args.get("max_tests", 20),
-        timeout_sec=args.get("timeout_sec", 120),
-        max_output_chars=args.get("max_output_chars", 12000),
-        include_output=args.get("include_output", False),
-        compact=args.get("compact", False),
-    )
-    try:
-        if isinstance(result, dict) and not result.get("ok", True):
-            symbols = args.get("symbol_names") or []
-            headline = result.get("summary", {}).get("headline", "test failure")
-            timed_out = result.get("timed_out", False)
-            obs_type = "warning" if timed_out else "error_pattern"
-            title = f"Test failure: {headline}"[:120]
-            content_parts = [f"Exit code: {result.get('exit_code')}"]
-            if timed_out:
-                content_parts.append(f"Timed out after {args.get('timeout_sec', 120)}s")
-            if result.get("command"):
-                content_parts.append(f"Command: {' '.join(result['command'])}")
-            tail = result.get("summary", {}).get("tail", [])
-            if tail:
-                content_parts.append("Last lines:\n" + "\n".join(tail[-5:]))
-            obs_id = memory_db.observation_save(
-                session_id=None,
-                project_root=slot.root,
-                type=obs_type,
-                title=title,
-                content="\n".join(content_parts),
-                symbol=symbols[0] if symbols else None,
-                tags=["test-failure", "auto"],
-            )
-            if obs_id is not None:
-                if isinstance(result, dict):
-                    result["_memory_saved"] = f"#{obs_id}"
-    except Exception:
-        pass
-    return result
 
 
 def _h_analyze_config(slot, args):
@@ -1980,8 +1926,7 @@ _SLOT_HANDLERS: dict[str, object] = {
     **_GIT_HANDLERS,
     **_CHECKPOINT_HANDLERS,
     **_EDIT_HANDLERS,
-    "find_impacted_test_files": _h_find_impacted_test_files,
-    "run_impacted_tests": _h_run_impacted_tests,
+    **_TESTS_HANDLERS,
     **_PROJECT_ACTION_HANDLERS,
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
