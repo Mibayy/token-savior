@@ -84,15 +84,8 @@ def get_top_observations(
 
 
 def _ensure_memory_cache(conn) -> None:
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS memory_cache ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "  cache_key TEXT UNIQUE NOT NULL, "
-        "  obs_ids_ordered TEXT NOT NULL, "
-        "  scores TEXT NOT NULL, "
-        "  created_at_epoch INTEGER NOT NULL)"
-    )
-    conn.commit()
+    """Deprecated: memory_cache is now created by memory_schema.sql. No-op."""
+    return None
 
 
 def invalidate_memory_cache(project_root: str | None = None, mode: str | None = None) -> None:

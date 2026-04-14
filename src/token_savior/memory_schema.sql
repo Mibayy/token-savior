@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS observation_links (
 
 CREATE INDEX IF NOT EXISTS idx_links_source ON observation_links(source_id);
 CREATE INDEX IF NOT EXISTS idx_links_target ON observation_links(target_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique
+    ON observation_links(source_id, target_id, link_type);
+
+-- LRU cache for get_recent_index / memory injection ----------------------
+CREATE TABLE IF NOT EXISTS memory_cache (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key        TEXT UNIQUE NOT NULL,
+    obs_ids_ordered  TEXT NOT NULL,
+    scores           TEXT NOT NULL,
+    created_at_epoch INTEGER NOT NULL
+);
 
 -- Reasoning Trace Compression (v2.2 Step A) --------------------------------
 CREATE TABLE IF NOT EXISTS reasoning_chains (

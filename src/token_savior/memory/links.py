@@ -35,14 +35,8 @@ _TYPE_PRIORITY = {
 
 
 def _ensure_links_index(conn) -> None:
-    try:
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique "
-            "ON observation_links(source_id, target_id, link_type)"
-        )
-        conn.commit()
-    except sqlite3.Error:
-        pass
+    """Deprecated: idx_links_unique is now created by memory_schema.sql. No-op."""
+    return None
 
 
 def auto_link_observation(
