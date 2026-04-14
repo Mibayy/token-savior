@@ -16,12 +16,11 @@ from token_savior.models import (
     StructuralMetadata,
     build_line_char_offsets,
 )
+from token_savior.utils.dependency_graph import build_dependency_graph
 
 # ---------------------------------------------------------------------------
 # Dependency graph helpers
 # ---------------------------------------------------------------------------
-
-_IDENT_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
 
 _GO_KEYWORDS = frozenset({
     # Language keywords
@@ -37,34 +36,6 @@ _GO_KEYWORDS = frozenset({
     "println", "real", "recover", "rune", "string", "true", "uint", "uint8",
     "uint16", "uint32", "uint64", "uintptr",
 })
-
-
-def _build_dependency_graph(
-    functions: list[FunctionInfo],
-    classes: list[ClassInfo],
-    lines: list[str],
-    defined_names: set[str],
-) -> dict[str, list[str]]:
-    """Build intra-file dependency graph for functions and structs."""
-    graph: dict[str, list[str]] = {}
-
-    for func in functions:
-        start = func.line_range.start - 1  # 0-indexed
-        end = func.line_range.end  # exclusive
-        body_text = "\n".join(lines[start:end])
-        refs = set(_IDENT_RE.findall(body_text))
-        deps = sorted((refs & defined_names) - {func.name} - _GO_KEYWORDS)
-        graph[func.name] = deps
-
-    for cls in classes:
-        start = cls.line_range.start - 1
-        end = cls.line_range.end
-        body_text = "\n".join(lines[start:end])
-        refs = set(_IDENT_RE.findall(body_text))
-        deps = sorted((refs & defined_names) - {cls.name} - _GO_KEYWORDS)
-        graph[cls.name] = deps
-
-    return graph
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +467,9 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
 
     # Build intra-file dependency graph
     defined_names = {f.name for f in functions} | {c.name for c in updated_classes}
-    dependency_graph = _build_dependency_graph(functions, updated_classes, lines, defined_names)
+    dependency_graph = build_dependency_graph(
+        functions, updated_classes, lines, defined_names, _GO_KEYWORDS
+    )
 
     return StructuralMetadata(
         source_name=source_name,
