@@ -237,95 +237,137 @@ def find_brace_end_csharp(lines: list[str], start_line_0: int) -> int:
     return len(lines) - 1
 
 
+def _rust_skip_block_comment(
+    lines: list[str], idx: int, i: int
+) -> tuple[int, int]:
+    """Advance through a (possibly nested) /* ... */ block comment.
+
+    Caller positions (idx, i) on the opening ``/`` of ``/*``. Returns the
+    position just past the matching ``*/``. On EOF inside an open comment,
+    returns ``(len(lines), 0)``.
+    """
+    depth = 0
+    while idx < len(lines):
+        line = lines[idx]
+        while i < len(line):
+            ch = line[i]
+            if ch == "/" and i + 1 < len(line) and line[i + 1] == "*":
+                depth += 1
+                i += 2
+                continue
+            if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
+                depth -= 1
+                i += 2
+                if depth == 0:
+                    return idx, i
+                continue
+            i += 1
+        idx += 1
+        i = 0
+    return len(lines), 0
+
+
+def _rust_try_skip_raw_string(
+    lines: list[str], idx: int, i: int
+) -> tuple[int, int]:
+    """Try to consume a ``r#..."..."#...`` raw string starting at lines[idx][i].
+
+    Returns advanced ``(idx, i)`` past the closing delimiter if the literal is
+    well-formed. Returns the original ``(idx, i)`` unchanged if the leading
+    ``r`` is not actually a raw-string prefix (caller should fall through).
+    On EOF inside an open raw string, returns ``(len(lines), 0)``.
+    """
+    line = lines[idx]
+    j = i + 1
+    while j < len(line) and line[j] == "#":
+        j += 1
+    if j >= len(line) or line[j] != '"':
+        return idx, i  # not a raw string
+    hash_count = j - (i + 1)
+    j += 1  # past opening "
+    closing = '"' + "#" * hash_count
+    while True:
+        pos = lines[idx].find(closing, j)
+        if pos >= 0:
+            return idx, pos + len(closing)
+        idx += 1
+        if idx >= len(lines):
+            return len(lines), 0
+        j = 0
+
+
+def _rust_skip_string(line: str, i: int) -> int:
+    """Skip a regular ``"..."`` string with backslash escapes.
+
+    Returns index just past the closing ``"``. If the string is unterminated
+    on the line, returns ``len(line)``.
+    """
+    i += 1
+    while i < len(line):
+        if line[i] == "\\":
+            i += 2
+            continue
+        if line[i] == '"':
+            return i + 1
+        i += 1
+    return i
+
+
+def _rust_skip_char_or_lifetime(line: str, i: int) -> int:
+    """Skip ``'a'`` / ``'\\n'`` char literals; treat ``'a`` as a lifetime.
+
+    Caller positions ``i`` on the opening single quote. Returns the index
+    just past the literal (char) or just past the leading quote (lifetime).
+    """
+    if i + 2 < len(line) and line[i + 1] == "\\":
+        end = line.find("'", i + 2)
+        if end >= 0 and end <= i + 4:
+            return end + 1
+    elif i + 2 < len(line) and line[i + 2] == "'":
+        return i + 3
+    return i + 1  # lifetime — advance only past the leading quote
+
+
 def find_brace_end_rust(lines: list[str], start_line_0: int) -> int:
     """Find the 0-based line where the outermost brace closes,
     skipping strings, raw strings, char literals, and comments."""
     depth = 0
     found_open = False
-    in_block_comment = 0  # nesting depth for /* */
-    for idx in range(start_line_0, len(lines)):
+    idx = start_line_0
+    i = 0
+    while idx < len(lines):
         line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            # Block comment handling (Rust supports nested /* */)
-            if in_block_comment > 0:
-                if ch == "/" and i + 1 < len(line) and line[i + 1] == "*":
-                    in_block_comment += 1
-                    i += 2
-                    continue
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment -= 1
-                    i += 2
-                    continue
-                i += 1
+        if i >= len(line):
+            idx += 1
+            i = 0
+            continue
+        ch = line[i]
+        if ch == "/" and i + 1 < len(line) and line[i + 1] == "*":
+            idx, i = _rust_skip_block_comment(lines, idx, i)
+            continue
+        if ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
+            idx += 1
+            i = 0
+            continue
+        if ch == "r" and i + 1 < len(line) and line[i + 1] in ('"', "#"):
+            new_idx, new_i = _rust_try_skip_raw_string(lines, idx, i)
+            if (new_idx, new_i) != (idx, i):
+                idx, i = new_idx, new_i
                 continue
-            # Line comment
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment += 1
-                    i += 2
-                    continue
-            # Raw string: r#"..."#, r##"..."##, etc.
-            if ch == "r" and i + 1 < len(line) and line[i + 1] in ('"', "#"):
-                hash_count = 0
-                j = i + 1
-                while j < len(line) and line[j] == "#":
-                    hash_count += 1
-                    j += 1
-                if j < len(line) and line[j] == '"':
-                    j += 1
-                    # Find closing "###
-                    closing = '"' + "#" * hash_count
-                    while True:
-                        pos = line.find(closing, j)
-                        if pos >= 0:
-                            i = pos + len(closing)
-                            break
-                        # Span to next line
-                        idx += 1
-                        if idx >= len(lines):
-                            return len(lines) - 1
-                        line = lines[idx]
-                        j = 0
-                    continue
-            # Regular string
-            if ch == '"':
-                i += 1
-                while i < len(line):
-                    if line[i] == "\\":
-                        i += 2
-                        continue
-                    if line[i] == '"':
-                        i += 1
-                        break
-                    i += 1
-                continue
-            # Char literal (skip 'a', '\n', etc. but not lifetime 'a)
-            if ch == "'" and i + 1 < len(line):
-                # Lifetime check: 'a where next is alpha and followed by non-'
-                # Char literal: 'x' or '\n'
-                if i + 2 < len(line) and line[i + 1] == "\\":
-                    # Escaped char literal like '\n'
-                    end = line.find("'", i + 2)
-                    if end >= 0 and end <= i + 4:
-                        i = end + 1
-                        continue
-                elif i + 2 < len(line) and line[i + 2] == "'":
-                    # Simple char literal like 'a'
-                    i += 3
-                    continue
-                # Otherwise it's a lifetime, skip
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
+        if ch == '"':
+            i = _rust_skip_string(line, i)
+            continue
+        if ch == "'" and i + 1 < len(line):
+            i = _rust_skip_char_or_lifetime(line, i)
+            continue
+        if ch == "{":
+            depth += 1
+            found_open = True
+        elif ch == "}":
+            depth -= 1
+            if found_open and depth == 0:
+                return idx
+        i += 1
     return len(lines) - 1
 
 

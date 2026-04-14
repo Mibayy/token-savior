@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from token_savior.brace_matcher import find_brace_end_csharp
+from token_savior.brace_matcher import find_brace_end_csharp, find_brace_end_rust
 
 
 # (name, lines, start_line_0, expected_end_line)
@@ -96,3 +96,58 @@ def test_find_brace_end_csharp_characterization(
     lines: list[str], start: int, expected: int
 ) -> None:
     assert find_brace_end_csharp(lines, start) == expected
+
+
+# ---------------------------------------------------------------------------
+# Rust characterization
+# ---------------------------------------------------------------------------
+
+# Each expected value was captured from the pre-refactor implementation.
+RUST_CHARACTERIZATION_CASES: list[tuple[str, list[str], int, int]] = [
+    # --- baseline / nesting ---
+    ("single_line_empty", ["{}"], 0, 0),
+    ("single_line_simple", ["{ let x = 1; }"], 0, 0),
+    ("multi_line_simple", ["{", "  let x = 1;", "}"], 0, 2),
+    ("nested_inline", ["{ { x; } }"], 0, 0),
+    ("nested_multiline", ["{", "  { y; }", "}"], 0, 2),
+    ("deeply_nested", ["{", "{", "{", "}", "}", "}"], 0, 5),
+    # --- regular strings ---
+    ("string_open_brace", ["{", '  let s = "{";', "}"], 0, 2),
+    ("string_close_brace", ["{", '  let s = "}";', "}"], 0, 2),
+    ("escaped_quote", ["{", '  let s = "a\\"b";', "}"], 0, 2),
+    ("empty_string", ['{ let s = ""; }'], 0, 0),
+    # --- raw strings ---
+    ("raw_string_inline", ['{ let s = r#"{"#; }'], 0, 0),
+    ("raw_string_double_hash", ['{ let s = r##"{"##; }'], 0, 0),
+    ("raw_string_no_hash", ['{ let s = r"hello"; }'], 0, 0),
+    # --- byte strings (no special handling, treated as `b` ident + string) ---
+    ("byte_string", ['{ let s = b"{"; }'], 0, 0),
+    # --- char literals & lifetimes ---
+    ("char_brace", ["{", "  let c = '{';", "}"], 0, 2),
+    ("char_escaped_newline", ["{", "  let c = '\\n';", "}"], 0, 2),
+    ("char_simple", ["{ let c = 'x'; }"], 0, 0),
+    ("lifetime", ["{ let x: &'a str = \"hi\"; }"], 0, 0),
+    # --- comments ---
+    ("line_comment", ["{", "  // }", "}"], 0, 2),
+    ("block_comment_inline", ["{ /* } */ }"], 0, 0),
+    ("block_comment_nested", ["{", "/* /* } */ */", "}"], 0, 2),
+    ("block_comment_multiline", ["{", "  /*", "  }", "  */", "}"], 0, 4),
+    # --- unterminated / EOF ---
+    ("unterminated", ["{", "  x;"], 0, 1),
+    # --- start_line_0 != 0 ---
+    ("start_offset", ["fn foo() {", "fn bar()", "{", "    1;", "}", "}"], 2, 4),
+    ("brace_in_comment_before_start", ["// { unrelated", "{", "}"], 1, 2),
+    # --- realistic fn body ---
+    ("fn_body", ["fn m() {", "    if true { x(); }", "    return;", "}"], 0, 3),
+]
+
+
+@pytest.mark.parametrize(
+    "lines,start,expected",
+    [(lines, start, expected) for (_n, lines, start, expected) in RUST_CHARACTERIZATION_CASES],
+    ids=[name for (name, _l, _s, _e) in RUST_CHARACTERIZATION_CASES],
+)
+def test_find_brace_end_rust_characterization(
+    lines: list[str], start: int, expected: int
+) -> None:
+    assert find_brace_end_rust(lines, start) == expected
