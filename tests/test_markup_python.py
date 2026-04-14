@@ -385,8 +385,9 @@ class TestComplexDecorators:
 class TestEdgeCases:
     def test_empty_source(self):
         meta = annotate_python(SOURCE_EMPTY, "empty.py")
-        # Empty string splits into 0 lines
-        assert meta.total_lines == 0
+        # source.split("\n", "") returns [""] -- one empty line. This matches
+        # the convention used by every other annotator (see go/java/rust/...).
+        assert meta.total_lines == 1
         assert meta.total_chars == 0
         assert meta.functions == []
         assert meta.classes == []
@@ -395,7 +396,9 @@ class TestEdgeCases:
         meta = annotate_python(SOURCE_MINIMAL, "minimal.py")
         assert meta.functions == []
         assert meta.classes == []
-        assert meta.total_lines == 2
+        # "x = 1\ny = 2\n".split("\n") -> ["x = 1", "y = 2", ""] -- the
+        # trailing empty is the convention shared with all other annotators.
+        assert meta.total_lines == 3
 
     def test_import_aliases(self):
         meta = annotate_python(SOURCE_STAR_IMPORT_AND_ALIAS, "imports.py")
