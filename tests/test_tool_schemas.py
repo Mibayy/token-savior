@@ -1,6 +1,6 @@
 """Tests for tool schema definitions."""
 
-from token_savior.tool_schemas import TOOL_SCHEMAS, DEPRECATED_TOOLS
+from token_savior.tool_schemas import TOOL_SCHEMAS
 
 
 class TestToolSchemas:
@@ -26,17 +26,6 @@ class TestToolSchemas:
                 assert req in properties, (
                     f"Tool '{name}': required field '{req}' not in properties"
                 )
-
-    def test_deprecated_tools_removed_in_v2(self):
-        # v2.0.0: deprecated aliases from v1 were removed entirely.
-        assert DEPRECATED_TOOLS == set() or DEPRECATED_TOOLS == frozenset()
-
-    def test_deprecated_descriptions_mention_deprecated(self):
-        for name in DEPRECATED_TOOLS:
-            desc = TOOL_SCHEMAS[name]["description"]
-            assert "DEPRECATED" in desc.upper(), (
-                f"Deprecated tool '{name}' description should mention DEPRECATED"
-            )
 
     def test_tool_count(self):
         # v2.0.0: 53 core + 16 memory engine = 69 tools.

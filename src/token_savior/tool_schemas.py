@@ -1401,8 +1401,3 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
 }
-
-# Set of deprecated tool names for quick lookup
-DEPRECATED_TOOLS: set[str] = {
-    name for name, schema in TOOL_SCHEMAS.items() if schema.get("deprecated")
-}
