@@ -43,7 +43,9 @@ from token_savior.git_ops import (
 )
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
-from token_savior.project_actions import discover_project_actions, run_project_action
+from token_savior.server_handlers.project_actions import (
+    HANDLERS as _PROJECT_ACTION_HANDLERS,
+)
 from token_savior.workflow_ops import (
     apply_symbol_change_and_validate,
 )
@@ -692,20 +694,6 @@ def _h_apply_symbol_change_and_validate(slot, args):
         include_output=args.get("include_output", False),
         compact=args.get("compact", False),
         rollback_on_failure=args.get("rollback_on_failure", False),
-    )
-
-
-def _h_discover_project_actions(slot, args):
-    return discover_project_actions(slot.root)
-
-
-def _h_run_project_action(slot, args):
-    return run_project_action(
-        slot.root,
-        args["action_id"],
-        timeout_sec=args.get("timeout_sec", 120),
-        max_output_chars=args.get("max_output_chars", 12000),
-        include_output=args.get("include_output", False),
     )
 
 
@@ -2166,8 +2154,7 @@ _SLOT_HANDLERS: dict[str, object] = {
     "run_impacted_tests": _h_run_impacted_tests,
     "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
     "verify_edit": _h_verify_edit,
-    "discover_project_actions": _h_discover_project_actions,
-    "run_project_action": _h_run_project_action,
+    **_PROJECT_ACTION_HANDLERS,
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
     "find_hotspots": _h_find_hotspots,
