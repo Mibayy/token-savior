@@ -312,6 +312,25 @@ mcp_servers:
 
 ### Make the agent actually use it
 
+## Profiles
+
+`TOKEN_SAVIOR_PROFILE` (env var) filters which tools are advertised at startup.
+Handlers stay registered — filtered tools still execute if invoked by name —
+but the smaller `tools/list` payload reduces per-session token cost.
+
+| Profile | Tools | ~Tokens | Use case |
+|---------|------:|--------:|----------|
+| `full` (default) | 98 | ~9 800 | All capabilities — memory engine, stats, analysis |
+| `core`           | 54 | ~5 800 | Daily coding — navigation + structural editing, no memory engine |
+| `nav`            | 28 | ~3 100 | Read-only exploration / short sessions |
+
+```bash
+TOKEN_SAVIOR_PROFILE=core token-savior
+```
+
+Unknown values fall back to `full` with a stderr warning. Default behavior
+(unset) is unchanged.
+
 AI assistants default to `grep` and `cat` even when better tools are available.
 Add this to your `CLAUDE.md` or equivalent:
 

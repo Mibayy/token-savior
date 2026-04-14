@@ -16,6 +16,7 @@ graph pollution, no shared RAM between unrelated projects.
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 from typing import Any
@@ -65,6 +66,38 @@ from token_savior.tool_schemas import TOOL_SCHEMAS  # noqa: E402
 
 TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchema"])
          for name, s in TOOL_SCHEMAS.items()]
+
+
+# ---------------------------------------------------------------------------
+# Profile filtering — TOKEN_SAVIOR_PROFILE env var
+#
+# Filters which tools are *advertised* via list_tools. Handlers remain
+# registered in the dispatch tables, so a filtered-out tool still executes
+# correctly if invoked directly by name.
+# ---------------------------------------------------------------------------
+
+_PROFILE_EXCLUDES: dict[str, set[str]] = {
+    "full": set(),
+    "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
+    "nav":  set(_MEMORY_HANDLERS) | set(_META_HANDLERS) | set(_SLOT_HANDLERS),
+}
+
+_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
+if _PROFILE not in _PROFILE_EXCLUDES:
+    print(
+        f"[token-savior] unknown profile '{_PROFILE}', using full",
+        file=sys.stderr,
+    )
+    _PROFILE = "full"
+
+if _PROFILE != "full":
+    _excluded = _PROFILE_EXCLUDES[_PROFILE]
+    TOOLS = [t for t in TOOLS if t.name not in _excluded]
+
+print(
+    f"[token-savior] profile={_PROFILE} tools={len(TOOLS)}/{len(TOOL_SCHEMAS)}",
+    file=sys.stderr,
+)
 
 
 
