@@ -15,7 +15,7 @@ from typing import Optional, TYPE_CHECKING
 
 from token_savior.cache_ops import CacheManager
 from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files
-from token_savior.project_indexer import ProjectIndexer
+from token_savior.project_indexer import ProjectIndexer, _rebuild_path_indexes
 from token_savior.query_api import create_project_query_functions
 
 if TYPE_CHECKING:
@@ -119,7 +119,10 @@ class SlotManager:
                 print(f"[token-savior] Cache hit (git ref matches) -- {root}", file=sys.stderr)
                 slot.indexer = ProjectIndexer(root)
                 slot.indexer._project_index = cached_index
+                if not cached_index.sorted_paths or not cached_index.basename_map:
+                    _rebuild_path_indexes(cached_index)
                 slot.query_fns = create_project_query_functions(cached_index)
+                slot.cache_gen += 1
                 return
 
             changeset = get_changed_files(root, cached_index.last_indexed_git_ref)
@@ -132,7 +135,10 @@ class SlotManager:
                 )
                 slot.indexer = ProjectIndexer(root)
                 slot.indexer._project_index = cached_index
+                if not cached_index.sorted_paths or not cached_index.basename_map:
+                    _rebuild_path_indexes(cached_index)
                 slot.query_fns = create_project_query_functions(cached_index)
+                slot.cache_gen += 1
                 return
 
             print(
