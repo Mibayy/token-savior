@@ -79,19 +79,13 @@ from token_savior.memory.sessions import session_end, session_start  # noqa: E40
 # Observations
 # ---------------------------------------------------------------------------
 
-_DECAY_IMMUNE_TYPES = frozenset({"guardrail", "convention", "decision", "user", "feedback"})
-
-_DEFAULT_TTL_DAYS = {
-    "command": 60,
-    "research": 90,
-    "note": 60,
-    "idea": 120,
-    "bugfix": 180,
-    "ruled_out": 180,
-}
-_DECAY_MAX_AGE_SEC = 90 * 86400        # obs older than 90 days are candidates
-_DECAY_UNREAD_SEC = 30 * 86400         # must also be unread for at least 30 days
-_DECAY_MIN_ACCESS = 3                  # never decay obs accessed >= 3 times
+from token_savior.memory.decay import (  # noqa: E402,F401  re-exports (constants)
+    _DECAY_IMMUNE_TYPES,
+    _DECAY_MAX_AGE_SEC,
+    _DECAY_MIN_ACCESS,
+    _DECAY_UNREAD_SEC,
+    _DEFAULT_TTL_DAYS,
+)
 
 
 from token_savior.memory.consistency import (  # noqa: E402,F401  re-exports
@@ -941,47 +935,6 @@ from token_savior.memory.stats import get_stats  # noqa: E402,F401  re-export
 # ---------------------------------------------------------------------------
 
 
-def _recalculate_relevance_scores() -> int:
-    """Recalculate relevance scores based on decay config. Returns updated count."""
-    try:
-        conn = get_db()
-        configs = conn.execute("SELECT * FROM decay_config").fetchall()
-        config_map = {r["type"]: dict(r) for r in configs}
-
-        now_epoch = _now_epoch()
-        rows = conn.execute(
-            "SELECT id, type, relevance_score, access_count, created_at_epoch "
-            "FROM observations WHERE archived=0",
-        ).fetchall()
-
-        updated = 0
-        for row in rows:
-            cfg = config_map.get(row["type"])
-            if cfg is None:
-                continue
-
-            days_old = (now_epoch - row["created_at_epoch"]) / 86400
-            decay_rate = cfg["decay_rate"]
-            min_score = cfg["min_score"]
-            boost = cfg["boost_on_access"]
-
-            base = decay_rate ** days_old
-            boosted = base + (boost * row["access_count"])
-            new_score = max(min_score, min(1.0, boosted))
-
-            if abs(new_score - row["relevance_score"]) > 0.001:
-                conn.execute(
-                    "UPDATE observations SET relevance_score=? WHERE id=?",
-                    (round(new_score, 4), row["id"]),
-                )
-                updated += 1
-
-        conn.commit()
-        conn.close()
-        return updated
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] _recalculate_relevance_scores error: {exc}", file=sys.stderr)
-        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -989,24 +942,6 @@ def _recalculate_relevance_scores() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _bump_access(ids: list[int]) -> None:
-    """Increment access_count and update last_accessed_at/epoch for given IDs."""
-    if not ids:
-        return
-    now = _now_iso()
-    epoch = _now_epoch()
-    try:
-        conn = get_db()
-        placeholders = ",".join("?" for _ in ids)
-        conn.execute(
-            f"UPDATE observations SET access_count = access_count + 1, "
-            f"last_accessed_at = ?, last_accessed_epoch = ? WHERE id IN ({placeholders})",
-            [now, epoch, *ids],
-        )
-        conn.commit()
-        conn.close()
-    except sqlite3.Error:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1014,126 +949,13 @@ def _bump_access(ids: list[int]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _decay_candidates_sql() -> tuple[str, list]:
-    now = _now_epoch()
-    cutoff_age = now - _DECAY_MAX_AGE_SEC
-    cutoff_unread = now - _DECAY_UNREAD_SEC
-    sql = (
-        "SELECT id, type, title, created_at, access_count, last_accessed_epoch, project_root "
-        "FROM observations "
-        "WHERE archived = 0 "
-        "  AND decay_immune = 0 "
-        "  AND created_at_epoch < ? "
-        "  AND (last_accessed_epoch IS NULL OR last_accessed_epoch < ?) "
-        "  AND access_count < ? "
-    )
-    return sql, [cutoff_age, cutoff_unread, _DECAY_MIN_ACCESS]
-
-
-_ZERO_ACCESS_RULES = [
-    ("note", 30),
-    ("research", 45),
-    ("idea", 60),
-    ("bugfix", 90),
-]
-
-
-def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict[str, Any]:
-    """Archive observations eligible for decay. Returns counts + preview."""
-    sql, params = _decay_candidates_sql()
-    if project_root:
-        sql += "AND project_root = ? "
-        params.append(project_root)
-    sql += "ORDER BY created_at_epoch ASC"
-
-    try:
-        with db_session() as conn:
-            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-            now = int(time.time())
-            seen = {r["id"] for r in rows}
-
-            ttl_rows: list[dict] = []
-            tsql = (
-                "SELECT id, type, title, created_at, access_count "
-                "FROM observations "
-                "WHERE archived=0 AND expires_at_epoch IS NOT NULL "
-                "  AND expires_at_epoch < ? "
-            )
-            tparams: list[Any] = [now]
-            if project_root:
-                tsql += "AND project_root=? "
-                tparams.append(project_root)
-            for r in conn.execute(tsql, tparams).fetchall():
-                d = dict(r)
-                if d["id"] in seen:
-                    continue
-                d["reason"] = "ttl-expired"
-                ttl_rows.append(d)
-                seen.add(d["id"])
-
-            zero_access_rows: list[dict] = []
-            for obs_type, days in _ZERO_ACCESS_RULES:
-                cutoff = now - days * 86400
-                zsql = (
-                    "SELECT id, type, title, created_at, access_count "
-                    "FROM observations "
-                    "WHERE archived=0 AND decay_immune=0 "
-                    "  AND type=? AND access_count=0 AND created_at_epoch < ? "
-                )
-                zparams: list[Any] = [obs_type, cutoff]
-                if project_root:
-                    zsql += "AND project_root=? "
-                    zparams.append(project_root)
-                for r in conn.execute(zsql, zparams).fetchall():
-                    d = dict(r)
-                    if d["id"] in seen:
-                        continue
-                    d["reason"] = f"zero-access {obs_type} >{days}d"
-                    zero_access_rows.append(d)
-                    seen.add(d["id"])
-
-            all_rows = ttl_rows + rows + zero_access_rows
-
-            immune_count = conn.execute(
-                "SELECT COUNT(*) FROM observations WHERE archived=0 AND decay_immune=1"
-            ).fetchone()[0]
-            kept_count = conn.execute(
-                "SELECT COUNT(*) FROM observations WHERE archived=0"
-            ).fetchone()[0] - len(all_rows)
-
-            archived_ids: list[int] = []
-            if not dry_run and all_rows:
-                ids = [r["id"] for r in all_rows]
-                placeholders = ",".join("?" for _ in ids)
-                conn.execute(
-                    f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
-                    ids,
-                )
-                conn.commit()
-                archived_ids = ids
-
-        return {
-            "archived": len(all_rows) if not dry_run else 0,
-            "candidates": len(all_rows),
-            "zero_access_archived": len(zero_access_rows) if not dry_run else 0,
-            "zero_access_candidates": len(zero_access_rows),
-            "ttl_expired": len(ttl_rows) if not dry_run else 0,
-            "ttl_candidates": len(ttl_rows),
-            "kept": kept_count,
-            "immune": immune_count,
-            "preview": [
-                {"id": r["id"], "type": r["type"], "title": r["title"],
-                 "created_at": r["created_at"], "access_count": r.get("access_count", 0),
-                 "reason": r.get("reason", "standard decay")}
-                for r in all_rows[:20]
-            ],
-            "dry_run": dry_run,
-            "archived_ids": archived_ids,
-        }
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] run_decay error: {exc}", file=sys.stderr)
-        return {"archived": 0, "candidates": 0, "kept": 0, "immune": 0, "preview": [], "dry_run": dry_run}
+from token_savior.memory.decay import (  # noqa: E402,F401  re-exports
+    _ZERO_ACCESS_RULES,
+    _bump_access,
+    _decay_candidates_sql,
+    _recalculate_relevance_scores,
+    run_decay,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1143,358 +965,23 @@ def run_decay(project_root: str | None = None, dry_run: bool = True) -> dict[str
 # P(hit) = exp(−λ × days_since_access) × (1 + 0.1 × access_count)
 # An observation with ROI below ROI_THRESHOLD is a candidate for archival.
 
-_ROI_LAMBDA = 0.05  # exponential decay per day since last access
-_ROI_HORIZON_DAYS = 30
-_ROI_TOKENS_PER_HIT = 200  # estimated upstream token savings per recall
-_ROI_THRESHOLD = 0.0  # below this → archival candidate
-
-_ROI_TYPE_MULTIPLIER: dict[str, float] = {
-    "guardrail": 3.0,
-    "ruled_out": 2.5,
-    "convention": 2.5,
-    "warning": 2.0,
-    "decision": 2.0,
-    "error_pattern": 1.8,
-    "command": 1.5,
-    "infra": 1.5,
-    "config": 1.5,
-    "bugfix": 1.2,
-    "research": 1.0,
-    "note": 0.8,
-    "idea": 0.7,
-}
-
-
-def compute_observation_roi(obs: dict[str, Any], now_epoch: int | None = None) -> dict[str, Any]:
-    """Compute expected ROI of keeping an observation.
-
-    Returns a dict with p_hit, tokens_saved_expected, tokens_stored, roi, multiplier.
-    """
-    import math
-    now_epoch = now_epoch or int(time.time())
-    last_acc = obs.get("last_accessed_epoch") or obs.get("created_at_epoch") or now_epoch
-    days_since = max(0.0, (now_epoch - last_acc) / 86400.0)
-    access_count = int(obs.get("access_count") or 0)
-    p_hit = math.exp(-_ROI_LAMBDA * days_since) * (1.0 + 0.1 * access_count)
-    p_hit = min(p_hit, 1.0)
-    multiplier = _ROI_TYPE_MULTIPLIER.get(obs.get("type") or "note", 1.0)
-    # decay_immune observations always get a floor boost so they're never GC'd
-    if obs.get("decay_immune"):
-        multiplier = max(multiplier, 5.0)
-    title = obs.get("title") or ""
-    content = obs.get("content") or ""
-    tokens_stored = max(1, (len(title) + len(content)) // 4)
-    tokens_saved_expected = _ROI_TOKENS_PER_HIT * p_hit * _ROI_HORIZON_DAYS * multiplier
-    roi = tokens_saved_expected - tokens_stored
-    return {
-        "p_hit": round(p_hit, 4),
-        "tokens_saved_expected": round(tokens_saved_expected, 2),
-        "tokens_stored": tokens_stored,
-        "multiplier": multiplier,
-        "roi": round(roi, 2),
-    }
-
-
-def run_roi_gc(
-    project_root: str | None = None,
-    dry_run: bool = True,
-    threshold: float | None = None,
-) -> dict[str, Any]:
-    """Archive observations whose expected ROI falls below *threshold*.
-
-    decay_immune observations are always kept.
-    """
-    th = _ROI_THRESHOLD if threshold is None else threshold
-    try:
-        with db_session() as conn:
-            sql = (
-                "SELECT id, type, title, content, access_count, "
-                "       created_at_epoch, last_accessed_epoch, decay_immune "
-                "FROM observations WHERE archived=0 "
-            )
-            params: list[Any] = []
-            if project_root:
-                sql += "AND project_root=? "
-                params.append(project_root)
-            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-            now = int(time.time())
-            candidates: list[dict] = []
-            kept = 0
-            for r in rows:
-                if r.get("decay_immune"):
-                    kept += 1
-                    continue
-                metrics = compute_observation_roi(r, now_epoch=now)
-                if metrics["roi"] < th:
-                    candidates.append({
-                        "id": r["id"],
-                        "type": r["type"],
-                        "title": r["title"],
-                        "access_count": r.get("access_count") or 0,
-                        "roi": metrics["roi"],
-                        "p_hit": metrics["p_hit"],
-                        "tokens_stored": metrics["tokens_stored"],
-                    })
-                else:
-                    kept += 1
-
-            archived_ids: list[int] = []
-            if not dry_run and candidates:
-                ids = [c["id"] for c in candidates]
-                placeholders = ",".join("?" for _ in ids)
-                conn.execute(
-                    f"UPDATE observations SET archived=1 WHERE id IN ({placeholders})",
-                    ids,
-                )
-                conn.commit()
-                archived_ids = ids
-
-        candidates.sort(key=lambda c: c["roi"])
-        return {
-            "archived": len(archived_ids),
-            "candidates": len(candidates),
-            "kept": kept,
-            "threshold": th,
-            "dry_run": dry_run,
-            "preview": candidates[:20],
-            "archived_ids": archived_ids,
-        }
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] run_roi_gc error: {exc}", file=sys.stderr)
-        return {
-            "archived": 0, "candidates": 0, "kept": 0,
-            "threshold": th, "dry_run": dry_run, "preview": [], "archived_ids": [],
-        }
-
-
-def get_roi_stats(project_root: str | None = None) -> dict[str, Any]:
-    """Aggregate ROI statistics across the active corpus."""
-    try:
-        conn = get_db()
-        sql = (
-            "SELECT id, type, title, content, access_count, "
-            "       created_at_epoch, last_accessed_epoch, decay_immune "
-            "FROM observations WHERE archived=0 "
-        )
-        params: list[Any] = []
-        if project_root:
-            sql += "AND project_root=? "
-            params.append(project_root)
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-        conn.close()
-
-        if not rows:
-            return {
-                "total": 0, "total_tokens_stored": 0, "total_expected_savings": 0,
-                "negative_roi_count": 0, "by_type": {},
-                "threshold": _ROI_THRESHOLD, "lambda": _ROI_LAMBDA,
-                "horizon_days": _ROI_HORIZON_DAYS,
-            }
-
-        now = int(time.time())
-        total_tokens_stored = 0
-        total_expected_savings = 0.0
-        negative = 0
-        by_type: dict[str, dict[str, Any]] = {}
-        for r in rows:
-            m = compute_observation_roi(r, now_epoch=now)
-            total_tokens_stored += m["tokens_stored"]
-            total_expected_savings += m["tokens_saved_expected"]
-            if m["roi"] < _ROI_THRESHOLD and not r.get("decay_immune"):
-                negative += 1
-            t = r.get("type") or "unknown"
-            bucket = by_type.setdefault(t, {"count": 0, "tokens": 0, "expected_savings": 0.0})
-            bucket["count"] += 1
-            bucket["tokens"] += m["tokens_stored"]
-            bucket["expected_savings"] += m["tokens_saved_expected"]
-        for bucket in by_type.values():
-            bucket["expected_savings"] = round(bucket["expected_savings"], 2)
-        return {
-            "total": len(rows),
-            "total_tokens_stored": total_tokens_stored,
-            "total_expected_savings": round(total_expected_savings, 2),
-            "net_roi": round(total_expected_savings - total_tokens_stored, 2),
-            "negative_roi_count": negative,
-            "by_type": by_type,
-            "threshold": _ROI_THRESHOLD,
-            "lambda": _ROI_LAMBDA,
-            "horizon_days": _ROI_HORIZON_DAYS,
-        }
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] get_roi_stats error: {exc}", file=sys.stderr)
-        return {"total": 0, "total_tokens_stored": 0, "total_expected_savings": 0,
-                "negative_roi_count": 0, "by_type": {}}
+from token_savior.memory.roi import (  # noqa: E402,F401  re-exports
+    _ROI_HORIZON_DAYS,
+    _ROI_LAMBDA,
+    _ROI_THRESHOLD,
+    _ROI_TOKENS_PER_HIT,
+    _ROI_TYPE_MULTIPLIER,
+    compute_observation_roi,
+    get_roi_stats,
+    run_roi_gc,
+)
 
 
 # ---------------------------------------------------------------------------
 # MDL Memory Distillation — crystallize similar obs into abstractions.
 # ---------------------------------------------------------------------------
 
-def run_mdl_distillation(
-    project_root: str,
-    dry_run: bool = True,
-    min_cluster_size: int = 3,
-    compression_required: float = 0.2,
-    jaccard_threshold: float = 0.4,
-) -> dict[str, Any]:
-    """Detect MDL-compressible clusters and (optionally) crystallize them."""
-    from token_savior.mdl_distiller import find_distillation_candidates
-
-    try:
-        # Include decay_immune types (guardrail/convention) — they are exactly
-        # the repeated rules MDL is supposed to consolidate. Skip rows that
-        # were already distilled so we don't loop.
-        with db_session() as conn:
-            rows = [dict(r) for r in conn.execute(
-                "SELECT id, type, title, content, symbol, file_path, tags "
-                "FROM observations WHERE project_root=? AND archived=0 "
-                "  AND (tags IS NULL OR "
-                "       (tags NOT LIKE '%mdl-distilled%' "
-                "        AND tags NOT LIKE '%mdl-abstraction%'))",
-                [project_root],
-            ).fetchall()]
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] mdl_distillation load error: {exc}", file=sys.stderr)
-        return {"clusters_found": 0, "clusters_applied": 0, "obs_distilled": 0,
-                "abstractions_created": 0, "tokens_freed_estimate": 0,
-                "dry_run": dry_run, "preview": []}
-
-    clusters = find_distillation_candidates(
-        rows,
-        jaccard_threshold=jaccard_threshold,
-        min_cluster_size=min_cluster_size,
-        compression_required=compression_required,
-    )
-
-    preview: list[dict] = []
-    for c in clusters[:10]:
-        preview.append({
-            "obs_ids": c.obs_ids,
-            "size": len(c.obs_ids),
-            "dominant_type": c.dominant_type,
-            "mdl_before": c.mdl_before,
-            "mdl_after": c.mdl_after,
-            "compression_ratio": c.compression_ratio,
-            "shared_tokens": c.shared_tokens,
-            "abstraction": c.proposed_abstraction,
-        })
-
-    tokens_freed = int(sum(c.mdl_before - c.mdl_after for c in clusters))
-    if dry_run or not clusters:
-        return {
-            "clusters_found": len(clusters),
-            "clusters_applied": 0,
-            "obs_distilled": 0,
-            "abstractions_created": 0,
-            "tokens_freed_estimate": tokens_freed,
-            "dry_run": dry_run,
-            "preview": preview,
-        }
-
-    # ---- Apply: create abstraction obs + delta-encode members + link ----
-    applied = 0
-    distilled = 0
-    abstractions_created = 0
-    try:
-      with db_session() as conn:
-        now_iso = _now_iso()
-        epoch = _now_epoch()
-        for c in clusters:
-            title = f"[MDL] {c.dominant_type} × {len(c.obs_ids)} — " + " / ".join(c.shared_tokens[:3])
-            title = title[:200]
-            content = c.proposed_abstraction
-            chash = observation_hash(project_root, title, content)
-
-            tags_json = _json_dumps(["mdl-abstraction", f"distilled-from-{len(c.obs_ids)}"])
-            try:
-                cur = conn.execute(
-                    "INSERT INTO observations "
-                    "(session_id, project_root, type, title, content, tags, "
-                    " importance, content_hash, decay_immune, is_global, "
-                    " created_at, created_at_epoch, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        None, project_root, "convention", title, content,
-                        tags_json, 8, chash, 1, 0, now_iso, epoch, now_iso,
-                    ),
-                )
-            except sqlite3.Error as exc:
-                print(f"[token-savior:memory] mdl abstraction insert error: {exc}", file=sys.stderr)
-                continue
-            abs_id = cur.lastrowid
-            abstractions_created += 1
-
-            for obs_id, delta in zip(c.obs_ids, c.deltas):
-                new_content = f"[delta] {delta}\n[abstraction_id: {abs_id}]"
-                try:
-                    existing_tags = conn.execute(
-                        "SELECT tags FROM observations WHERE id=?", [obs_id]
-                    ).fetchone()
-                    tag_list: list[str] = []
-                    if existing_tags and existing_tags[0]:
-                        try:
-                            tag_list = json.loads(existing_tags[0]) or []
-                        except Exception:
-                            tag_list = []
-                    if "mdl-distilled" not in tag_list:
-                        tag_list.append("mdl-distilled")
-                    conn.execute(
-                        "UPDATE observations SET content=?, tags=?, updated_at=? WHERE id=?",
-                        (new_content, _json_dumps(tag_list), now_iso, obs_id),
-                    )
-                    # supersedes link (abstraction → member)
-                    conn.execute(
-                        "INSERT OR IGNORE INTO observation_links "
-                        "(source_id, target_id, link_type, auto_detected, created_at) "
-                        "VALUES (?, ?, 'supersedes', 1, ?)",
-                        (abs_id, obs_id, now_iso),
-                    )
-                    distilled += 1
-                except sqlite3.Error as exc:
-                    print(f"[token-savior:memory] mdl delta update error: {exc}", file=sys.stderr)
-                    continue
-            applied += 1
-        conn.commit()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] mdl apply error: {exc}", file=sys.stderr)
-
-    return {
-        "clusters_found": len(clusters),
-        "clusters_applied": applied,
-        "obs_distilled": distilled,
-        "abstractions_created": abstractions_created,
-        "tokens_freed_estimate": tokens_freed,
-        "dry_run": dry_run,
-        "preview": preview,
-    }
-
-
-def get_mdl_stats(project_root: str | None = None) -> dict[str, Any]:
-    """Counts of abstractions and distilled observations (tag-based)."""
-    try:
-        conn = get_db()
-        base = "SELECT id, tags, project_root FROM observations WHERE archived=0"
-        params: list[Any] = []
-        if project_root:
-            base += " AND project_root=?"
-            params.append(project_root)
-        abstractions = 0
-        distilled = 0
-        for r in conn.execute(base, params).fetchall():
-            raw = r[1] or "[]"
-            try:
-                tags = json.loads(raw)
-            except Exception:
-                tags = []
-            if "mdl-abstraction" in tags:
-                abstractions += 1
-            if "mdl-distilled" in tags:
-                distilled += 1
-        conn.close()
-        return {"abstractions": abstractions, "distilled": distilled}
-    except sqlite3.Error:
-        return {"abstractions": 0, "distilled": 0}
+from token_savior.memory.distillation import get_mdl_stats, run_mdl_distillation  # noqa: E402,F401  re-exports
 
 
 _PROMOTION_TYPE_RANK = {
@@ -1721,95 +1208,11 @@ def explain_observation(obs_id: int, query: str | None = None) -> dict[str, Any]
         return {"error": str(exc)}
 
 
-def global_dedup_check(
-    title: str, content: str, obs_type: str, threshold: float = 0.85
-) -> dict[str, Any] | None:
-    """Cross-project dedup for globals. Returns best global match (content_hash or Jaccard)."""
-    try:
-        db = get_db()
-        rows = db.execute(
-            "SELECT id, title, content, type, project_root, content_hash "
-            "FROM observations WHERE archived=0 AND is_global=1 AND type=?",
-            [obs_type],
-        ).fetchall()
-        db.close()
-    except sqlite3.Error:
-        return None
-    import hashlib as _h
-    norm = (content or "").strip().lower()
-    chash = _h.sha256(norm.encode("utf-8")).hexdigest() if norm else None
-    best = None
-    best_score = 0.0
-    for r in rows:
-        if chash and r["content_hash"] and r["content_hash"].endswith(chash[:16]):
-            return {
-                "id": r["id"], "title": r["title"], "type": r["type"],
-                "project_root": r["project_root"], "score": 1.0, "reason": "content_hash",
-            }
-        score = _jaccard(title, r["title"])
-        if score >= threshold and score > best_score:
-            best_score = score
-            best = {
-                "id": r["id"], "title": r["title"], "type": r["type"],
-                "project_root": r["project_root"], "score": round(score, 2),
-                "reason": "jaccard",
-            }
-    return best
-
-
-def semantic_dedup_check(
-    project_root: str, title: str, obs_type: str, threshold: float = 0.85
-) -> dict[str, Any] | None:
-    """Return best near-duplicate (same type) if Jaccard(title) >= threshold."""
-    try:
-        db = get_db()
-        rows = db.execute(
-            "SELECT id, title, type FROM observations "
-            "WHERE project_root=? AND archived=0 AND type=?",
-            [project_root, obs_type],
-        ).fetchall()
-        db.close()
-    except sqlite3.Error:
-        return None
-    best = None
-    best_score = 0.0
-    for r in rows:
-        score = _jaccard(title, r["title"])
-        if score >= threshold and score > best_score:
-            best_score = score
-            best = {
-                "id": r["id"], "title": r["title"], "type": r["type"],
-                "score": round(score, 2),
-            }
-    return best
-
-
-def get_injection_stats(project_root: str) -> dict[str, Any]:
-    try:
-        db = get_db()
-        row = db.execute(
-            "SELECT COUNT(*) AS sessions, "
-            "  COALESCE(SUM(tokens_injected), 0) AS total_injected, "
-            "  COALESCE(SUM(tokens_saved_est), 0) AS total_saved_est, "
-            "  COALESCE(AVG(tokens_injected), 0) AS avg_injected, "
-            "  COALESCE(AVG(tokens_saved_est), 0) AS avg_saved "
-            "FROM sessions WHERE project_root=? AND tokens_injected > 0",
-            [project_root],
-        ).fetchone()
-        db.close()
-        d = dict(row) if row else {
-            "sessions": 0, "total_injected": 0, "total_saved_est": 0,
-            "avg_injected": 0, "avg_saved": 0,
-        }
-        ratio = (d["total_saved_est"] / d["total_injected"]) if d["total_injected"] else 0
-        d["roi_ratio"] = round(ratio, 2)
-        d["avg_injected"] = int(d["avg_injected"] or 0)
-        d["avg_saved"] = int(d["avg_saved"] or 0)
-        return d
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] get_injection_stats error: {exc}", file=sys.stderr)
-        return {"sessions": 0, "total_injected": 0, "total_saved_est": 0,
-                "avg_injected": 0, "avg_saved": 0, "roi_ratio": 0}
+from token_savior.memory.dedup import (  # noqa: E402,F401  re-exports
+    get_injection_stats,
+    global_dedup_check,
+    semantic_dedup_check,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1818,195 +1221,17 @@ def get_injection_stats(project_root: str) -> dict[str, Any]:
 
 # Claude Max effective context window. Treat as a soft ceiling for budgeting;
 # we measure observable consumption only (tokens we injected via hooks).
-DEFAULT_SESSION_BUDGET_TOKENS = 200_000
-
-
-def get_session_budget_stats(
-    project_root: str,
-    *,
-    budget_tokens: int = DEFAULT_SESSION_BUDGET_TOKENS,
-) -> dict[str, Any]:
-    """Return the current/most-recent session's token budget consumption.
-
-    Picks the active session for *project_root* if one exists, otherwise the
-    most recent completed session. Returns a dict shaped for both the MCP tool
-    and the CLI box renderer.
-
-    Status thresholds:
-      - 🟢 green   : pct_used < 50
-      - 🟡 yellow  : 50 <= pct_used <= 75
-      - 🔴 red     : pct_used > 75   (auto-injected during PreCompact)
-    """
-    out: dict[str, Any] = {
-        "project_root": project_root,
-        "session_id": None,
-        "status_label": "active",
-        "tokens_injected": 0,
-        "tokens_saved_est": 0,
-        "budget_tokens": budget_tokens,
-        "pct_used": 0.0,
-        "pct_saved": 0.0,
-        "indicator": "🟢",
-        "level": "green",
-        "started_at": None,
-    }
-    try:
-        db = get_db()
-        # Prefer active session, else most recent.
-        row = db.execute(
-            "SELECT id, status, COALESCE(tokens_injected, 0) AS tokens_injected, "
-            "       COALESCE(tokens_saved_est, 0) AS tokens_saved_est, "
-            "       created_at, created_at_epoch "
-            "FROM sessions "
-            "WHERE project_root=? AND status='active' "
-            "ORDER BY created_at_epoch DESC LIMIT 1",
-            (project_root,),
-        ).fetchone()
-        if row is None:
-            row = db.execute(
-                "SELECT id, status, COALESCE(tokens_injected, 0) AS tokens_injected, "
-                "       COALESCE(tokens_saved_est, 0) AS tokens_saved_est, "
-                "       created_at, created_at_epoch "
-                "FROM sessions "
-                "WHERE project_root=? "
-                "ORDER BY created_at_epoch DESC LIMIT 1",
-                (project_root,),
-            ).fetchone()
-        db.close()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] get_session_budget_stats error: {exc}", file=sys.stderr)
-        return out
-
-    if row is None:
-        return out
-
-    d = dict(row)
-    injected = int(d.get("tokens_injected") or 0)
-    saved = int(d.get("tokens_saved_est") or 0)
-    pct_used = (injected / budget_tokens * 100.0) if budget_tokens else 0.0
-    pct_saved = (saved / budget_tokens * 100.0) if budget_tokens else 0.0
-    if pct_used > 75:
-        indicator, level = "🔴", "red"
-    elif pct_used >= 50:
-        indicator, level = "🟡", "yellow"
-    else:
-        indicator, level = "🟢", "green"
-
-    out.update(
-        session_id=d["id"],
-        status_label=d.get("status") or "active",
-        tokens_injected=injected,
-        tokens_saved_est=saved,
-        pct_used=round(pct_used, 1),
-        pct_saved=round(pct_saved, 1),
-        indicator=indicator,
-        level=level,
-        started_at=d.get("created_at"),
-    )
-    return out
-
-
-def format_session_budget_box(stats: dict[str, Any]) -> str:
-    """Render get_session_budget_stats() as a 60-char status box."""
-    pct = stats.get("pct_used", 0.0)
-    bar_w = 40
-    filled = max(0, min(bar_w, int(round(pct / 100.0 * bar_w))))
-    bar = "█" * filled + "·" * (bar_w - filled)
-    sid = stats.get("session_id") or "—"
-    project = stats.get("project_root") or "(none)"
-    status = stats.get("status_label", "?")
-    indicator = stats.get("indicator", "🟢")
-    level = stats.get("level", "green")
-    injected = stats.get("tokens_injected", 0)
-    saved = stats.get("tokens_saved_est", 0)
-    budget = stats.get("budget_tokens", DEFAULT_SESSION_BUDGET_TOKENS)
-    pct_saved = stats.get("pct_saved", 0.0)
-    started = (stats.get("started_at") or "")[:19]
-    proj_name = project.rstrip("/").split("/")[-1] or project
-    lines = [
-        "┌─ Session Budget ─────────────────────────────────────────┐",
-        f"│ Session #{sid}  · {status:<10} · started {started:<19} │",
-        f"│ Project: {proj_name[:48]:<48}      │",
-        f"│ Injected : {injected:>7,} tok  ({pct:>5.1f}% of {budget:>6,})        │",
-        f"│ Saved est: {saved:>7,} tok  ({pct_saved:>5.1f}% of {budget:>6,})        │",
-        f"│ {indicator}  {level.upper():<6}  [{bar}]  │",
-        "└──────────────────────────────────────────────────────────┘",
-    ]
-    return "\n".join(lines)
+from token_savior.memory.budget import (  # noqa: E402,F401  re-exports
+    DEFAULT_SESSION_BUDGET_TOKENS,
+    format_session_budget_box,
+    get_session_budget_stats,
+)
 
 
 from token_savior.memory._text_utils import _jaccard  # noqa: E402,F401  re-export
 
 
-def run_health_check(project_root: str) -> dict[str, Any]:
-    """Report orphan symbols, stale obs, near-duplicates, incomplete obs."""
-    issues: dict[str, Any] = {
-        "orphan_symbols": [],
-        "stale_obs": [],
-        "near_duplicates": [],
-        "incomplete_obs": [],
-        "summary": {},
-    }
-    try:
-        db = get_db()
-        incomplete = db.execute(
-            "SELECT id, type, title FROM observations "
-            "WHERE project_root=? AND archived=0 "
-            "  AND symbol IS NULL AND file_path IS NULL AND context IS NULL "
-            "  AND type NOT IN ('idea', 'research', 'note')",
-            [project_root],
-        ).fetchall()
-        issues["incomplete_obs"] = [dict(r) for r in incomplete]
-
-        all_obs = db.execute(
-            "SELECT id, title FROM observations WHERE project_root=? AND archived=0",
-            [project_root],
-        ).fetchall()
-        seen_pairs: set[tuple[int, int]] = set()
-        for i, obs in enumerate(all_obs):
-            for other in all_obs[:i]:
-                score = _jaccard(obs["title"], other["title"])
-                if score >= 0.7:
-                    key = (min(obs["id"], other["id"]), max(obs["id"], other["id"]))
-                    if key in seen_pairs:
-                        continue
-                    seen_pairs.add(key)
-                    issues["near_duplicates"].append({
-                        "id_a": obs["id"], "title_a": obs["title"],
-                        "id_b": other["id"], "title_b": other["title"],
-                        "score": round(score, 2),
-                    })
-
-        symbol_obs = db.execute(
-            "SELECT id, title, symbol, file_path FROM observations "
-            "WHERE project_root=? AND archived=0 AND symbol IS NOT NULL",
-            [project_root],
-        ).fetchall()
-        for obs in symbol_obs:
-            fp = obs["file_path"]
-            if not fp:
-                continue
-            full = fp if os.path.isabs(fp) else os.path.join(project_root, fp)
-            if not os.path.exists(full):
-                issues["orphan_symbols"].append({
-                    "id": obs["id"], "title": obs["title"],
-                    "symbol": obs["symbol"], "file_path": fp,
-                })
-        db.close()
-    except sqlite3.Error as exc:
-        print(f"[token-savior:memory] run_health_check error: {exc}", file=sys.stderr)
-
-    issues["summary"] = {
-        "orphan_symbols": len(issues["orphan_symbols"]),
-        "near_duplicates": len(issues["near_duplicates"]),
-        "incomplete_obs": len(issues["incomplete_obs"]),
-        "total_issues": (
-            len(issues["orphan_symbols"])
-            + len(issues["near_duplicates"])
-            + len(issues["incomplete_obs"])
-        ),
-    }
-    return issues
+from token_savior.memory.health import run_health_check  # noqa: E402,F401  re-export
 
 
 def relink_all(project_root: str, dry_run: bool = False) -> dict[str, Any]:
