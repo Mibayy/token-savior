@@ -16,9 +16,7 @@ graph pollution, no shared RAM between unrelated projects.
 
 from __future__ import annotations
 
-import json
-import os
-import time
+import sys
 import traceback
 from typing import Any
 
@@ -26,6 +24,8 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
+from token_savior import memory_db
+from token_savior import server_state as s
 from token_savior.server_handlers import (
     META_HANDLERS as _META_HANDLERS,
     MEMORY_HANDLERS as _MEMORY_HANDLERS,
@@ -35,50 +35,23 @@ from token_savior.server_handlers import (
 from token_savior.server_handlers.code_nav import (
     _q_get_edit_context,  # re-export for tests/test_server.py
 )
-from token_savior.server_handlers.memory import (
-    _resolve_memory_project,  # re-export (kept for backward compatibility)
-)
 from token_savior.server_handlers.stats import (
     _format_duration,  # re-export for tests/test_usage_stats.py
     _format_usage_stats,  # re-export for tests/test_usage_stats.py
 )
-from token_savior.slot_manager import _ProjectSlot
-from token_savior import memory_db
-
-# ---------------------------------------------------------------------------
-# Module-level state delegated to server_state
-# ---------------------------------------------------------------------------
-
-from token_savior import server_state as s
-from token_savior.server_state import server
-
-
-# ---------------------------------------------------------------------------
-# Cross-cutting helpers (compact-output formatting, slot prep, naive-cost
-# estimation, async pre-warm, project-root resolution) live in
-# server_runtime. Re-exported so existing callers and tests keep working.
-# ---------------------------------------------------------------------------
-
 from token_savior.server_runtime import (
-    _CLIENT_NAME,
-    _SESSION_LABEL,
-    _TOOL_COST_MULTIPLIERS,
     _count_and_wrap_result,
-    _detect_client_name,
-    _estimate_naive_chars_for_call,
-    _flush_stats,
-    _fmt_lines,
+    _flush_stats,  # re-export for tests/test_usage_stats.py
     _format_result,
-    _get_stats_file,
-    _load_cumulative_stats,
+    _load_cumulative_stats,  # re-export for tests/test_usage_stats.py
     _parse_workspace_roots,
     _prep,
-    _recompute_leiden,
     _register_roots,
-    _resolve_project_root,
     _warm_cache_async,
     compress_symbol_output,
 )
+from token_savior.server_state import server
+from token_savior.slot_manager import _ProjectSlot  # re-export for tests/test_usage_stats.py
 
 # Called once at module import so slots exist before any tool call.
 _register_roots(_parse_workspace_roots())
