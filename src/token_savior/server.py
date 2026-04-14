@@ -26,16 +26,9 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from token_savior.checkpoint_ops import (
-    compare_checkpoint_by_symbol,
-    create_checkpoint,
-    delete_checkpoint,
-    list_checkpoints,
-    prune_checkpoints,
-    restore_checkpoint,
-)
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
+from token_savior.server_handlers.checkpoints import HANDLERS as _CHECKPOINT_HANDLERS
 from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
 from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.project_actions import (
@@ -487,44 +480,6 @@ async def list_tools() -> list[Tool]:
 
 
 # ── Index-level handlers (slot + ensure + update → result) ────────────────
-
-
-def _h_create_checkpoint(slot, args):
-    _prep(slot)
-    return create_checkpoint(slot.indexer._project_index, args["file_paths"])
-
-
-def _h_list_checkpoints(slot, args):
-    _prep(slot)
-    return list_checkpoints(slot.indexer._project_index)
-
-
-def _h_delete_checkpoint(slot, args):
-    _prep(slot)
-    return delete_checkpoint(slot.indexer._project_index, args["checkpoint_id"])
-
-
-def _h_prune_checkpoints(slot, args):
-    _prep(slot)
-    return prune_checkpoints(slot.indexer._project_index, keep_last=args.get("keep_last", 10))
-
-
-def _h_restore_checkpoint(slot, args):
-    _prep(slot)
-    result = restore_checkpoint(slot.indexer._project_index, args["checkpoint_id"])
-    if result.get("ok"):
-        for f in result.get("restored_files", []):
-            slot.indexer.reindex_file(f)
-    return result
-
-
-def _h_compare_checkpoint_by_symbol(slot, args):
-    _prep(slot)
-    return compare_checkpoint_by_symbol(
-        slot.indexer._project_index,
-        args["checkpoint_id"],
-        max_files=args.get("max_files", 20),
-    )
 
 
 def _h_find_impacted_test_files(slot, args):
@@ -2023,12 +1978,7 @@ _MEMORY_HANDLERS: dict[str, object] = {
 # Dispatch table: tool name → handler(slot, arguments) → result
 _SLOT_HANDLERS: dict[str, object] = {
     **_GIT_HANDLERS,
-    "create_checkpoint": _h_create_checkpoint,
-    "list_checkpoints": _h_list_checkpoints,
-    "delete_checkpoint": _h_delete_checkpoint,
-    "prune_checkpoints": _h_prune_checkpoints,
-    "restore_checkpoint": _h_restore_checkpoint,
-    "compare_checkpoint_by_symbol": _h_compare_checkpoint_by_symbol,
+    **_CHECKPOINT_HANDLERS,
     **_EDIT_HANDLERS,
     "find_impacted_test_files": _h_find_impacted_test_files,
     "run_impacted_tests": _h_run_impacted_tests,
