@@ -165,6 +165,9 @@ _COMPRESSIBLE_TOOLS: frozenset[str] = frozenset({
     "get_dependents",
     "get_dependencies",
     "get_call_chain",
+    "get_change_impact",
+    "find_impacted_test_files",
+    "get_structure_summary",
 })
 
 _PREFETCHABLE_TOOLS: frozenset[str] = frozenset({

@@ -96,6 +96,27 @@ def compress_symbol_output(tool_name: str, result: object) -> str:
             # get_call_chain returns {"chain": [hop, hop, ...]} — compress hops.
             if tool_name == "get_call_chain" and isinstance(result.get("chain"), list):
                 return "\n".join(_row(tool_name, e) for e in result["chain"])
+            # get_change_impact returns {"direct": [...], "transitive": [...]}.
+            # Compress each list and tag rows with their bucket + depth.
+            if tool_name == "get_change_impact" and (
+                isinstance(result.get("direct"), list)
+                or isinstance(result.get("transitive"), list)
+            ):
+                lines: list[str] = []
+                for bucket in ("direct", "transitive"):
+                    entries = result.get(bucket) or []
+                    for e in entries:
+                        row = _row(tool_name, e)
+                        meta_parts = [f"@B:{bucket}"]
+                        if isinstance(e, dict):
+                            if "depth" in e:
+                                meta_parts.append(f"@D:{e['depth']}")
+                            if "confidence" in e:
+                                meta_parts.append(f"@C:{e['confidence']:.2f}")
+                        lines.append(" ".join(meta_parts) + " " + row)
+                if result.get("truncated"):
+                    lines.append(f"[truncated] {result.get('message', '')}")
+                return "\n".join(lines)
             return _row(tool_name, result)
         return str(result)
     except Exception:

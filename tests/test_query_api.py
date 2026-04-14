@@ -1588,3 +1588,30 @@ class TestCompressCallChain:
 
         out = compress_symbol_output("get_call_chain", {"error": "no path"})
         assert "no path" in out
+
+
+class TestCompressChangeImpact:
+    """Verify compress_symbol_output handles {'direct': [...], 'transitive': [...]}."""
+
+    def test_change_impact_tags_bucket_and_depth(self):
+        from token_savior.server_runtime import compress_symbol_output
+
+        payload = {
+            "direct": [
+                {"name": "A.run", "file": "a.py", "line": 10, "type": "method",
+                 "confidence": 1.0, "depth": 1},
+            ],
+            "transitive": [
+                {"name": "B.step", "file": "b.py", "line": 22, "type": "method",
+                 "confidence": 0.6, "depth": 2},
+                {"name": "helper", "file": "u.py", "line": 3, "type": "function",
+                 "confidence": 0.36, "depth": 3},
+            ],
+        }
+        out = compress_symbol_output("get_change_impact", payload)
+        lines = out.splitlines()
+        assert len(lines) == 3
+        assert lines[0].startswith("@B:direct @D:1")
+        assert "@S:A.run" in lines[0] and "@L:10" in lines[0]
+        assert lines[1].startswith("@B:transitive @D:2")
+        assert lines[2].startswith("@B:transitive @D:3")
