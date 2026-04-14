@@ -245,6 +245,20 @@ uvx token-savior-recall
 
 No venv, no clone. Runs directly from PyPI.
 
+### Quick start (pip)
+
+```bash
+pip install "token-savior-recall[mcp]"
+```
+
+The `[mcp]` extra is required to run the server. Without it, only the core indexer is installed.
+
+### One-liner (Claude Code)
+
+```bash
+claude mcp add token-savior -- /path/to/venv/bin/token-savior
+```
+
 ### Development install
 
 ```bash
@@ -260,7 +274,8 @@ python3 -m venv .venv
 
 ### Claude Code / Cursor / Windsurf / Cline
 
-Add to `.mcp.json` (or `~/.claude/settings.json`):
+Add to `.mcp.json` (project-scoped) or `~/.claude/settings.json` (user-scoped).
+Alternatively, use the CLI: `claude mcp add token-savior -- /path/to/venv/bin/token-savior`
 
 ```json
 {
@@ -287,7 +302,7 @@ critical-observation feed (guardrails, warnings, error patterns).
 ```yaml
 mcp_servers:
   token-savior-recall:
-    command: /path/to/venv/bin/token-savior-recall
+    command: /path/to/venv/bin/token-savior
     env:
       WORKSPACE_ROOTS: /path/to/project1,/path/to/project2
       TOKEN_SAVIOR_CLIENT: my-client
