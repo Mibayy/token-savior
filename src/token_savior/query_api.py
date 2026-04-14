@@ -1001,7 +1001,7 @@ class ProjectQueryEngine:
         result = sorted(deps)
         if max_results > 0:
             result = result[:max_results]
-        return [self._resolve_symbol_info(dep) for dep in result]
+        return [self._resolve_symbol_info(dep, strip_preview=True) for dep in result]
 
     def get_dependents(self, name: str, max_results: int = 0, max_total_chars: int = 50_000) -> list[dict]:
         """What references this function/class (from reverse_dependency_graph)."""
@@ -1014,7 +1014,7 @@ class ProjectQueryEngine:
         entries = []
         chars_used = 0
         for dep in result:
-            entry = self._resolve_symbol_info(dep)
+            entry = self._resolve_symbol_info(dep, strip_preview=True)
             entry_len = len(str(entry))
             if max_total_chars > 0 and chars_used + entry_len > max_total_chars:
                 entries.append({
@@ -1049,7 +1049,7 @@ class ProjectQueryEngine:
         if resolved_to is None:
             return {"error": f"'{to_name}' not found in dependency graph"}
         if resolved_from == resolved_to:
-            info = self._resolve_symbol_info(resolved_from, level=level)
+            info = self._resolve_symbol_info(resolved_from, level=level, strip_preview=True)
             info.setdefault("name", from_name)
             return {"chain": [info]}
 
@@ -1089,7 +1089,7 @@ class ProjectQueryEngine:
         # Enrich each hop with file, line, signature, source preview
         chain = []
         for name in path_names:
-            info = self._resolve_symbol_info(name, level=level)
+            info = self._resolve_symbol_info(name, level=level, strip_preview=True)
             info.setdefault("name", name)
             chain.append(info)
 
@@ -1992,12 +1992,26 @@ class ProjectQueryEngine:
             out["source_preview"] = "\n".join(preview_lines)
         return out
 
-    def _resolve_symbol_info(self, name: str, level: int = 0) -> dict:
-        """Resolve a symbol name to rich info (file, line, signature, preview)."""
+    def _resolve_symbol_info(
+        self, name: str, level: int = 0, strip_preview: bool = False
+    ) -> dict:
+        """Resolve a symbol name to rich info (file, line, signature, preview).
+
+        ``strip_preview=True`` drops ``source_preview`` and ``docstring`` from
+        the returned dict. Used by list-producing tools (get_dependents,
+        get_dependencies, get_call_chain) where each entry is a pointer — the
+        caller can fetch the body via get_function_source when needed.
+        """
+        def _strip(info: dict) -> dict:
+            if strip_preview and isinstance(info, dict):
+                info.pop("source_preview", None)
+                info.pop("docstring", None)
+            return info
+
         index = self.index
         class_info = self._resolve_exact_class_info(name, level=level)
         if class_info is not None:
-            return class_info
+            return _strip(class_info)
         # Try symbol table first
         if name in index.symbol_table:
             path = index.symbol_table[name]
@@ -2010,10 +2024,10 @@ class ProjectQueryEngine:
                         "error": f"function '{name}' is ambiguous; use a fully qualified signature",
                     }
                 if func is not None:
-                    return self._func_result(func, path, meta, level=level)
+                    return _strip(self._func_result(func, path, meta, level=level))
                 for cls in meta.classes:
                     if cls.name == name or cls.qualified_name == name:
-                        return self._class_result(cls, path, meta, level=level)
+                        return _strip(self._class_result(cls, path, meta, level=level))
         # Fallback: search all files
         candidate_results: list[dict] = []
         for path, meta in sorted(index.files.items()):
@@ -2024,10 +2038,10 @@ class ProjectQueryEngine:
                     "error": f"function '{name}' is ambiguous; use a fully qualified signature",
                 }
             if func is not None:
-                candidate_results.append(self._func_result(func, path, meta, level=level))
+                candidate_results.append(_strip(self._func_result(func, path, meta, level=level)))
             for cls in meta.classes:
                 if cls.name == name or cls.qualified_name == name:
-                    return self._class_result(cls, path, meta, level=level)
+                    return _strip(self._class_result(cls, path, meta, level=level))
         if len(candidate_results) == 1:
             return candidate_results[0]
         if len(candidate_results) > 1:

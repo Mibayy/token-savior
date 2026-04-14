@@ -730,6 +730,25 @@ class TestProjectQueryFunctions:
         deps = self.funcs["get_dependents"]("Engine.run")
         assert any(d.get("name") == "Runner.execute" for d in deps)
 
+    def test_get_dependents_strips_preview_and_docstring(self):
+        deps = self.funcs["get_dependents"]("Engine.run")
+        for entry in deps:
+            assert "source_preview" not in entry
+            assert "docstring" not in entry
+
+    def test_get_dependencies_strips_preview_and_docstring(self):
+        deps = self.funcs["get_dependencies"]("Engine.run")
+        for entry in deps:
+            assert "source_preview" not in entry
+            assert "docstring" not in entry
+
+    def test_get_call_chain_default_strips_preview_even_at_level_0(self):
+        # level=0 on get_call_chain still strips preview because callers of
+        # list tools don't want per-hop bodies (use get_function_source).
+        result = self.funcs["get_call_chain"]("Runner.execute", "helper", level=0)
+        for hop in result["chain"]:
+            assert "source_preview" not in hop
+
     def test_get_dependents_for_class_aggregates_method_dependents(self):
         deps = self.funcs["get_dependents"]("Engine")
         assert any(d.get("name") == "Runner.execute" for d in deps)
@@ -748,9 +767,13 @@ class TestProjectQueryFunctions:
             assert "signature" not in hop
             assert "end_line" not in hop
 
-    def test_get_call_chain_level_0_includes_preview(self):
+    def test_get_call_chain_level_0_exposes_signature_but_no_preview(self):
+        # level=0 adds signature/end_line back but get_call_chain always
+        # strip_preview=True -- bodies belong to get_function_source.
         result = self.funcs["get_call_chain"]("Runner.execute", "helper", level=0)
-        assert any("source_preview" in hop for hop in result["chain"])
+        assert any("signature" in hop for hop in result["chain"])
+        for hop in result["chain"]:
+            assert "source_preview" not in hop
 
     def test_get_call_chain_direct(self):
         result = self.funcs["get_call_chain"]("Engine.run", "helper")
