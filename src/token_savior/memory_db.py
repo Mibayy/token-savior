@@ -2859,12 +2859,7 @@ def format_session_budget_box(stats: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _jaccard(a: str, b: str) -> float:
-    sa = set((a or "").lower().split())
-    sb = set((b or "").lower().split())
-    if not sa or not sb:
-        return 0.0
-    return len(sa & sb) / len(sa | sb)
+from token_savior.memory._text_utils import _jaccard  # noqa: E402,F401  re-export
 
 
 def run_health_check(project_root: str) -> dict[str, Any]:
@@ -3004,17 +2999,7 @@ def get_linked_observations(obs_id: int) -> dict[str, Any]:
     return out
 
 
-_STOPWORDS = frozenset({
-    "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "is",
-    "are", "be", "this", "that", "it", "at", "by", "with", "as", "from", "how",
-    "why", "what", "when", "where", "can", "le", "la", "les", "un", "une", "des",
-    "de", "du", "et", "ou", "est", "sont", "pour", "dans", "sur", "avec", "pas",
-    "qui", "que", "quoi", "comment", "pourquoi", "je", "tu", "il", "elle", "on",
-    "nous", "vous", "ils", "se", "sa", "son", "ses", "ce", "ces", "tout", "tous",
-    "plus", "moins", "faire", "fait", "peux", "peut", "veux", "mais", "donc",
-})
-
-_TOKEN_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]{2,}")
+from token_savior.memory._text_utils import _STOPWORDS, _TOKEN_RE  # noqa: E402,F401  re-export
 
 
 def analyze_prompt_patterns(
