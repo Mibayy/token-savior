@@ -240,6 +240,11 @@ class ProjectIndex:
     # (index, reindex_file, remove_file). Transient.
     sorted_paths: list[str] = field(default_factory=list)
 
+    # basename -> list of full rel paths. Lets _resolve_file short-circuit
+    # the O(n) endswith fallback with an O(1) lookup when the caller passes
+    # a bare filename. Refreshed alongside sorted_paths.
+    basename_map: dict[str, list[str]] = field(default_factory=dict)
+
 
 @dataclass
 class ConfigIssue:

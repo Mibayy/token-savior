@@ -377,7 +377,21 @@ def _resolve_file(index: ProjectIndex, file_path: str) -> StructuralMetadata | N
     """Resolve a file path to its StructuralMetadata, trying exact and relative matches."""
     if file_path in index.files:
         return index.files[file_path]
-    # Try matching against the end of stored paths
+    # Fast path: bare filename or tail match via basename_map.
+    bmap = index.basename_map
+    if bmap:
+        base = os.path.basename(file_path)
+        candidates = bmap.get(base)
+        if candidates:
+            for stored in candidates:
+                if stored == file_path or stored.endswith(file_path) or file_path.endswith(stored):
+                    return index.files[stored]
+            # Exactly one file with that basename and the query has no other
+            # path components to disambiguate: trust it.
+            if len(candidates) == 1 and "/" not in file_path and os.sep not in file_path:
+                return index.files[candidates[0]]
+    # Fallback: linear endswith scan (covers weird cases like an absolute
+    # path stored with a different prefix).
     for stored_path, meta in index.files.items():
         if stored_path.endswith(file_path) or file_path.endswith(stored_path):
             return meta

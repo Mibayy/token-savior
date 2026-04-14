@@ -18,6 +18,17 @@ from token_savior.symbol_hash import fill_hashes
 
 logger = logging.getLogger(__name__)
 
+
+def _rebuild_path_indexes(idx: ProjectIndex) -> None:
+    """Refresh sorted_paths and basename_map after idx.files mutates."""
+    idx.sorted_paths = sorted(idx.files.keys())
+    bmap: dict[str, list[str]] = {}
+    for path in idx.sorted_paths:
+        base = os.path.basename(path)
+        bmap.setdefault(base, []).append(path)
+    idx.basename_map = bmap
+
+
 _WORD_BOUNDARY_CACHE: dict[str, re.Pattern] = {}
 _JAVA_METHOD_REFERENCE_PATTERN = re.compile(r"(?<![\w$])([A-Za-z_][\w.]*)::([A-Za-z_]\w*)")
 _SPRING_CLASS_DECORATORS = frozenset(
@@ -334,7 +345,7 @@ class ProjectIndexer:
             elapsed,
         )
 
-        self._project_index.sorted_paths = sorted(self._project_index.files.keys())
+        _rebuild_path_indexes(self._project_index)
         return self._project_index
 
     def reindex_file(self, file_path: str, skip_graph_rebuild: bool = False) -> None:
@@ -386,7 +397,7 @@ class ProjectIndexer:
                 del idx.files[rel_path]
                 idx.file_mtimes.pop(rel_path, None)
                 idx.total_files = len(idx.files)
-                idx.sorted_paths = sorted(idx.files.keys())
+                _rebuild_path_indexes(idx)
             return
 
         metadata = annotate(source, source_name=rel_path)
@@ -441,7 +452,7 @@ class ProjectIndexer:
         idx.files[rel_path] = metadata
         idx.file_mtimes[rel_path] = mtime
         idx.total_files = len(idx.files)
-        idx.sorted_paths = sorted(idx.files.keys())
+        _rebuild_path_indexes(idx)
         idx.total_lines += metadata.total_lines
         idx.total_functions += len(metadata.functions)
         idx.total_classes += len(metadata.classes)
@@ -511,7 +522,7 @@ class ProjectIndexer:
         del idx.files[rel_path]
         idx.file_mtimes.pop(rel_path, None)
         idx.total_files = len(idx.files)
-        idx.sorted_paths = sorted(idx.files.keys())
+        _rebuild_path_indexes(idx)
         idx.symbol_table = self._build_symbol_table(idx.files)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
