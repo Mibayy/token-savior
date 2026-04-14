@@ -26,8 +26,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from token_savior.git_tracker import get_git_status
-from token_savior.compact_ops import get_changed_symbols
 from token_savior.checkpoint_ops import (
     compare_checkpoint_by_symbol,
     create_checkpoint,
@@ -37,12 +35,9 @@ from token_savior.checkpoint_ops import (
     restore_checkpoint,
 )
 from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
-from token_savior.git_ops import (
-    build_commit_summary,
-    summarize_patch_by_symbol,
-)
 from token_savior.impacted_tests import find_impacted_test_files, run_impacted_tests
 from token_savior.models import ProjectIndex
+from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.project_actions import (
     HANDLERS as _PROJECT_ACTION_HANDLERS,
 )
@@ -495,40 +490,6 @@ async def list_tools() -> list[Tool]:
 
 
 # ── Index-level handlers (slot + ensure + update → result) ────────────────
-
-
-def _h_get_git_status(slot, args):
-    return get_git_status(slot.root)
-
-
-def _h_get_changed_symbols(slot, args):
-    _prep(slot)
-    return get_changed_symbols(
-        slot.indexer._project_index,
-        ref=args.get("ref") or args.get("since_ref"),
-        max_files=args.get("max_files", 20),
-        max_symbols_per_file=args.get("max_symbols_per_file", 20),
-    )
-
-
-def _h_summarize_patch_by_symbol(slot, args):
-    _prep(slot)
-    return summarize_patch_by_symbol(
-        slot.indexer._project_index,
-        changed_files=args.get("changed_files"),
-        max_files=args.get("max_files", 20),
-        max_symbols_per_file=args.get("max_symbols_per_file", 20),
-    )
-
-
-def _h_build_commit_summary(slot, args):
-    _prep(slot)
-    return build_commit_summary(
-        slot.indexer._project_index,
-        changed_files=args["changed_files"],
-        max_files=args.get("max_files", 20),
-        max_symbols_per_file=args.get("max_symbols_per_file", 20),
-    )
 
 
 def _h_create_checkpoint(slot, args):
@@ -2138,10 +2099,7 @@ _MEMORY_HANDLERS: dict[str, object] = {
 
 # Dispatch table: tool name → handler(slot, arguments) → result
 _SLOT_HANDLERS: dict[str, object] = {
-    "get_git_status": _h_get_git_status,
-    "get_changed_symbols": _h_get_changed_symbols,
-    "summarize_patch_by_symbol": _h_summarize_patch_by_symbol,
-    "build_commit_summary": _h_build_commit_summary,
+    **_GIT_HANDLERS,
     "create_checkpoint": _h_create_checkpoint,
     "list_checkpoints": _h_list_checkpoints,
     "delete_checkpoint": _h_delete_checkpoint,
