@@ -740,6 +740,18 @@ class TestProjectQueryFunctions:
         names = [s.get("name", s) for s in result["chain"]]
         assert names == ["Runner.execute", "Engine.run", "helper"]
 
+    def test_get_call_chain_level_default_is_minimal(self):
+        # Default level=2 -> no source_preview, no signature, no end_line.
+        result = self.funcs["get_call_chain"]("Runner.execute", "helper")
+        for hop in result["chain"]:
+            assert "source_preview" not in hop
+            assert "signature" not in hop
+            assert "end_line" not in hop
+
+    def test_get_call_chain_level_0_includes_preview(self):
+        result = self.funcs["get_call_chain"]("Runner.execute", "helper", level=0)
+        assert any("source_preview" in hop for hop in result["chain"])
+
     def test_get_call_chain_direct(self):
         result = self.funcs["get_call_chain"]("Engine.run", "helper")
         assert "chain" in result
@@ -1521,3 +1533,35 @@ class TestStructuralQueryInstructions:
         assert "search_codebase" in STRUCTURAL_QUERY_INSTRUCTIONS
         assert "get_change_impact" in STRUCTURAL_QUERY_INSTRUCTIONS
         assert "find_symbol" in STRUCTURAL_QUERY_INSTRUCTIONS
+
+
+# ---------------------------------------------------------------------------
+# compress_symbol_output coverage for get_call_chain shape
+# ---------------------------------------------------------------------------
+
+
+class TestCompressCallChain:
+    """Verify compress_symbol_output handles {'chain': [...]} payload."""
+
+    def test_chain_dict_gets_compressed_per_hop(self):
+        from token_savior.server_runtime import compress_symbol_output
+
+        payload = {
+            "chain": [
+                {"name": "A.run", "file": "a.py", "line": 10, "type": "method"},
+                {"name": "B.step", "file": "b.py", "line": 22, "type": "method"},
+                {"name": "helper", "file": "u.py", "line": 3, "type": "function"},
+            ]
+        }
+        out = compress_symbol_output("get_call_chain", payload)
+        # Each hop becomes one line with @F/@S/@T/@L tokens.
+        lines = out.splitlines()
+        assert len(lines) == 3
+        assert "@F:a.py" in lines[0] and "@S:A.run" in lines[0] and "@L:10" in lines[0]
+        assert "@F:u.py" in lines[2] and "@S:helper" in lines[2]
+
+    def test_chain_error_is_passed_through(self):
+        from token_savior.server_runtime import compress_symbol_output
+
+        out = compress_symbol_output("get_call_chain", {"error": "no path"})
+        assert "no path" in out

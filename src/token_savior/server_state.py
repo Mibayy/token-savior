@@ -164,6 +164,7 @@ _COMPRESSIBLE_TOOLS: frozenset[str] = frozenset({
     "find_symbol",
     "get_dependents",
     "get_dependencies",
+    "get_call_chain",
 })
 
 _PREFETCHABLE_TOOLS: frozenset[str] = frozenset({

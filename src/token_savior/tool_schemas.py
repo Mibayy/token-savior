@@ -436,6 +436,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "string",
                     "description": "Target symbol name.",
                 },
+                "level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "Per-hop verbosity: 0=full (source_preview), 1=sig+file, 2=minimal name+file+line. Default 2.",
+                },
                 **_PROJECT_PARAM,
             },
             "required": ["from_name", "to_name"],

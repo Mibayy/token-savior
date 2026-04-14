@@ -1029,11 +1029,14 @@ class ProjectQueryEngine:
             entries.append(entry)
         return entries
 
-    def get_call_chain(self, from_name: str, to_name: str) -> dict:
+    def get_call_chain(self, from_name: str, to_name: str, level: int = 2) -> dict:
         """Shortest path in dependency graph (BFS).
 
-        Returns {chain: [{name, file, line, end_line, type, signature, source_preview}, ...]}
-        with rich info for each hop, so callers don't need follow-up lookups.
+        ``level`` controls per-hop verbosity (default 2 — path names plus
+        file/line, no source). Use level=1 for signature+file, level=0 for
+        full per-hop info including source_preview.
+
+        Returns {chain: [{name, file, line, ...}, ...]}.
         """
         resolved_from = self._resolve_graph_symbol_name(from_name)
         resolved_to = (
@@ -1046,7 +1049,7 @@ class ProjectQueryEngine:
         if resolved_to is None:
             return {"error": f"'{to_name}' not found in dependency graph"}
         if resolved_from == resolved_to:
-            info = self._resolve_symbol_info(resolved_from)
+            info = self._resolve_symbol_info(resolved_from, level=level)
             info.setdefault("name", from_name)
             return {"chain": [info]}
 
@@ -1086,7 +1089,7 @@ class ProjectQueryEngine:
         # Enrich each hop with file, line, signature, source preview
         chain = []
         for name in path_names:
-            info = self._resolve_symbol_info(name)
+            info = self._resolve_symbol_info(name, level=level)
             info.setdefault("name", name)
             chain.append(info)
 

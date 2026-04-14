@@ -93,6 +93,9 @@ def compress_symbol_output(tool_name: str, result: object) -> str:
         if isinstance(result, dict):
             if "error" in result:
                 return json.dumps(result, separators=(",", ":"), default=str)
+            # get_call_chain returns {"chain": [hop, hop, ...]} — compress hops.
+            if tool_name == "get_call_chain" and isinstance(result.get("chain"), list):
+                return "\n".join(_row(tool_name, e) for e in result["chain"])
             return _row(tool_name, result)
         return str(result)
     except Exception:
