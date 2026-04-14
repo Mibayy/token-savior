@@ -197,8 +197,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                     type="text",
                     text=f"Error: index not built for '{slot.root}'. Call reindex first.",
                 )]
+            src_key = None
+            if name in s._SRC_CACHEABLE_TOOLS:
+                args_repr = repr(sorted(
+                    (k, v) for k, v in arguments.items() if k != "project"
+                ))
+                src_key = f"{name}:{slot.root}:{slot.cache_gen}:{args_repr}"
+                cached = s._session_result_cache.get(src_key)
+                if cached is not None:
+                    s._src_hits += 1
+                    return _count_and_wrap_result(slot, name, arguments, cached)
+                s._src_misses += 1
             result = qfn_handler(slot.query_fns, arguments)
             result = _maybe_compress(name, arguments, result)
+            if src_key is not None:
+                s._session_result_cache[src_key] = result
             _prefetch_next(name, record_symbol, slot)
             return _count_and_wrap_result(slot, name, arguments, result)
 

@@ -64,6 +64,25 @@ _csc_hits: int = 0
 _csc_tokens_saved: int = 0  # naive_chars - actual_chars summed across hits
 
 # ---------------------------------------------------------------------------
+# Session Result Cache (SRC) — memoizes find_symbol / get_functions /
+# get_dependents return values within the current MCP server process.
+# key = f"{kind}:{project_root}:{cache_gen}:{args_repr}"
+# Cleared implicitly when cache_gen bumps (old keys just never match).
+# ---------------------------------------------------------------------------
+
+_session_result_cache: dict[str, object] = {}
+_src_hits: int = 0
+_src_misses: int = 0
+
+# Tools whose result is memoizable across calls within a single MCP server
+# process. They all return pure functions of (slot index state, args).
+_SRC_CACHEABLE_TOOLS: frozenset[str] = frozenset({
+    "find_symbol",
+    "get_functions",
+    "get_dependents",
+})
+
+# ---------------------------------------------------------------------------
 # Persistent stats configuration
 # ---------------------------------------------------------------------------
 

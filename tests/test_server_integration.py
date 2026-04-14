@@ -183,3 +183,34 @@ class TestPathTraversal:
             assert "unsafe" in text.lower() or "error" in text.lower()
         finally:
             _cleanup_slot(root)
+
+
+class TestSessionResultCache:
+    def test_find_symbol_second_call_is_cached(self, tmp_path):
+        from token_savior import server_state as s
+
+        root = _setup_project(tmp_path)
+        try:
+            _run(call_tool("set_project_root", {"path": root}))
+            hits_before = s._src_hits
+            _run(call_tool("find_symbol", {"name": "hello"}))
+            _run(call_tool("find_symbol", {"name": "hello"}))
+            assert s._src_hits == hits_before + 1
+        finally:
+            _cleanup_slot(root)
+
+    def test_cache_invalidated_when_cache_gen_bumps(self, tmp_path):
+        from token_savior import server_state as s
+
+        root = _setup_project(tmp_path)
+        try:
+            _run(call_tool("set_project_root", {"path": root}))
+            _run(call_tool("find_symbol", {"name": "hello"}))
+            slot = s._slot_mgr.projects[root]
+            slot.cache_gen += 1
+            hits_before = s._src_hits
+            _run(call_tool("find_symbol", {"name": "hello"}))
+            # After cache_gen bump, key differs → miss, not hit
+            assert s._src_hits == hits_before
+        finally:
+            _cleanup_slot(root)

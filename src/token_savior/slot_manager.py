@@ -43,6 +43,9 @@ class _ProjectSlot:
     _last_update_check: float = 0.0
     # Cache of directory mtimes for scandir-based optimization
     _dir_mtimes: dict[str, float] = dataclasses.field(default_factory=dict)
+    # Monotonic counter bumped on any index mutation (full build or incremental).
+    # Used as invalidation key for session-level result caches.
+    cache_gen: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +173,7 @@ class SlotManager:
         )
         index = slot.indexer.index()
         slot.query_fns = create_project_query_functions(index)
+        slot.cache_gen += 1
 
         if not slot.is_git:
             slot.is_git = is_git_repo(root)
@@ -246,6 +250,7 @@ class SlotManager:
                 slot.indexer.reindex_file(rel_path, skip_graph_rebuild=True)
 
             slot.indexer.rebuild_graphs()
+            slot.cache_gen += 1
             print(
                 f"[token-savior] Mtime update: {len(mtime_changed)} file(s) -- {slot.root}",
                 file=sys.stderr,
@@ -315,6 +320,7 @@ class SlotManager:
 
         if needs_rebuild or changeset.deleted:
             slot.indexer.rebuild_graphs()
+            slot.cache_gen += 1
 
         idx.last_indexed_git_ref = get_head_commit(slot.root)
 
