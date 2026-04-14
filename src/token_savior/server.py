@@ -33,17 +33,17 @@ from token_savior.server_handlers import (
     SLOT_HANDLERS as _SLOT_HANDLERS,
 )
 from token_savior.server_handlers.code_nav import (
-    _q_get_edit_context,  # re-export for tests/test_server.py
+    _q_get_edit_context,  # noqa: F401  -- re-export for tests/test_server.py
 )
 from token_savior.server_handlers.stats import (
-    _format_duration,  # re-export for tests/test_usage_stats.py
-    _format_usage_stats,  # re-export for tests/test_usage_stats.py
+    _format_duration,  # noqa: F401  -- re-export for tests/test_usage_stats.py
+    _format_usage_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
 )
 from token_savior.server_runtime import (
     _count_and_wrap_result,
-    _flush_stats,  # re-export for tests/test_usage_stats.py
+    _flush_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
     _format_result,
-    _load_cumulative_stats,  # re-export for tests/test_usage_stats.py
+    _load_cumulative_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
     _parse_workspace_roots,
     _prep,
     _register_roots,
@@ -51,7 +51,7 @@ from token_savior.server_runtime import (
     compress_symbol_output,
 )
 from token_savior.server_state import server
-from token_savior.slot_manager import _ProjectSlot  # re-export for tests/test_usage_stats.py
+from token_savior.slot_manager import _ProjectSlot  # noqa: F401  -- re-export for tests/test_usage_stats.py
 
 # Called once at module import so slots exist before any tool call.
 _register_roots(_parse_workspace_roots())
