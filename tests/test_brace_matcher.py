@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import pytest
 
-from token_savior.brace_matcher import find_brace_end_csharp, find_brace_end_rust
+from token_savior.brace_matcher import (
+    find_brace_end_csharp,
+    find_brace_end_go,
+    find_brace_end_rust,
+)
 
 
 # (name, lines, start_line_0, expected_end_line)
@@ -151,3 +155,85 @@ def test_find_brace_end_rust_characterization(
     lines: list[str], start: int, expected: int
 ) -> None:
     assert find_brace_end_rust(lines, start) == expected
+
+
+# ---------------------------------------------------------------------------
+# Go characterization
+# ---------------------------------------------------------------------------
+
+# Each expected value was captured from the pre-refactor implementation.
+GO_CHARACTERIZATION_CASES: list[tuple[str, list[str], int, int]] = [
+    # --- baseline / nesting ---
+    ("single_line_empty", ["{}"], 0, 0),
+    ("single_line_simple", ["{ x := 1 }"], 0, 0),
+    ("multi_line_simple", ["{", "  x := 1", "}"], 0, 2),
+    ("nested_inline", ["{ { x } }"], 0, 0),
+    ("nested_multiline", ["{", "  { y }", "}"], 0, 2),
+    ("deeply_nested", ["{", "{", "{", "}", "}", "}"], 0, 5),
+    # --- interpreted string literals ---
+    ("string_open_brace", ["{", '  s := "{"', "}"], 0, 2),
+    ("string_close_brace", ["{", '  s := "}"', "}"], 0, 2),
+    ("escaped_quote", ["{", '  s := "a\\"b"', "}"], 0, 2),
+    ("empty_string", ['{ s := "" }'], 0, 0),
+    # --- raw string literals (backtick, multi-line capable) ---
+    ("raw_string_inline_open", ["{", "  s := `{`", "}"], 0, 2),
+    ("raw_string_inline_both", ["{ s := `{}` }"], 0, 0),
+    # Multi-line raw string containing "}". The pre-refactor impl used a
+    # `for idx in range(...)` driver whose loop variable was rebound on each
+    # iteration, so advancing `idx` inside the raw-string handler was lost
+    # and the outer loop revisited lines already consumed by the string body.
+    # Result: it mistakenly returns 2 (the `}` inside the raw string). The
+    # refactored impl uses a single `while` driver and correctly returns 4.
+    ("raw_string_multiline_close", ["{", "  s := `", "}", "`", "}"], 0, 4),
+    # --- rune literals ---
+    # Current impl does not special-case runes, so '{' bumps depth and the
+    # outer close at line 2 is reached only via the EOF sentinel (len-1=2).
+    # The refactored impl handles runes and reaches line 2 directly. Both
+    # paths converge on 2, so the test is stable across the refactor.
+    ("rune_brace", ["{", "  c := '{'", "}"], 0, 2),
+    ("rune_simple", ["{ c := 'x' }"], 0, 0),
+    ("rune_escaped_quote", ["{", "  c := '\\''", "}"], 0, 2),
+    # --- comments ---
+    ("line_comment", ["{", "  // }", "}"], 0, 2),
+    ("block_comment_inline", ["{ /* } */ }"], 0, 0),
+    ("block_comment_multiline", ["{", "  /*", "  }", "  */", "}"], 0, 4),
+    ("inline_block_comment_midline", ["{ /* c */ x := 1 }"], 0, 0),
+    # --- unterminated / EOF sentinel ---
+    ("unterminated", ["{", "  x"], 0, 1),
+    # --- start_line_0 != 0 ---
+    (
+        "start_offset",
+        ["package m", "func f() {", "  x := 1", "}"],
+        1,
+        3,
+    ),
+    (
+        "brace_in_comment_before_start",
+        ["// { unrelated", "{", "}"],
+        1,
+        2,
+    ),
+    # --- realistic func body ---
+    (
+        "func_body",
+        [
+            "func M() {",
+            "    if true { x() }",
+            "    return",
+            "}",
+        ],
+        0,
+        3,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "lines,start,expected",
+    [(lines, start, expected) for (_n, lines, start, expected) in GO_CHARACTERIZATION_CASES],
+    ids=[name for (name, _l, _s, _e) in GO_CHARACTERIZATION_CASES],
+)
+def test_find_brace_end_go_characterization(
+    lines: list[str], start: int, expected: int
+) -> None:
+    assert find_brace_end_go(lines, start) == expected

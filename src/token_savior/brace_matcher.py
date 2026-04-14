@@ -371,63 +371,117 @@ def find_brace_end_rust(lines: list[str], start_line_0: int) -> int:
     return len(lines) - 1
 
 
+def _go_skip_block_comment(
+    lines: list[str], idx: int, i: int
+) -> tuple[int, int]:
+    """Advance through a ``/* ... */`` block comment (Go has no nesting).
+
+    Caller positions (idx, i) on the opening ``/`` of ``/*``. Returns the
+    position just past the matching ``*/``. On EOF inside an open comment,
+    returns ``(len(lines), 0)``.
+    """
+    i += 2  # past opening /*
+    while idx < len(lines):
+        line = lines[idx]
+        while i < len(line):
+            if line[i] == "*" and i + 1 < len(line) and line[i + 1] == "/":
+                return idx, i + 2
+            i += 1
+        idx += 1
+        i = 0
+    return len(lines), 0
+
+
+def _go_skip_interpreted_string(line: str, i: int) -> int:
+    """Skip a ``"..."`` interpreted string with backslash escapes.
+
+    Returns index just past the closing ``"``. If the string is unterminated
+    on the line, returns ``len(line)``.
+    """
+    i += 1
+    while i < len(line):
+        if line[i] == "\\":
+            i += 2
+            continue
+        if line[i] == '"':
+            return i + 1
+        i += 1
+    return i
+
+
+def _go_skip_raw_string(
+    lines: list[str], idx: int, i: int
+) -> tuple[int, int]:
+    """Skip a backtick-delimited raw string (no escapes, multi-line capable).
+
+    Caller positions (idx, i) on the opening backtick. Returns position just
+    past the closing backtick. On EOF inside an open raw string, returns
+    ``(len(lines), 0)``.
+    """
+    i += 1
+    while idx < len(lines):
+        pos = lines[idx].find("`", i)
+        if pos >= 0:
+            return idx, pos + 1
+        idx += 1
+        i = 0
+    return len(lines), 0
+
+
+def _go_skip_rune(line: str, i: int) -> int:
+    """Skip a ``'x'`` / ``'\\n'`` / ``'\\u00E9'`` rune literal.
+
+    Caller positions ``i`` on the opening single quote. Returns index just
+    past the closing ``'``. If no closing quote is found, returns ``i + 1``
+    so the outer loop advances past the stray quote.
+    """
+    j = i + 1
+    if j < len(line) and line[j] == "\\":
+        j += 2  # past escape introducer
+        while j < len(line) and line[j] != "'":
+            j += 1
+        return j + 1 if j < len(line) else i + 1
+    if j + 1 < len(line) and line[j + 1] == "'":
+        return j + 2
+    return i + 1
+
+
 def find_brace_end_go(lines: list[str], start_line_0: int) -> int:
-    """Find the 0-based line where the outermost brace closes, skipping strings/comments."""
+    """Find the 0-based line where the outermost brace closes,
+    skipping strings, raw strings, rune literals, and comments."""
     depth = 0
     found_open = False
-    in_block_comment = False
-    for idx in range(start_line_0, len(lines)):
+    idx = start_line_0
+    i = 0
+    while idx < len(lines):
         line = lines[idx]
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if in_block_comment:
-                if ch == "*" and i + 1 < len(line) and line[i + 1] == "/":
-                    in_block_comment = False
-                    i += 2
-                    continue
-                i += 1
-                continue
-            if ch == "/" and i + 1 < len(line):
-                if line[i + 1] == "/":
-                    break  # rest is line comment
-                if line[i + 1] == "*":
-                    in_block_comment = True
-                    i += 2
-                    continue
-            if ch == '"':
-                i += 1
-                while i < len(line) and line[i] != '"':
-                    if line[i] == "\\":
-                        i += 1
-                    i += 1
-                i += 1
-                continue
-            if ch == "`":
-                # raw string can span lines - scan to end
-                i += 1
-                while True:
-                    while i < len(line):
-                        if line[i] == "`":
-                            i += 1
-                            break
-                        i += 1
-                    else:
-                        # continue to next line
-                        idx += 1
-                        if idx >= len(lines):
-                            return len(lines) - 1
-                        line = lines[idx]
-                        i = 0
-                        continue
-                    break
-                continue
-            if ch == "{":
-                depth += 1
-                found_open = True
-            elif ch == "}":
-                depth -= 1
-                if found_open and depth == 0:
-                    return idx
-            i += 1
+        if i >= len(line):
+            idx += 1
+            i = 0
+            continue
+        ch = line[i]
+        if ch == "/" and i + 1 < len(line) and line[i + 1] == "*":
+            idx, i = _go_skip_block_comment(lines, idx, i)
+            continue
+        if ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
+            idx += 1
+            i = 0
+            continue
+        if ch == '"':
+            i = _go_skip_interpreted_string(line, i)
+            continue
+        if ch == "`":
+            idx, i = _go_skip_raw_string(lines, idx, i)
+            continue
+        if ch == "'":
+            i = _go_skip_rune(line, i)
+            continue
+        if ch == "{":
+            depth += 1
+            found_open = True
+        elif ch == "}":
+            depth -= 1
+            if found_open and depth == 0:
+                return idx
+        i += 1
     return len(lines) - 1
