@@ -706,6 +706,22 @@ class TestProjectQueryFunctions:
         result = self.funcs["find_symbol"]("nonexistent")
         assert "error" in result
 
+    def test_find_symbol_level_1_omits_preview(self):
+        result = self.funcs["find_symbol"]("helper", level=1)
+        assert "source_preview" not in result
+        assert "signature" in result
+        assert result["file"] == "src/engine_mod.py"
+
+    def test_find_symbol_level_2_minimal(self):
+        result = self.funcs["find_symbol"]("helper", level=2)
+        assert set(result.keys()) == {"name", "file", "line", "type"}
+        assert result["type"] == "function"
+
+    def test_find_symbol_class_level_2_minimal(self):
+        result = self.funcs["find_symbol"]("Engine", level=2)
+        assert set(result.keys()) == {"name", "file", "line", "type"}
+        assert result["type"] == "class"
+
     def test_get_dependencies(self):
         deps = self.funcs["get_dependencies"]("Engine.run")
         assert any(d.get("name") == "helper" for d in deps)

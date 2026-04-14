@@ -388,7 +388,7 @@ QFN_HANDLERS: dict[str, object] = {
     "get_imports": lambda q, a: q["get_imports"](
         a.get("file_path"), max_results=a.get("max_results", 0)
     ),
-    "find_symbol": lambda q, a: q["find_symbol"](a["name"]),
+    "find_symbol": lambda q, a: q["find_symbol"](a["name"], level=a.get("level", 0)),
     "get_dependencies": lambda q, a: q["get_dependencies"](
         a["name"], max_results=a.get("max_results", 0)
     ),

@@ -966,9 +966,12 @@ class ProjectQueryEngine:
                         return ("function", meta, method)
         return None
 
-    def find_symbol(self, name: str) -> dict:
-        """Find where a symbol is defined: {file, line, type, signature, source_preview}."""
-        result = self._resolve_symbol_info(name)
+    def find_symbol(self, name: str, level: int = 0) -> dict:
+        """Find where a symbol is defined: {file, line, type, signature, source_preview}.
+
+        level: 0 full (preview included), 1 no source_preview, 2 minimal {name, file, line, type}.
+        """
+        result = self._resolve_symbol_info(name, level=level)
         if "file" not in result:
             return {"error": f"symbol '{name}' not found"}
         return result
@@ -1896,36 +1899,56 @@ class ProjectQueryEngine:
                 source += f"\n... (truncated to {max_lines} lines)"
         return source
 
-    def _func_result(self, func, path, meta):
-        preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
-        return {
+    def _func_result(self, func, path, meta, level: int = 0):
+        kind = "method" if func.is_method else "function"
+        if level >= 2:
+            return {
+                "name": func.qualified_name,
+                "file": path,
+                "line": func.line_range.start,
+                "type": kind,
+            }
+        out = {
             "name": func.qualified_name,
             "file": path,
             "line": func.line_range.start,
             "end_line": func.line_range.end,
-            "type": "method" if func.is_method else "function",
+            "type": kind,
             "signature": f"def {func.name}({', '.join(func.parameters)})",
-            "source_preview": "\n".join(preview_lines),
         }
+        if level == 0:
+            preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
+            out["source_preview"] = "\n".join(preview_lines)
+        return out
 
-    def _class_result(self, cls, path, meta):
-        preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
-        return {
-            "name": cls.qualified_name or cls.name,
-            "qualified_name": cls.qualified_name or cls.name,
+    def _class_result(self, cls, path, meta, level: int = 0):
+        qname = cls.qualified_name or cls.name
+        if level >= 2:
+            return {
+                "name": qname,
+                "file": path,
+                "line": cls.line_range.start,
+                "type": "class",
+            }
+        out = {
+            "name": qname,
+            "qualified_name": qname,
             "file": path,
             "line": cls.line_range.start,
             "end_line": cls.line_range.end,
             "type": "class",
             "methods": [m.name for m in cls.methods],
             "bases": cls.base_classes,
-            "source_preview": "\n".join(preview_lines),
         }
+        if level == 0:
+            preview_lines = meta.lines[cls.line_range.start - 1 : cls.line_range.start + 19]
+            out["source_preview"] = "\n".join(preview_lines)
+        return out
 
-    def _resolve_symbol_info(self, name: str) -> dict:
+    def _resolve_symbol_info(self, name: str, level: int = 0) -> dict:
         """Resolve a symbol name to rich info (file, line, signature, preview)."""
         index = self.index
-        class_info = self._resolve_exact_class_info(name)
+        class_info = self._resolve_exact_class_info(name, level=level)
         if class_info is not None:
             return class_info
         # Try symbol table first
@@ -1940,10 +1963,10 @@ class ProjectQueryEngine:
                         "error": f"function '{name}' is ambiguous; use a fully qualified signature",
                     }
                 if func is not None:
-                    return self._func_result(func, path, meta)
+                    return self._func_result(func, path, meta, level=level)
                 for cls in meta.classes:
                     if cls.name == name or cls.qualified_name == name:
-                        return self._class_result(cls, path, meta)
+                        return self._class_result(cls, path, meta, level=level)
         # Fallback: search all files
         candidate_results: list[dict] = []
         for path, meta in sorted(index.files.items()):
@@ -1954,10 +1977,10 @@ class ProjectQueryEngine:
                     "error": f"function '{name}' is ambiguous; use a fully qualified signature",
                 }
             if func is not None:
-                candidate_results.append(self._func_result(func, path, meta))
+                candidate_results.append(self._func_result(func, path, meta, level=level))
             for cls in meta.classes:
                 if cls.name == name or cls.qualified_name == name:
-                    return self._class_result(cls, path, meta)
+                    return self._class_result(cls, path, meta, level=level)
         if len(candidate_results) == 1:
             return candidate_results[0]
         if len(candidate_results) > 1:
@@ -2185,11 +2208,11 @@ class ProjectQueryEngine:
                 return True
         return False
 
-    def _resolve_exact_class_info(self, name: str) -> dict | None:
+    def _resolve_exact_class_info(self, name: str, level: int = 0) -> dict | None:
         for path, meta in self._candidate_class_files(name):
             for cls in meta.classes:
                 if cls.name == name or cls.qualified_name == name:
-                    return self._class_result(cls, path, meta)
+                    return self._class_result(cls, path, meta, level=level)
         return None
 
     def _resolve_exact_class_name(self, name: str) -> str | None:

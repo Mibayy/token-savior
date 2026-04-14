@@ -365,11 +365,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "find_symbol": {
-        "description": "Locate a symbol (file, line, signature, preview).",
+        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
+                "level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "0 full, 1 no preview, 2 minimal.",
+                },
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
