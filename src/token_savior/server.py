@@ -26,29 +26,22 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
-from token_savior.server_handlers.checkpoints import HANDLERS as _CHECKPOINT_HANDLERS
-from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
-from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
-from token_savior.server_handlers.project_actions import (
-    HANDLERS as _PROJECT_ACTION_HANDLERS,
-)
-from token_savior.server_handlers.analysis import HANDLERS as _ANALYSIS_HANDLERS
-from token_savior.server_handlers.code_nav import (
+from token_savior.server_handlers import (
+    META_HANDLERS as _META_HANDLERS,
+    MEMORY_HANDLERS as _MEMORY_HANDLERS,
     QFN_HANDLERS as _QFN_HANDLERS,
+    SLOT_HANDLERS as _SLOT_HANDLERS,
+)
+from token_savior.server_handlers.code_nav import (
     _q_get_edit_context,  # re-export for tests/test_server.py
 )
 from token_savior.server_handlers.memory import (
-    ADMIN_HANDLERS as _MEMORY_ADMIN_HANDLERS,
-    HANDLERS as _MEMORY_HANDLERS,
     _resolve_memory_project,  # re-export (kept for backward compatibility)
 )
-from token_savior.server_handlers.project import HANDLERS as _PROJECT_HANDLERS
 from token_savior.server_handlers.stats import (
-    HANDLERS as _STATS_HANDLERS,
     _format_duration,  # re-export for tests/test_usage_stats.py
     _format_usage_stats,  # re-export for tests/test_usage_stats.py
 )
-from token_savior.server_handlers.tests import HANDLERS as _TESTS_HANDLERS
 from token_savior.slot_manager import _ProjectSlot
 from token_savior import memory_db
 
@@ -115,30 +108,6 @@ async def list_tools() -> list[Tool]:
 # ---------------------------------------------------------------------------
 # Tool handler functions — each returns a raw result (not wrapped)
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Meta handlers — stats/admin tools that don't need a project slot. Each
-# returns a list[TextContent] so call_tool() can delegate directly.
-# ---------------------------------------------------------------------------
-
-
-_META_HANDLERS: dict[str, object] = {
-    **_STATS_HANDLERS,
-    **_MEMORY_ADMIN_HANDLERS,
-    **_PROJECT_HANDLERS,
-}
-
-
-# Dispatch table: tool name → handler(slot, arguments) → result
-_SLOT_HANDLERS: dict[str, object] = {
-    **_GIT_HANDLERS,
-    **_CHECKPOINT_HANDLERS,
-    **_EDIT_HANDLERS,
-    **_TESTS_HANDLERS,
-    **_PROJECT_ACTION_HANDLERS,
-    **_ANALYSIS_HANDLERS,
-}
 
 
 def _track_call(name: str, arguments: dict[str, Any]) -> str:
