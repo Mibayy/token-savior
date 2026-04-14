@@ -334,6 +334,7 @@ class ProjectIndexer:
             elapsed,
         )
 
+        self._project_index.sorted_paths = sorted(self._project_index.files.keys())
         return self._project_index
 
     def reindex_file(self, file_path: str, skip_graph_rebuild: bool = False) -> None:
@@ -385,6 +386,7 @@ class ProjectIndexer:
                 del idx.files[rel_path]
                 idx.file_mtimes.pop(rel_path, None)
                 idx.total_files = len(idx.files)
+                idx.sorted_paths = sorted(idx.files.keys())
             return
 
         metadata = annotate(source, source_name=rel_path)
@@ -439,6 +441,7 @@ class ProjectIndexer:
         idx.files[rel_path] = metadata
         idx.file_mtimes[rel_path] = mtime
         idx.total_files = len(idx.files)
+        idx.sorted_paths = sorted(idx.files.keys())
         idx.total_lines += metadata.total_lines
         idx.total_functions += len(metadata.functions)
         idx.total_classes += len(metadata.classes)
@@ -508,6 +511,7 @@ class ProjectIndexer:
         del idx.files[rel_path]
         idx.file_mtimes.pop(rel_path, None)
         idx.total_files = len(idx.files)
+        idx.sorted_paths = sorted(idx.files.keys())
         idx.symbol_table = self._build_symbol_table(idx.files)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 

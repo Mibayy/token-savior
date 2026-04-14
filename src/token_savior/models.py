@@ -235,6 +235,11 @@ class ProjectIndex:
     last_reindex_symbols_unchanged: int = 0
     last_reindex_symbols_reindexed: int = 0
 
+    # Pre-sorted file paths (stable order for search_codebase and other
+    # whole-project scans). Refreshed whenever files dict mutates
+    # (index, reindex_file, remove_file). Transient.
+    sorted_paths: list[str] = field(default_factory=list)
+
 
 @dataclass
 class ConfigIssue:

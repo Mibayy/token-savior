@@ -1099,26 +1099,56 @@ class ProjectQueryEngine:
         return result
 
     def search_codebase(self, pattern: str, max_results: int = 100) -> list[dict]:
-        """Regex across all files, returns [{file, line_number, content}]."""
+        """Regex across all files, returns [{file, line_number, content}].
+
+        Uses pre-sorted file paths and a small thread pool so file scans
+        happen in parallel. When max_results is unbounded (0) we scan all
+        files concurrently; when bounded we keep a lightweight early-exit
+        to avoid scanning more than necessary.
+        """
         try:
             regex = re.compile(pattern)
         except re.error as e:
             return [{"error": f"Invalid regex: {e}"}]
         limit = max_results if max_results > 0 else 0
-        results = []
-        for path in sorted(self.index.files.keys()):
-            meta = self.index.files[path]
+
+        paths = self.index.sorted_paths or sorted(self.index.files.keys())
+        files = self.index.files
+
+        def _scan(path: str) -> list[dict]:
+            meta = files[path]
+            hits: list[dict] = []
             for i, line in enumerate(meta.lines):
                 if regex.search(line):
-                    results.append(
-                        {
-                            "file": path,
-                            "line_number": i + 1,
-                            "content": line,
-                        }
-                    )
+                    hits.append({"file": path, "line_number": i + 1, "content": line})
+                    if limit and len(hits) >= limit:
+                        break
+            return hits
+
+        # Small project or no limit check needed: direct loop is faster than
+        # paying the ThreadPoolExecutor overhead.
+        if len(paths) <= 8:
+            results: list[dict] = []
+            for path in paths:
+                for hit in _scan(path):
+                    results.append(hit)
                     if limit and len(results) >= limit:
                         return results
+            return results
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        results = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            # submit in batches so we can stop early when limit reached
+            BATCH = 16
+            for i in range(0, len(paths), BATCH):
+                batch_paths = paths[i : i + BATCH]
+                for path, hits in zip(batch_paths, pool.map(_scan, batch_paths)):
+                    for hit in hits:
+                        results.append(hit)
+                        if limit and len(results) >= limit:
+                            return results
         return results
 
     def get_change_impact(
