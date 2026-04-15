@@ -340,6 +340,39 @@ class TestImportGraph:
         # At least core.py and models.py import from utils
         assert len(importers) >= 2
 
+    def test_from_package_import_submodule_resolves_to_submodule(self, tmp_path):
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "mod_a.py").write_text("from pkg import mod_b\n\ndef a():\n    return mod_b.b()\n")
+        (pkg / "mod_b.py").write_text("from pkg import mod_a\n\ndef b():\n    return 1\n")
+
+        idx = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"]).index()
+
+        mod_a = "pkg/mod_a.py"
+        mod_b = "pkg/mod_b.py"
+        assert mod_a in idx.import_graph
+        assert mod_b in idx.import_graph[mod_a], (
+            f"expected mod_a to depend on mod_b, got {idx.import_graph[mod_a]}"
+        )
+        assert mod_a in idx.import_graph[mod_b]
+
+    def test_from_package_import_package_itself_unchanged(self, tmp_path):
+        pkg = tmp_path / "pkg"
+        sub = pkg / "sub"
+        pkg.mkdir()
+        sub.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (sub / "__init__.py").write_text("VALUE = 1\n")
+        (pkg / "consumer.py").write_text("from pkg import sub\n\ndef f():\n    return sub.VALUE\n")
+
+        idx = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"]).index()
+
+        consumer = "pkg/consumer.py"
+        sub_init = "pkg/sub/__init__.py"
+        assert consumer in idx.import_graph
+        assert sub_init in idx.import_graph[consumer]
+
     def test_typescript_relative_import(self, ts_project):
         indexer = ProjectIndexer(
             str(ts_project),

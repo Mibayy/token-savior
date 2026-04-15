@@ -759,9 +759,12 @@ class ProjectIndexer:
             if file_path.endswith(".java"):
                 targets.update(self._resolve_java_import(file_path, imp, all_files))
                 continue
-            resolved = self._resolve_import(file_path, imp.module, imp.is_from_import, all_file_set)
-            if resolved and resolved != file_path:
-                targets.add(resolved)
+            resolved_multi = self._resolve_import(
+                file_path, imp.module, imp.is_from_import, all_file_set, imp.names
+            )
+            for resolved in resolved_multi:
+                if resolved and resolved != file_path:
+                    targets.add(resolved)
 
         return targets
 
@@ -810,58 +813,73 @@ class ProjectIndexer:
         module_path: str,
         is_from_import: bool,
         all_files: set[str],
-    ) -> str | None:
-        """Resolve an import module path to a project file path.
+        names: list[str] | None = None,
+    ) -> list[str]:
+        """Resolve an import module path to one or more project file paths.
 
-        For Python files:
-        - Convert module path to file path (dots to slashes)
-        - Look for module.py or module/__init__.py
-        - Search relative to root and common source dirs (src/, lib/)
-
-        For TypeScript/JavaScript files:
-        - Resolve relative paths (./foo, ../bar)
-        - Try common path aliases (@/ -> src/)
+        For Python `from pkg import a, b`, each `name` is first tried as a
+        submodule of `pkg` (pkg/a.py, pkg/a/__init__.py). Submodule resolution
+        falls back to resolving the package itself when no submodule matches.
         """
         if not module_path:
-            return None
+            return []
 
         ext = os.path.splitext(importing_file)[1].lower()
 
         if ext == ".py":
-            return self._resolve_python_import(module_path, all_files)
-        elif ext in (".ts", ".tsx", ".js", ".jsx"):
-            return self._resolve_ts_import(importing_file, module_path, all_files)
+            return self._resolve_python_import(module_path, all_files, is_from_import, names)
+
+        single: str | None = None
+        if ext in (".ts", ".tsx", ".js", ".jsx"):
+            single = self._resolve_ts_import(importing_file, module_path, all_files)
         elif ext == ".rs":
-            return self._resolve_rust_import(importing_file, module_path, all_files)
+            single = self._resolve_rust_import(importing_file, module_path, all_files)
         elif ext == ".go":
-            return self._resolve_go_import(module_path, all_files)
+            single = self._resolve_go_import(module_path, all_files)
         elif ext == ".cs":
-            return self._resolve_csharp_import(module_path, all_files)
+            single = self._resolve_csharp_import(module_path, all_files)
 
-        return None
+        return [single] if single else []
 
-    def _resolve_python_import(self, module_path: str, all_files: set[str]) -> str | None:
-        """Resolve a Python module path to a project file."""
-        # Convert dots to path separators
+    def _resolve_python_import(
+        self,
+        module_path: str,
+        all_files: set[str],
+        is_from_import: bool = False,
+        names: list[str] | None = None,
+    ) -> list[str]:
+        """Resolve a Python module path to project files.
+
+        For `from pkg import name`, prefer `pkg/name.py` or `pkg/name/__init__.py`
+        (submodule) over `pkg/__init__.py` — otherwise sibling-module cycles
+        collapse to the package init and become invisible to the graph.
+        """
         rel_module = module_path.replace(".", "/")
-
-        # Search directories: root, src/, lib/
         search_prefixes = ["", "src/", "lib/"]
 
-        for prefix in search_prefixes:
-            # Try as a .py file
-            candidate = prefix + rel_module + ".py"
-            candidate_normalized = candidate.replace(os.sep, "/")
-            if candidate_normalized in all_files:
-                return candidate_normalized
+        def _lookup(rel: str) -> str | None:
+            for prefix in search_prefixes:
+                cand = (prefix + rel + ".py").replace(os.sep, "/")
+                if cand in all_files:
+                    return cand
+                cand = (prefix + rel + "/__init__.py").replace(os.sep, "/")
+                if cand in all_files:
+                    return cand
+            return None
 
-            # Try as a package (__init__.py)
-            candidate = prefix + rel_module + "/__init__.py"
-            candidate_normalized = candidate.replace(os.sep, "/")
-            if candidate_normalized in all_files:
-                return candidate_normalized
+        if is_from_import and names:
+            submodules: list[str] = []
+            for name in names:
+                if not name or name == "*":
+                    continue
+                sub = _lookup(rel_module + "/" + name)
+                if sub:
+                    submodules.append(sub)
+            if submodules:
+                return submodules
 
-        return None
+        single = _lookup(rel_module)
+        return [single] if single else []
 
     def _resolve_ts_import(
         self, importing_file: str, module_path: str, all_files: set[str]
