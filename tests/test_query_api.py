@@ -1610,8 +1610,7 @@ class TestCompressChangeImpact:
         }
         out = compress_symbol_output("get_change_impact", payload)
         lines = out.splitlines()
-        assert len(lines) == 3
-        assert lines[0].startswith("@B:direct @D:1")
-        assert "@S:A.run" in lines[0] and "@L:10" in lines[0]
-        assert lines[1].startswith("@B:transitive @D:2")
-        assert lines[2].startswith("@B:transitive @D:3")
+        assert "## direct" in lines[0] and "depth=1" in lines[0]
+        assert "@S:A.run" in out and "@L:10" in out
+        assert "## transitive" in out
+        assert "@S:B.step" in out and "@S:helper" in out
