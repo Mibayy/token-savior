@@ -16,6 +16,16 @@ _COMPRESS_PARAM = {
     "compress": {"type": "boolean", "description": "Compact rows (default true)."}
 }
 
+# Batch mode: pass multiple names in one call instead of N sequential calls.
+_NAMES_PARAM = {
+    "names": {
+        "type": "array",
+        "items": {"type": "string"},
+        "maxItems": 10,
+        "description": "Batch mode: list of names (max 10). Returns {name: result} dict. Mutually exclusive with 'name'.",
+    }
+}
+
 TOOL_SCHEMAS: dict[str, dict] = {
     # ── Meta tools ────────────────────────────────────────────────────────
     "list_projects": {
@@ -296,11 +306,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_function_source": {
-        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Appends a one-line hint pointing at get_full_context unless hints=false.",
+        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Batch: pass `names` (max 10) instead of `name` to get multiple in one call.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Function or method (e.g. 'MyClass.method')."},
+                **_NAMES_PARAM,
                 "file_path": {"type": "string"},
                 "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
                 "level": {"type": "integer", "minimum": 0, "maximum": 3},
@@ -308,15 +319,15 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "hints": {"type": "boolean", "description": "Append a one-line get_full_context hint (default true)."},
                 **_PROJECT_PARAM,
             },
-            "required": ["name"],
         },
     },
     "get_class_source": {
-        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Appends a one-line hint pointing at get_full_context unless hints=false.",
+        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Batch: pass `names` (max 10) instead of `name` to get multiple in one call.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
+                **_NAMES_PARAM,
                 "file_path": {"type": "string"},
                 "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
                 "level": {"type": "integer", "minimum": 0, "maximum": 3},
@@ -324,7 +335,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "hints": {"type": "boolean", "description": "Append a one-line get_full_context hint (default true)."},
                 **_PROJECT_PARAM,
             },
-            "required": ["name"],
         },
     },
     "get_functions": {
@@ -369,11 +379,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "find_symbol": {
-        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}. Adds a `_hints` key with next-step tool calls (disable with hints=false).",
+        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}. Batch: pass `names` (max 10) instead of `name`.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
+                **_NAMES_PARAM,
                 "level": {
                     "type": "integer",
                     "minimum": 0,
@@ -384,7 +395,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
-            "required": ["name"],
         },
     },
     "get_dependencies": {
@@ -429,11 +439,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_full_context": {
-        "description": "Full symbol context in one call: location + source + dependencies/dependents (depth=1) or + change_impact (depth=2). Replaces the find_symbol -> get_function_source -> get_dependents chain.",
+        "description": "Full symbol context in one call: location + source + dependencies/dependents (depth=1) or + change_impact (depth=2). Batch: pass `names` (max 10) instead of `name`.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Symbol name (function, method, class)."},
+                **_NAMES_PARAM,
                 "depth": {
                     "type": "integer",
                     "minimum": 0,
@@ -443,7 +454,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "max_lines": {"type": "integer", "description": "Cap source lines (default 200)."},
                 **_PROJECT_PARAM,
             },
-            "required": ["name"],
         },
     },
     "get_call_chain": {

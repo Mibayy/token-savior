@@ -12,8 +12,38 @@ from __future__ import annotations
 
 from typing import Any
 
+import json
+
 from token_savior import memory_db
 from token_savior import server_state as state
+
+_BATCH_MAX = 10
+
+
+def _resolve_batch_names(args: dict[str, Any]) -> list[str] | None:
+    """Return list of names if batch mode, else None (single mode)."""
+    names = args.get("names")
+    if not names:
+        return None
+    if not isinstance(names, list):
+        return None
+    return names[:_BATCH_MAX]
+
+
+def _batch_dispatch(qfns, args: dict[str, Any], single_handler):
+    """Run single_handler for each name in batch, return JSON dict."""
+    names = _resolve_batch_names(args)
+    if names is None:
+        return None
+    results = {}
+    for name in names:
+        per_args = {**args, "name": name, "hints": False}
+        per_args.pop("names", None)
+        try:
+            results[name] = single_handler(qfns, per_args)
+        except Exception as exc:
+            results[name] = f"Error: {exc}"
+    return json.dumps(results, indent=2, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +245,9 @@ def _csc_maybe_serve(
 
 
 def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
+    batch = _batch_dispatch(qfns, args, _q_get_class_source)
+    if batch is not None:
+        return batch
     slot, _ = state._slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
@@ -249,6 +282,9 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
 
 
 def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
+    batch = _batch_dispatch(qfns, args, _q_get_function_source)
+    if batch is not None:
+        return batch
     from token_savior.server_runtime import _resolve_project_root
 
     slot, _ = state._slot_mgr.resolve(args.get("project"))
@@ -408,7 +444,21 @@ _LIST_HINTS = [
 ]
 
 
+def _q_get_full_context(qfns, args: dict[str, Any]):
+    batch = _batch_dispatch(qfns, args, _q_get_full_context)
+    if batch is not None:
+        return batch
+    return qfns["get_full_context"](
+        args["name"],
+        depth=args.get("depth", 1),
+        max_lines=args.get("max_lines", 200),
+    )
+
+
 def _q_find_symbol(qfns, args: dict[str, Any]):
+    batch = _batch_dispatch(qfns, args, _q_find_symbol)
+    if batch is not None:
+        return batch
     result = qfns["find_symbol"](args["name"], level=args.get("level", 0))
     if args.get("hints", True) and isinstance(result, dict) and "error" not in result:
         result["_hints"] = _hints_for_symbol(
@@ -463,11 +513,7 @@ QFN_HANDLERS: dict[str, object] = {
         a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0),
         max_total_chars=a.get("max_total_chars", 50_000),
     ),
-    "get_full_context": lambda q, a: q["get_full_context"](
-        a["name"],
-        depth=a.get("depth", 1),
-        max_lines=a.get("max_lines", 200),
-    ),
+    "get_full_context": _q_get_full_context,
     "get_call_chain": lambda q, a: q["get_call_chain"](
         a["from_name"], a["to_name"], level=a.get("level", 2)
     ),
