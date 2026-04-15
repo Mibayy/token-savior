@@ -423,6 +423,24 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["name"],
         },
     },
+    "get_full_context": {
+        "description": "Full symbol context in one call: location + source + dependencies/dependents (depth=1) or + change_impact (depth=2). Replaces the find_symbol -> get_function_source -> get_dependents chain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Symbol name (function, method, class)."},
+                "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "0=symbol+source, 1=+deps/dependents (default), 2=+change_impact.",
+                },
+                "max_lines": {"type": "integer", "description": "Cap source lines (default 200)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["name"],
+        },
+    },
     "get_call_chain": {
         "description": "Find the shortest dependency path between two symbols (BFS through the dependency graph).",
         "inputSchema": {

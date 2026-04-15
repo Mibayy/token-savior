@@ -400,6 +400,11 @@ QFN_HANDLERS: dict[str, object] = {
         a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0),
         max_total_chars=a.get("max_total_chars", 50_000),
     ),
+    "get_full_context": lambda q, a: q["get_full_context"](
+        a["name"],
+        depth=a.get("depth", 1),
+        max_lines=a.get("max_lines", 200),
+    ),
     "get_call_chain": lambda q, a: q["get_call_chain"](
         a["from_name"], a["to_name"], level=a.get("level", 2)
     ),

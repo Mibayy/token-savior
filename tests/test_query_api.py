@@ -753,6 +753,37 @@ class TestProjectQueryFunctions:
         deps = self.funcs["get_dependents"]("Engine")
         assert any(d.get("name") == "Runner.execute" for d in deps)
 
+    def test_get_full_context_depth_0_source_only(self):
+        ctx = self.funcs["get_full_context"]("Engine.run", depth=0)
+        assert "symbol" in ctx
+        assert ctx["symbol"]["name"] == "Engine.run"
+        assert "source" in ctx
+        assert "def run" in ctx["source"]
+        assert "dependencies" not in ctx
+        assert "dependents" not in ctx
+
+    def test_get_full_context_depth_1_default(self):
+        ctx = self.funcs["get_full_context"]("Engine.run")
+        assert "symbol" in ctx
+        assert "source" in ctx
+        assert "dependencies" in ctx
+        assert "dependents" in ctx
+        assert any(d.get("name") == "helper" for d in ctx["dependencies"])
+        assert any(d.get("name") == "Runner.execute" for d in ctx["dependents"])
+
+    def test_get_full_context_depth_2_includes_change_impact(self):
+        ctx = self.funcs["get_full_context"]("Engine.run", depth=2)
+        assert "change_impact" in ctx
+        assert "direct" in ctx["change_impact"]
+
+    def test_get_full_context_not_found(self):
+        ctx = self.funcs["get_full_context"]("does_not_exist_xyz")
+        assert "error" in ctx
+
+    def test_get_full_context_class_uses_class_source(self):
+        ctx = self.funcs["get_full_context"]("Runner", depth=0)
+        assert "class Runner" in ctx["source"]
+
     def test_get_call_chain(self):
         result = self.funcs["get_call_chain"]("Runner.execute", "helper")
         assert "chain" in result

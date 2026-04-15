@@ -310,6 +310,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_dependencies": 0.10,
     "get_dependents": 0.15,
     "get_change_impact": 0.30,
+    "get_full_context": 0.30,
     "get_call_chain": 0.20,
     "get_edit_context": 0.25,  # source + deps + callers in one call
     "get_file_dependencies": 0.02,

@@ -695,6 +695,7 @@ class ProjectQueryEngine:
         "get_file_dependents",
         "search_codebase",
         "get_change_impact",
+        "get_full_context",
         "get_routes",
         "get_env_usage",
         "get_components",
@@ -1232,6 +1233,63 @@ class ProjectQueryEngine:
                     f"... output truncated at {max_total_chars} chars. "
                     "Use max_direct / max_transitive to narrow the scope."
                 )
+
+        return result
+
+    def get_full_context(
+        self,
+        name: str,
+        depth: int = 1,
+        max_lines: int = 200,
+    ) -> dict:
+        """Symbol location + source + optional dep graph, in one call.
+
+        Replaces the frequent find_symbol -> get_function_source -> get_dependents
+        chain (see IMPROVEMENT-SIGNALS.md: 46 occurrences across bench).
+
+        depth=0 : {symbol, source}
+        depth=1 : {symbol, source, dependencies, dependents}   (default)
+        depth=2 : + {change_impact}
+        """
+        symbol = self.find_symbol(name, level=2)
+        if "error" in symbol or "file" not in symbol:
+            return {"error": symbol.get("error", f"symbol '{name}' not found")}
+
+        result: dict = {"symbol": symbol}
+
+        sym_type = symbol.get("type")
+        try:
+            if sym_type == "class":
+                result["source"] = self.get_class_source(name, max_lines=max_lines)
+            else:
+                result["source"] = self.get_function_source(name, max_lines=max_lines)
+        except Exception as exc:  # pragma: no cover
+            result["source"] = {"error": str(exc)}
+
+        if depth <= 0:
+            return result
+
+        try:
+            result["dependencies"] = self.get_dependencies(name, max_results=20)
+        except Exception as exc:  # pragma: no cover
+            result["dependencies"] = [{"error": str(exc)}]
+        try:
+            result["dependents"] = self.get_dependents(
+                name, max_results=20, max_total_chars=8000
+            )
+        except Exception as exc:  # pragma: no cover
+            result["dependents"] = [{"error": str(exc)}]
+
+        if depth >= 2:
+            try:
+                result["change_impact"] = self.get_change_impact(
+                    name,
+                    max_direct=20,
+                    max_transitive=30,
+                    max_total_chars=8000,
+                )
+            except Exception as exc:  # pragma: no cover
+                result["change_impact"] = {"error": str(exc)}
 
         return result
 
