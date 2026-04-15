@@ -296,7 +296,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_function_source": {
-        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner.",
+        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Appends a one-line hint pointing at get_full_context unless hints=false.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -305,13 +305,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
                 "level": {"type": "integer", "minimum": 0, "maximum": 3},
                 "force_full": {"type": "boolean", "description": "Bypass symbol cache."},
+                "hints": {"type": "boolean", "description": "Append a one-line get_full_context hint (default true)."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
         },
     },
     "get_class_source": {
-        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner.",
+        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Appends a one-line hint pointing at get_full_context unless hints=false.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -320,6 +321,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "max_lines": {"type": "integer", "description": "Cap lines (0=all, level=0 only)."},
                 "level": {"type": "integer", "minimum": 0, "maximum": 3},
                 "force_full": {"type": "boolean", "description": "Bypass symbol cache."},
+                "hints": {"type": "boolean", "description": "Append a one-line get_full_context hint (default true)."},
                 **_PROJECT_PARAM,
             },
             "required": ["name"],

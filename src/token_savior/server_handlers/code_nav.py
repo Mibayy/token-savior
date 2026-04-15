@@ -240,6 +240,11 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
             memory_db.record_lattice_feedback(ctx_type, chosen_level, success)
         except Exception:
             pass
+    if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
+        result += (
+            f"\n\n→ get_full_context('{args['name']}') "
+            "for source + callers + dependencies in one call"
+        )
     return result
 
 
@@ -311,6 +316,11 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
                 )
     except Exception:
         pass
+    if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
+        result += (
+            f"\n\n→ get_full_context('{args['name']}') "
+            "for source + callers + dependencies in one call"
+        )
     return result
 
 
