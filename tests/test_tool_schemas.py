@@ -45,7 +45,8 @@ class TestToolSchemas:
         # +2 v2.3 Prompt3 Step C (memory_consistency, memory_quarantine_list) = 95.
         # +2 Java quality tools (find_allocation_hotspots, find_performance_hotspots) = 97.
         # +1 Java duplicate-classes (get_duplicate_classes) = 98.
-        assert len(TOOL_SCHEMAS) == 98, f"Expected 98 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 get_full_context (chain collapse from IMPROVEMENT-SIGNALS) = 99.
+        assert len(TOOL_SCHEMAS) == 99, f"Expected 99 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
