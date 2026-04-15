@@ -163,6 +163,7 @@ class ProjectIndexer:
             "**/*.hcl",
             "**/*.tf",
             "**/*.conf",
+            "**/*.prisma",
             "**/Dockerfile",
             "**/Dockerfile.*",
             "**/*.dockerfile",
