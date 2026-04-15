@@ -459,11 +459,33 @@ def _q_find_symbol(qfns, args: dict[str, Any]):
     batch = _batch_dispatch(qfns, args, _q_find_symbol)
     if batch is not None:
         return batch
-    result = qfns["find_symbol"](args["name"], level=args.get("level", 0))
-    if args.get("hints", True) and isinstance(result, dict) and "error" not in result:
-        result["_hints"] = _hints_for_symbol(
-            result.get("name") or args["name"], result.get("type")
+    name = args["name"]
+    result = qfns["find_symbol"](name, level=args.get("level", 0))
+    if isinstance(result, dict) and "error" in result:
+        result["_suggestion"] = (
+            f"Symbol '{name}' not found. "
+            f"Try: search_codebase('{name}') for a text search, "
+            f"or get_functions() to list all functions."
         )
+    elif args.get("hints", True) and isinstance(result, dict):
+        result["_hints"] = _hints_for_symbol(
+            result.get("name") or name, result.get("type")
+        )
+    return result
+
+
+def _q_list_files(qfns, args: dict[str, Any]):
+    pattern = args.get("pattern")
+    result = qfns["list_files"](pattern, max_results=args.get("max_results", 0))
+    if isinstance(result, list) and len(result) == 0 and pattern:
+        return {
+            "files": [],
+            "_suggestion": (
+                f"No files found for pattern='{pattern}'. "
+                f"Try: list_files() without pattern to see all files, "
+                f"or search_codebase('{pattern}') to search file contents."
+            ),
+        }
     return result
 
 
@@ -490,9 +512,7 @@ def _q_get_classes(qfns, args: dict[str, Any]):
 # Dispatch table: tool name → handler(qfns, arguments) → result
 QFN_HANDLERS: dict[str, object] = {
     "get_project_summary": lambda q, a: q["get_project_summary"](),
-    "list_files": lambda q, a: q["list_files"](
-        a.get("pattern"), max_results=a.get("max_results", 0)
-    ),
+    "list_files": _q_list_files,
     "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
     "get_function_source": _q_get_function_source,
     "get_class_source": _q_get_class_source,
