@@ -784,6 +784,54 @@ class TestProjectQueryFunctions:
         ctx = self.funcs["get_full_context"]("Runner", depth=0)
         assert "class Runner" in ctx["source"]
 
+    def test_navigation_hints_on_find_symbol(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["find_symbol"](self.funcs, {"name": "helper"})
+        assert "_hints" in res
+        joined = " ".join(res["_hints"])
+        assert "get_full_context('helper')" in joined
+        assert "get_function_source('helper')" in joined
+        assert "get_dependents('helper')" in joined
+
+    def test_navigation_hints_find_symbol_opt_out(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["find_symbol"](
+            self.funcs, {"name": "helper", "hints": False}
+        )
+        assert "_hints" not in res
+
+    def test_navigation_hints_class_uses_class_source_tool(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["find_symbol"](self.funcs, {"name": "Runner"})
+        joined = " ".join(res["_hints"])
+        assert "get_class_source('Runner')" in joined
+
+    def test_navigation_hints_on_get_functions(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["get_functions"](self.funcs, {})
+        assert isinstance(res, list)
+        assert "_hints" in res[-1]
+        # Non-hint entries are plain function dicts
+        for entry in res[:-1]:
+            assert "_hints" not in entry
+
+    def test_navigation_hints_on_get_classes(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["get_classes"](self.funcs, {})
+        assert "_hints" in res[-1]
+
+    def test_navigation_hints_list_opt_out(self):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        res = QFN_HANDLERS["get_functions"](self.funcs, {"hints": False})
+        for entry in res:
+            assert "_hints" not in entry
+
     def test_get_call_chain(self):
         result = self.funcs["get_call_chain"]("Runner.execute", "helper")
         assert "chain" in result

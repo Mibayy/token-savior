@@ -370,6 +370,63 @@ def _q_get_edit_context(qfns, args):
     return ctx
 
 
+# ---------------------------------------------------------------------------
+# Navigation hints (gated by `hints: bool = True`)
+# ---------------------------------------------------------------------------
+#
+# Evidence: IMPROVEMENT-SIGNALS.md reports retry storms on the localisation
+# tools (TASK-022: 13 distinct get_function_source calls; TASK-043: 13 distinct
+# get_functions calls). The agent treated each response as a dead-end. A small
+# trailer that explicitly names the next callable breaks the dead-end loop.
+
+
+def _hints_for_symbol(name: str, sym_type: str | None) -> list[str]:
+    source_tool = "get_class_source" if sym_type == "class" else "get_function_source"
+    return [
+        f"full_context: get_full_context('{name}')",
+        f"source:       {source_tool}('{name}')",
+        f"callers:      get_dependents('{name}')",
+        f"impact:       get_change_impact('{name}')",
+    ]
+
+
+_LIST_HINTS = [
+    "full_context: get_full_context('<name>')",
+    "source:       get_function_source('<name>') / get_class_source('<name>')",
+    "callers:      get_dependents('<name>')",
+    "impact:       get_change_impact('<name>')",
+]
+
+
+def _q_find_symbol(qfns, args: dict[str, Any]):
+    result = qfns["find_symbol"](args["name"], level=args.get("level", 0))
+    if args.get("hints", True) and isinstance(result, dict) and "error" not in result:
+        result["_hints"] = _hints_for_symbol(
+            result.get("name") or args["name"], result.get("type")
+        )
+    return result
+
+
+def _q_get_functions(qfns, args: dict[str, Any]):
+    result = qfns["get_functions"](
+        args.get("file_path"), max_results=args.get("max_results", 0)
+    )
+    if args.get("hints", True) and isinstance(result, list) and result:
+        if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
+            result = result + [{"_hints": _LIST_HINTS}]
+    return result
+
+
+def _q_get_classes(qfns, args: dict[str, Any]):
+    result = qfns["get_classes"](
+        args.get("file_path"), max_results=args.get("max_results", 0)
+    )
+    if args.get("hints", True) and isinstance(result, list) and result:
+        if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
+            result = result + [{"_hints": _LIST_HINTS}]
+    return result
+
+
 # Dispatch table: tool name → handler(qfns, arguments) → result
 QFN_HANDLERS: dict[str, object] = {
     "get_project_summary": lambda q, a: q["get_project_summary"](),
@@ -379,16 +436,12 @@ QFN_HANDLERS: dict[str, object] = {
     "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
     "get_function_source": _q_get_function_source,
     "get_class_source": _q_get_class_source,
-    "get_functions": lambda q, a: q["get_functions"](
-        a.get("file_path"), max_results=a.get("max_results", 0)
-    ),
-    "get_classes": lambda q, a: q["get_classes"](
-        a.get("file_path"), max_results=a.get("max_results", 0)
-    ),
+    "get_functions": _q_get_functions,
+    "get_classes": _q_get_classes,
     "get_imports": lambda q, a: q["get_imports"](
         a.get("file_path"), max_results=a.get("max_results", 0)
     ),
-    "find_symbol": lambda q, a: q["find_symbol"](a["name"], level=a.get("level", 0)),
+    "find_symbol": _q_find_symbol,
     "get_dependencies": lambda q, a: q["get_dependencies"](
         a["name"], max_results=a.get("max_results", 0)
     ),

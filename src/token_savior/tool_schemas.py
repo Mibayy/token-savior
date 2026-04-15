@@ -326,24 +326,26 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_functions": {
-        "description": "List functions (name, lines, params, file).",
+        "description": "List functions (name, lines, params, file). Trailing `_hints` entry suggests next tool calls (disable with hints=false).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
                 "max_results": {"type": "integer", "description": "0=unlimited."},
+                "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
         },
     },
     "get_classes": {
-        "description": "List classes (name, lines, methods, bases, file).",
+        "description": "List classes (name, lines, methods, bases, file). Trailing `_hints` entry suggests next tool calls (disable with hints=false).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
                 "max_results": {"type": "integer", "description": "0=unlimited."},
+                "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
@@ -365,7 +367,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "find_symbol": {
-        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}.",
+        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}. Adds a `_hints` key with next-step tool calls (disable with hints=false).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -376,6 +378,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "maximum": 2,
                     "description": "0 full, 1 no preview, 2 minimal.",
                 },
+                "hints": {"type": "boolean", "description": "Add a `_hints` key with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
