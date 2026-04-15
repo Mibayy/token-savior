@@ -712,6 +712,7 @@ class ProjectQueryEngine:
     def __init__(self, index: ProjectIndex):
         self.index = index
         self._communities: dict[str, str] | None = None
+        self._semantic_hash_cache: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -1683,23 +1684,13 @@ class ProjectQueryEngine:
         """
         from token_savior.semantic_hasher import semantic_hash
 
-        index = self.index
-        hash_to_symbols: dict[str, list[str]] = {}
+        if self._semantic_hash_cache is None:
+            self._build_semantic_hash_cache(min_lines)
 
-        for file_path, meta in index.files.items():
-            for func in meta.functions:
-                start = func.line_range.start
-                end = func.line_range.end
-                if (end - start + 1) < min_lines:
-                    continue
-                source_lines = meta.lines[start - 1 : end]
-                source = "\n".join(source_lines)
-                if len(source) < 50:
-                    continue
-                h = semantic_hash(source)
-                hash_to_symbols.setdefault(h, []).append(
-                    f"{func.qualified_name}  ({file_path}:{start})"
-                )
+        cache = self._semantic_hash_cache
+        hash_to_symbols: dict[str, list[str]] = {}
+        for key, h in cache.items():
+            hash_to_symbols.setdefault(h, []).append(key)
 
         duplicates = [(h, syms) for h, syms in hash_to_symbols.items() if len(syms) > 1]
         if not duplicates:
@@ -1712,6 +1703,26 @@ class ProjectQueryEngine:
             for s in syms:
                 lines.append(f"  - {s}")
         return "\n".join(lines)
+
+    def _build_semantic_hash_cache(self, min_lines: int = 4) -> None:
+        """Pre-compute semantic hashes for all functions in the index."""
+        from token_savior.semantic_hasher import semantic_hash
+
+        cache: dict[str, str] = {}
+        for file_path, meta in self.index.files.items():
+            for func in meta.functions:
+                start = func.line_range.start
+                end = func.line_range.end
+                if (end - start + 1) < min_lines:
+                    continue
+                source_lines = meta.lines[start - 1 : end]
+                source = "\n".join(source_lines)
+                if len(source) < 50:
+                    continue
+                h = semantic_hash(source)
+                key = f"{func.qualified_name}  ({file_path}:{start})"
+                cache[key] = h
+        self._semantic_hash_cache = cache
 
     # ------------------------------------------------------------------
     # RWR relevance ranking
