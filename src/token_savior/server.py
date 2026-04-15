@@ -119,6 +119,18 @@ async def list_tools() -> list[Tool]:
 def _track_call(name: str, arguments: dict[str, Any]) -> str:
     """Tool-call telemetry: counts, PPM record, TCA activation, STTE hit."""
 
+    if name == "switch_project":
+        _maybe_auto_save_findings()
+        s._auto_save_project = s._slot_mgr.active_root
+        s._auto_save_symbols.clear()
+        s._auto_save_tools.clear()
+    elif s._auto_save_enabled:
+        sym = arguments.get("name") or arguments.get("symbol_name", "")
+        if sym:
+            s._auto_save_symbols.append(sym)
+        if name.startswith("get_") or name.startswith("find_") or name.startswith("search_"):
+            s._auto_save_tools.append(name)
+
     s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
     record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
@@ -137,6 +149,36 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
             s._spec_branches_hit += 1
             s._spec_tokens_saved += len(cached) // 4
     return record_symbol
+
+
+def _maybe_auto_save_findings():
+    """If auto-save is enabled and we accumulated findings, save them."""
+    if not s._auto_save_enabled:
+        return
+    if not s._auto_save_project or len(s._auto_save_symbols) < 2:
+        return
+    symbols = list(dict.fromkeys(s._auto_save_symbols))[:20]
+    tools = list(dict.fromkeys(s._auto_save_tools))[:10]
+    content = (
+        f"Symbols accessed: {', '.join(symbols[:10])}"
+        f"{f' (+{len(symbols)-10} more)' if len(symbols) > 10 else ''}. "
+        f"Tools used: {', '.join(tools)}."
+    )
+    try:
+        memory_db.observation_save(
+            session_id=None,
+            project=s._auto_save_project,
+            obs_type="finding",
+            title=f"Session findings ({len(symbols)} symbols)",
+            content=content,
+            tags=["auto-save"],
+            importance=3,
+            is_global=False,
+        )
+    except Exception as exc:
+        print(f"[token-savior] auto-save error: {exc}", file=sys.stderr)
+    s._auto_save_symbols.clear()
+    s._auto_save_tools.clear()
 
 
 def _maybe_compress(name: str, arguments: dict[str, Any], result):

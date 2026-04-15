@@ -177,3 +177,12 @@ _PREFETCHABLE_TOOLS: frozenset[str] = frozenset({
     "get_dependencies",
     "find_symbol",
 })
+
+# ---------------------------------------------------------------------------
+# Auto-save tracking (TOKEN_SAVIOR_MEMORY_AUTO_SAVE=1)
+# ---------------------------------------------------------------------------
+
+_auto_save_enabled: bool = os.environ.get("TOKEN_SAVIOR_MEMORY_AUTO_SAVE", "") == "1"
+_auto_save_symbols: list[str] = []
+_auto_save_tools: list[str] = []
+_auto_save_project: str | None = None
