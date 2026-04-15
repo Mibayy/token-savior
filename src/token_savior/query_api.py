@@ -1195,7 +1195,7 @@ class ProjectQueryEngine:
         def _make_entry(sym: str) -> dict:
             d = depth_map[sym]
             confidence = max(0.05, 0.6 ** (d - 1))
-            info = self._resolve_symbol_info(sym)
+            info = self._resolve_symbol_info(sym, level=2, strip_preview=True)
             return {**info, "confidence": confidence, "depth": d}
 
         direct_set = set(direct)
@@ -1961,8 +1961,9 @@ class ProjectQueryEngine:
             "line": func.line_range.start,
             "end_line": func.line_range.end,
             "type": kind,
-            "signature": f"def {func.name}({', '.join(func.parameters)})",
         }
+        if level <= 1:
+            out["signature"] = f"def {func.name}({', '.join(func.parameters)})"
         if level == 0:
             preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
             out["source_preview"] = "\n".join(preview_lines)

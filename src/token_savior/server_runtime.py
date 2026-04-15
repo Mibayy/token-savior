@@ -89,7 +89,23 @@ def compress_symbol_output(tool_name: str, result: object) -> str:
 
     try:
         if isinstance(result, list):
-            return "\n".join(_row(tool_name, e) for e in result)
+            rows = [_row(tool_name, e) for e in result]
+            if len(rows) >= 5:
+                types = set()
+                for e in result:
+                    if isinstance(e, dict):
+                        t = e.get("type")
+                        if not t:
+                            if "methods" in e or "bases" in e:
+                                t = "class"
+                            elif "params" in e or e.get("is_method"):
+                                t = "method" if e.get("is_method") else "fn"
+                        types.add(t)
+                if len(types) == 1 and (common_type := types.pop()):
+                    tag = f" @T:{common_type}"
+                    rows = [r.replace(tag, "") for r in rows]
+                    rows.insert(0, f"## {common_type}s ({len(rows)} items)")
+            return "\n".join(rows)
         if isinstance(result, dict):
             if "error" in result:
                 return json.dumps(result, separators=(",", ":"), default=str)
@@ -105,15 +121,24 @@ def compress_symbol_output(tool_name: str, result: object) -> str:
                 lines: list[str] = []
                 for bucket in ("direct", "transitive"):
                     entries = result.get(bucket) or []
+                    if not entries:
+                        continue
+                    groups: dict[tuple, list[str]] = {}
                     for e in entries:
                         row = _row(tool_name, e)
-                        meta_parts = [f"@B:{bucket}"]
-                        if isinstance(e, dict):
-                            if "depth" in e:
-                                meta_parts.append(f"@D:{e['depth']}")
-                            if "confidence" in e:
-                                meta_parts.append(f"@C:{e['confidence']:.2f}")
-                        lines.append(" ".join(meta_parts) + " " + row)
+                        depth = e.get("depth", "?") if isinstance(e, dict) else "?"
+                        conf = f"{e['confidence']:.2f}" if isinstance(e, dict) and "confidence" in e else "?"
+                        stype = e.get("type", "") if isinstance(e, dict) else ""
+                        key = (bucket, depth, conf, stype)
+                        groups.setdefault(key, []).append(row)
+                    for (bkt, dep, cnf, st), rows in groups.items():
+                        type_tag = f" @T:{st}" if st else ""
+                        lines.append(f"## {bkt} — depth={dep} conf={cnf}{type_tag} ({len(rows)} items)")
+                        for row in rows:
+                            cleaned = row
+                            if st:
+                                cleaned = cleaned.replace(f" @T:{st}", "")
+                            lines.append(cleaned)
                 if result.get("truncated"):
                     lines.append(f"[truncated] {result.get('message', '')}")
                 return "\n".join(lines)
@@ -348,9 +373,10 @@ def _count_and_wrap_result(
         try:
             optimized, stable, total = memory_db.optimize_output_order(formatted)
             if total > 0:
-                formatted = (
-                    f"{optimized}\n[dcp: {stable}/{total} chunks stable]"
-                )
+                if os.environ.get("TOKEN_SAVIOR_DEBUG") == "1":
+                    formatted = f"{optimized}\n[dcp: {stable}/{total} chunks stable]"
+                else:
+                    formatted = optimized
                 s._dcp_calls += 1
                 s._dcp_stable_chunks += stable
                 s._dcp_total_chunks += total

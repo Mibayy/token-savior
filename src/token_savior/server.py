@@ -152,7 +152,9 @@ def _maybe_compress(name: str, arguments: dict[str, Any], result):
         s._tcs_calls += 1
         s._tcs_chars_before += before
         s._tcs_chars_after += after
-        return f"{compressed}\n[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
+        if os.environ.get("TOKEN_SAVIOR_DEBUG") == "1":
+            return f"{compressed}\n[compressed: {before} → {after} chars, -{saved_pct:.1f}%]"
+        return compressed
     return result
 
 
