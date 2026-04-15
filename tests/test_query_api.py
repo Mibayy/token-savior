@@ -609,6 +609,26 @@ class TestProjectQueryFunctions:
         assert len(imports) == 1
         assert imports[0]["module"] == "engine_mod"
 
+    def test_get_imports_empty_file_returns_descriptive_marker(self):
+        empty_meta = StructuralMetadata(
+            source_name="src/empty_mod.py",
+            total_lines=1,
+            total_chars=12,
+            lines=['"""empty."""'],
+            line_char_offsets=[],
+        )
+        index = ProjectIndex(
+            root_path="/project",
+            files={"src/empty_mod.py": empty_meta},
+            symbol_table={},
+        )
+        funcs = create_project_query_functions(index)
+        imports = funcs["get_imports"]("src/empty_mod.py")
+        assert len(imports) == 1
+        assert imports[0]["_empty"] is True
+        assert imports[0]["file"] == "src/empty_mod.py"
+        assert "no imports" in imports[0]["message"]
+
     def test_get_function_source_by_name(self):
         src = self.funcs["get_function_source"]("helper")
         assert "def helper" in src

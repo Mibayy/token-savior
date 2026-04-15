@@ -865,13 +865,27 @@ class ProjectQueryEngine:
         return result
 
     def get_imports(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
-        """Imports in a file or across the project."""
+        """Imports in a file or across the project.
+
+        When a file is resolved but genuinely has no imports, returns a
+        single descriptive marker entry (``_empty: True``) instead of a
+        bare ``[]``. The bare-empty response was causing agent retry storms
+        (IMPROVEMENT-SIGNALS.md: 5 'empty' get_imports calls that looked
+        like failures but were files without imports).
+        """
         if file_path is not None:
             meta = _resolve_file(self.index, file_path)
             if meta is None:
                 return [{"error": f"file '{file_path}' not found in index"}]
             file_funcs = create_file_query_functions(meta)
             result = file_funcs["get_imports"]()
+            if not result:
+                resolved_path = getattr(meta, "source_name", None) or file_path
+                return [{
+                    "_empty": True,
+                    "file": resolved_path,
+                    "message": "no imports in this file",
+                }]
         else:
             result = []
             for path, meta in sorted(self.index.files.items()):
@@ -885,6 +899,12 @@ class ProjectQueryEngine:
                             "file": path,
                         }
                     )
+            if not result:
+                return [{
+                    "_empty": True,
+                    "file": None,
+                    "message": "no imports found in the indexed project",
+                }]
         if max_results > 0:
             result = result[:max_results]
         return result
