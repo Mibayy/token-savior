@@ -575,7 +575,8 @@ QFN_HANDLERS: dict[str, object] = {
         include_reverse=a.get("include_reverse", True),
     ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
-        min_lines=a.get("min_lines", 4)
+        min_lines=a.get("min_lines", 4),
+        max_groups=a.get("max_groups", 10),
     ),
     "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
         a.get("name"),

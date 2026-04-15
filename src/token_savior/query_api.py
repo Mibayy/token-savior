@@ -1676,11 +1676,12 @@ class ProjectQueryEngine:
     # Semantic duplicate detection (P9 part A integration)
     # ------------------------------------------------------------------
 
-    def find_semantic_duplicates(self, min_lines: int = 4) -> str:
+    def find_semantic_duplicates(self, min_lines: int = 4, max_groups: int = 10) -> str:
         """Group functions whose AST-normalised hash collides.
 
         *min_lines* skips trivial one-or-two-liner functions where collisions
         are noise (`return None`, getters, etc).
+        *max_groups* caps the number of duplicate groups returned.
         """
         from token_savior.semantic_hasher import semantic_hash
 
@@ -1696,12 +1697,13 @@ class ProjectQueryEngine:
         if not duplicates:
             return "Semantic duplicates: none found."
 
-        lines = [f"Semantic duplicates: {len(duplicates)} group(s) found"]
+        total = len(duplicates)
+        duplicates.sort(key=lambda x: len(x[1]), reverse=True)
+        duplicates = duplicates[:max_groups]
+
+        lines = [f"Semantic duplicates: {total} group(s) found (showing top {len(duplicates)})"]
         for h, syms in duplicates:
-            lines.append("")
-            lines.append(f"hash {h} ({len(syms)} symbols):")
-            for s in syms:
-                lines.append(f"  - {s}")
+            lines.append(f"  hash {h}: {', '.join(syms)}")
         return "\n".join(lines)
 
     def _build_semantic_hash_cache(self, min_lines: int = 4) -> None:

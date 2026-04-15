@@ -942,7 +942,11 @@ def _is_code_file(filename: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _format_issues(all_issues: list[ConfigIssue], severity_filter: str) -> str:
+def _format_issues(
+    all_issues: list[ConfigIssue],
+    severity_filter: str,
+    max_issues: int = 30,
+) -> str:
     """Format *all_issues* into a human-readable report string.
 
     Severity filter
@@ -952,37 +956,39 @@ def _format_issues(all_issues: list[ConfigIssue], severity_filter: str) -> str:
     ``"all"``     → every issue regardless of severity
 
     The output groups issues by their ``check`` attribute.
+    *max_issues* caps total issues shown (0 = unlimited).
     """
-    # Apply severity filter
     if severity_filter == "error":
         allowed = {"error"}
     elif severity_filter == "warning":
         allowed = {"error", "warning"}
-    else:  # "all"
-        allowed = None  # no filter
+    else:
+        allowed = None
 
     filtered = [i for i in all_issues if allowed is None or i.severity in allowed]
 
     if not filtered:
         return "Config Analysis -- 0 issues found"
 
-    # Group by check type, preserving insertion order
+    total = len(filtered)
+    if max_issues and total > max_issues:
+        filtered = filtered[:max_issues]
+
     groups: dict[str, list[ConfigIssue]] = defaultdict(list)
     for issue in filtered:
         groups[issue.check].append(issue)
 
-    lines: list[str] = [f"Config Analysis -- {len(filtered)} issues found", ""]
+    lines: list[str] = [f"Config Analysis -- {total} issues found"]
+    if total > len(filtered):
+        lines[0] += f" (showing {len(filtered)})"
+    lines.append("")
 
     for check_name, issues in groups.items():
         lines.append(f"-- {check_name} ({len(issues)}) --")
         for issue in issues:
-            detail_part = f" ({issue.detail})" if issue.detail else ""
-            lines.append(
-                f"[{issue.severity}] {issue.file}:{issue.line} -- {issue.message}{detail_part}"
-            )
+            lines.append(f"[{issue.severity}] {issue.file}:{issue.line} {issue.message}")
         lines.append("")
 
-    # Remove trailing blank line if present
     if lines and lines[-1] == "":
         lines.pop()
 
@@ -999,6 +1005,7 @@ def analyze_config(
     checks: list[str] | None = None,
     file_path: str | None = None,
     severity: str = "all",
+    max_issues: int = 30,
 ) -> str:
     """Run config analysis checks on *index* and return a formatted report.
 
@@ -1014,6 +1021,8 @@ def analyze_config(
     severity:
         Severity filter passed to :func:`_format_issues`.
         One of ``"all"`` (default), ``"warning"``, or ``"error"``.
+    max_issues:
+        Cap total issues shown (default 30, 0 = unlimited).
     """
     if checks is None:
         checks = ["duplicates", "secrets", "orphans"]
@@ -1055,4 +1064,4 @@ def analyze_config(
     if "schema" in checks:
         all_issues.extend(check_schema(config_files, code_files))
 
-    return _format_issues(all_issues, severity)
+    return _format_issues(all_issues, severity, max_issues=max_issues)

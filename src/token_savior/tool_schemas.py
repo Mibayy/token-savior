@@ -649,6 +649,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "file_path": {"type": "string", "description": "Specific config file"},
                 "severity": {"type": "string", "enum": ["all", "error", "warning"], "description": "Severity filter"},
+                "max_issues": {"type": "integer", "description": "Cap total issues shown (default 30, 0 = unlimited)."},
                 **_PROJECT_PARAM,
             },
         },
@@ -1132,6 +1133,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "min_lines": {
                     "type": "integer",
                     "description": "Skip functions shorter than this (default 4).",
+                },
+                "max_groups": {
+                    "type": "integer",
+                    "description": "Max duplicate groups to return (default 10).",
                 },
                 **_PROJECT_PARAM,
             },

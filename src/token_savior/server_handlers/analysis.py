@@ -35,6 +35,7 @@ def _h_analyze_config(slot: _ProjectSlot, args: dict) -> object:
         checks=args.get("checks"),
         file_path=args.get("file_path"),
         severity=args.get("severity", "all"),
+        max_issues=args.get("max_issues", 30),
     )
 
 
