@@ -60,6 +60,7 @@ class ASTNormalizer(ast.NodeTransformer):
         saved_counter = self.var_counter
         self.var_map = {}
         self.var_counter = 0
+        node.name = "_func"
         result = self.generic_visit(node)
         self.var_map = saved_map
         self.var_counter = saved_counter
