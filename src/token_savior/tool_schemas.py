@@ -1194,7 +1194,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "max_groups": {
                     "type": "integer",
-                    "description": "Max duplicate groups to return (default 10).",
+                    "description": "Max duplicate groups to return (default 30).",
                 },
                 **_PROJECT_PARAM,
             },
