@@ -481,7 +481,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_edit_context": {
-        "description": "Symbol source + direct deps + callers in one call.",
+        "description": "Symbol source + direct deps + callers + siblings + impacted tests in one call. Returns {symbol, source, location, dependencies, callers, siblings, impacted_tests}.",
         "inputSchema": {
             "type": "object",
             "properties": {

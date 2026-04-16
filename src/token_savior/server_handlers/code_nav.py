@@ -413,6 +413,38 @@ def _q_get_edit_context(qfns, args):
         ctx["callers"] = qfns["get_dependents"](sym_name, max_results=max_callers)
     except Exception:
         ctx["callers"] = []
+
+    # --- siblings: other symbols in the same file ---
+    loc_file = location.get("file") if isinstance(location, dict) else None
+    if loc_file:
+        siblings = []
+        try:
+            for fn in qfns["get_functions"](file_path=loc_file, max_results=0):
+                fn_name = fn.get("name") if isinstance(fn, dict) else None
+                if fn_name and fn_name != sym_name:
+                    siblings.append({"name": fn_name, "type": "function",
+                                     "line": fn.get("line")})
+        except Exception:
+            pass
+        try:
+            for cls in qfns["get_classes"](file_path=loc_file, max_results=0):
+                cls_name = cls.get("name") if isinstance(cls, dict) else None
+                if cls_name and cls_name != sym_name:
+                    siblings.append({"name": cls_name, "type": "class",
+                                     "line": cls.get("line")})
+        except Exception:
+            pass
+        ctx["siblings"] = siblings
+    else:
+        ctx["siblings"] = []
+
+    # --- impacted tests ---
+    try:
+        impact = qfns["find_impacted_test_files"](symbol_names=[sym_name], max_tests=5)
+        ctx["impacted_tests"] = impact.get("impacted_tests", [])
+    except Exception:
+        ctx["impacted_tests"] = []
+
     return ctx
 
 

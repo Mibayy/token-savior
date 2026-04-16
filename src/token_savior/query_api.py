@@ -707,6 +707,7 @@ class ProjectQueryEngine:
         "get_relevance_cluster",
         "find_semantic_duplicates",
         "get_duplicate_classes",
+        "find_impacted_test_files",
     ]
 
     def __init__(self, index: ProjectIndex):
@@ -1313,6 +1314,24 @@ class ProjectQueryEngine:
                 result["change_impact"] = {"error": str(exc)}
 
         return result
+
+    def find_impacted_test_files(
+        self,
+        symbol_names: list[str] | None = None,
+        changed_files: list[str] | None = None,
+        max_tests: int = 10,
+    ) -> dict:
+        """Thin wrapper so edit_context can call impacted-test inference via qfns."""
+        from token_savior.impacted_tests import (
+            find_impacted_test_files as _find_impacted,
+        )
+
+        return _find_impacted(
+            self.index,
+            changed_files=changed_files,
+            symbol_names=symbol_names,
+            max_tests=max_tests,
+        )
 
     # ------------------------------------------------------------------
     # v3: Route Map (Next.js App Router + Express-style)
