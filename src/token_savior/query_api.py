@@ -1683,8 +1683,6 @@ class ProjectQueryEngine:
         are noise (`return None`, getters, etc).
         *max_groups* caps the number of duplicate groups returned.
         """
-        from token_savior.semantic_hasher import semantic_hash
-
         if self._semantic_hash_cache is None:
             self._build_semantic_hash_cache(min_lines)
 
