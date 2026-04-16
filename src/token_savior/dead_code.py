@@ -627,6 +627,8 @@ def _collect_dead_symbols(
     index: ProjectIndex,
     sibling_indices: dict[str, ProjectIndex] | None = None,
 ) -> list[_DeadSymbol]:
+    from token_savior.project_indexer import is_path_excluded_from_scans
+
     rdg = index.reverse_dependency_graph
     dead: list[_DeadSymbol] = []
     cross_project_live_symbols = _cross_project_live_symbols(index, sibling_indices)
@@ -639,6 +641,8 @@ def _collect_dead_symbols(
     duplicate_classes, duplicate_methods = _duplicate_symbol_sets(index)
 
     for file_path, meta in index.files.items():
+        if is_path_excluded_from_scans(file_path):
+            continue
         class_by_name = {cls.name: cls for cls in meta.classes}
 
         for func in meta.functions:

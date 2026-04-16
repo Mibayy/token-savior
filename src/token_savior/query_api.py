@@ -812,6 +812,8 @@ class ProjectQueryEngine:
 
     def get_functions(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Functions in a file, or all functions across the project."""
+        from token_savior.project_indexer import is_path_excluded_from_scans
+
         if file_path is not None:
             meta = _resolve_file(self.index, file_path)
             if meta is None:
@@ -822,6 +824,8 @@ class ProjectQueryEngine:
             # All functions across project
             result = []
             for path, meta in sorted(self.index.files.items()):
+                if is_path_excluded_from_scans(path):
+                    continue
                 for f in meta.functions:
                     result.append(
                         {
@@ -840,6 +844,8 @@ class ProjectQueryEngine:
 
     def get_classes(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
         """Classes in a file or across the project."""
+        from token_savior.project_indexer import is_path_excluded_from_scans
+
         if file_path is not None:
             meta = _resolve_file(self.index, file_path)
             if meta is None:
@@ -849,6 +855,8 @@ class ProjectQueryEngine:
         else:
             result = []
             for path, meta in sorted(self.index.files.items()):
+                if is_path_excluded_from_scans(path):
+                    continue
                 for cls in meta.classes:
                     method_names = [m.name for m in cls.methods]
                     method_signatures = [m.qualified_name for m in cls.methods]
@@ -1147,13 +1155,16 @@ class ProjectQueryEngine:
         files concurrently; when bounded we keep a lightweight early-exit
         to avoid scanning more than necessary.
         """
+        from token_savior.project_indexer import is_path_excluded_from_scans
+
         try:
             regex = re.compile(pattern)
         except re.error as e:
             return [{"error": f"Invalid regex: {e}"}]
         limit = max_results if max_results > 0 else 0
 
-        paths = self.index.sorted_paths or sorted(self.index.files.keys())
+        raw_paths = self.index.sorted_paths or sorted(self.index.files.keys())
+        paths = [p for p in raw_paths if not is_path_excluded_from_scans(p)]
         files = self.index.files
 
         def _scan(path: str) -> list[dict]:
@@ -1779,9 +1790,12 @@ class ProjectQueryEngine:
     def _build_semantic_hash_cache(self, min_lines: int = 4) -> None:
         """Pre-compute semantic hashes for all functions in the index."""
         from token_savior.semantic_hasher import semantic_hash
+        from token_savior.project_indexer import is_path_excluded_from_scans
 
         cache: dict[str, str] = {}
         for file_path, meta in self.index.files.items():
+            if is_path_excluded_from_scans(file_path):
+                continue
             for func in meta.functions:
                 start = func.line_range.start
                 end = func.line_range.end

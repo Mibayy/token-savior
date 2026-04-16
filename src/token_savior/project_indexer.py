@@ -19,6 +19,28 @@ from token_savior.symbol_hash import fill_hashes
 logger = logging.getLogger(__name__)
 
 
+EXCLUDED_DIRS: frozenset[str] = frozenset(
+    {
+        ".token-savior-checkpoints",
+        ".git",
+        "__pycache__",
+        "node_modules",
+    }
+)
+
+
+def is_path_excluded_from_scans(path: str) -> bool:
+    """Return True if path is under a directory excluded from codebase scans.
+
+    Applied by tools that enumerate the index (find_semantic_duplicates,
+    find_dead_code, find_hotspots, search_codebase, get_functions,
+    get_classes) so checkpoints, VCS metadata, caches and vendored deps
+    never drown out application code in the output.
+    """
+    parts = path.replace("\\", "/").split("/")
+    return any(part in EXCLUDED_DIRS for part in parts)
+
+
 def _rebuild_path_indexes(idx: ProjectIndex) -> None:
     """Refresh sorted_paths and basename_map after idx.files mutates."""
     idx.sorted_paths = sorted(idx.files.keys())

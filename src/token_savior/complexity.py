@@ -125,10 +125,14 @@ def find_hotspots(
     Returns:
         A formatted string report of the top complexity hotspots.
     """
+    from token_savior.project_indexer import is_path_excluded_from_scans
+
     results: list[tuple[float, int, int, int, str, int, str]] = []
     # tuple: (score, line_count, branch_count, nesting, func_name, start_line, file_path)
 
     for file_path, meta in index.files.items():
+        if is_path_excluded_from_scans(file_path):
+            continue
         for func in meta.functions:
             start = func.line_range.start  # 1-indexed
             end = func.line_range.end  # 1-indexed
