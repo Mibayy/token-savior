@@ -5,6 +5,7 @@ from __future__ import annotations
 from token_savior.edit_ops import (
     add_field_to_model,
     insert_near_symbol,
+    move_symbol,
     replace_symbol_source,
     resolve_symbol_location,
 )
@@ -183,3 +184,69 @@ class TestAddFieldToModel:
         name_idx = next(i for i, ln in enumerate(lines) if "name" in ln)
         arch_idx = next(i for i, ln in enumerate(lines) if "archivedAt" in ln)
         assert arch_idx == name_idx + 1
+
+
+class TestMoveSymbol:
+    def test_moves_function_to_new_file(self, tmp_path):
+        (tmp_path / "utils.py").write_text(
+            "def slugify(s):\n"
+            "    return s.lower().replace(' ', '-')\n"
+            "\n"
+            "def truncate(s, n):\n"
+            "    return s[:n]\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        index = indexer.index()
+
+        result = move_symbol(index, "slugify", "shared/strings.py")
+
+        assert result["ok"] is True
+        assert result["from_file"] == "utils.py"
+        assert result["to_file"] == "shared/strings.py"
+        # Source file should no longer have slugify
+        src = (tmp_path / "utils.py").read_text(encoding="utf-8")
+        assert "def slugify" not in src
+        assert "def truncate" in src
+        # Target file should have slugify
+        tgt = (tmp_path / "shared" / "strings.py").read_text(encoding="utf-8")
+        assert "def slugify" in tgt
+
+    def test_updates_imports(self, tmp_path):
+        (tmp_path / "utils.py").write_text(
+            "def slugify(s):\n"
+            "    return s.lower()\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "views.py").write_text(
+            "from utils import slugify\n"
+            "\n"
+            "def create_article(title):\n"
+            "    return slugify(title)\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        index = indexer.index()
+
+        result = move_symbol(index, "slugify", "shared/strings.py")
+
+        assert result["ok"] is True
+        assert "views.py" in result["updated_imports"]
+        views = (tmp_path / "views.py").read_text(encoding="utf-8")
+        assert "from shared.strings import slugify" in views
+        assert "from utils import slugify" not in views
+
+    def test_create_if_missing_false(self, tmp_path):
+        (tmp_path / "utils.py").write_text(
+            "def slugify(s):\n"
+            "    return s.lower()\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        index = indexer.index()
+
+        result = move_symbol(
+            index, "slugify", "nonexistent.py", create_if_missing=False
+        )
+
+        assert "error" in result
