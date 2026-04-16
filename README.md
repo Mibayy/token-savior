@@ -44,22 +44,40 @@ get_backward_slice("parse_invoice", variable="total", line=42)
 
 ## Performance
 
+Measured on **[tsbench](https://github.com/Mibayy/tsbench)** — 60 real coding
+tasks, Claude Sonnet, April 2026, token-savior v2.5.1. Run A is plain Claude
+Code (Read/Grep/Glob); Run B forces token-savior tools only.
+
+| Metric | Run A (plain) | Run B (TS) | Delta |
+|--------|--------------:|-----------:|------:|
+| Score | 67/120 (56%) | **115/120 (96%)** | **+40 pts** |
+| Chars injected | 1,431,624 | **234,805** | **−84%** |
+| Wall time avg | 51.0s | **27.9s** | **−45%** |
+| Total turns | 733 | 435 | −41% |
+
+- **Wins / loses / ties** : 32 / 0 / 28
+- **Tasks impossible without TS** (score 0/2 → ≥1/2) : 21 / 60
+- **Hero case** — TASK-043 (heavy_read) : 13 Read → 197K chars → 159s → 1/2
+  becomes 6× `get_functions` → 16K chars → 43s → 2/2 with TS
+
+Trade-offs (read the [full report](https://github.com/Mibayy/tsbench/blob/main/results/RESULTS.md)) :
+
+- **active_tokens +29%** cumulés — the chars reduction is offset by MCP schema
+  cache_creation; TS still wins active on 28/59 tasks (heavy_read, audit, impact).
+- **call_chain category +88% wall** — structural BFS is slower per-call than
+  Grep heuristics, but score climbs from 5/8 to 8/8.
+- **Localisation simple +24% wall** — single-symbol lookups pay MCP round-trip
+  latency; score still improves from 1.17 to 1.83 thanks to fewer false negatives.
+
+### Other measured properties
+
 | Metric | Value |
 |--------|-------|
-| Token reduction (navigation) | **97%** |
-| Symbol reindex speedup | **19x** (symbol-level hashing) |
+| Symbol reindex speedup | **19×** (symbol-level hashing) |
 | Re-access savings (CSC) | **93%** |
-| Abstraction compression L3 | **94-97%** vs full source |
+| Abstraction compression L3 | **94–97%** vs full source |
 | Program slice reduction | **92%** |
-| Sessions tracked | 170+ |
-| Tokens saved | ~203M |
-| Estimated cost saved | $609+ |
-| Projects supported | 17 |
-| Tool count | **98** |
-
-> "Tokens saved" = estimated tokens the agent would have consumed navigating
-> with `cat`/`grep` versus with Token Savior Recall. Model-agnostic: the index
-> reduces context-window pressure regardless of provider.
+| Tool count | **103** |
 
 ### Query response time (sub-millisecond at 1.1M lines)
 
