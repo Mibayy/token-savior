@@ -1707,11 +1707,13 @@ class ProjectQueryEngine:
     # Semantic duplicate detection (P9 part A integration)
     # ------------------------------------------------------------------
 
-    def find_semantic_duplicates(self, min_lines: int = 4, max_groups: int = 10) -> str:
+    def find_semantic_duplicates(self, min_lines: int = 2, max_groups: int = 10) -> str:
         """Group functions whose AST-normalised hash collides.
 
-        *min_lines* skips trivial one-or-two-liner functions where collisions
-        are noise (`return None`, getters, etc).
+        *min_lines* skips trivial one-liner functions where collisions
+        are noise (`return None`, getters, etc). Default 2 catches
+        short utilities (slugify, start_of_day etc.) that are common
+        duplication patterns.
         *max_groups* caps the number of duplicate groups returned.
         """
         if self._semantic_hash_cache is None:
@@ -1787,7 +1789,7 @@ class ProjectQueryEngine:
         cycles.sort(key=lambda c: (len(c), c))
         return cycles[:max_cycles] if max_cycles > 0 else cycles
 
-    def _build_semantic_hash_cache(self, min_lines: int = 4) -> None:
+    def _build_semantic_hash_cache(self, min_lines: int = 2) -> None:
         """Pre-compute semantic hashes for all functions in the index."""
         from token_savior.semantic_hasher import semantic_hash
         from token_savior.project_indexer import is_path_excluded_from_scans

@@ -1190,7 +1190,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "properties": {
                 "min_lines": {
                     "type": "integer",
-                    "description": "Skip functions shorter than this (default 4).",
+                    "description": "Skip functions shorter than this (default 2).",
                 },
                 "max_groups": {
                     "type": "integer",
