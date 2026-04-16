@@ -706,6 +706,7 @@ class ProjectQueryEngine:
         "pack_context",
         "get_relevance_cluster",
         "find_semantic_duplicates",
+        "find_import_cycles",
         "get_duplicate_classes",
         "find_impacted_test_files",
     ]
@@ -1722,6 +1723,58 @@ class ProjectQueryEngine:
         for h, syms in duplicates:
             lines.append(f"  hash {h}: {', '.join(syms)}")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Import cycle detection
+    # ------------------------------------------------------------------
+
+    def find_import_cycles(self, max_cycles: int = 20) -> list[list[str]]:
+        """Detect import cycles in the file-level dependency graph.
+
+        Runs Tarjan's strongly-connected-components algorithm on
+        ``self.index.import_graph``. Returns one list of file paths per
+        non-trivial cycle (SCC size >= 2, plus any file that imports itself).
+        """
+        graph = self.index.import_graph
+        index_counter = 0
+        stack: list[str] = []
+        on_stack: set[str] = set()
+        indices: dict[str, int] = {}
+        lowlinks: dict[str, int] = {}
+        cycles: list[list[str]] = []
+
+        def strongconnect(node: str) -> None:
+            nonlocal index_counter
+            indices[node] = index_counter
+            lowlinks[node] = index_counter
+            index_counter += 1
+            stack.append(node)
+            on_stack.add(node)
+
+            for neighbour in graph.get(node, ()):
+                if neighbour not in indices:
+                    strongconnect(neighbour)
+                    lowlinks[node] = min(lowlinks[node], lowlinks[neighbour])
+                elif neighbour in on_stack:
+                    lowlinks[node] = min(lowlinks[node], indices[neighbour])
+
+            if lowlinks[node] == indices[node]:
+                component: list[str] = []
+                while True:
+                    w = stack.pop()
+                    on_stack.discard(w)
+                    component.append(w)
+                    if w == node:
+                        break
+                if len(component) > 1 or node in graph.get(node, ()):
+                    cycles.append(sorted(component))
+
+        for node in list(graph):
+            if node not in indices:
+                strongconnect(node)
+
+        cycles.sort(key=lambda c: (len(c), c))
+        return cycles[:max_cycles] if max_cycles > 0 else cycles
 
     def _build_semantic_hash_cache(self, min_lines: int = 4) -> None:
         """Pre-compute semantic hashes for all functions in the index."""
