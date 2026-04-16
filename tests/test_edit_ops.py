@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from token_savior.edit_ops import insert_near_symbol, replace_symbol_source, resolve_symbol_location
+from token_savior.edit_ops import (
+    add_field_to_model,
+    insert_near_symbol,
+    replace_symbol_source,
+    resolve_symbol_location,
+)
 from token_savior.project_indexer import ProjectIndexer
 
 
@@ -80,3 +85,101 @@ class TestInsertNearSymbol:
         assert result["ok"] is True
         updated = (tmp_path / "main.py").read_text(encoding="utf-8")
         assert updated.index("CONSTANT = 1") < updated.index("class Greeter")
+
+
+class TestAddFieldToModel:
+    def test_prisma_model(self, tmp_path):
+        (tmp_path / "schema.prisma").write_text(
+            "model Member {\n"
+            "  id    Int    @id @default(autoincrement())\n"
+            "  name  String\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.prisma"])
+        index = indexer.index()
+
+        result = add_field_to_model(index, "Member", "archivedAt", "DateTime?")
+
+        assert result["ok"] is True
+        content = (tmp_path / "schema.prisma").read_text(encoding="utf-8")
+        assert "archivedAt  DateTime?" in content
+        # Field should be inside the model block
+        assert content.index("archivedAt") > content.index("model Member")
+        assert content.index("archivedAt") < content.rindex("}")
+
+    def test_python_dataclass(self, tmp_path):
+        (tmp_path / "models.py").write_text(
+            "from dataclasses import dataclass\n"
+            "\n"
+            "@dataclass\n"
+            "class User:\n"
+            "    name: str\n"
+            "    email: str\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        index = indexer.index()
+
+        result = add_field_to_model(index, "User", "age", "int")
+
+        assert result["ok"] is True
+        content = (tmp_path / "models.py").read_text(encoding="utf-8")
+        assert "    age: int" in content
+
+    def test_typescript_interface(self, tmp_path):
+        (tmp_path / "types.ts").write_text(
+            "export interface Member {\n"
+            "  id: number;\n"
+            "  name: string;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.ts"])
+        index = indexer.index()
+
+        result = add_field_to_model(index, "Member", "archivedAt", "Date | null")
+
+        assert result["ok"] is True
+        content = (tmp_path / "types.ts").read_text(encoding="utf-8")
+        assert "  archivedAt: Date | null;" in content
+
+    def test_typescript_optional_field(self, tmp_path):
+        (tmp_path / "types.ts").write_text(
+            "export interface Member {\n"
+            "  id: number;\n"
+            "  name: string;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.ts"])
+        index = indexer.index()
+
+        result = add_field_to_model(index, "Member", "archivedAt", "Date?")
+
+        assert result["ok"] is True
+        content = (tmp_path / "types.ts").read_text(encoding="utf-8")
+        assert "  archivedAt?: Date;" in content
+
+    def test_after_param(self, tmp_path):
+        (tmp_path / "schema.prisma").write_text(
+            "model Member {\n"
+            "  id    Int    @id @default(autoincrement())\n"
+            "  name  String\n"
+            "  email String\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.prisma"])
+        index = indexer.index()
+
+        result = add_field_to_model(
+            index, "Member", "archivedAt", "DateTime?", after="name"
+        )
+
+        assert result["ok"] is True
+        content = (tmp_path / "schema.prisma").read_text(encoding="utf-8")
+        lines = content.splitlines()
+        name_idx = next(i for i, ln in enumerate(lines) if "name" in ln)
+        arch_idx = next(i for i, ln in enumerate(lines) if "archivedAt" in ln)
+        assert arch_idx == name_idx + 1

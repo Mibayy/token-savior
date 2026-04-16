@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from token_savior.edit_ops import insert_near_symbol, replace_symbol_source
+from token_savior.edit_ops import add_field_to_model, insert_near_symbol, replace_symbol_source
 from token_savior.server_runtime import _prep
 from token_savior.slot_manager import _ProjectSlot
 from token_savior.workflow_ops import apply_symbol_change_and_validate
@@ -84,9 +84,25 @@ def _h_apply_symbol_change_and_validate(slot: _ProjectSlot, args: dict) -> objec
     )
 
 
+def _h_add_field_to_model(slot: _ProjectSlot, args: dict) -> object:
+    _prep(slot)
+    result = add_field_to_model(
+        slot.indexer._project_index,
+        model=args["model"],
+        field_name=args["field_name"],
+        field_type=args["field_type"],
+        file_path=args.get("file_path"),
+        after=args.get("after"),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex_file(result["file"])
+    return result
+
+
 HANDLERS: dict[str, object] = {
     "replace_symbol_source": _h_replace_symbol_source,
     "insert_near_symbol": _h_insert_near_symbol,
     "verify_edit": _h_verify_edit,
     "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
+    "add_field_to_model": _h_add_field_to_model,
 }
