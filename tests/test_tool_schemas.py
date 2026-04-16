@@ -49,7 +49,8 @@ class TestToolSchemas:
         # +1 add_field_to_model = 100.
         # +1 move_symbol = 101.
         # +1 apply_refactoring = 102.
-        assert len(TOOL_SCHEMAS) == 102, f"Expected 102 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 find_import_cycles = 103.
+        assert len(TOOL_SCHEMAS) == 103, f"Expected 103 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

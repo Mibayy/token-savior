@@ -610,6 +610,9 @@ QFN_HANDLERS: dict[str, object] = {
         min_lines=a.get("min_lines", 4),
         max_groups=a.get("max_groups", 10),
     ),
+    "find_import_cycles": lambda q, a: q["find_import_cycles"](
+        max_cycles=a.get("max_cycles", 20),
+    ),
     "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
         a.get("name"),
         max_results=a.get("max_results", 0),

@@ -1200,6 +1200,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "find_import_cycles": {
+        "description": (
+            "Detect import cycles (strongly-connected components) in the "
+            "file-level import graph using Tarjan's algorithm. Returns sorted "
+            "list of cycles."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_cycles": {
+                    "type": "integer",
+                    "description": "Maximum number of cycles to return (default 20, 0 = unlimited).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "get_call_predictions": {
         "description": (
             "Predict the next likely tool calls based on the persistent first-order "
