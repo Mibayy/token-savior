@@ -258,3 +258,369 @@ def _find_insert_position(
             return i
     # Fallback: end of block
     return block_end
+
+
+def move_symbol(
+    index: ProjectIndex,
+    symbol_name: str,
+    target_file: str,
+    create_if_missing: bool = True,
+) -> dict:
+    """Move a symbol from its current file to *target_file*.
+
+    Steps:
+    1. Locate and read the symbol source.
+    2. Delete the symbol block from the source file.
+    3. Append the symbol to the target file (create it if needed).
+    4. Update imports in all files that reference the symbol.
+
+    Returns a summary dict with files modified.
+    """
+    loc = resolve_symbol_location(index, symbol_name)
+    if "error" in loc:
+        return loc
+
+    root = os.path.normpath(index.root_path)
+    src_rel = loc["file"]
+    src_abs = os.path.normpath(os.path.join(root, src_rel))
+    tgt_abs = os.path.normpath(os.path.join(root, target_file))
+    _validate_path(src_abs, root)
+    _validate_path(tgt_abs, root)
+
+    # 1. Read source block
+    src_lines, src_trailing = _read_lines(src_abs)
+    start_0 = loc["line"] - 1
+    end_0 = loc["end_line"]  # exclusive upper for slice
+    symbol_block = src_lines[start_0:end_0]
+
+    # 2. Delete from source
+    del src_lines[start_0:end_0]
+    # Clean up blank lines left behind (collapse >2 consecutive blanks to 1)
+    cleaned: list[str] = []
+    blank_run = 0
+    for line in src_lines:
+        if line.strip() == "":
+            blank_run += 1
+            if blank_run <= 2:
+                cleaned.append(line)
+        else:
+            blank_run = 0
+            cleaned.append(line)
+    _write_lines(src_abs, cleaned, src_trailing)
+
+    # 3. Write to target
+    if os.path.exists(tgt_abs):
+        tgt_lines, tgt_trailing = _read_lines(tgt_abs)
+    else:
+        if not create_if_missing:
+            return {"error": f"Target file does not exist: {target_file}"}
+        os.makedirs(os.path.dirname(tgt_abs), exist_ok=True)
+        tgt_lines, tgt_trailing = [], True
+
+    # Add two blank lines separator if file has content
+    if tgt_lines and tgt_lines[-1].strip() != "":
+        tgt_lines.append("")
+        tgt_lines.append("")
+    elif tgt_lines and len(tgt_lines) >= 1:
+        # Ensure at least one blank line before new symbol
+        if tgt_lines[-1].strip() != "":
+            tgt_lines.append("")
+
+    tgt_lines.extend(symbol_block)
+    _write_lines(tgt_abs, tgt_lines, tgt_trailing)
+
+    # 4. Fix imports in all files that reference the symbol
+    src_module = _file_to_module(src_rel)
+    tgt_module = _file_to_module(target_file)
+    updated_imports: list[str] = []
+
+    if src_module and tgt_module:
+        simple_name = symbol_name.rsplit(".", 1)[-1]
+        for rel_path in sorted(index.files):
+            if rel_path == src_rel:
+                continue
+            file_abs = os.path.join(root, rel_path)
+            if not os.path.exists(file_abs):
+                continue
+            try:
+                content = open(file_abs, encoding="utf-8").read()
+            except Exception:
+                continue
+            new_content = _rewrite_imports(content, src_module, tgt_module, simple_name)
+            if new_content != content:
+                with open(file_abs, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                updated_imports.append(rel_path)
+
+    return {
+        "ok": True,
+        "from_file": src_rel,
+        "to_file": target_file,
+        "symbol": loc["name"],
+        "updated_imports": updated_imports,
+    }
+
+
+def _file_to_module(rel_path: str) -> str | None:
+    """Convert a relative file path to a dotted module path, or None."""
+    if not rel_path:
+        return None
+    # Strip extension
+    base, ext = os.path.splitext(rel_path)
+    if ext not in {".py", ".ts", ".tsx", ".js", ".jsx"}:
+        return None
+    # Convert slashes to dots
+    return base.replace("/", ".").replace("\\", ".")
+
+
+def _rewrite_imports(
+    content: str,
+    old_module: str,
+    new_module: str,
+    symbol_name: str,
+) -> str:
+    """Rewrite import statements from old_module to new_module for symbol_name.
+
+    Handles Python-style and TypeScript-style imports.
+    """
+    import re
+
+    lines = content.split("\n")
+    result = []
+    for line in lines:
+        # Python: from old_module import symbol_name
+        py_match = re.match(
+            r"^(\s*from\s+)" + re.escape(old_module) + r"(\s+import\s+)(.*)",
+            line,
+        )
+        if py_match:
+            imports_part = py_match.group(3)
+            names = [n.strip() for n in imports_part.split(",")]
+            if symbol_name in names:
+                remaining = [n for n in names if n != symbol_name]
+                # Add new import for the moved symbol
+                new_import = f"{py_match.group(1)}{new_module}{py_match.group(2)}{symbol_name}"
+                if remaining:
+                    result.append(
+                        f"{py_match.group(1)}{old_module}{py_match.group(2)}{', '.join(remaining)}"
+                    )
+                result.append(new_import)
+                continue
+
+        # Python: import old_module (less common for symbols)
+        py_import_match = re.match(
+            r"^(\s*import\s+)" + re.escape(old_module) + r"\s*$",
+            line,
+        )
+        if py_import_match:
+            result.append(f"{py_import_match.group(1)}{new_module}")
+            continue
+
+        # TypeScript/JS: import { symbol } from 'old_module'
+        ts_match = re.match(
+            r"""^(\s*import\s*\{)([^}]*)\}(\s*from\s*['"])"""
+            + re.escape(old_module)
+            + r"""(['"].*)\s*$""",
+            line,
+        )
+        if ts_match:
+            imports_part = ts_match.group(2)
+            names = [n.strip() for n in imports_part.split(",") if n.strip()]
+            if symbol_name in names:
+                remaining = [n for n in names if n != symbol_name]
+                new_import = (
+                    f"{ts_match.group(1)} {symbol_name} }}"
+                    f"{ts_match.group(3)}{new_module}{ts_match.group(4)}"
+                )
+                if remaining:
+                    result.append(
+                        f"{ts_match.group(1)} {', '.join(remaining)} }}"
+                        f"{ts_match.group(3)}{old_module}{ts_match.group(4)}"
+                    )
+                result.append(new_import)
+                continue
+
+        result.append(line)
+
+    return "\n".join(result)
+
+
+# ---------------------------------------------------------------------------
+# apply_refactoring — unified dispatcher for rename / move / add_field / extract
+# ---------------------------------------------------------------------------
+
+_REFACTORING_TYPES = {"rename", "move", "add_field", "extract"}
+
+
+def apply_refactoring(
+    index: ProjectIndex,
+    refactoring_type: str,
+    *,
+    # rename
+    symbol: str | None = None,
+    new_name: str | None = None,
+    # move
+    target_file: str | None = None,
+    create_if_missing: bool = True,
+    # add_field
+    model: str | None = None,
+    field_name: str | None = None,
+    field_type: str | None = None,
+    file_path: str | None = None,
+    after: str | None = None,
+    # extract
+    start_line: int | None = None,
+    end_line: int | None = None,
+) -> dict:
+    """Unified refactoring dispatcher.
+
+    ``refactoring_type`` selects the operation:
+
+    * ``rename``    – rename *symbol* to *new_name* across the project.
+    * ``move``      – delegate to :func:`move_symbol`.
+    * ``add_field`` – delegate to :func:`add_field_to_model`.
+    * ``extract``   – extract lines from *file_path* into a new function *new_name*.
+    """
+    if refactoring_type not in _REFACTORING_TYPES:
+        return {"error": f"Unknown refactoring type '{refactoring_type}'. "
+                f"Must be one of: {', '.join(sorted(_REFACTORING_TYPES))}"}
+
+    # ── rename ────────────────────────────────────────────────────────────
+    if refactoring_type == "rename":
+        if not symbol or not new_name:
+            return {"error": "rename requires 'symbol' and 'new_name'"}
+        return _refactor_rename(index, symbol, new_name, file_path)
+
+    # ── move ──────────────────────────────────────────────────────────────
+    if refactoring_type == "move":
+        if not symbol or not target_file:
+            return {"error": "move requires 'symbol' and 'target_file'"}
+        return move_symbol(index, symbol, target_file, create_if_missing)
+
+    # ── add_field ─────────────────────────────────────────────────────────
+    if refactoring_type == "add_field":
+        if not model or not field_name or not field_type:
+            return {"error": "add_field requires 'model', 'field_name', 'field_type'"}
+        return add_field_to_model(index, model, field_name, field_type,
+                                  file_path=file_path, after=after)
+
+    # ── extract ───────────────────────────────────────────────────────────
+    if refactoring_type == "extract":
+        if not file_path or start_line is None or end_line is None or not new_name:
+            return {"error": "extract requires 'file_path', 'start_line', 'end_line', 'new_name'"}
+        return _refactor_extract(index, file_path, start_line, end_line, new_name)
+
+    return {"error": "unreachable"}  # pragma: no cover
+
+
+def _refactor_rename(
+    index: ProjectIndex,
+    symbol_name: str,
+    new_name: str,
+    file_path: str | None = None,
+) -> dict:
+    """Rename a symbol and update all references across the project."""
+    loc = resolve_symbol_location(index, symbol_name, file_path)
+    if "error" in loc:
+        return loc
+
+    root = os.path.normpath(index.root_path)
+    simple_old = symbol_name.rsplit(".", 1)[-1]
+    simple_new = new_name.rsplit(".", 1)[-1]
+
+    # Build word-boundary pattern for the old name
+    pattern = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(simple_old) + r"(?![A-Za-z0-9_])")
+
+    updated_files: list[str] = []
+    for rel_path in sorted(index.files):
+        abs_path = os.path.join(root, rel_path)
+        if not os.path.exists(abs_path):
+            continue
+        try:
+            content = open(abs_path, encoding="utf-8").read()
+        except Exception:
+            continue
+        new_content = pattern.sub(simple_new, content)
+        if new_content != content:
+            with open(abs_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            updated_files.append(rel_path)
+
+    return {
+        "ok": True,
+        "operation": "rename",
+        "old_name": simple_old,
+        "new_name": simple_new,
+        "files_updated": updated_files,
+        "count": len(updated_files),
+    }
+
+
+def _refactor_extract(
+    index: ProjectIndex,
+    file_path: str,
+    start_line: int,
+    end_line: int,
+    new_name: str,
+) -> dict:
+    """Extract lines [start_line, end_line] into a new function *new_name*."""
+    root = os.path.normpath(index.root_path)
+    abs_path = os.path.normpath(os.path.join(root, file_path))
+    _validate_path(abs_path, root)
+
+    if not os.path.exists(abs_path):
+        return {"error": f"File not found: {file_path}"}
+
+    lines, had_trailing = _read_lines(abs_path)
+    if start_line < 1 or end_line > len(lines) or start_line > end_line:
+        return {"error": f"Invalid line range [{start_line}, {end_line}] "
+                f"(file has {len(lines)} lines)"}
+
+    extracted = lines[start_line - 1:end_line]
+
+    # Detect indentation of the extracted block
+    indents = [len(ln) - len(ln.lstrip()) for ln in extracted if ln.strip()]
+    base_indent = min(indents) if indents else 0
+
+    # Build the new function body with normalized indentation
+    body_lines = []
+    for ln in extracted:
+        stripped = ln[base_indent:] if len(ln) >= base_indent else ln.lstrip()
+        body_lines.append("    " + stripped if stripped else "")
+
+    ext = os.path.splitext(file_path)[1]
+    if ext in {".ts", ".tsx", ".js", ".jsx"}:
+        func_def = f"function {new_name}() {{\n"
+        func_end = "}\n"
+    else:
+        func_def = f"def {new_name}():\n"
+        func_end = ""
+
+    new_func = func_def + "\n".join(body_lines) + "\n" + func_end
+
+    # Replace extracted lines with a call to the new function
+    indent_prefix = " " * base_indent
+    if ext in {".ts", ".tsx", ".js", ".jsx"}:
+        call_line = f"{indent_prefix}{new_name}();"
+    else:
+        call_line = f"{indent_prefix}{new_name}()"
+
+    lines[start_line - 1:end_line] = [call_line]
+
+    # Append the new function at the end of the file
+    if lines and lines[-1].strip() != "":
+        lines.append("")
+    lines.append("")
+    lines.append(new_func.rstrip())
+    lines.append("")
+
+    _write_lines(abs_path, lines, had_trailing)
+
+    return {
+        "ok": True,
+        "operation": "extract",
+        "file": file_path,
+        "new_function": new_name,
+        "extracted_lines": [start_line, end_line],
+        "call_inserted_at": start_line,
+    }

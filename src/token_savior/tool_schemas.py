@@ -203,6 +203,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["symbol_name", "content"],
         },
     },
+    "move_symbol": {
+        "description": "Move a symbol (function/class) to a different file. Updates imports in all call sites. Returns {from_file, to_file, symbol, updated_imports}.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Symbol name to move."},
+                "target_file": {"type": "string", "description": "Relative path to the target file."},
+                "create_if_missing": {"type": "boolean", "description": "Create target file if it doesn't exist (default true)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol", "target_file"],
+        },
+    },
     "add_field_to_model": {
         "description": "Add a field to a model/class/interface. Supports .prisma, .py (dataclass/SQLAlchemy), .ts/.tsx (interface/type).",
         "inputSchema": {
@@ -216,6 +229,36 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["model", "field_name", "field_type"],
+        },
+    },
+    "apply_refactoring": {
+        "description": "Unified refactoring: rename, move, add_field, or extract. "
+                       "Type 'rename': {symbol, new_name}. "
+                       "Type 'move': {symbol, target_file}. "
+                       "Type 'add_field': {model, field_name, field_type}. "
+                       "Type 'extract': {file_path, start_line, end_line, new_name}.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["rename", "move", "add_field", "extract"],
+                    "description": "Refactoring operation type.",
+                },
+                "symbol": {"type": "string", "description": "Symbol name (rename/move)."},
+                "new_name": {"type": "string", "description": "New name (rename/extract)."},
+                "target_file": {"type": "string", "description": "Target file (move)."},
+                "create_if_missing": {"type": "boolean", "description": "Create target if missing (move, default true)."},
+                "model": {"type": "string", "description": "Model name (add_field)."},
+                "field_name": {"type": "string", "description": "Field name (add_field)."},
+                "field_type": {"type": "string", "description": "Field type (add_field)."},
+                "file_path": {"type": "string", "description": "File path (extract/add_field)."},
+                "after": {"type": "string", "description": "Insert after (add_field)."},
+                "start_line": {"type": "integer", "description": "Start line (extract)."},
+                "end_line": {"type": "integer", "description": "End line (extract)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["type"],
         },
     },
     # ── Tests & validation ────────────────────────────────────────────────

@@ -47,7 +47,9 @@ class TestToolSchemas:
         # +1 Java duplicate-classes (get_duplicate_classes) = 98.
         # +1 get_full_context (chain collapse from IMPROVEMENT-SIGNALS) = 99.
         # +1 add_field_to_model = 100.
-        assert len(TOOL_SCHEMAS) == 100, f"Expected 100 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 move_symbol = 101.
+        # +1 apply_refactoring = 102.
+        assert len(TOOL_SCHEMAS) == 102, f"Expected 102 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

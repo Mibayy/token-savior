@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import os
 
-from token_savior.edit_ops import add_field_to_model, insert_near_symbol, replace_symbol_source
+from token_savior.edit_ops import (
+    add_field_to_model,
+    apply_refactoring,
+    insert_near_symbol,
+    move_symbol,
+    replace_symbol_source,
+)
 from token_savior.server_runtime import _prep
 from token_savior.slot_manager import _ProjectSlot
 from token_savior.workflow_ops import apply_symbol_change_and_validate
@@ -99,10 +105,47 @@ def _h_add_field_to_model(slot: _ProjectSlot, args: dict) -> object:
     return result
 
 
+def _h_move_symbol(slot: _ProjectSlot, args: dict) -> object:
+    _prep(slot)
+    result = move_symbol(
+        slot.indexer._project_index,
+        symbol_name=args["symbol"],
+        target_file=args["target_file"],
+        create_if_missing=args.get("create_if_missing", True),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex()
+    return result
+
+
+def _h_apply_refactoring(slot: _ProjectSlot, args: dict) -> object:
+    _prep(slot)
+    result = apply_refactoring(
+        slot.indexer._project_index,
+        refactoring_type=args["type"],
+        symbol=args.get("symbol"),
+        new_name=args.get("new_name"),
+        target_file=args.get("target_file"),
+        create_if_missing=args.get("create_if_missing", True),
+        model=args.get("model"),
+        field_name=args.get("field_name"),
+        field_type=args.get("field_type"),
+        file_path=args.get("file_path"),
+        after=args.get("after"),
+        start_line=args.get("start_line"),
+        end_line=args.get("end_line"),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex()
+    return result
+
+
 HANDLERS: dict[str, object] = {
     "replace_symbol_source": _h_replace_symbol_source,
     "insert_near_symbol": _h_insert_near_symbol,
     "verify_edit": _h_verify_edit,
     "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
     "add_field_to_model": _h_add_field_to_model,
+    "move_symbol": _h_move_symbol,
+    "apply_refactoring": _h_apply_refactoring,
 }
