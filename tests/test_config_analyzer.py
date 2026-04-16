@@ -695,7 +695,7 @@ class TestFormatIssues:
         result = _format_issues(issues, "error")
         assert result == "Config Analysis -- 0 issues found"
 
-    def test_detail_included_in_line(self):
+    def test_compact_format_no_detail(self):
         issue = ConfigIssue(
             file="app.env",
             key="SECRET",
@@ -706,7 +706,8 @@ class TestFormatIssues:
             detail="Value: sk-***",
         )
         result = _format_issues([issue], "all")
-        assert "(Value: sk-***)" in result
+        assert "[error] app.env:5 Hardcoded secret" in result
+        assert "(Value: sk-***)" not in result
 
 
 # ---------------------------------------------------------------------------
