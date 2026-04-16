@@ -203,6 +203,21 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["symbol_name", "content"],
         },
     },
+    "add_field_to_model": {
+        "description": "Add a field to a model/class/interface. Supports .prisma, .py (dataclass/SQLAlchemy), .ts/.tsx (interface/type).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model/class/interface name."},
+                "field_name": {"type": "string", "description": "Name of the new field."},
+                "field_type": {"type": "string", "description": "Type of the field (e.g. 'String', 'DateTime?', 'number')."},
+                "file_path": {"type": "string", "description": "Optional file path to disambiguate."},
+                "after": {"type": "string", "description": "Insert after the line containing this string."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["model", "field_name", "field_type"],
+        },
+    },
     # ── Tests & validation ────────────────────────────────────────────────
     "find_impacted_test_files": {
         "description": "Infer a compact set of likely impacted pytest files from changed files or symbols.",

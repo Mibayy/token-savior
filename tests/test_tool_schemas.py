@@ -46,7 +46,8 @@ class TestToolSchemas:
         # +2 Java quality tools (find_allocation_hotspots, find_performance_hotspots) = 97.
         # +1 Java duplicate-classes (get_duplicate_classes) = 98.
         # +1 get_full_context (chain collapse from IMPROVEMENT-SIGNALS) = 99.
-        assert len(TOOL_SCHEMAS) == 99, f"Expected 99 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 add_field_to_model = 100.
+        assert len(TOOL_SCHEMAS) == 100, f"Expected 100 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

@@ -328,6 +328,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "restore_checkpoint": 0.08,
     "replace_symbol_source": 0.20,
     "insert_near_symbol": 0.10,
+    "add_field_to_model": 0.15,
     "find_impacted_test_files": 0.08,
     "run_impacted_tests": 0.18,
     "apply_symbol_change_and_validate": 0.35,

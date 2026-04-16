@@ -166,3 +166,95 @@ def _write_lines(file_path: str, lines: list[str], had_trailing_newline: bool) -
         updated += "\n"
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(updated)
+
+
+def add_field_to_model(
+    index: ProjectIndex,
+    model: str,
+    field_name: str,
+    field_type: str,
+    file_path: str | None = None,
+    after: str | None = None,
+) -> dict:
+    """Add a field to a model/class/interface across language boundaries.
+
+    Supports Prisma models, Python dataclasses / SQLAlchemy, and TypeScript
+    interfaces / type aliases.  Returns the file path and insertion line.
+    """
+    loc = resolve_symbol_location(index, model, file_path)
+    if "error" in loc:
+        return loc
+
+    abs_path = os.path.normpath(os.path.join(index.root_path, loc["file"]))
+    _validate_path(abs_path, os.path.normpath(index.root_path))
+
+    start, end = loc["line"], loc["end_line"]
+    lines, had_trailing_newline = _read_lines(abs_path)
+
+    ext = os.path.splitext(loc["file"])[1]
+    field_line = _format_field_line(ext, field_name, field_type)
+    if field_line is None:
+        return {"error": f"Unsupported file extension '{ext}' for add_field_to_model"}
+
+    insert_at = _find_insert_position(lines, start, end, after)
+    lines.insert(insert_at, field_line)
+    _write_lines(abs_path, lines, had_trailing_newline)
+    return {
+        "ok": True,
+        "file": loc["file"],
+        "line": insert_at + 1,
+        "field": field_line.strip(),
+    }
+
+
+def _validate_path(abs_path: str, root: str) -> None:
+    """Ensure path stays within project root."""
+    if os.path.commonpath([abs_path, root]) != root:
+        msg = f"Path escapes project root: {abs_path}"
+        raise ValueError(msg)
+
+
+def _format_field_line(ext: str, field_name: str, field_type: str) -> str | None:
+    """Return the field line formatted for the target language, or None."""
+    if ext == ".prisma":
+        # Prisma: "  fieldName  Type"
+        return f"  {field_name}  {field_type}"
+    if ext == ".py":
+        # Python dataclass / SQLAlchemy: "    field_name: Type"
+        return f"    {field_name}: {field_type}"
+    if ext in {".ts", ".tsx"}:
+        # TypeScript interface/type: "  fieldName: Type;"
+        # Strip trailing ? from type and put it on field name if optional
+        if field_type.endswith("?"):
+            return f"  {field_name}?: {field_type[:-1]};"
+        return f"  {field_name}: {field_type};"
+    return None
+
+
+def _find_insert_position(
+    lines: list[str],
+    start: int,
+    end: int,
+    after: str | None,
+) -> int:
+    """Determine 0-indexed insertion position within a block.
+
+    If *after* is given, inserts after the first line containing that string.
+    Otherwise inserts before the last closing brace/bracket line of the block.
+    """
+    # 0-indexed range
+    block_start = start - 1
+    block_end = min(end, len(lines))
+
+    if after:
+        for i in range(block_start, block_end):
+            if after in lines[i]:
+                return i + 1
+
+    # Default: before the closing brace/bracket
+    for i in range(block_end - 1, block_start, -1):
+        stripped = lines[i].strip()
+        if stripped in {"}", "}", "};", "):", ")"}:
+            return i
+    # Fallback: end of block
+    return block_end
