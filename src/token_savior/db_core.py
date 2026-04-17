@@ -154,9 +154,26 @@ def _json_dumps(value: list | dict | None) -> str | None:
 
 
 def observation_hash(project_root: str, title: str, content: str) -> str:
-    """SHA-256 based content hash for deduplication (16 hex chars)."""
+    """Legacy composite hash — kept for reasoning/distillation call sites that
+    key on derived fields other than observation content. Do not use for
+    observation dedup; use :func:`content_hash` instead."""
     raw = f"{project_root}:{title}:{content}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def content_hash(content: str | None) -> str | None:
+    """SHA-256 of normalized observation content (``strip().lower()``).
+
+    Used as the canonical dedup key stored in ``observations.content_hash``.
+    Returns ``None`` for empty/whitespace-only content so dedup skips rather
+    than collapsing every blank row onto one hash.
+    """
+    if content is None:
+        return None
+    norm = content.strip().lower()
+    if not norm:
+        return None
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
 _PRIVATE_RE = re.compile(r"<private>.*?</private>", re.IGNORECASE | re.DOTALL)

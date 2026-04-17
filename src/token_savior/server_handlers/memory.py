@@ -461,6 +461,26 @@ def _mh_memory_distill(args: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _mh_memory_dedup_sweep(args: dict[str, Any]) -> str:
+    root = args.get("project_root") or None
+    recompute = bool(args.get("recompute") or False)
+    batch = int(args.get("batch_size") or 500)
+    stats = memory_db.dedup_sweep(
+        project_root=root, recompute=recompute, batch_size=batch,
+    )
+    scope = f"project={root}" if root else "all projects"
+    mode = "recompute" if recompute else "backfill NULL only"
+    lines = [
+        f"Dedup sweep ({scope}, {mode}):",
+        "─" * 60,
+        f" scanned:           {stats['scanned']}",
+        f" updated:           {stats['updated']}",
+        f" collisions merged: {stats['collisions_merged']}",
+        f" archived:          {stats['archived']}",
+    ]
+    return "\n".join(lines)
+
+
 def _mh_memory_roi_gc(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
     dry = args.get("dry_run", True)
@@ -1091,6 +1111,7 @@ HANDLERS: dict[str, Any] = {
     "memory_from_bash": _mh_memory_from_bash,
     "memory_doctor": _mh_memory_doctor,
     "memory_distill": _mh_memory_distill,
+    "memory_dedup_sweep": _mh_memory_dedup_sweep,
     "memory_roi_gc": _mh_memory_roi_gc,
     "memory_roi_stats": _mh_memory_roi_stats,
     "memory_why": _mh_memory_why,

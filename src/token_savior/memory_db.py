@@ -15,7 +15,7 @@ from typing import Any  # noqa: F401  historic public surface
 from . import db_core
 from .db_core import (  # noqa: F401
     MEMORY_DB_PATH, _SCHEMA_PATH, _fts5_safe_query, _json_dumps, _migrated_paths,
-    _now_epoch, _now_iso, observation_hash, relative_age, strip_private,
+    _now_epoch, _now_iso, content_hash, observation_hash, relative_age, strip_private,
 )
 
 
@@ -47,7 +47,7 @@ from token_savior.memory.decay import (  # noqa: E402,F401
     _DEFAULT_TTL_DAYS, _ZERO_ACCESS_RULES, _bump_access, _decay_candidates_sql,
     _recalculate_relevance_scores, run_decay,
 )
-from token_savior.memory.dedup import get_injection_stats, global_dedup_check, semantic_dedup_check  # noqa: E402,F401
+from token_savior.memory.dedup import dedup_sweep, get_injection_stats, global_dedup_check, semantic_dedup_check  # noqa: E402,F401
 from token_savior.memory.distillation import get_mdl_stats, run_mdl_distillation  # noqa: E402,F401
 from token_savior.memory.events import event_save  # noqa: E402,F401
 from token_savior.memory.health import run_health_check  # noqa: E402,F401

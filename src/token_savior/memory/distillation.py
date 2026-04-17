@@ -11,7 +11,7 @@ import sys
 from typing import Any
 
 from token_savior import memory_db
-from token_savior.db_core import _json_dumps, _now_epoch, _now_iso, observation_hash
+from token_savior.db_core import _json_dumps, _now_epoch, _now_iso, content_hash
 
 
 def run_mdl_distillation(
@@ -87,7 +87,7 @@ def run_mdl_distillation(
             title = f"[MDL] {c.dominant_type} × {len(c.obs_ids)} — " + " / ".join(c.shared_tokens[:3])
             title = title[:200]
             content = c.proposed_abstraction
-            chash = observation_hash(project_root, title, content)
+            chash = content_hash(content)
 
             tags_json = _json_dumps(["mdl-abstraction", f"distilled-from-{len(c.obs_ids)}"])
             try:

@@ -959,6 +959,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "memory_dedup_sweep": {
+        "description": "Backfill observations.content_hash (SHA256 of normalized content). Default backfills NULL hashes only; set recompute=true after a hash-formula change.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "recompute": {"type": "boolean", "description": "Rehash every row, not just NULL (default false)."},
+                "batch_size": {"type": "integer", "description": "Commit cadence (default 500)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "memory_roi_gc": {
         "description": "Archive obs with ROI below threshold.",
         "inputSchema": {

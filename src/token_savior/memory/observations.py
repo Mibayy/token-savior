@@ -14,7 +14,7 @@ from token_savior.db_core import (
     _json_dumps,
     _now_epoch,
     _now_iso,
-    observation_hash,
+    content_hash,
     relative_age,
     strip_private,
 )
@@ -77,17 +77,18 @@ def observation_save(
             file=sys.stderr,
         )
         return None
-    chash = observation_hash(project_root, title, content)
+    chash = content_hash(content)
     now = _now_iso()
     epoch = _now_epoch()
     try:
-        with memory_db.db_session() as conn:
-            row = conn.execute(
-                "SELECT id FROM observations WHERE content_hash=? AND project_root=? AND archived=0",
-                (chash, project_root),
-            ).fetchone()
-            if row is not None:
-                return None
+        if chash is not None:
+            with memory_db.db_session() as conn:
+                row = conn.execute(
+                    "SELECT id FROM observations WHERE content_hash=? AND project_root=? AND archived=0",
+                    (chash, project_root),
+                ).fetchone()
+                if row is not None:
+                    return None
 
         if is_global:
             gdup = global_dedup_check(title, content, type, threshold=0.85)

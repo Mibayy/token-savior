@@ -50,7 +50,8 @@ class TestToolSchemas:
         # +1 move_symbol = 101.
         # +1 apply_refactoring = 102.
         # +1 find_import_cycles = 103.
-        assert len(TOOL_SCHEMAS) == 103, f"Expected 103 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 P2 memory_dedup_sweep = 104.
+        assert len(TOOL_SCHEMAS) == 104, f"Expected 104 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

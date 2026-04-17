@@ -68,9 +68,7 @@ def import_memory(input_path: Path, remap_project: str | None, dry_run: bool) ->
     # Observations: dedup via content_hash
     for o in data.get("observations", []):
         o = _remap(o, remap_project)
-        chash = memory_db.observation_hash(
-            o["project_root"], o["title"], o["content"]
-        )
+        chash = memory_db.content_hash(o["content"])
         existing = conn.execute(
             "SELECT id FROM observations WHERE content_hash=? AND project_root=? AND archived=0",
             (chash, o["project_root"]),
