@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token Savior Recall — v2.6.0</title>
+<meta name="description" content="Structural code navigation + persistent memory engine for Claude Code. 97% fewer tokens, nothing forgotten between sessions.">
+<style>
+  :root {
+    --fg: #0f172a; --mut: #475569; --sub: #64748b; --bg: #ffffff;
+    --card: #f8fafc; --border: #e2e8f0; --accent: #2563eb; --ok: #059669;
+    --code: #f1f5f9; --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e2e8f0; --mut: #94a3b8; --sub: #64748b; --bg: #0b1220;
+      --card: #111a2e; --border: #1e293b; --accent: #60a5fa; --ok: #34d399;
+      --code: #0f172a; --warn: #f59e0b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6; font-size: 16px;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { text-align: center; margin-bottom: 48px; }
+  h1 { font-size: 42px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 26px; margin: 56px 0 16px; letter-spacing: -0.01em;
+       border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 18px; margin: 32px 0 12px; }
+  p { color: var(--mut); }
+  .tag { color: var(--sub); font-size: 15px; margin: 0 0 20px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+            margin: 16px 0 0; }
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 4px;
+    font-size: 12px; font-weight: 600; background: var(--card);
+    color: var(--fg); border: 1px solid var(--border);
+  }
+  .badge.v { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+  .badge.t { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+  .badge.s { background: #cffafe; color: #0e7490; border-color: #a5f3fc; }
+  .badge.m { background: #fae8ff; color: #86198f; border-color: #f5d0fe; }
+  @media (prefers-color-scheme: dark) {
+    .badge.v { background: #1e3a8a33; color: #93c5fd; border-color: #1e3a8a; }
+    .badge.t { background: #05402333; color: #86efac; border-color: #166534; }
+    .badge.s { background: #0e749033; color: #67e8f9; border-color: #0e7490; }
+    .badge.m { background: #86198f33; color: #f0abfc; border-color: #86198f; }
+  }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 10px 12px;
+           text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: var(--fg); background: var(--card); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.c, th.c { text-align: center; }
+  code { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+         font-size: 13px; background: var(--code); padding: 2px 6px;
+         border-radius: 3px; color: var(--fg); }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border: 1px solid var(--border); }
+  pre code { background: transparent; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .yes { color: var(--ok); font-weight: 600; }
+  .no  { color: var(--sub); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px; margin: 16px 0; }
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 6px; padding: 14px 16px; }
+  .card h3 { margin: 0 0 6px; font-size: 15px; }
+  .card p { margin: 0; color: var(--sub); font-size: 14px; }
+  footer { text-align: center; margin-top: 80px; padding-top: 24px;
+           border-top: 1px solid var(--border); color: var(--sub); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>⚡ Token Savior Recall</h1>
+  <p class="tag">Structural code navigation + persistent memory engine for Claude Code.
+    <strong>97% fewer tokens. Nothing forgotten between sessions.</strong></p>
+  <div class="badges">
+    <span class="badge v">v2.6.0</span>
+    <span class="badge t">105 tools</span>
+    <span class="badge t">1318 / 1318 tests</span>
+    <span class="badge s">97% savings</span>
+    <span class="badge m">vector search</span>
+    <span class="badge">Python 3.11+</span>
+    <span class="badge">MCP</span>
+    <span class="badge">MIT</span>
+  </div>
+</header>
+
+<h2>What it does</h2>
+
+<p>Claude Code reads whole files to answer questions about three lines, and
+forgets everything the moment a session ends. Token Savior Recall fixes both.
+It indexes your codebase by symbol — functions, classes, imports, call graph —
+so the model navigates by pointer instead of by <code>cat</code>. Measured
+reduction: <strong>97% fewer chars injected</strong> across 170+ real sessions.</p>
+
+<p>On top of that sits a persistent memory engine. Every decision, bugfix,
+convention, guardrail and session rollup is stored in SQLite WAL + FTS5 +
+vector embeddings, ranked by Bayesian validity and ROI, and re-injected as a
+compact delta at the start of the next session. Contradictions are detected at
+save time; observations decay with explicit TTLs; a 3-layer
+progressive-disclosure contract keeps lookup cost bounded.</p>
+
+<h2>Token savings</h2>
+
+<table>
+  <thead>
+    <tr><th>Operation</th><th class="n">Plain Claude</th><th class="n">Token Savior</th><th class="n">Reduction</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>find_symbol("send_message")</code></td><td class="n">41M chars</td><td class="n">67 chars</td><td class="n"><strong>−99.9%</strong></td></tr>
+    <tr><td><code>get_function_source("compile")</code></td><td class="n">grep + cat</td><td class="n">4.5K chars</td><td class="n">direct</td></tr>
+    <tr><td><code>get_change_impact("LLMClient")</code></td><td class="n">impossible</td><td class="n">16K chars (154 + 492)</td><td class="n">new</td></tr>
+    <tr><td><code>get_backward_slice(var, line)</code></td><td class="n">130 lines</td><td class="n">12 lines</td><td class="n"><strong>−92%</strong></td></tr>
+    <tr><td><code>memory_index</code> (Layer 1)</td><td class="n">n/a</td><td class="n">~15 tok/result</td><td class="n">shortlist</td></tr>
+    <tr><td>60-task tsbench run</td><td class="n">1,431,624 chars</td><td class="n">234,805 chars</td><td class="n"><strong>−84%</strong></td></tr>
+    <tr><td>tsbench score</td><td class="n">67/120 (56%)</td><td class="n"><strong>115/120 (96%)</strong></td><td class="n"><strong>+40 pts</strong></td></tr>
+  </tbody>
+</table>
+
+<p>Full methodology and per-task results at
+<a href="https://github.com/Mibayy/tsbench">github.com/Mibayy/tsbench</a>.</p>
+
+<h2>Memory engine</h2>
+
+<table>
+  <thead><tr><th>Capability</th><th>How it works</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Storage</strong></td><td>SQLite WAL + FTS5 + <code>sqlite-vec</code> (optional), 12 observation types</td></tr>
+    <tr><td><strong>Hybrid search</strong></td><td>BM25 + vector (<code>all-MiniLM-L6-v2</code>, 384d) fused via RRF, FTS fallback graceful</td></tr>
+    <tr><td><strong>Progressive disclosure</strong></td><td>3-layer contract: <code>memory_index</code> → <code>memory_search</code> → <code>memory_get</code></td></tr>
+    <tr><td><strong>Citation URIs</strong></td><td><code>ts://obs/{id}</code> — reusable across layers, agent-native pointers</td></tr>
+    <tr><td><strong>Bayesian validity</strong></td><td>Each obs carries a validity prior + update rule; stale obs are surfaced, not silently trusted</td></tr>
+    <tr><td><strong>Contradiction detection</strong></td><td>Triggered at save time against existing index; flagged in hook output</td></tr>
+    <tr><td><strong>Decay + TTL</strong></td><td>Per-type TTL (command 60d, research 90d, note 60d) + LRU scoring <code>0.4·recency + 0.3·access + 0.3·type</code></td></tr>
+    <tr><td><strong>Symbol staleness</strong></td><td>Obs linked to symbols are invalidated when the symbol's content hash changes</td></tr>
+    <tr><td><strong>ROI tracking</strong></td><td>Access count × context weight — unused obs age out, high-ROI obs are promoted</td></tr>
+    <tr><td><strong>MDL distillation</strong></td><td>Minimum Description Length grouping compresses redundant observations into conventions</td></tr>
+    <tr><td><strong>Auto-promotion</strong></td><td>note ×5 accesses → convention; warning ×5 → guardrail</td></tr>
+    <tr><td><strong>Hooks</strong></td><td>8 Claude Code lifecycle hooks (SessionStart/Stop/End, PreCompact, PreToolUse ×2, UserPromptSubmit, PostToolUse)</td></tr>
+    <tr><td><strong>Web viewer</strong></td><td><code>127.0.0.1:$TS_VIEWER_PORT</code> — htmx + SSE, opt-in</td></tr>
+    <tr><td><strong>LLM auto-extraction</strong></td><td>Opt-in <code>TS_AUTO_EXTRACT=1</code> — PostToolUse tool uses extracted into 0-3 observations</td></tr>
+  </tbody>
+</table>
+
+<h2>vs claude-mem</h2>
+
+<p>Two projects share the goal — persistent memory for Claude Code. The axes
+below are measured, not marketing.</p>
+
+<table>
+  <thead>
+    <tr><th>Axis</th><th class="c">claude-mem</th><th class="c">Token Savior Recall</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Bayesian validity</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>Contradiction detection at save</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>Per-type decay + TTL</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>Symbol staleness (content-hash linked obs)</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>ROI tracking + auto-promotion</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>MDL distillation into conventions</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+    <tr><td>Code graph / AST navigation</td><td class="c no">no</td><td class="c yes">yes (105 tools)</td></tr>
+    <tr><td>Progressive disclosure contract</td><td class="c no">no</td><td class="c yes">yes (3 layers)</td></tr>
+    <tr><td>Hybrid FTS + vector search (RRF)</td><td class="c no">no</td><td class="c yes">yes</td></tr>
+  </tbody>
+</table>
+
+<p>Token Savior Recall is a superset: it ships the memory engine <em>plus</em>
+the structural codebase server that gave the project its name.</p>
+
+<h2>Install</h2>
+
+<h3>uvx (no venv, no clone)</h3>
+<pre><code>uvx token-savior-recall</code></pre>
+
+<h3>pip</h3>
+<pre><code>pip install "token-savior-recall[mcp]"
+# Optional hybrid vector search:
+pip install "token-savior-recall[mcp,memory-vector]"</code></pre>
+
+<h3>Claude Code one-liner</h3>
+<pre><code>claude mcp add token-savior -- /path/to/venv/bin/token-savior</code></pre>
+
+<h3>Configure</h3>
+<pre><code>{
+  "mcpServers": {
+    "token-savior-recall": {
+      "command": "/path/to/venv/bin/token-savior",
+      "env": {
+        "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2",
+        "TOKEN_SAVIOR_CLIENT": "claude-code"
+      }
+    }
+  }
+}</code></pre>
+
+<h2>Tools (105)</h2>
+
+<table>
+  <thead><tr><th>Category</th><th class="n">Count</th></tr></thead>
+  <tbody>
+    <tr><td>Core navigation</td><td class="n">14</td></tr>
+    <tr><td>Dependencies &amp; graph</td><td class="n">9</td></tr>
+    <tr><td>Git &amp; diffs</td><td class="n">5</td></tr>
+    <tr><td>Safe editing</td><td class="n">8</td></tr>
+    <tr><td>Checkpoints</td><td class="n">6</td></tr>
+    <tr><td>Test &amp; run</td><td class="n">6</td></tr>
+    <tr><td>Config &amp; quality</td><td class="n">8</td></tr>
+    <tr><td>Docker &amp; multi-project</td><td class="n">2</td></tr>
+    <tr><td>Advanced context (slicing, packing, RWR, prefetch, verify)</td><td class="n">6</td></tr>
+    <tr><td><strong>Memory engine</strong></td><td class="n"><strong>21</strong></td></tr>
+    <tr><td>Reasoning (plan/decision traces)</td><td class="n">3</td></tr>
+    <tr><td>Stats, budget, health</td><td class="n">10</td></tr>
+    <tr><td>Project management</td><td class="n">7</td></tr>
+  </tbody>
+</table>
+
+<h2>Progressive disclosure — memory search</h2>
+
+<p>Three layers, increasing cost. Always start at Layer 1. Escalate only if the
+previous layer paid off. Full contract:
+<a href="progressive-disclosure.md">progressive-disclosure.md</a>.</p>
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>Tool</th><th class="n">Tokens/result</th><th>When</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="c">1</td><td><code>memory_index</code></td><td class="n">~15</td><td>Always first</td></tr>
+    <tr><td class="c">2</td><td><code>memory_search</code></td><td class="n">~60</td><td>If Layer 1 matched</td></tr>
+    <tr><td class="c">3</td><td><code>memory_get</code></td><td class="n">~200</td><td>If Layer 2 confirmed</td></tr>
+  </tbody>
+</table>
+
+<p>Each Layer 1 row ends with <code>[ts://obs/{id}]</code> — pass it straight to
+Layer 3.</p>
+
+<h2>Links</h2>
+
+<div class="grid">
+  <a class="card" href="https://github.com/Mibayy/token-savior">
+    <h3>Repository</h3><p>github.com/Mibayy/token-savior</p></a>
+  <a class="card" href="https://pypi.org/project/token-savior-recall/">
+    <h3>PyPI</h3><p>token-savior-recall</p></a>
+  <a class="card" href="https://github.com/Mibayy/tsbench">
+    <h3>Benchmark</h3><p>60-task measured suite</p></a>
+  <a class="card" href="CHANGELOG.md">
+    <h3>Changelog</h3><p>v2.6.0 — Memory Engine Phase 1+2</p></a>
+  <a class="card" href="progressive-disclosure.md">
+    <h3>Progressive disclosure</h3><p>3-layer contract spec</p></a>
+  <a class="card" href="https://modelcontextprotocol.io">
+    <h3>MCP</h3><p>Model Context Protocol</p></a>
+</div>
+
+<footer>
+  MIT · Works with any MCP-compatible AI coding tool.<br>
+  Claude Code · Cursor · Windsurf · Cline · Continue
+</footer>
+
+</main>
+</body>
+</html>
