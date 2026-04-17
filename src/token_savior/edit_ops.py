@@ -7,6 +7,9 @@ import os
 from token_savior.models import ProjectIndex
 
 
+import re
+
+
 def replace_symbol_source(
     index: ProjectIndex,
     symbol_name: str,

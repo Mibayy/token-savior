@@ -15,7 +15,6 @@ from unittest.mock import patch
 import pytest
 
 from token_savior import db_core, memory_db
-from token_savior.memory import observations as obs_mod
 from token_savior.memory import search as search_mod
 from token_savior.memory.search import hybrid_search, rrf_merge
 

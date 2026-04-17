@@ -33,6 +33,8 @@ jobs:
           cp CHANGELOG.md _site/CHANGELOG.md
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
