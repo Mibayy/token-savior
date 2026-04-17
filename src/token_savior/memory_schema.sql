@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS observations (
     created_at_epoch INTEGER NOT NULL,
     updated_at      TEXT NOT NULL,
     archived        INTEGER NOT NULL DEFAULT 0,
-    agent_id        TEXT  -- Step C: subagent identifier for the inter-agent memory bus
+    agent_id        TEXT,  -- Step C: subagent identifier for the inter-agent memory bus
+    narrative       TEXT,           -- A5: free-form narrative explaining the obs
+    facts           TEXT,           -- A5: JSON array or bullet list of atomic facts
+    concepts        TEXT            -- A5: JSON array or comma list of conceptual tags
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project_root);
@@ -63,26 +66,29 @@ CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
     why,
     how_to_apply,
     tags,
+    narrative,
+    facts,
+    concepts,
     content='observations',
     content_rowid='id'
 );
 
 -- FTS sync triggers
 CREATE TRIGGER IF NOT EXISTS obs_fts_insert AFTER INSERT ON observations BEGIN
-    INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags)
-    VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags);
+    INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts)
+    VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags, new.narrative, new.facts, new.concepts);
 END;
 
 CREATE TRIGGER IF NOT EXISTS obs_fts_delete AFTER DELETE ON observations BEGIN
-    INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags)
-    VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags);
+    INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts)
+    VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags, old.narrative, old.facts, old.concepts);
 END;
 
 CREATE TRIGGER IF NOT EXISTS obs_fts_update AFTER UPDATE ON observations BEGIN
-    INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags)
-    VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags);
-    INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags)
-    VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags);
+    INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts)
+    VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags, old.narrative, old.facts, old.concepts);
+    INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts)
+    VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags, new.narrative, new.facts, new.concepts);
 END;
 
 -- P5: structured session-end rollups (request/investigated/learned/...).

@@ -75,6 +75,55 @@ def run_migrations(db_path: Path | str | None = None) -> None:
         if "agent_id" not in obs_cols:
             conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
+        # A5: narrative/facts/concepts — non-destructive column adds.
+        # The FTS5 virtual table rebuild below picks them up.
+        obs_cols_a5 = {"narrative", "facts", "concepts"} - set(obs_cols)
+        for col in ("narrative", "facts", "concepts"):
+            if col in obs_cols_a5:
+                conn.execute(f"ALTER TABLE observations ADD COLUMN {col} TEXT")
+
+        # A5: observations_fts doesn't support ALTER to add columns. If the
+        # existing virtual table is missing the new columns, rebuild it +
+        # its triggers and repopulate from the base table via 'rebuild'.
+        fts_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='observations_fts'"
+        ).fetchone()
+        fts_sql = (fts_row[0] or "") if fts_row else ""
+        needs_fts_rebuild = fts_row is not None and not all(
+            col in fts_sql for col in ("narrative", "facts", "concepts")
+        )
+        if needs_fts_rebuild:
+            for trig in ("obs_fts_insert", "obs_fts_delete", "obs_fts_update"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
+            conn.execute("DROP TABLE IF EXISTS observations_fts")
+            conn.execute(
+                "CREATE VIRTUAL TABLE observations_fts USING fts5("
+                "  title, content, why, how_to_apply, tags,"
+                "  narrative, facts, concepts,"
+                "  content='observations', content_rowid='id'"
+                ")"
+            )
+            conn.execute(
+                "CREATE TRIGGER obs_fts_insert AFTER INSERT ON observations BEGIN "
+                "  INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts) "
+                "  VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags, new.narrative, new.facts, new.concepts); "
+                "END"
+            )
+            conn.execute(
+                "CREATE TRIGGER obs_fts_delete AFTER DELETE ON observations BEGIN "
+                "  INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts) "
+                "  VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags, old.narrative, old.facts, old.concepts); "
+                "END"
+            )
+            conn.execute(
+                "CREATE TRIGGER obs_fts_update AFTER UPDATE ON observations BEGIN "
+                "  INSERT INTO observations_fts(observations_fts, rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts) "
+                "  VALUES ('delete', old.id, old.title, old.content, old.why, old.how_to_apply, old.tags, old.narrative, old.facts, old.concepts); "
+                "  INSERT INTO observations_fts(rowid, title, content, why, how_to_apply, tags, narrative, facts, concepts) "
+                "  VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags, new.narrative, new.facts, new.concepts); "
+                "END"
+            )
+            conn.execute("INSERT INTO observations_fts(observations_fts) VALUES ('rebuild')")
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS adaptive_lattice ("

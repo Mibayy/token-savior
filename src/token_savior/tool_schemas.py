@@ -902,6 +902,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "session_id": {"type": "integer"},
                 "is_global": {"type": "boolean"},
                 "ttl_days": {"type": "integer"},
+                "narrative": {
+                    "type": "string",
+                    "description": "Optional free-form narrative explaining the obs in prose.",
+                },
+                "facts": {
+                    "type": "string",
+                    "description": "Optional atomic facts (JSON array or bullet list).",
+                },
+                "concepts": {
+                    "type": "string",
+                    "description": "Optional conceptual tags (JSON array or comma list).",
+                },
                 **_PROJECT_PARAM,
             },
             "required": ["type", "title", "content"],

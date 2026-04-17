@@ -63,12 +63,24 @@ def observation_save(
     is_global: bool = False,
     ttl_days: int | None = None,
     expires_at_epoch: int | None = None,
+    narrative: str | None = None,
+    facts: str | None = None,
+    concepts: str | None = None,
 ) -> int | None:
-    """Save an observation. Returns id, or None if duplicate detected."""
+    """Save an observation. Returns id, or None if duplicate detected.
+
+    A5: `narrative`, `facts`, `concepts` are optional free-form fields that
+    are persisted alongside the normal observation body and indexed by FTS.
+    They are fully backward-compatible: existing callers keep working
+    unchanged and stored rows without these fields behave as before.
+    """
     title = strip_private(title) or ""
     content = strip_private(content) or ""
     why = strip_private(why)
     how_to_apply = strip_private(how_to_apply)
+    narrative = strip_private(narrative)
+    facts = strip_private(facts)
+    concepts = strip_private(concepts)
     if not title or title == "[PRIVATE]":
         return None
     if _is_corrupted_content(title, content):
@@ -142,8 +154,9 @@ def observation_save(
                 "INSERT INTO observations "
                 "(session_id, project_root, type, title, content, why, how_to_apply, "
                 " symbol, file_path, context, tags, private, importance, content_hash, decay_immune, "
-                " is_global, expires_at_epoch, created_at, created_at_epoch, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " is_global, expires_at_epoch, narrative, facts, concepts, "
+                " created_at, created_at_epoch, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     project_root,
@@ -162,6 +175,9 @@ def observation_save(
                     immune,
                     1 if is_global else 0,
                     expires_at_epoch,
+                    narrative,
+                    facts,
+                    concepts,
                     now,
                     epoch,
                     now,

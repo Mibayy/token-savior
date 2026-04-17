@@ -301,6 +301,9 @@ def _mh_memory_save(args: dict[str, Any]) -> str:
         importance=args.get("importance", 5),
         is_global=bool(args.get("is_global", False)),
         ttl_days=args.get("ttl_days"),
+        narrative=args.get("narrative"),
+        facts=args.get("facts"),
+        concepts=args.get("concepts"),
     )
     if obs_id is None:
         return "Duplicate observation (already exists with same content hash)."
@@ -747,6 +750,23 @@ def _mh_memory_get(args: dict[str, Any]) -> str:
             if not full and len(h) > 80:
                 h = h[:80] + "..."
             b.append(f"\n**How to apply:** {h}")
+        # A5: narrative/facts/concepts — only rendered when non-null so
+        # legacy obs (without these fields) keep their existing shape.
+        if obs.get("narrative"):
+            n = obs["narrative"]
+            if not full and len(n) > 80:
+                n = n[:80] + "..."
+            b.append(f"\n**Narrative:** {n}")
+        if obs.get("facts"):
+            f = obs["facts"]
+            if not full and len(f) > 80:
+                f = f[:80] + "..."
+            b.append(f"\n**Facts:** {f}")
+        if obs.get("concepts"):
+            c = obs["concepts"]
+            if not full and len(c) > 80:
+                c = c[:80] + "..."
+            b.append(f"\n**Concepts:** {c}")
         if obs.get("tags"):
             b.append(f"\n**Tags:** {obs['tags']}")
         try:
