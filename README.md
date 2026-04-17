@@ -16,6 +16,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 
+**📖 [mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** — project site
+
 </div>
 
 ---
@@ -201,6 +203,7 @@ Each Layer 1 row ends with `[ts://obs/{id}]` — pass it straight to Layer 3.
 
 ## Links
 
+- **Site** — <https://mibayy.github.io/token-savior/>
 - **Repo** — <https://github.com/Mibayy/token-savior>
 - **PyPI** — <https://pypi.org/project/token-savior-recall/>
 - **Benchmark** — <https://github.com/Mibayy/tsbench>
