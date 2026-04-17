@@ -97,3 +97,174 @@ def embed(text: str | None) -> list[float] | None:
 def is_available() -> bool:
     """True if the embedding model can be loaded. Triggers lazy load."""
     return _load_model() is not None
+
+
+# ---------------------------------------------------------------------------
+# A1-2: vector row helpers (insert on save + backfill)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_vec(vec: list[float]) -> Any | None:
+    """Return the sqlite-vec binary blob for ``vec``, or ``None`` on failure.
+
+    The ``obs_vectors`` vec0 table only exists when sqlite-vec is loaded,
+    so importing the package here is expected to succeed whenever this
+    path runs. We still guard against ImportError to keep the module
+    usable in test environments that monkey-patch the flag.
+    """
+    try:
+        import sqlite_vec  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    try:
+        return sqlite_vec.serialize_float32(vec)
+    except Exception as exc:
+        _logger.debug("[token-savior:memory] vec serialize failed: %s", exc)
+        return None
+
+
+def maybe_index_obs(obs_id: int, text: str | None, conn: Any) -> bool:
+    """Embed ``text`` and upsert an obs_vectors row using ``conn``.
+
+    Returns True on success. Silent False when:
+      * vector search is globally unavailable (VECTOR_SEARCH_AVAILABLE=False)
+      * embed() returns None (model missing, blank input, encode error)
+      * the serializer fails or the table is absent (eg extension not loaded
+        on this connection)
+    """
+    from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    if not VECTOR_SEARCH_AVAILABLE:
+        return False
+    vec = embed(text)
+    if vec is None:
+        return False
+    blob = _serialize_vec(vec)
+    if blob is None:
+        return False
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO obs_vectors(obs_id, embedding) VALUES (?, ?)",
+            (obs_id, blob),
+        )
+        return True
+    except Exception as exc:
+        _logger.debug(
+            "[token-savior:memory] obs_vector insert failed (obs=%s): %s",
+            obs_id, exc,
+        )
+        return False
+
+
+def backfill_obs_vectors(
+    project_root: str | None = None,
+    *,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Backfill obs_vectors for observations that lack a vector row.
+
+    Scope: active (non-archived) observations in ``project_root`` when
+    given, else all projects. Returns a dict with:
+      * status   : "ok" / "unavailable" / "error"
+      * indexed  : rows inserted this run
+      * total    : total eligible obs
+      * pending  : total − (previously_indexed + indexed_this_run)
+      * reason   : filled when status != "ok"
+    """
+    from token_savior import memory_db
+    from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+
+    if not VECTOR_SEARCH_AVAILABLE:
+        return {
+            "status": "unavailable", "indexed": 0, "total": 0, "pending": 0,
+            "reason": "sqlite-vec not installed (pip install "
+                      "'token-savior-recall[memory-vector]')",
+        }
+    if _load_model() is None:
+        return {
+            "status": "unavailable", "indexed": 0, "total": 0, "pending": 0,
+            "reason": "sentence-transformers not installed or model load failed",
+        }
+
+    where_proj = "AND project_root=?" if project_root else ""
+    base_params: list[Any] = [project_root] if project_root else []
+
+    try:
+        with memory_db.db_session() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM observations "
+                f"WHERE archived=0 {where_proj}",
+                base_params,
+            ).fetchone()[0]
+            try:
+                prev_indexed = conn.execute(
+                    f"SELECT COUNT(*) FROM observations o "
+                    f"JOIN obs_vectors v ON v.obs_id=o.id "
+                    f"WHERE o.archived=0 {('AND o.project_root=?' if project_root else '')}",
+                    base_params,
+                ).fetchone()[0]
+            except Exception:
+                # obs_vectors table may not exist if extension couldn't load.
+                return {
+                    "status": "unavailable", "indexed": 0, "total": total, "pending": 0,
+                    "reason": "obs_vectors table missing (extension not loaded)",
+                }
+
+            rows = conn.execute(
+                f"SELECT id, COALESCE(narrative, content) AS text "
+                f"FROM observations WHERE archived=0 {where_proj} "
+                f"  AND id NOT IN (SELECT obs_id FROM obs_vectors) "
+                f"ORDER BY id DESC LIMIT ?",
+                base_params + [int(limit)],
+            ).fetchall()
+
+            indexed = 0
+            for r in rows:
+                if maybe_index_obs(r["id"], r["text"], conn):
+                    indexed += 1
+            conn.commit()
+
+        pending = max(0, total - prev_indexed - indexed)
+        return {
+            "status": "ok", "indexed": indexed, "total": total,
+            "pending": pending, "previously_indexed": prev_indexed,
+        }
+    except Exception as exc:
+        return {
+            "status": "error", "indexed": 0, "total": 0, "pending": 0,
+            "reason": str(exc),
+        }
+
+
+def vector_coverage(project_root: str) -> dict[str, Any]:
+    """Return {total, indexed, percent, available} for a project."""
+    from token_savior import memory_db
+    from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+
+    result: dict[str, Any] = {
+        "total": 0, "indexed": 0, "percent": 0.0,
+        "available": bool(VECTOR_SEARCH_AVAILABLE),
+    }
+    try:
+        with memory_db.db_session() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM observations "
+                "WHERE project_root=? AND archived=0",
+                [project_root],
+            ).fetchone()[0]
+            result["total"] = int(total)
+            try:
+                indexed = conn.execute(
+                    "SELECT COUNT(*) FROM observations o "
+                    "JOIN obs_vectors v ON v.obs_id=o.id "
+                    "WHERE o.project_root=? AND o.archived=0",
+                    [project_root],
+                ).fetchone()[0]
+                result["indexed"] = int(indexed)
+            except Exception:
+                result["indexed"] = 0
+                result["available"] = False
+        if result["total"] > 0:
+            result["percent"] = round(100.0 * result["indexed"] / result["total"], 1)
+    except Exception as exc:
+        _logger.debug("[token-savior:memory] vector_coverage failed: %s", exc)
+    return result

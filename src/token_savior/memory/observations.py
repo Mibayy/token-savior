@@ -73,6 +73,11 @@ def observation_save(
     are persisted alongside the normal observation body and indexed by FTS.
     They are fully backward-compatible: existing callers keep working
     unchanged and stored rows without these fields behave as before.
+
+    A1-2: if vector search is available, the saved obs is embedded from
+    ``narrative or content`` and upserted into ``obs_vectors`` in the same
+    transaction. Failures are silent — observations always persist even
+    when sqlite-vec / sentence-transformers are missing.
     """
     title = strip_private(title) or ""
     content = strip_private(content) or ""
@@ -183,8 +188,13 @@ def observation_save(
                     now,
                 ),
             )
-            conn.commit()
             obs_id = cur.lastrowid
+            try:
+                from token_savior.memory.embeddings import maybe_index_obs
+                maybe_index_obs(obs_id, narrative or content, conn)
+            except Exception:
+                pass
+            conn.commit()
         try:
             notify_telegram(
                 {"type": type, "title": title, "content": content, "symbol": symbol}

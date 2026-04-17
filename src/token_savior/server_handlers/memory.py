@@ -445,8 +445,44 @@ def _mh_memory_doctor(args: dict[str, Any]) -> str:
             lines.append(f"  #{o['id']} [{o['type']}] {o['title']}")
     else:
         lines.append("✅ No incomplete obs")
+    vc = issues.get("vector_coverage") or {}
+    if vc.get("available"):
+        lines.append(
+            f"📊 Vector coverage: {int(vc.get('indexed', 0))}/"
+            f"{int(vc.get('total', 0))} "
+            f"({float(vc.get('percent', 0.0))}%)"
+        )
+    else:
+        lines.append("📊 Vector coverage: disabled (sqlite-vec or model missing)")
     lines.append(f"\nTotal issues: {summary['total_issues']}")
     return "\n".join(lines)
+
+
+
+def _mh_memory_vector_reindex(args: dict[str, Any]) -> str:
+    """A1-2: backfill obs_vectors for observations that lack a vector row."""
+    from token_savior.memory.embeddings import backfill_obs_vectors
+    root = _resolve_memory_project(args)
+    limit = int(args.get("limit", 500))
+    res = backfill_obs_vectors(project_root=root, limit=limit)
+    status = res.get("status", "?")
+    if status != "ok":
+        reason = res.get("reason", "unknown")
+        return f"⚠️  vector reindex {status}: {reason}"
+    total = int(res.get("total", 0))
+    indexed = int(res.get("indexed", 0))
+    prev = int(res.get("previously_indexed", 0))
+    pending = int(res.get("pending", 0))
+    covered = prev + indexed
+    pct = round(100.0 * covered / total, 1) if total else 0.0
+    return (
+        "🧮 Vector reindex\n"
+        f"  indexed this run : {indexed}\n"
+        f"  previously       : {prev}\n"
+        f"  total active     : {total}\n"
+        f"  coverage         : {covered}/{total} ({pct}%)\n"
+        f"  pending          : {pending}"
+    )
 
 
 def _mh_memory_distill(args: dict[str, Any]) -> str:
@@ -1088,6 +1124,21 @@ def _mh_memory_status(args: dict[str, Any]) -> str:
     if last_summary:
         sum_line = f"{summary_count} (last: {(last_summary['created_at'] or '')[:10]})"
 
+    try:
+        from token_savior.memory.embeddings import EMBED_DIM, vector_coverage
+        vc = vector_coverage(project)
+    except Exception:
+        vc = {"total": 0, "indexed": 0, "percent": 0.0, "available": False}
+        EMBED_DIM = 384  # type: ignore[assignment]
+    if vc.get("available"):
+        vec_line = (
+            f"enabled ({EMBED_DIM}d) · "
+            f"{int(vc.get('indexed', 0))}/{int(vc.get('total', 0))} "
+            f"({float(vc.get('percent', 0.0))}%)"
+        )
+    else:
+        vec_line = "disabled"
+
     rows = [
         ("Project", project),
         ("Mode", mode_name),
@@ -1095,6 +1146,7 @@ def _mh_memory_status(args: dict[str, Any]) -> str:
         ("Sessions", sess_line),
         ("Summaries", sum_line),
         ("Prompts", f"{prompts} archived"),
+        ("Vectors", vec_line),
     ]
     label_w = max(len(r[0]) for r in rows)
     val_w = max(len(r[1]) for r in rows)
@@ -1237,6 +1289,7 @@ HANDLERS: dict[str, Any] = {
     "memory_maintain": _mh_memory_maintain,
     "memory_from_bash": _mh_memory_from_bash,
     "memory_doctor": _mh_memory_doctor,
+    "memory_vector_reindex": _mh_memory_vector_reindex,
     "memory_distill": _mh_memory_distill,
     "memory_dedup_sweep": _mh_memory_dedup_sweep,
     "memory_roi_gc": _mh_memory_roi_gc,
