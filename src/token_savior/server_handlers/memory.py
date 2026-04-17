@@ -650,6 +650,9 @@ def _mh_memory_session_history(args: dict[str, Any]) -> str:
         blocks.append("\n".join(lines))
     return "\n\n---\n\n".join(blocks)
 def _mh_memory_search(args: dict[str, Any]) -> str:
+    """[Layer 2/3 — Progressive Disclosure]
+    Estimated tokens: ~60 per result. Use before memory_get.
+    """
     root = _resolve_memory_project(args)
     query = args["query"]
     limit = args.get("limit", 20)
@@ -696,9 +699,13 @@ def _mh_memory_search(args: dict[str, Any]) -> str:
 
 
 def _mh_memory_get(args: dict[str, Any]) -> str:
-    # Accept bare ints, digit strings, or ``ts://obs/{id}`` citation URIs
-    # (emitted by memory_index rows). Invalid tokens are rendered as errors
-    # instead of silently dropped so the caller sees the bad input.
+    """[Layer 3/3 — Progressive Disclosure]
+    Estimated tokens: ~200 per result. Final layer — full content.
+
+    Accepts bare ints, digit strings, or ``ts://obs/{id}`` citation URIs
+    (emitted by memory_index rows). Invalid tokens are rendered as errors
+    instead of silently dropped so the caller sees the bad input.
+    """
     raw_ids = args["ids"]
     ids: list[int] = []
     invalid: list[str] = []
@@ -775,6 +782,9 @@ def _mh_memory_delete(args: dict[str, Any]) -> str:
 
 
 def _mh_memory_index(args: dict[str, Any]) -> str:
+    """[Layer 1/3 — Progressive Disclosure]
+    Estimated tokens: ~15 per result. Use before memory_search.
+    """
     root = _resolve_memory_project(args)
     desired_limit = int(args.get("limit") or 10)
     pool_limit = max(30, desired_limit * 3)

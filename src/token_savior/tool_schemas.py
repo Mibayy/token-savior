@@ -1014,8 +1014,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_search": {
         "description": (
-            "FTS5 search over observations (compact rows). Also surfaces "
-            "matching session_summaries rollups as a separate section."
+            "[Layer 2/3 — Progressive Disclosure] "
+            "Estimated tokens: ~60 per result. Use before memory_get. "
+            "FTS5 search over observations (compact rows with snippets). "
+            "Also surfaces matching session_summaries rollups as a separate section."
         ),
         "inputSchema": {
             "type": "object",
@@ -1043,9 +1045,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_get": {
         "description": (
-            "Get full details of observations by IDs (Layer 3 — full detail). "
-            "Accepts integers, digit strings, or `ts://obs/{id}` citation URIs "
-            "(as emitted by `memory_index`)."
+            "[Layer 3/3 — Progressive Disclosure] "
+            "Estimated tokens: ~200 per result. Final layer — full content. "
+            "Get full details of observations by IDs. Accepts integers, digit strings, "
+            "or `ts://obs/{id}` citation URIs (as emitted by `memory_index`)."
         ),
         "inputSchema": {
             "type": "object",
@@ -1083,8 +1086,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_index": {
         "description": (
-            "Compact index of recent observations (Layer 1 — progressive disclosure). "
-            "Returns a markdown table with ID, type, title, importance, date."
+            "[Layer 1/3 — Progressive Disclosure] "
+            "Estimated tokens: ~15 per result. Use before memory_search. "
+            "Compact index of recent observations: ID, type, title, importance, date, "
+            "citation URI. Always start here when exploring memory."
         ),
         "inputSchema": {
             "type": "object",
