@@ -75,6 +75,28 @@ def _resolve_memory_project(arguments: dict[str, Any]) -> str:
     return active_root or _resolve_project_root(arguments)
 
 
+# P3: citation URIs. Injected obs rows are tagged `[ts://obs/{id}]` so agents
+# can paste the URI back into memory_get without re-reading the integer. The
+# parser below also accepts bare ints and digit strings for back-compat.
+_TS_OBS_URI_RE = _re.compile(r"^\s*ts://obs/(\d+)\s*$", _re.IGNORECASE)
+
+
+def _parse_obs_id(value: Any) -> int | None:
+    """Coerce an obs identifier from int, digit str, or ``ts://obs/{id}`` URI."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        m = _TS_OBS_URI_RE.match(value)
+        if m:
+            return int(m.group(1))
+        s = value.strip()
+        if s.isdigit():
+            return int(s)
+    return None
+
+
 def _invalidate_injection_hash() -> None:
     for p in (
         "/root/.local/share/token-savior/last_injected_hash",
@@ -620,7 +642,18 @@ def _mh_memory_search(args: dict[str, Any]) -> str:
 
 
 def _mh_memory_get(args: dict[str, Any]) -> str:
-    ids = args["ids"]
+    # Accept bare ints, digit strings, or ``ts://obs/{id}`` citation URIs
+    # (emitted by memory_index rows). Invalid tokens are rendered as errors
+    # instead of silently dropped so the caller sees the bad input.
+    raw_ids = args["ids"]
+    ids: list[int] = []
+    invalid: list[str] = []
+    for x in raw_ids:
+        parsed = _parse_obs_id(x)
+        if parsed is None:
+            invalid.append(repr(x))
+        else:
+            ids.append(parsed)
     full = bool(args.get("full", False))
     # LinUCB reward: if any of the requested ids was recently injected by
     # memory_index, credit it (reward=1). That's the direct click-through.
@@ -669,6 +702,12 @@ def _mh_memory_get(args: dict[str, Any]) -> str:
             parts = [f"#{lk['id']} {lk['title']}" for lk in links["supersedes"][:5]]
             b.append("↳ Supersedes: " + " · ".join(parts))
         blocks.append("\n".join(b))
+    if invalid:
+        blocks.append(
+            "## Invalid id(s)\n"
+            + ", ".join(invalid)
+            + "\nExpected integer, digit string, or `ts://obs/{id}` URI."
+        )
     return "\n\n---\n\n".join(blocks)
 
 
@@ -710,9 +749,11 @@ def _mh_memory_index(args: dict[str, Any]) -> str:
                 "access_count_at_inject": int(obs.get("access_count") or 0),
             }
 
+    # Each row ends with `[ts://obs/{id}]` so agents can paste the URI back
+    # into memory_get without re-reading the integer (P3 citation URIs).
     lines = [
-        "| ID | Type | Title | Imp. | Rel. | UCB | Age |",
-        "|---|---|---|---|---|---|---|",
+        "| ID | Type | Title | Imp. | Rel. | UCB | Age | Cite |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for obs, ucb in ranked:
         age = obs.get("age") or "?"
@@ -720,11 +761,12 @@ def _mh_memory_index(args: dict[str, Any]) -> str:
         glob = "🌐 " if obs.get("is_global") else ""
         lines.append(
             f"| {obs['id']} | {obs['type']} | {glob}{obs['title']} | "
-            f"{obs['importance']} | {rel} | {ucb:+.3f} | {age} |"
+            f"{obs['importance']} | {rel} | {ucb:+.3f} | {age} | "
+            f"[ts://obs/{obs['id']}] |"
         )
     lines.append(
         f"\n{len(ranked)} obs (LinUCB-ranked from {len(rows)} candidates). "
-        "Use `memory_get` with IDs for full details."
+        "Use `memory_get` with IDs or `ts://obs/{id}` URIs for full details."
     )
     return "\n".join(lines)
 

@@ -1026,14 +1026,21 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_get": {
-        "description": "Get full details of observations by IDs (Layer 3 — full detail).",
+        "description": (
+            "Get full details of observations by IDs (Layer 3 — full detail). "
+            "Accepts integers, digit strings, or `ts://obs/{id}` citation URIs "
+            "(as emitted by `memory_index`)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "ids": {
                     "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "List of observation IDs to fetch.",
+                    "items": {"type": ["integer", "string"]},
+                    "description": (
+                        "Observation IDs. Each item may be an integer (42), a "
+                        "digit string (\"42\"), or a citation URI (\"ts://obs/42\")."
+                    ),
                 },
                 "full": {
                     "type": "boolean",
