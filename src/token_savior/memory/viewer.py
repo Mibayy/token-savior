@@ -262,8 +262,156 @@ def _active_project_root() -> str:
     return ""
 
 
+# ── A2-2: polished inline dashboard (htmx + SSE) ─────────────────────────
+#
+# This rebinds the module-level ``_HTML`` name to the A2-2 page after the
+# A2-1 placeholder has been assigned above. The handler does a late-bound
+# lookup of ``_HTML`` at request time, so only the final (A2-2) value is
+# ever served.
+
+
+def _render_page() -> str:
+    """A2-2: single-string dashboard — no static files, htmx + SSE only."""
+    return """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Token Savior Recall — Memory Viewer</title>
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+       background:#0b0d10; color:#d7dde3; margin:0;
+       padding:20px 24px 60px; max-width: 980px; }
+header h1 { font-size:18px; margin:0 0 4px; color:#8ab4f8; font-weight:600; }
+header p { margin:0 0 18px; color:#6a7380; font-size:12px; }
+header p code { background:#14181d; padding:1px 4px; border-radius:3px; }
+.search { margin:0 0 16px; }
+.search input { width:100%; padding:8px 10px; background:#14181d;
+                color:#d7dde3; border:1px solid #2a2f36; border-radius:6px;
+                font:inherit; }
+.search input:focus { outline:none; border-color:#2a5cff; }
+h2 { font-size:11px; margin:18px 0 6px; color:#f0a36c; text-transform:uppercase;
+     letter-spacing:0.08em; font-weight:600; }
+#results { list-style:none; padding:0; margin:0; }
+#results li.r { padding:8px 10px; border:1px solid #1c2026; border-radius:6px;
+                margin-bottom:6px; background:#101318; }
+#results li.r:hover { border-color:#2a3140; }
+.badge { display:inline-block; font-size:11px; padding:1px 6px;
+         border-radius:3px; background:#1f2a44; color:#8ab4f8;
+         margin-right:8px; font-weight:600; text-transform:lowercase; }
+.badge.pattern { background:#2a1f44; color:#c48aff; }
+.badge.finding { background:#1f3a2a; color:#95c48a; }
+.badge.decision { background:#44371f; color:#f0a36c; }
+.badge.error { background:#441f1f; color:#ff8a8a; }
+.badge.guardrail { background:#442a1f; color:#ffae6a; }
+.title { font-weight:600; }
+.title.stale { opacity:0.6; }
+.cite { display:inline-block; margin-left:8px; padding:1px 6px;
+        font-size:11px; color:#6a7380; background:#14181d;
+        border:1px solid #1c2026; border-radius:3px; cursor:pointer;
+        font-family:inherit; }
+.cite:hover { color:#d7dde3; border-color:#2a3140; }
+.cite:disabled { opacity:0.4; cursor:default; }
+.meta { color:#6a7380; font-size:11px; margin-top:2px; }
+.excerpt { color:#a7adb6; font-size:12px; margin-top:4px; }
+.detail { margin-top:8px; padding:8px 10px; background:#0b0d10;
+          border-left:2px solid #2a5cff; border-radius:0 4px 4px 0; }
+.detail pre { background:transparent; padding:0; margin:6px 0 0;
+              font-size:12px; white-space:pre-wrap; word-break:break-word;
+              color:#c7cdd6; }
+#live { margin:0; padding:0; list-style:none; font-size:12px; }
+#live li { padding:3px 8px; margin:2px 0; background:#0f1a14;
+           border-left:2px solid #5ca36c; border-radius:0 3px 3px 0;
+           color:#a7adb6; }
+#live li.connecting { border-left-color:#6a7380; color:#6a7380;
+                      background:#12171c; }
+#statusbar { position:fixed; bottom:0; left:0; right:0; padding:6px 12px;
+             background:#14181d; border-top:1px solid #1c2026;
+             font-size:11px; color:#8a929e; z-index:10; }
+#statusbar .pill { display:inline-block; padding:1px 6px; margin-right:10px;
+                   background:#0b0d10; border:1px solid #1c2026;
+                   border-radius:3px; color:#d7dde3; }
+#statusbar .pill.on { color:#95c48a; border-color:#2a3a22; }
+#statusbar .pill.off { color:#8a929e; }
+.empty { padding:20px; text-align:center; color:#6a7380; font-size:12px;
+         list-style:none; }
+</style></head>
+<body><header>
+  <h1>Token Savior Recall — Memory Viewer</h1>
+  <p>127.0.0.1 · read-only · live via <code>/stream</code></p>
+</header>
+
+<div class="search">
+  <input type="text" name="q" autofocus
+         placeholder="search memory — type to filter, blank for recent"
+         hx-get="/search?format=html"
+         hx-trigger="keyup changed delay:300ms, load"
+         hx-target="#results"
+         hx-swap="innerHTML">
+</div>
+
+<h2>Results</h2>
+<ul id="results"><li class="empty">loading…</li></ul>
+
+<h2>Live saves</h2>
+<ul id="live"><li class="connecting">connecting to /stream …</li></ul>
+
+<aside id="statusbar"
+       hx-get="/status?format=html" hx-trigger="load, every 5s"
+       hx-swap="innerHTML">
+  <span class="pill">loading…</span>
+</aside>
+
+<script>
+(function () {
+  const live = document.getElementById('live');
+  function banner(msg) {
+    live.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'connecting';
+    li.textContent = msg;
+    live.appendChild(li);
+  }
+  function addEvent(d) {
+    const conn = live.querySelector('.connecting');
+    if (conn) live.innerHTML = '';
+    const li = document.createElement('li');
+    const t = new Date().toISOString().slice(11, 19);
+    li.textContent = t + '  obs #' + (d.obs_id || '?') + ' saved';
+    live.prepend(li);
+    while (live.childElementCount > 30) live.lastChild.remove();
+    if (window.htmx) {
+      const input = document.querySelector('.search input');
+      if (input) htmx.trigger(input, 'load');
+      const bar = document.getElementById('statusbar');
+      if (bar) htmx.trigger(bar, 'load');
+    }
+  }
+  try {
+    const src = new EventSource('/stream');
+    src.addEventListener('hello', () => banner('🟢 connected to /stream'));
+    src.addEventListener('save', (e) => {
+      let d = {};
+      try { d = JSON.parse(e.data); } catch (_) {}
+      addEvent(d);
+    });
+    src.onerror = () => banner('🔴 stream disconnected');
+  } catch (e) {
+    banner('🔴 SSE unsupported: ' + e);
+  }
+})();
+</script>
+</body></html>
+"""
+
+
+_HTML = _render_page()  # A2-2: supersedes the A2-1 placeholder above
+
+
 def _build_handler() -> type:
     import http.server
+    import html as _html
     import json
     import queue
     import re
@@ -284,8 +432,8 @@ def _build_handler() -> type:
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_html(self, code: int, html: str) -> None:
-            body = html.encode("utf-8")
+        def _send_html(self, code: int, doc: str) -> None:
+            body = doc.encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -298,11 +446,12 @@ def _build_handler() -> type:
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path
                 qs = urllib.parse.parse_qs(parsed.query)
+                fmt = (qs.get("format") or [""])[0].lower()
                 if path in ("", "/"):
                     self._send_html(200, _HTML)
                     return
                 if path == "/status":
-                    self._handle_status()
+                    self._handle_status(fmt)
                     return
                 if path == "/search":
                     q = (qs.get("q") or [""])[0]
@@ -311,14 +460,14 @@ def _build_handler() -> type:
                     except ValueError:
                         limit = 15
                     limit = max(1, min(limit, 100))
-                    self._handle_search(q, limit)
+                    self._handle_search(q, limit, fmt)
                     return
                 if path == "/stream":
                     self._handle_stream()
                     return
                 m = OBS_RE.match(path)
                 if m:
-                    self._handle_obs(int(m.group(1)))
+                    self._handle_obs(int(m.group(1)), fmt)
                     return
                 self._send_json(404, {"error": "not found", "path": path})
             except BrokenPipeError:
@@ -329,16 +478,119 @@ def _build_handler() -> type:
                 except Exception:
                     pass
 
-        def _handle_obs(self, obs_id: int) -> None:
+        # ── HTML fragment renderers (A2-2, htmx-friendly) ────────────────
+
+        def _render_result_item(self, r: dict) -> str:
+            e = _html.escape
+            obs_id = int(r.get("id") or 0)
+            obs_type = str(r.get("type") or "")
+            title = str(r.get("title") or "")
+            stale = bool(r.get("stale_suspected"))
+            excerpt = str(r.get("excerpt") or "")
+            age = str(r.get("age") or "")
+            is_global = bool(r.get("is_global"))
+            badge_cls = e(obs_type.lower())
+            title_cls = " stale" if stale else ""
+            title_text = ("⚠️ " if stale else "") + title
+            meta_bits = []
+            if age:
+                meta_bits.append(e(age))
+            if is_global:
+                meta_bits.append("global")
+            parts = [
+                f'<li class="r" id="r-{obs_id}">',
+                f'<span class="badge {badge_cls}">{e(obs_type)}</span> ',
+                f'<span class="title{title_cls}">{e(title_text)}</span>',
+                f'<button class="cite" hx-get="/obs/{obs_id}?format=html" '
+                f'hx-target="#r-{obs_id}" hx-swap="beforeend" '
+                f'hx-on:click="this.disabled=true">ts://obs/{obs_id}</button>',
+            ]
+            if meta_bits:
+                parts.append(
+                    f'<div class="meta">{" · ".join(meta_bits)}</div>'
+                )
+            if excerpt:
+                parts.append(f'<div class="excerpt">{e(excerpt)}</div>')
+            parts.append("</li>")
+            return "".join(parts)
+
+        def _render_results(self, rows: list[dict]) -> str:
+            if not rows:
+                return '<li class="empty">no results</li>'
+            return "".join(self._render_result_item(r) for r in rows)
+
+        def _render_obs_detail(self, obs: dict) -> str:
+            e = _html.escape
+            obs_id = int(obs.get("id") or 0)
+            obs_type = str(obs.get("type") or "")
+            project = str(obs.get("project_root") or "")
+            created = str(obs.get("created_at") or "")
+            narrative = str(obs.get("narrative") or "")
+            content = str(obs.get("content") or "")
+            body = narrative or content
+            meta_bits = [b for b in [obs_type, project, created] if b]
+            return (
+                f'<div class="detail" id="d-{obs_id}">'
+                f'<div class="meta">{e(" · ".join(meta_bits))}</div>'
+                f'<pre>{e(body)}</pre>'
+                f"</div>"
+            )
+
+        def _render_status(self, data: dict) -> str:
+            e = _html.escape
+            vc = data.get("vectors") or {}
+            vec_on = bool(vc.get("available"))
+            if vec_on:
+                dim = int(vc.get("dim") or 0)
+                idx = int(vc.get("indexed") or 0)
+                tot = int(vc.get("total") or 0)
+                vec_label = f"on {dim}d · {idx}/{tot}"
+                vec_cls = "on"
+            else:
+                vec_label = "off"
+                vec_cls = "off"
+            obs_active = int(data.get("obs_active") or 0)
+            obs_archived = int(data.get("obs_archived") or 0)
+            cont = data.get("continuity") or {}
+            score = int(cont.get("score") or 0)
+            label = str(cont.get("label") or "")
+            port = int(data.get("viewer_port") or 0)
+            parts = [
+                f'<span class="pill {vec_cls}">vectors: {e(vec_label)}</span>',
+                f'<span class="pill">obs: {obs_active}</span>',
+            ]
+            if obs_archived:
+                parts.append(
+                    f'<span class="pill">archived: {obs_archived}</span>'
+                )
+            parts.append(
+                f'<span class="pill">continuity: {score}% {e(label)}</span>'
+            )
+            parts.append(f'<span class="pill">:{port}</span>')
+            return "".join(parts)
+
+        # ── route handlers ────────────────────────────────────────────────
+
+        def _handle_obs(self, obs_id: int, fmt: str = "") -> None:
             from token_savior import memory_db
             rows = memory_db.observation_get([obs_id])
             if not rows:
-                self._send_json(404, {"error": "not found", "id": obs_id})
+                if fmt == "html":
+                    self._send_html(
+                        404,
+                        f'<div class="detail"><div class="meta">'
+                        f"obs #{int(obs_id)} not found</div></div>",
+                    )
+                else:
+                    self._send_json(404, {"error": "not found", "id": obs_id})
                 return
             obs = dict(rows[0])
-            self._send_json(200, obs)
+            if fmt == "html":
+                self._send_html(200, self._render_obs_detail(obs))
+            else:
+                self._send_json(200, obs)
 
-        def _handle_search(self, q: str, limit: int) -> None:
+        def _handle_search(self, q: str, limit: int, fmt: str = "") -> None:
             from token_savior import memory_db
             project = _active_project_root()
             if q:
@@ -349,14 +601,18 @@ def _build_handler() -> type:
                 rows = memory_db.get_recent_index(
                     project_root=project, limit=limit,
                 )
-            self._send_json(200, {
-                "project": project,
-                "query": q,
-                "limit": limit,
-                "results": [dict(r) for r in rows],
-            })
+            rows = [dict(r) for r in rows]
+            if fmt == "html":
+                self._send_html(200, self._render_results(rows))
+            else:
+                self._send_json(200, {
+                    "project": project,
+                    "query": q,
+                    "limit": limit,
+                    "results": rows,
+                })
 
-        def _handle_status(self) -> None:
+        def _handle_status(self, fmt: str = "") -> None:
             from token_savior import memory_db
             project = _active_project_root()
             db = memory_db.get_db()
@@ -386,14 +642,26 @@ def _build_handler() -> type:
             except Exception:
                 vc = {"total": 0, "indexed": 0, "percent": 0.0,
                       "available": False, "dim": 384}
-            self._send_json(200, {
+            try:
+                from token_savior.memory.consistency import (
+                    compute_continuity_score,
+                )
+                cont = compute_continuity_score(project)
+            except Exception:
+                cont = {"score": 0, "label": ""}
+            data = {
                 "project": project,
                 "obs_active": int(active or 0),
                 "obs_archived": int(archived or 0),
                 "sessions": int(sessions or 0),
                 "vectors": vc,
+                "continuity": cont,
                 "viewer_port": _parse_port(),
-            })
+            }
+            if fmt == "html":
+                self._send_html(200, self._render_status(data))
+            else:
+                self._send_json(200, data)
 
         def _handle_stream(self) -> None:
             self.send_response(200)

@@ -285,3 +285,166 @@ class TestDoctorRendersViewer:
         out = _mh_memory_doctor({"project": PROJECT})
         assert "Viewer: ok" in out
         assert f"127.0.0.1:{_viewer_running}" in out
+
+
+
+# ── A2-2: HTML fragments for htmx ─────────────────────────────────────────
+
+
+class TestHtmxRootPage:
+    def test_root_has_dashboard_wiring(self, _viewer_running):
+        port = _viewer_running
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as r:
+            body = r.read().decode("utf-8")
+        # Header + stack.
+        assert "Token Savior Recall" in body
+        assert "Memory Viewer" in body
+        assert "htmx.org" in body
+        # Search wired via htmx with 300ms debounce.
+        assert 'hx-get="/search?format=html"' in body
+        assert "keyup changed delay:300ms" in body
+        assert 'hx-target="#results"' in body
+        # Live SSE section.
+        assert 'id="live"' in body
+        assert "EventSource('/stream')" in body
+        # Status bar at bottom wired to /status fragment.
+        assert 'id="statusbar"' in body
+        assert 'hx-get="/status?format=html"' in body
+        assert "every 5s" in body
+
+
+class TestSearchHtmlFragment:
+    def test_search_html_returns_fragment_with_badges(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        memory_db.observation_save(
+            sid, PROJECT, "convention", "alpha htmx", "uniqmarkerDDD body",
+        )
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/search?q=uniqmarkerDDD&format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+            ctype = r.headers.get("Content-Type", "")
+        assert "text/html" in ctype
+        # No <html>/<body> wrapper — a plain fragment.
+        assert "<html" not in body
+        assert '<li class="r"' in body
+        assert '<span class="badge' in body
+        assert "convention" in body
+        assert "alpha htmx" in body
+        # Citation button wired to expand inline.
+        assert 'hx-get="/obs/' in body
+        assert "ts://obs/" in body
+
+    def test_search_html_empty_results(self, _viewer_running):
+        port = _viewer_running
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/search?q=zzznosuchqueryzzz&format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+        assert 'class="empty"' in body
+        assert "no results" in body
+
+    def test_search_without_format_still_json(self, _viewer_running):
+        """Back-compat: no ?format=html still yields JSON."""
+        port = _viewer_running
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/search"
+        ) as r:
+            ctype = r.headers.get("Content-Type", "")
+            data = json.loads(r.read())
+        assert "application/json" in ctype
+        assert "results" in data
+
+
+class TestObsHtmlFragment:
+    def test_obs_html_renders_detail(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        oid = memory_db.observation_save(
+            sid, PROJECT, "pattern", "htmx-detail", "frag body",
+        )
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/obs/{oid}?format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+            ctype = r.headers.get("Content-Type", "")
+        assert "text/html" in ctype
+        assert f'id="d-{oid}"' in body
+        assert "<pre>" in body
+        assert "frag body" in body
+        assert "pattern" in body
+
+    def test_obs_html_escapes_content(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        oid = memory_db.observation_save(
+            sid, PROJECT, "convention", "esc",
+            "<script>alert(1)</script>",
+        )
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/obs/{oid}?format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+        assert "<script>alert(1)</script>" not in body
+        assert "&lt;script&gt;" in body
+
+    def test_obs_html_404_returns_fragment(self, _viewer_running):
+        port = _viewer_running
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/obs/999999?format=html"
+        )
+        with pytest.raises(Exception) as exc_info:
+            urllib.request.urlopen(req)
+        # Still a 404, even in html mode.
+        assert "404" in str(exc_info.value)
+
+
+class TestStatusHtmlFragment:
+    def test_status_html_has_pills_and_continuity(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        memory_db.observation_save(
+            sid, PROJECT, "convention", "status-probe", "body",
+        )
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/status?format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+            ctype = r.headers.get("Content-Type", "")
+        assert "text/html" in ctype
+        assert 'class="pill' in body
+        assert "vectors:" in body
+        assert "obs:" in body
+        assert "continuity:" in body
+        # No full document wrapper in a fragment.
+        assert "<html" not in body
+
+    def test_status_html_vectors_off_label(self, _viewer_running, monkeypatch):
+        """When VECTOR_SEARCH_AVAILABLE is False, pill reads 'off'."""
+        port = _viewer_running
+        from token_savior import db_core
+        monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", False)
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/status?format=html"
+        )
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode("utf-8")
+        assert "vectors: off" in body
+
+    def test_status_without_format_still_json(self, _viewer_running):
+        port = _viewer_running
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/status"
+        ) as r:
+            ctype = r.headers.get("Content-Type", "")
+            data = json.loads(r.read())
+        assert "application/json" in ctype
+        # A2-2 adds continuity to the JSON payload too.
+        assert "continuity" in data
+        assert "score" in data["continuity"]
