@@ -52,7 +52,8 @@ class TestToolSchemas:
         # +1 find_import_cycles = 103.
         # +1 P2 memory_dedup_sweep = 104.
         # +1 P5 memory_session_history = 105.
-        assert len(TOOL_SCHEMAS) == 105, f"Expected 105 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 A1-2 memory_vector_reindex = 106.
+        assert len(TOOL_SCHEMAS) == 106, f"Expected 106 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

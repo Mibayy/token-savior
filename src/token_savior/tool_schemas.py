@@ -956,8 +956,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_doctor": {
-        "description": "Memory health report (orphans, near-dupes, incomplete).",
+        "description": "Memory health report (orphans, near-dupes, incomplete, vector coverage).",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    "memory_vector_reindex": {
+        "description": "Backfill obs_vectors for observations missing an embedding. No-op when sqlite-vec / sentence-transformers are unavailable.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max obs to index this run (default 500)."},
+                **_PROJECT_PARAM,
+            },
+        },
     },
     "memory_distill": {
         "description": "MDL distillation: cluster similar obs into abstraction + deltas.",
