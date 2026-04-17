@@ -454,6 +454,17 @@ def _mh_memory_doctor(args: dict[str, Any]) -> str:
         )
     else:
         lines.append("📊 Vector coverage: disabled (sqlite-vec or model missing)")
+    viewer = issues.get("viewer") or {}
+    if not viewer.get("enabled"):
+        lines.append("🌐 Viewer: disabled (TS_VIEWER_PORT not set)")
+    else:
+        port = viewer.get("port")
+        status = viewer.get("status", "?")
+        if status == "ok":
+            lines.append(f"🌐 Viewer: ok — http://127.0.0.1:{port}")
+        else:
+            reason = viewer.get("reason") or status
+            lines.append(f"🌐 Viewer: {status} (port {port}) — {reason}")
     lines.append(f"\nTotal issues: {summary['total_issues']}")
     return "\n".join(lines)
 

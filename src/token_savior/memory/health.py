@@ -18,6 +18,7 @@ def run_health_check(project_root: str) -> dict[str, Any]:
     """Report orphan symbols, stale obs, near-duplicates, incomplete obs.
 
     A1-2: also reports vector coverage ({total, indexed, percent, available}).
+    A2-1: also reports viewer health when TS_VIEWER_PORT is set.
     """
     issues: dict[str, Any] = {
         "orphan_symbols": [],
@@ -27,6 +28,7 @@ def run_health_check(project_root: str) -> dict[str, Any]:
         "vector_coverage": {
             "total": 0, "indexed": 0, "percent": 0.0, "available": False,
         },
+        "viewer": {"enabled": False, "status": "disabled", "port": None},
         "summary": {},
     }
     try:
@@ -83,6 +85,12 @@ def run_health_check(project_root: str) -> dict[str, Any]:
         issues["vector_coverage"] = vector_coverage(project_root)
     except Exception as exc:
         print(f"[token-savior:memory] vector_coverage error: {exc}", file=sys.stderr)
+
+    try:
+        from token_savior.memory.viewer import check_health as viewer_check
+        issues["viewer"] = viewer_check()
+    except Exception as exc:
+        print(f"[token-savior:memory] viewer_check error: {exc}", file=sys.stderr)
 
     issues["summary"] = {
         "orphan_symbols": len(issues["orphan_symbols"]),

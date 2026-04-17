@@ -78,6 +78,9 @@ def observation_save(
     ``narrative or content`` and upserted into ``obs_vectors`` in the same
     transaction. Failures are silent — observations always persist even
     when sqlite-vec / sentence-transformers are missing.
+
+    A2-1: if the optional web viewer is running, the new obs id is pushed
+    to every live SSE subscriber. No-op when the viewer is disabled.
     """
     title = strip_private(title) or ""
     content = strip_private(content) or ""
@@ -199,6 +202,11 @@ def observation_save(
             notify_telegram(
                 {"type": type, "title": title, "content": content, "symbol": symbol}
             )
+        except Exception:
+            pass
+        try:
+            from token_savior.memory.viewer import notify_observation_saved
+            notify_observation_saved(obs_id)
         except Exception:
             pass
         return obs_id

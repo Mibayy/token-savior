@@ -57,6 +57,14 @@ from token_savior.slot_manager import _ProjectSlot  # noqa: F401  -- re-export f
 # Called once at module import so slots exist before any tool call.
 _register_roots(_parse_workspace_roots())
 
+# A2-1: boot the optional web viewer thread when TS_VIEWER_PORT is set.
+# Fully no-op (no imports beyond the module itself) when unset.
+try:
+    from token_savior.memory.viewer import start_if_configured as _viewer_start
+    _viewer_start()
+except Exception as _viewer_exc:  # pragma: no cover — defensive
+    print(f"[token-savior] viewer boot skipped: {_viewer_exc}", file=sys.stderr)
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions (schemas live in tool_schemas.py)
