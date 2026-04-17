@@ -4,6 +4,21 @@
 # - background: strip private tags, trigger phrases, archive prompt
 PAYLOAD=$(cat)
 
+# --- P1: strip <private>…</private> BEFORE injection or any derived obs save
+_REDACTED=$(printf '%s' "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 -c "
+import sys, json, re
+try:
+    p = json.loads(sys.stdin.read())
+    if isinstance(p.get('prompt'), str):
+        p['prompt'] = re.sub(r'<private>[\s\S]*?</private>', '[redacted]', p['prompt'])
+    sys.stdout.write(json.dumps(p))
+except Exception:
+    pass
+" 2>/dev/null)
+if [ -n "$_REDACTED" ]; then
+  PAYLOAD="$_REDACTED"
+fi
+
 # --- Synchronous injection (must complete before Claude responds) ---------
 /root/.local/token-savior-venv/bin/python3 -c "
 import sys, json, re
