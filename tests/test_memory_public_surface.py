@@ -112,6 +112,7 @@ EXPECTED_PUBLIC = [
     "notify_telegram",
     "observation_delete",
     "observation_get",
+    "observation_get_by_file",
     "observation_get_by_session",
     "observation_get_by_symbol",
     "observation_hash",

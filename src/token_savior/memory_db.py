@@ -71,9 +71,10 @@ from token_savior.memory.modes import (  # noqa: E402,F401
 from token_savior.memory.notifications import notify_telegram  # noqa: E402,F401
 from token_savior.memory.observations import (  # noqa: E402,F401
     _CORRUPTION_MARKERS, _is_corrupted_content, observation_delete, observation_get,
-    observation_get_by_session, observation_get_by_symbol, observation_list_archived,
-    observation_restore, observation_save, observation_save_ruled_out,
-    observation_save_volatile, observation_search, observation_update,
+    observation_get_by_file, observation_get_by_session, observation_get_by_symbol,
+    observation_list_archived, observation_restore, observation_save,
+    observation_save_ruled_out, observation_save_volatile, observation_search,
+    observation_update,
 )
 from token_savior.memory.prompts import analyze_prompt_patterns, prompt_save, prompt_search  # noqa: E402,F401
 from token_savior.memory.reasoning import (  # noqa: E402,F401

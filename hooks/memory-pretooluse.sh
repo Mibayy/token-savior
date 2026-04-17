@@ -13,11 +13,14 @@ SHORT_TOOL="${TOOL##*__}"
 
 CODE_TOOLS_RE='^(get_function_source|get_class_source|get_edit_context|find_symbol|get_file_dependencies)$'
 EDIT_TOOLS_RE='^(replace_symbol_source|insert_near_symbol|apply_symbol_change_and_validate|apply_symbol_change_validate_with_rollback)$'
+READ_TOOLS_RE='^(Read|View|NotebookRead)$'
 
 if [[ "$SHORT_TOOL" =~ $CODE_TOOLS_RE ]]; then
     MODE=code
 elif [[ "$SHORT_TOOL" =~ $EDIT_TOOLS_RE ]] || [[ "$TOOL" == "Edit" ]] || [[ "$TOOL" == "Write" ]] || [[ "$TOOL" == "MultiEdit" ]]; then
     MODE=edit
+elif [[ "$TOOL" =~ $READ_TOOLS_RE ]]; then
+    MODE=read
 elif [[ "$TOOL" == "Bash" ]]; then
     MODE=bash
 else
@@ -57,6 +60,24 @@ if mode == 'code':
             stale = '⚠️ ' if o.get('stale') else ''
             glob = '🌐 ' if o.get('is_global') else ''
             print(f\"  #{o['id']}  [{o['type']}]  {stale}{glob}{o['title']}  —  {age}\")
+    sys.exit(0)
+
+if mode == 'read':
+    # P4: inject compact file-context header when obs exist for the target file.
+    # Nothing is printed when no obs are tied to the file (silent no-op).
+    file_path = (args.get('file_path') or '').strip()
+    if not file_path:
+        sys.exit(0)
+    obs = memory_db.observation_get_by_file(project, file_path, limit=5)
+    if not obs:
+        sys.exit(0)
+    import os as _os
+    display = _os.path.basename(file_path) or file_path
+    print(f'[Memory: {len(obs)} obs on {display}]')
+    for o in obs:
+        glob = '🌐 ' if o.get('is_global') else ''
+        imp = o.get('importance') or 0
+        print(f\"  \u2022 [{o['type']}] {glob}{o['title']} (imp {imp}) [ts://obs/{o['id']}]\")
     sys.exit(0)
 
 if mode == 'edit':

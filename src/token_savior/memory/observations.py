@@ -415,6 +415,68 @@ def observation_get_by_symbol(
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] observation_get_by_symbol error: {exc}", file=sys.stderr)
         return []
+def observation_get_by_file(
+    project_root: str,
+    file_path: str,
+    *,
+    limit: int = 5,
+    bump_access: bool = True,
+) -> list[dict]:
+    """Observations attached to a file (for PreToolUse-Read injection).
+
+    Matches on absolute path, project-relative path, and basename so stored
+    obs survive abs-vs-rel differences. Each form is matched by equality OR
+    right-anchored LIKE (``'%/foo.py'``) so stored rows with a different
+    prefix still resolve. Orders by importance DESC (primary) then
+    created_at_epoch DESC (tiebreaker). Bumps ``last_accessed_at`` /
+    ``access_count`` on hits so decay treats reads as engagement.
+    """
+    if not file_path:
+        return []
+    import os as _os
+    abs_path = (
+        _os.path.abspath(file_path)
+        if _os.path.isabs(file_path) or _os.path.exists(file_path)
+        else file_path
+    )
+    basename = _os.path.basename(file_path) or file_path
+    candidates = {file_path, abs_path, basename}
+    if project_root and abs_path.startswith(project_root.rstrip("/") + "/"):
+        candidates.add(abs_path[len(project_root.rstrip("/")) + 1:])
+    forms = [c for c in candidates if c]
+
+    # Build (equality OR tail-LIKE) clause per candidate.
+    clauses = []
+    params: list[Any] = [project_root]
+    for form in forms:
+        clauses.append("file_path = ?")
+        params.append(form)
+        clauses.append("file_path LIKE ?")
+        params.append(f"%/{form}")
+    path_clause = " OR ".join(clauses)
+
+    sql = (
+        "SELECT id, type, title, symbol, file_path, importance, "
+        "       created_at, created_at_epoch, is_global "
+        "FROM observations "
+        "WHERE archived=0 AND (project_root=? OR is_global=1) "
+        f"  AND ({path_clause}) "
+        "ORDER BY importance DESC, created_at_epoch DESC LIMIT ?"
+    )
+    params.append(limit)
+    try:
+        conn = memory_db.get_db()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[token-savior:memory] observation_get_by_file error: {exc}", file=sys.stderr)
+        return []
+    result = [dict(r) for r in rows]
+    for r in result:
+        r["age"] = relative_age(r.get("created_at_epoch"))
+    if bump_access and result:
+        _bump_access([r["id"] for r in result])
+    return result
 
 
 def observation_update(
