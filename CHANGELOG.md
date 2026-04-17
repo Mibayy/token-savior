@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.6.0 — Memory Engine Phase 1+2 (2026-04-17)
+
+### Phase 1 — Gap closure
+- P1: `<private>` tag stripper (UserPromptSubmit hook)
+- P2: content_hash persisté, dedup O(1) + backfill
+- P3: `ts://obs/{id}` citation URIs dans injection output
+- P4: PreToolUse-Read hook — file-context injection
+- P5: session-end rollup structuré (FTS5, 6 champs)
+
+### Phase 2 — Feature parity + differentiation
+- A4: Progressive disclosure formalisé (Layer 1/2/3, cost table)
+- A5: narrative / facts / concepts fields sur observations
+- A1: sqlite-vec hybrid search + RRF fusion (FTS fallback graceful)
+- A2: Web viewer opt-in `127.0.0.1:$TS_VIEWER_PORT` (htmx + SSE)
+- A3: LLM auto-extraction PostToolUse (opt-in `TS_AUTO_EXTRACT=1`)
+
+### Stats
+- Tools : 105
+- Tests : 1318/1318
+- Vector search : `sqlite-vec` + `sentence-transformers/all-MiniLM-L6-v2`
+
 ## v2.0.0 — Token Savior Recall (2026-04-13)
 
 ### Memory Engine (new)
