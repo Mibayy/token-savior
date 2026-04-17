@@ -163,4 +163,32 @@ if suggested != tracker.get('suggested_mode') and current_source != 'manual':
 tracker_path.write_text(json.dumps(tracker, indent=2))
 " <<< "$PAYLOAD" 2>/dev/null &
 
+# === A3: LLM AUTO-EXTRACT (opt-in via TS_AUTO_EXTRACT=1) ===
+# Zero-cost when unset: the shell `if` short-circuits, Python is never spawned.
+if [ "${TS_AUTO_EXTRACT:-}" = "1" ]; then
+/root/.local/token-savior-venv/bin/python3 -c "
+import sys, json
+sys.path.insert(0, '/root/token-savior/src')
+
+try:
+    payload = json.loads(sys.stdin.read())
+except Exception:
+    sys.exit(0)
+
+tool_name = payload.get('tool_name', '')
+tool_input = payload.get('tool_input', {}) or {}
+tool_output = payload.get('tool_response', {}) or {}
+if isinstance(tool_output, (dict, list)):
+    out_str = json.dumps(tool_output, default=str)[:4000]
+else:
+    out_str = str(tool_output)[:4000]
+
+try:
+    from token_savior.memory import auto_extract
+    auto_extract.process_tool_use(tool_name, tool_input, out_str)
+except Exception as exc:
+    print(f'[posttooluse:auto-extract] {exc}', file=sys.stderr)
+" <<< "$PAYLOAD" 2>/dev/null &
+fi
+
 exit 0

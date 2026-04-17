@@ -1150,6 +1150,12 @@ def _mh_memory_status(args: dict[str, Any]) -> str:
     else:
         vec_line = "disabled"
 
+    try:
+        from token_savior.memory.auto_extract import is_enabled as _ae_enabled
+        ae_line = "enabled" if _ae_enabled() else "disabled"
+    except Exception:
+        ae_line = "disabled"
+
     rows = [
         ("Project", project),
         ("Mode", mode_name),
@@ -1158,6 +1164,7 @@ def _mh_memory_status(args: dict[str, Any]) -> str:
         ("Summaries", sum_line),
         ("Prompts", f"{prompts} archived"),
         ("Vectors", vec_line),
+        ("Auto-extract", ae_line),
     ]
     label_w = max(len(r[0]) for r in rows)
     val_w = max(len(r[1]) for r in rows)
