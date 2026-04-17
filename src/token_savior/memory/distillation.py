@@ -21,16 +21,24 @@ def run_mdl_distillation(
     compression_required: float = 0.2,
     jaccard_threshold: float = 0.4,
 ) -> dict[str, Any]:
-    """Detect MDL-compressible clusters and (optionally) crystallize them."""
+    """Detect MDL-compressible clusters and (optionally) crystallize them.
+
+    A5: when an obs has a `narrative` field, it is fed to the distiller in
+    place of `content`. Narratives are the compressed, human-written summary
+    of the observation, so they produce tighter abstractions than the raw
+    body. Fallback is transparent — obs without narrative use content as before.
+    """
     from token_savior.mdl_distiller import find_distillation_candidates
 
     try:
         # Include decay_immune types (guardrail/convention) — they are exactly
         # the repeated rules MDL is supposed to consolidate. Skip rows that
         # were already distilled so we don't loop.
+        # A5: COALESCE(narrative, content) feeds narrative when present.
         with memory_db.db_session() as conn:
             rows = [dict(r) for r in conn.execute(
-                "SELECT id, type, title, content, symbol, file_path, tags "
+                "SELECT id, type, title, COALESCE(narrative, content) AS content, "
+                "       symbol, file_path, tags "
                 "FROM observations WHERE project_root=? AND archived=0 "
                 "  AND (tags IS NULL OR "
                 "       (tags NOT LIKE '%mdl-distilled%' "
