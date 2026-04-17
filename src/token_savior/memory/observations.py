@@ -306,7 +306,13 @@ def observation_search(
     limit: int = 20,
     include_quarantine: bool = False,
 ) -> list[dict]:
-    """FTS5 search across observations. Returns compact index dicts.
+    """Hybrid search (FTS5 + optional vector k-NN) across observations.
+
+    A1-3: when ``VECTOR_SEARCH_AVAILABLE`` is True and the embedding model
+    loads successfully, the FTS result set is fused with a k-NN pass via
+    Reciprocal Rank Fusion (k=60). When the vector stack is missing or
+    fails, the FTS rank order is preserved, so existing callers see
+    byte-identical behaviour in that regime.
 
     Quarantined observations (Bayesian validity < 40%) are filtered out by
     default; pass ``include_quarantine=True`` to see them. Stale-suspected
@@ -315,6 +321,9 @@ def observation_search(
     """
     try:
         conn = memory_db.get_db()
+        # Fetch a wider FTS set so RRF has room to re-rank; if the vector
+        # path is skipped we simply truncate to `limit` before returning.
+        fts_limit = max(limit * 2, limit)
         params: list[Any] = []
         sql = (
             "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
@@ -337,10 +346,17 @@ def observation_search(
             params.append(type_filter)
 
         sql += "ORDER BY rank LIMIT ?"
-        params.append(limit)
+        params.append(fts_limit)
 
-        rows = conn.execute(sql, params).fetchall()
-        result = [dict(r) for r in rows]
+        fts_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        from token_savior.memory.search import hybrid_search
+        result = hybrid_search(
+            conn, fts_rows, query, project_root,
+            limit=limit,
+            type_filter=type_filter,
+            include_quarantine=include_quarantine,
+        )
         for r in result:
             r["age"] = relative_age(r.get("created_at_epoch"))
             r["stale_suspected"] = bool(r.get("stale_suspected"))
