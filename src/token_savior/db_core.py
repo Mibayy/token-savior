@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -22,6 +23,57 @@ _SCHEMA_PATH = Path(__file__).parent / "memory_schema.sql"
 
 # Migrations run once per DB path (tests use per-tmp_path DBs).
 _migrated_paths: set[str] = set()
+
+_logger = logging.getLogger(__name__)
+
+# A1-1: optional sqlite-vec integration. Absent by default — the base
+# memory engine keeps working without it and VECTOR_SEARCH_AVAILABLE
+# stays False. Install the extra with:
+#   pip install 'token-savior-recall[memory-vector]'
+try:
+    import sqlite_vec as _sqlite_vec  # type: ignore[import-not-found]
+    VECTOR_SEARCH_AVAILABLE = True
+except ImportError:
+    _sqlite_vec = None  # type: ignore[assignment]
+    VECTOR_SEARCH_AVAILABLE = False
+
+_vector_warning_emitted = False
+
+
+def _maybe_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
+    """Load the sqlite-vec extension into ``conn`` when available.
+
+    Returns True if the extension is loaded and vec0 tables can be used,
+    False otherwise. A single warning is emitted per process — callers
+    are expected to call this on every new connection, so we keep noise
+    low. Failure modes covered:
+      * sqlite-vec package not installed (ImportError at module import)
+      * Python's sqlite3 compiled without extension-loading support
+      * vec extension load raised at runtime
+    """
+    global _vector_warning_emitted
+    if not VECTOR_SEARCH_AVAILABLE:
+        if not _vector_warning_emitted:
+            _logger.warning(
+                "[token-savior:memory] sqlite-vec not installed; vector "
+                "search disabled. Install with: "
+                "pip install 'token-savior-recall[memory-vector]'"
+            )
+            _vector_warning_emitted = True
+        return False
+    try:
+        conn.enable_load_extension(True)
+        _sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        return True
+    except (sqlite3.OperationalError, AttributeError, Exception) as exc:
+        if not _vector_warning_emitted:
+            _logger.warning(
+                "[token-savior:memory] sqlite-vec load failed (%s); "
+                "vector search disabled.", exc,
+            )
+            _vector_warning_emitted = True
+        return False
 
 
 def run_migrations(db_path: Path | str | None = None) -> None:
@@ -151,6 +203,24 @@ def run_migrations(db_path: Path | str | None = None) -> None:
             "ON consistency_scores(quarantine)"
         )
 
+        # A1-1: create the vec0 virtual table when sqlite-vec is loadable.
+        # FLOAT[384] matches the SentenceTransformer("all-MiniLM-L6-v2")
+        # output used by memory/embeddings.py. Creation is gated on the
+        # extension being loaded — otherwise silently skipped.
+        if _maybe_load_sqlite_vec(conn):
+            try:
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS obs_vectors USING vec0("
+                    "  obs_id INTEGER PRIMARY KEY,"
+                    "  embedding FLOAT[384]"
+                    ")"
+                )
+            except sqlite3.OperationalError as exc:
+                _logger.warning(
+                    "[token-savior:memory] obs_vectors create failed (%s); "
+                    "vector search disabled.", exc,
+                )
+
         conn.commit()
     finally:
         conn.close()
@@ -159,7 +229,12 @@ def run_migrations(db_path: Path | str | None = None) -> None:
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a WAL-mode SQLite connection. Migrations run once per path."""
+    """Open a WAL-mode SQLite connection. Migrations run once per path.
+
+    If sqlite-vec is installed, the extension is loaded on every new
+    connection so that the obs_vectors vec0 table is queryable. Missing
+    extension is silent (warning emitted once, see _maybe_load_sqlite_vec).
+    """
     path = db_path or MEMORY_DB_PATH
     run_migrations(path)
     conn = sqlite3.connect(str(path))
@@ -167,6 +242,8 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
+    if VECTOR_SEARCH_AVAILABLE:
+        _maybe_load_sqlite_vec(conn)
     return conn
 
 
