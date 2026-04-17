@@ -622,23 +622,77 @@ def _mh_memory_make_local(args: dict[str, Any]) -> str:
     return f"Observation #{obs_id} scoped back to its project." if ok else f"Observation #{obs_id} not found."
 
 
+def _mh_memory_session_history(args: dict[str, Any]) -> str:
+    """P5: format the N most recent session_summaries rollups."""
+    root = _resolve_memory_project(args)
+    limit = max(1, int(args.get("limit") or 10))
+    rows = memory_db.session_summary_list(project_root=root, limit=limit)
+    if not rows:
+        return "No session rollups yet."
+    blocks: list[str] = []
+    for r in rows:
+        header = (
+            f"### Session #{r.get('session_id') or '?'} "
+            f"(rollup #{r['id']}) — {r.get('age') or '?'}"
+        )
+        lines = [header]
+        for label, key in (
+            ("Request", "request"),
+            ("Investigated", "investigated"),
+            ("Learned", "learned"),
+            ("Completed", "completed"),
+            ("Next steps", "next_steps"),
+            ("Notes", "notes"),
+        ):
+            val = (r.get(key) or "").strip()
+            if val:
+                lines.append(f"**{label}:** {val}")
+        blocks.append("\n".join(lines))
+    return "\n\n---\n\n".join(blocks)
 def _mh_memory_search(args: dict[str, Any]) -> str:
     root = _resolve_memory_project(args)
+    query = args["query"]
+    limit = args.get("limit", 20)
     rows = memory_db.observation_search(
         project_root=root,
-        query=args["query"],
+        query=query,
         type_filter=args.get("type_filter"),
-        limit=args.get("limit", 20),
+        limit=limit,
     )
-    if not rows:
+    # P5: surface matching session rollups as a separate section.
+    try:
+        summaries = memory_db.session_summary_search(
+            project_root=root, query=query, limit=min(limit, 10),
+        )
+    except Exception:
+        summaries = []
+
+    if not rows and not summaries:
         return "No observations match the query."
-    lines = ["| ID | Type | Title | Importance | Age |", "|---|---|---|---|---|"]
-    for r in rows:
-        age = r.get("age") or "?"
-        glob = "🌐 " if r.get("is_global") else ""
-        lines.append(f"| {r['id']} | {r['type']} | {glob}{r['title']} | {r['importance']} | {age} |")
-    lines.append(f"\n{len(rows)} results. Use `memory_get` with IDs for full details.")
-    return "\n".join(lines)
+
+    parts: list[str] = []
+    if rows:
+        lines = ["| ID | Type | Title | Importance | Age |", "|---|---|---|---|---|"]
+        for r in rows:
+            age = r.get("age") or "?"
+            glob = "🌐 " if r.get("is_global") else ""
+            lines.append(f"| {r['id']} | {r['type']} | {glob}{r['title']} | {r['importance']} | {age} |")
+        lines.append(f"\n{len(rows)} observation results. Use `memory_get` with IDs for full details.")
+        parts.append("\n".join(lines))
+
+    if summaries:
+        lines = ["### Session rollups", "| ID | Session | Snippet | Age |", "|---|---|---|---|"]
+        for s in summaries:
+            excerpt = (s.get("excerpt") or "").replace("|", "\\|").replace("\n", " ")
+            lines.append(
+                f"| {s['id']} | #{s.get('session_id') or '?'} | {excerpt} | {s.get('age') or '?'} |"
+            )
+        lines.append(
+            f"\n{len(summaries)} session rollup(s). Use `memory_session_history` for full detail."
+        )
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
 
 
 def _mh_memory_get(args: dict[str, Any]) -> str:
@@ -1139,6 +1193,7 @@ HANDLERS: dict[str, Any] = {
     "reasoning_list": _mh_reasoning_list,
     "memory_save": _mh_memory_save,
     "memory_search": _mh_memory_search,
+    "memory_session_history": _mh_memory_session_history,
     "memory_get": _mh_memory_get,
     "memory_delete": _mh_memory_delete,
     "memory_index": _mh_memory_index,

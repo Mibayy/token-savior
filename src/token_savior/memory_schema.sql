@@ -85,6 +85,51 @@ CREATE TRIGGER IF NOT EXISTS obs_fts_update AFTER UPDATE ON observations BEGIN
     VALUES (new.id, new.title, new.content, new.why, new.how_to_apply, new.tags);
 END;
 
+-- P5: structured session-end rollups (request/investigated/learned/...).
+-- FTS5 mirror so memory_search can surface past sessions in a dedicated
+-- section. Summaries live in their own table so observations decay/roi
+-- rules don't touch them.
+CREATE TABLE IF NOT EXISTS session_summaries (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id       INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+    project_root     TEXT NOT NULL,
+    request          TEXT,
+    investigated     TEXT,
+    learned          TEXT,
+    completed        TEXT,
+    next_steps       TEXT,
+    notes            TEXT,
+    created_at       TEXT NOT NULL,
+    created_at_epoch INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sess_sum_project ON session_summaries(project_root);
+CREATE INDEX IF NOT EXISTS idx_sess_sum_epoch ON session_summaries(created_at_epoch DESC);
+CREATE INDEX IF NOT EXISTS idx_sess_sum_session ON session_summaries(session_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_summaries_fts USING fts5(
+    request, investigated, learned, completed, next_steps, notes,
+    content='session_summaries',
+    content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS sess_sum_fts_insert AFTER INSERT ON session_summaries BEGIN
+    INSERT INTO session_summaries_fts(rowid, request, investigated, learned, completed, next_steps, notes)
+    VALUES (new.id, new.request, new.investigated, new.learned, new.completed, new.next_steps, new.notes);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sess_sum_fts_delete AFTER DELETE ON session_summaries BEGIN
+    INSERT INTO session_summaries_fts(session_summaries_fts, rowid, request, investigated, learned, completed, next_steps, notes)
+    VALUES ('delete', old.id, old.request, old.investigated, old.learned, old.completed, old.next_steps, old.notes);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sess_sum_fts_update AFTER UPDATE ON session_summaries BEGIN
+    INSERT INTO session_summaries_fts(session_summaries_fts, rowid, request, investigated, learned, completed, next_steps, notes)
+    VALUES ('delete', old.id, old.request, old.investigated, old.learned, old.completed, old.next_steps, old.notes);
+    INSERT INTO session_summaries_fts(rowid, request, investigated, learned, completed, next_steps, notes)
+    VALUES (new.id, new.request, new.investigated, new.learned, new.completed, new.next_steps, new.notes);
+END;
+
 CREATE TABLE IF NOT EXISTS observation_links (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id   INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,

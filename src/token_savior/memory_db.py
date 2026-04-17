@@ -85,6 +85,8 @@ from token_savior.memory.roi import (  # noqa: E402,F401
     _ROI_HORIZON_DAYS, _ROI_LAMBDA, _ROI_THRESHOLD, _ROI_TOKENS_PER_HIT, _ROI_TYPE_MULTIPLIER,
     compute_observation_roi, get_roi_stats, run_roi_gc,
 )
-from token_savior.memory.sessions import session_end, session_start  # noqa: E402,F401
+from token_savior.memory.sessions import (  # noqa: E402,F401
+    session_end, session_start, session_summary_list, session_summary_search,
+)
 from token_savior.memory.stats import get_stats  # noqa: E402,F401
 from token_savior.memory.summaries import summary_parse, summary_save  # noqa: E402,F401

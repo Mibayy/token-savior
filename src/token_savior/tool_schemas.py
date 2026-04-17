@@ -1013,7 +1013,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_search": {
-        "description": "FTS5 search over observations (compact rows).",
+        "description": (
+            "FTS5 search over observations (compact rows). Also surfaces "
+            "matching session_summaries rollups as a separate section."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1023,6 +1026,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["query"],
+        },
+    },
+    "memory_session_history": {
+        "description": (
+            "Last N structured session-end rollups (request / investigated / "
+            "learned / completed / next_steps / notes) for the current project."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Default 10."},
+                **_PROJECT_PARAM,
+            },
         },
     },
     "memory_get": {

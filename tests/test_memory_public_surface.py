@@ -146,6 +146,8 @@ EXPECTED_PUBLIC = [
     "semantic_dedup_check",
     "session_end",
     "session_start",
+    "session_summary_list",
+    "session_summary_search",
     "set_mode",
     "set_project_mode",
     "set_session_override",
