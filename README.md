@@ -11,12 +11,26 @@
 [![Tools](https://img.shields.io/badge/tools-105-green)]()
 [![Tests](https://img.shields.io/badge/tests-1318%2F1318-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
+[![Benchmark](https://img.shields.io/badge/tsbench-96%25%20(115%2F120)-brightgreen)](https://mibayy.github.io/tsbench/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 
 **📖 [mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** — project site
+**📊 [mibayy.github.io/tsbench](https://mibayy.github.io/tsbench/)** — benchmark results ([source](https://github.com/Mibayy/tsbench))
+
+---
+
+### Benchmark — 60 real coding tasks
+
+| | Plain Claude Code | With Token Savior |
+|---|---:|---:|
+| **Score** | 67 / 120 (56%) | **115 / 120 (96%)** |
+| **Chars injected** | 1,431,624 | **234,805** (−84%) |
+| **Wins / Ties / Losses** | — | **32 / 28 / 0** |
+
+Methodology, per-task breakdown and reproduction instructions: **[mibayy.github.io/tsbench](https://mibayy.github.io/tsbench/)**.
 
 </div>
 
