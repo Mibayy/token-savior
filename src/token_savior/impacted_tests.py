@@ -20,6 +20,65 @@ def find_impacted_test_files(
 ) -> dict:
     """Infer a compact set of likely impacted test files."""
     changed = _normalize_changed_files(index, changed_files, symbol_names)
+
+    # Fuzzy-resolve symbol names that the user probably typed with a stale
+    # spelling (e.g. renamed function). If the original resolution came up
+    # empty but we can find exactly one high-similarity candidate, re-run the
+    # normalization using that name and surface a `resolved_via` hint.
+    fuzzy_hint: dict | None = None
+    if not changed and symbol_names:
+        import difflib
+
+        all_symbol_names: list[str] = []
+        for _, meta in index.files.items():
+            for func in meta.functions:
+                all_symbol_names.append(func.name)
+                if func.qualified_name and func.qualified_name != func.name:
+                    all_symbol_names.append(func.qualified_name)
+            for cls in meta.classes:
+                all_symbol_names.append(cls.name)
+
+        suggestions: dict[str, list[str]] = {}
+        for symbol_name in symbol_names:
+            matches = difflib.get_close_matches(
+                symbol_name, all_symbol_names, n=3, cutoff=0.6
+            )
+            if matches:
+                suggestions[symbol_name] = matches
+
+        if suggestions:
+            # Auto-retry if every missing symbol has exactly one high-confidence match
+            resolved_names: list[str] = []
+            auto_resolvable = True
+            for orig, cands in suggestions.items():
+                if cands:
+                    top = cands[0]
+                    ratio = difflib.SequenceMatcher(None, orig, top).ratio()
+                    if ratio >= 0.75:
+                        resolved_names.append(top)
+                        continue
+                auto_resolvable = False
+                break
+            if auto_resolvable and resolved_names:
+                changed = _normalize_changed_files(
+                    index, changed_files, resolved_names
+                )
+                fuzzy_hint = {
+                    "resolved_via": "fuzzy_match",
+                    "original_symbols": symbol_names,
+                    "resolved_to": resolved_names,
+                    "suggestions": suggestions,
+                }
+            else:
+                return {
+                    "error": "No changed files or symbols could be resolved",
+                    "suggestions": suggestions,
+                    "hint": (
+                        "Provided symbol(s) not found in index; closest matches above. "
+                        "Retry with the resolved name or a file path."
+                    ),
+                }
+
     if not changed:
         return {"error": "No changed files or symbols could be resolved"}
     tests = sorted(path for path in index.files if _is_test_file(path))
@@ -61,12 +120,15 @@ def find_impacted_test_files(
             add_reason(test_file, reason)
 
     omitted = max(0, len(reasons) - len(impacted))
-    return {
+    result: dict = {
         "changed_files": changed,
         "impacted_tests": impacted,
         "reason_map": {test_file: reasons[test_file] for test_file in impacted},
         "omitted_tests": omitted,
     }
+    if fuzzy_hint is not None:
+        result["fuzzy_resolution"] = fuzzy_hint
+    return result
 
 
 def run_impacted_tests(

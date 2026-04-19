@@ -800,7 +800,43 @@ class ProjectQueryEngine:
         if meta is None:
             return f"Error: file '{file_path}' not found in index"
         file_funcs = create_file_query_functions(meta)
-        return file_funcs["get_structure_summary"]()
+        base = file_funcs["get_structure_summary"]()
+
+        # Resolve the actual rel_path used as key in the project index,
+        # so cross-module deps work whether the caller passed a basename,
+        # a suffix, or a full relative path.
+        resolved_path: str | None = None
+        if file_path in self.index.files:
+            resolved_path = file_path
+        else:
+            for p in self.index.files:
+                if p == file_path or p.endswith("/" + file_path) or p.endswith(file_path):
+                    resolved_path = p
+                    break
+
+        if resolved_path is None:
+            return base
+
+        imports_out = sorted(self.index.import_graph.get(resolved_path, set()))
+        imported_by = sorted(self.index.reverse_import_graph.get(resolved_path, set()))
+
+        if not imports_out and not imported_by:
+            return base
+
+        parts = [base, "", "Cross-module dependencies:"]
+        if imports_out:
+            shown = imports_out[:10]
+            suffix = f" (+{len(imports_out) - 10} more)" if len(imports_out) > 10 else ""
+            parts.append(f"- Imports from: {', '.join(shown)}{suffix}")
+        else:
+            parts.append("- Imports from: (none in-project)")
+        if imported_by:
+            shown = imported_by[:10]
+            suffix = f" (+{len(imported_by) - 10} more)" if len(imported_by) > 10 else ""
+            parts.append(f"- Imported by: {', '.join(shown)}{suffix}")
+        else:
+            parts.append("- Imported by: (none in-project)")
+        return "\n".join(parts)
 
     def get_lines(self, file_path: str, start: int, end: int) -> str:
         """Lines from a specific file."""
@@ -1464,39 +1500,58 @@ class ProjectQueryEngine:
     def get_env_usage(self, var_name: str, max_results: int = 0) -> list[dict]:
         """Find all references to an environment variable across the codebase.
         Searches for process.env.VAR, os.environ["VAR"], os.getenv("VAR"),
-        and ${{ secrets.VAR }} patterns."""
+        and ${{ secrets.VAR }} patterns. Includes enclosing function/class
+        when the line falls inside a known symbol range."""
         results: list[dict] = []
         for path, meta in self.index.files.items():
             for line_idx, line in enumerate(meta.lines):
-                if var_name in line:
-                    context = line.strip()
-                    usage_type = "reference"
-                    if "process.env." in line:
-                        usage_type = "process.env"
-                    elif "os.environ" in line or "os.getenv" in line:
-                        usage_type = "os.environ"
-                    elif "System.getenv" in line:
-                        usage_type = "system.getenv"
-                    elif "System.getProperty" in line:
-                        usage_type = "system.getProperty"
-                    elif "@Value" in line and _SPRING_VALUE_RE.search(line):
-                        usage_type = "spring.value"
-                    elif "secrets." in line:
-                        usage_type = "github_secret"
-                    elif line.strip().startswith(var_name + "=") or line.strip().startswith(
-                        f'"{var_name}"'
-                    ):
-                        usage_type = "definition"
-                    elif "printf" in line and var_name in line:
-                        usage_type = "env_write"
-                    results.append(
-                        {
-                            "file": path,
-                            "line": line_idx + 1,
-                            "usage_type": usage_type,
-                            "content": context[:200],
-                        }
-                    )
+                if var_name not in line:
+                    continue
+                context = line.strip()
+                usage_type = "reference"
+                if "process.env." in line:
+                    usage_type = "process.env"
+                elif "os.environ" in line or "os.getenv" in line:
+                    usage_type = "os.environ"
+                elif "System.getenv" in line:
+                    usage_type = "system.getenv"
+                elif "System.getProperty" in line:
+                    usage_type = "system.getProperty"
+                elif "@Value" in line and _SPRING_VALUE_RE.search(line):
+                    usage_type = "spring.value"
+                elif "secrets." in line:
+                    usage_type = "github_secret"
+                elif line.strip().startswith(var_name + "=") or line.strip().startswith(
+                    f'"{var_name}"'
+                ):
+                    usage_type = "definition"
+                elif "printf" in line and var_name in line:
+                    usage_type = "env_write"
+                lineno = line_idx + 1
+                enclosing_function = None
+                enclosing_class = None
+                for func in getattr(meta, "functions", []) or []:
+                    if func.line_range.start <= lineno <= func.line_range.end:
+                        enclosing_function = func.qualified_name or func.name
+                        if func.parent_class:
+                            enclosing_class = func.parent_class
+                        break
+                if enclosing_class is None:
+                    for cls in getattr(meta, "classes", []) or []:
+                        if cls.line_range.start <= lineno <= cls.line_range.end:
+                            enclosing_class = cls.name
+                            break
+                row: dict = {
+                    "file": path,
+                    "line": lineno,
+                    "usage_type": usage_type,
+                    "content": context[:200],
+                }
+                if enclosing_function:
+                    row["function"] = enclosing_function
+                if enclosing_class:
+                    row["class"] = enclosing_class
+                results.append(row)
         if not results:
             return [
                 {

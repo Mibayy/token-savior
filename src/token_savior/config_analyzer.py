@@ -526,14 +526,18 @@ def check_orphans(
 ) -> list[ConfigIssue]:
     """Detect orphan keys, ghost keys, and orphan config files.
 
-    Three checks
-    ------------
+    Four checks
+    -----------
     1. **Orphan key** — a level-1 config key that is not referenced anywhere in
        code (neither via access patterns nor as a plain substring).
     2. **Ghost key** — a key referenced in code via an access pattern but not
        defined in any config file.
     3. **Orphan file** — a config file whose basename does not appear in any
        code file's text.
+    4. **Unused config file** — a config file whose basename IS referenced in
+       code but none of its nested (level >= 2) keys are accessed anywhere in
+       code using a meaningful access pattern (quoted, bracket, or dotted).
+       Flags decoy config files that the app pretends to parse.
     """
     issues: list[ConfigIssue] = []
     convention_patterns = (
@@ -559,10 +563,14 @@ def check_orphans(
     # ------------------------------------------------------------------
     # config_keys: key → list of (source_name, line_no)
     config_keys: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    # nested_keys[source_name] = list of (key_title, line_no) for level >= 2
+    nested_keys: dict[str, list[tuple[str, int]]] = defaultdict(list)
     for source_name, meta in config_files.items():
         for sec in meta.sections:
             if sec.level == 1:
                 config_keys[sec.title].append((source_name, sec.line_range.start))
+            elif sec.level >= 2:
+                nested_keys[source_name].append((sec.title, sec.line_range.start))
 
     # ------------------------------------------------------------------
     # Collect referenced keys from code (via access patterns)
@@ -573,6 +581,22 @@ def check_orphans(
     all_code_text: list[str] = []
     for meta in code_files.values():
         all_code_text.extend(meta.lines)
+
+    def _accessed_in_code(key: str) -> bool:
+        """Return True if *key* appears in code via quoted, bracket, attr, or
+        mapping access — not just any substring. Avoids false negatives where
+        a generic word (e.g. 'app', 'features') happens to appear in paths or
+        identifiers unrelated to the config key."""
+        if len(key) < 2:
+            return False
+        escaped = re.escape(key)
+        pattern = re.compile(
+            rf'(?:["\']){escaped}(?:["\'])'  # "key" or 'key'
+            rf'|\[{escaped}\]'  # [key] bracket access
+            rf'|\.{escaped}\b'  # .key attr access
+            rf'|\b{escaped}\s*[:=]'  # key: value / key = value
+        )
+        return any(pattern.search(line) for line in all_code_text)
 
     # ------------------------------------------------------------------
     # Check 1 — Orphan keys (config keys not used in code)
@@ -655,6 +679,49 @@ def check_orphans(
                     detail=None,
                 )
             )
+
+    # ------------------------------------------------------------------
+    # Check 4 — Unused config content (decoy YAML/TOML whose nested keys
+    # are never actually accessed by any code file).
+    # ------------------------------------------------------------------
+    for source_name, keys in nested_keys.items():
+        basename = os.path.basename(source_name)
+        normalized = source_name.replace("\\", "/")
+        if (
+            basename in convention_patterns
+            or basename.startswith("tsconfig.")
+            or basename.startswith("docker-compose")
+            or basename == "package.json"
+            or normalized.startswith(".github/workflows/")
+            or "/.github/workflows/" in normalized
+        ):
+            continue
+        if not keys:
+            continue
+        accessed_any = False
+        for key_title, _ in keys:
+            if key_title in convention_key_allowlist:
+                continue
+            if _accessed_in_code(key_title):
+                accessed_any = True
+                break
+        if accessed_any:
+            continue
+        # None of the nested keys are accessed → file content is decoy
+        issues.append(
+            ConfigIssue(
+                file=source_name,
+                key="",
+                line=0,
+                severity="warning",
+                check="unused_content",
+                message=(
+                    f"Config file '{basename}' declares {len(keys)} nested keys "
+                    f"but none of them are read by any code file"
+                ),
+                detail=None,
+            )
+        )
 
     return issues
 
