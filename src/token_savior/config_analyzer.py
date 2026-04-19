@@ -681,9 +681,18 @@ def check_orphans(
             )
 
     # ------------------------------------------------------------------
-    # Check 4 — Unused config content (decoy YAML/TOML whose nested keys
-    # are never actually accessed by any code file).
+    # Check 4 — Unused config content (decoy YAML/TOML that no loader code
+    # actually reads). Cheap but strong heuristic: the filename must appear
+    # inside a load/open/parse-style call in some code line. Falsely-positive
+    # "nested key accessed" (e.g. a key named "billing" matches every
+    # `.billing` attribute in the codebase) made the old key-scan useless,
+    # so we now gate on loader calls only.
     # ------------------------------------------------------------------
+    _loader_pattern = re.compile(
+        r'(?:open|read|load|loads|parse|parses|yaml\.\w+|toml\.\w+|json\.load\w*|'
+        r'configparser\.|readfilesync|readfile|fs\.read|require|import)',
+        re.IGNORECASE,
+    )
     for source_name, keys in nested_keys.items():
         basename = os.path.basename(source_name)
         normalized = source_name.replace("\\", "/")
@@ -694,20 +703,34 @@ def check_orphans(
             or basename == "package.json"
             or normalized.startswith(".github/workflows/")
             or "/.github/workflows/" in normalized
+            # Infra manifests applied by kubectl/helm/terraform — never loaded
+            # by app code, not decoys.
+            or "/k8s/" in normalized
+            or normalized.startswith("k8s/")
+            or "/kubernetes/" in normalized
+            or normalized.startswith("kubernetes/")
+            or "/terraform/" in normalized
+            or normalized.startswith("terraform/")
+            or "/helm/" in normalized
+            or normalized.startswith("helm/")
+            or basename.endswith((".tf", ".hcl"))
         ):
             continue
         if not keys:
             continue
-        accessed_any = False
-        for key_title, _ in keys:
-            if key_title in convention_key_allowlist:
+        # Look for a loader call that cites this filename. Accept either
+        # basename or full rel path; accept either single- or double-quoted.
+        quoted_base = (f'"{basename}"', f"'{basename}'")
+        quoted_full = (f'"{normalized}"', f"'{normalized}'")
+        loaded = False
+        for line in all_code_text:
+            if not any(q in line for q in quoted_base + quoted_full):
                 continue
-            if _accessed_in_code(key_title):
-                accessed_any = True
+            if _loader_pattern.search(line):
+                loaded = True
                 break
-        if accessed_any:
+        if loaded:
             continue
-        # None of the nested keys are accessed → file content is decoy
         issues.append(
             ConfigIssue(
                 file=source_name,
@@ -716,8 +739,8 @@ def check_orphans(
                 severity="warning",
                 check="unused_content",
                 message=(
-                    f"Config file '{basename}' declares {len(keys)} nested keys "
-                    f"but none of them are read by any code file"
+                    f"Config file '{basename}' is never loaded by any code file "
+                    f"(no open/load/parse call cites it) — likely dead config"
                 ),
                 detail=None,
             )
