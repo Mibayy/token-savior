@@ -91,6 +91,8 @@ section{position:relative;z-index:1}
 .vs-tally span{padding:3px 9px;border-radius:999px;border:1px solid var(--border)}
 .vs-tally .w{color:var(--lime);border-color:rgba(163,230,53,.3)}
 .vs-tally .l{color:var(--rose);border-color:rgba(244,63,94,.3)}
+.vs-tally .t{color:#e9b14a;border-color:rgba(233,177,74,.35);display:inline-flex;align-items:center;gap:6px}
+.vs-tally .t .vs-info{border-color:rgba(233,177,74,.5);color:#e9b14a}
 
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:56px}
 .panel{padding:36px;border:1px solid var(--border);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
@@ -299,7 +301,7 @@ footer .tag a:hover{color:var(--text)}
         <div class="vs-vs">vs</div>
         <div class="vs-score"><span class="a">56%</span><span class="sep">vs</span><span class="b">98%</span></div>
         <div class="vs-label">accuracy <span class="vs-info" data-tip="Each of 60 tasks is graded 0-2 by an LLM judge (0 = wrong, 1 = partial, 2 = correct). Accuracy = sum of points ÷ max possible (120). Plain: 67/120. Token Savior: 118/120.">i</span></div>
-        <div class="vs-tally"><span class="w">31 wins</span><span>29 ties</span><span class="l">0 losses</span></div>
+        <div class="vs-tally"><span class="w">31 wins</span><span class="t">29 ties · TS −45% tokens<span class="vs-info" data-tip="On the 29 tasks where both agents scored identically, Token Savior still uses 45% fewer active tokens (580k → 317k), is 52% faster (27min → 13min), and ingests 89% less context (877k → 95k chars). Ties aren't draws — TS wins on the efficiency axis for ~83% of them.">i</span></span><span class="l">0 losses</span></div>
       </div>
       <div class="vs-side b">
         <div class="vs-name"><i></i>agent b · token savior</div>
