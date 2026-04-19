@@ -1,271 +1,1196 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Token Savior Recall — v2.6.0</title>
-<meta name="description" content="Structural code navigation + persistent memory engine for Claude Code. 97% fewer tokens, nothing forgotten between sessions.">
+<title>tsbench — we gave Claude a map of your codebase</title>
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 60 tasks. 29 wins, 29 ties, 2 losses.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/":"https://unpkg.com/three@0.160.0/"}}</script>
 <style>
-  :root {
-    --fg: #0f172a; --mut: #475569; --sub: #64748b; --bg: #ffffff;
-    --card: #f8fafc; --border: #e2e8f0; --accent: #2563eb; --ok: #059669;
-    --code: #f1f5f9; --warn: #b45309;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --fg: #e2e8f0; --mut: #94a3b8; --sub: #64748b; --bg: #0b1220;
-      --card: #111a2e; --border: #1e293b; --accent: #60a5fa; --ok: #34d399;
-      --code: #0f172a; --warn: #f59e0b;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0; background: var(--bg); color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-      "Helvetica Neue", Arial, sans-serif;
-    line-height: 1.6; font-size: 16px;
-  }
-  main { max-width: 900px; margin: 0 auto; padding: 48px 24px 96px; }
-  header { text-align: center; margin-bottom: 48px; }
-  h1 { font-size: 42px; margin: 0 0 8px; letter-spacing: -0.02em; }
-  h2 { font-size: 26px; margin: 56px 0 16px; letter-spacing: -0.01em;
-       border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-  h3 { font-size: 18px; margin: 32px 0 12px; }
-  p { color: var(--mut); }
-  .tag { color: var(--sub); font-size: 15px; margin: 0 0 20px; }
-  .badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
-            margin: 16px 0 0; }
-  .badge {
-    display: inline-block; padding: 4px 10px; border-radius: 4px;
-    font-size: 12px; font-weight: 600; background: var(--card);
-    color: var(--fg); border: 1px solid var(--border);
-  }
-  .badge.v { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
-  .badge.t { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
-  .badge.s { background: #cffafe; color: #0e7490; border-color: #a5f3fc; }
-  .badge.m { background: #fae8ff; color: #86198f; border-color: #f5d0fe; }
-  @media (prefers-color-scheme: dark) {
-    .badge.v { background: #1e3a8a33; color: #93c5fd; border-color: #1e3a8a; }
-    .badge.t { background: #05402333; color: #86efac; border-color: #166534; }
-    .badge.s { background: #0e749033; color: #67e8f9; border-color: #0e7490; }
-    .badge.m { background: #86198f33; color: #f0abfc; border-color: #86198f; }
-  }
-  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
-  th, td { border-bottom: 1px solid var(--border); padding: 10px 12px;
-           text-align: left; vertical-align: top; }
-  th { font-weight: 600; color: var(--fg); background: var(--card); }
-  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-  td.c, th.c { text-align: center; }
-  code { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
-         font-size: 13px; background: var(--code); padding: 2px 6px;
-         border-radius: 3px; color: var(--fg); }
-  pre { background: var(--code); padding: 14px 16px; border-radius: 6px;
-        overflow-x: auto; font-size: 13px; border: 1px solid var(--border); }
-  pre code { background: transparent; padding: 0; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .yes { color: var(--ok); font-weight: 600; }
-  .no  { color: var(--sub); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          gap: 12px; margin: 16px 0; }
-  .card { background: var(--card); border: 1px solid var(--border);
-          border-radius: 6px; padding: 14px 16px; }
-  .card h3 { margin: 0 0 6px; font-size: 15px; }
-  .card p { margin: 0; color: var(--sub); font-size: 14px; }
-  footer { text-align: center; margin-top: 80px; padding-top: 24px;
-           border-top: 1px solid var(--border); color: var(--sub); font-size: 14px; }
+:root{
+  --bg:#07070a;--bg2:#0d0d14;--bg3:#11111a;
+  --text:#f5f5f7;--text2:#a0a0ae;--text3:#60606e;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.14);
+  --purple:#8b5cf6;--purple2:#a78bfa;
+  --cyan:#22d3ee;--lime:#a3e635;--pink:#ec4899;--amber:#fbbf24;--rose:#f43f5e;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(1000px 600px at 10% -5%, rgba(139,92,246,.14), transparent 60%),
+    radial-gradient(900px 600px at 90% 20%, rgba(34,211,238,.09), transparent 60%),
+    radial-gradient(800px 600px at 50% 100%, rgba(236,72,153,.06), transparent 60%)}
+a{color:inherit;text-decoration:none}
+
+/* ═══ NAV ═══ */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:18px 40px;display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(180deg,rgba(7,7,10,.88),rgba(7,7,10,.55) 70%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Geist Mono',monospace;font-size:.82rem;font-weight:500;letter-spacing:-.01em}
+.brand-dot{width:8px;height:8px;border-radius:50%;background:var(--lime);box-shadow:0 0 14px var(--lime)}
+.nav-links{display:flex;gap:28px;font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2);letter-spacing:.02em}
+.nav-links a{transition:color .2s}.nav-links a:hover{color:var(--text)}
+.nav-cta{padding:8px 16px;border:1px solid var(--border2);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.72rem;transition:all .2s}
+.nav-cta:hover{background:var(--text);color:var(--bg)}
+@media(max-width:720px){.nav-links{display:none}nav{padding:14px 22px}}
+
+/* ═══ HERO ═══ */
+.hero{padding:180px 40px 120px;position:relative;text-align:center;max-width:1180px;margin:0 auto}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:10px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--cyan);text-transform:uppercase;letter-spacing:.14em;margin-bottom:28px;padding:6px 14px;border-radius:999px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.25)}
+.hero-eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(2.8rem,6vw,5.5rem);line-height:1.02;letter-spacing:-.025em;margin-bottom:32px}
+.hero h1 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2) 50%,var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:1.18rem;color:var(--text2);line-height:1.65;max-width:640px;margin:0 auto 56px}
+.hero-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;max-width:920px;margin:0 auto;padding:32px;border:1px solid var(--border);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.005));backdrop-filter:blur(10px)}
+.hero-stat .n{font-family:'Instrument Serif',serif;font-size:clamp(2rem,3.4vw,3rem);font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:8px;background:linear-gradient(135deg,var(--text),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-stat .l{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+@media(max-width:720px){.hero-strip{grid-template-columns:repeat(2,1fr);padding:22px;gap:18px}.hero{padding:140px 20px 80px}}
+
+/* ═══ GENERIC SECTION HEAD ═══ */
+section{position:relative;z-index:1}
+.s-intro{max-width:780px;margin:0 auto 56px;text-align:center;padding:0 20px}
+.s-intro .kicker{display:inline-block;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:20px}
+.s-intro .kicker i{color:var(--cyan)}
+.s-intro h2{font-family:'Instrument Serif',serif;font-size:clamp(2.2rem,4.8vw,3.4rem);font-weight:400;letter-spacing:-.022em;line-height:1.08;margin-bottom:18px}
+.s-intro h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.s-intro p{color:var(--text2);font-size:1.05rem;line-height:1.7;max-width:620px;margin:0 auto}
+
+/* ═══ SCORECARD ═══ */
+.scorecard{padding:60px 24px 120px}
+.card-wrap{max-width:1240px;margin:0 auto}
+.vs-grid{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:40px;margin-bottom:72px}
+.vs-side{padding:36px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.vs-side.a{border-color:rgba(244,63,94,.3);background:linear-gradient(180deg,rgba(244,63,94,.05),transparent)}
+.vs-side.b{border-color:rgba(163,230,53,.3);background:linear-gradient(180deg,rgba(163,230,53,.05),transparent)}
+.vs-name{display:flex;align-items:center;gap:12px;font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:22px}
+.vs-name i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.a .vs-name i{background:var(--rose);box-shadow:0 0 10px var(--rose)}
+.b .vs-name i{background:var(--lime);box-shadow:0 0 10px var(--lime)}
+.vs-title{font-family:'Instrument Serif',serif;font-size:1.7rem;font-weight:400;letter-spacing:-.015em;line-height:1.15;margin-bottom:6px}
+.vs-tools{font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text3);margin-bottom:28px}
+.vs-rows{display:flex;flex-direction:column;gap:14px}
+.vs-row{display:flex;justify-content:space-between;align-items:baseline;padding:12px 0;border-bottom:1px solid var(--border)}
+.vs-row:last-child{border:0}
+.vs-row .k{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+.vs-row .v{font-family:'Instrument Serif',serif;font-size:1.55rem;letter-spacing:-.015em}
+.b .vs-row .v{color:var(--lime)}
+.a .vs-row .v{color:var(--text)}
+.vs-center{display:flex;flex-direction:column;align-items:center;gap:16px}
+.vs-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:3.2rem;color:var(--text3);line-height:1}
+.vs-score{display:flex;align-items:baseline;gap:14px;font-family:'Instrument Serif',serif;font-size:2.8rem;letter-spacing:-.02em}
+.vs-score .a{color:var(--text2)}.vs-score .b{color:var(--lime)}.vs-score .sep{color:var(--text3);font-size:1.8rem}
+.vs-label{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;text-align:center;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.vs-info{width:14px;height:14px;border-radius:50%;border:1px solid var(--border2);color:var(--text3);font-size:.62rem;font-family:serif;font-style:italic;display:inline-flex;align-items:center;justify-content:center;cursor:help;position:relative;text-transform:none;letter-spacing:0}
+.vs-info:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#0a0a14;border:1px solid var(--border2);border-radius:8px;padding:10px 12px;font-size:.72rem;color:var(--text);white-space:normal;width:260px;text-transform:none;letter-spacing:0;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.5);font-style:normal;font-family:system-ui;line-height:1.45;text-align:left}
+.vs-tally{display:flex;gap:14px;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);margin-top:4px}
+.vs-tally span{padding:3px 9px;border-radius:999px;border:1px solid var(--border)}
+.vs-tally .w{color:var(--lime);border-color:rgba(163,230,53,.3)}
+.vs-tally .l{color:var(--rose);border-color:rgba(244,63,94,.3)}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:56px}
+.panel{padding:36px;border:1px solid var(--border);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.panel h3{font-family:'Instrument Serif',serif;font-size:1.6rem;font-weight:400;letter-spacing:-.015em;margin-bottom:6px}
+.panel .sub{color:var(--text3);font-size:.82rem;font-family:'Geist Mono',monospace;margin-bottom:26px}
+.radar-wrap{display:flex;justify-content:center}
+.radar{width:100%;max-width:360px;height:360px}
+.bars{display:flex;flex-direction:column;gap:14px}
+.bar-row{display:grid;grid-template-columns:130px 1fr 60px;gap:14px;align-items:center}
+.bar-row .lb{font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2)}
+.bar-tr{position:relative;height:8px;border-radius:4px;background:rgba(255,255,255,.04);overflow:hidden}
+.bar-a{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(244,63,94,.5),rgba(244,63,94,.8));border-radius:4px}
+.bar-b{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(163,230,53,.6),rgba(163,230,53,.9));border-radius:4px;top:auto;bottom:-12px;height:8px}
+.bar-row{margin-bottom:14px}
+.bar-row .vv{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);text-align:right}
+
+.highlights{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.hl{padding:28px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.025),transparent);position:relative;overflow:hidden}
+.hl::before{content:'';position:absolute;inset:-1px;border-radius:18px;padding:1px;background:linear-gradient(135deg,rgba(139,92,246,.3),transparent);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.hl .n{font-family:'Instrument Serif',serif;font-size:2.4rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:10px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hl .t{font-size:.95rem;color:var(--text);margin-bottom:6px}
+.hl .d{font-size:.82rem;color:var(--text3);line-height:1.55}
+
+@media(max-width:900px){.vs-grid{grid-template-columns:1fr;gap:20px}.vs-center{flex-direction:row;justify-content:center}.grid-2{grid-template-columns:1fr}.highlights{grid-template-columns:1fr}.scorecard{padding:40px 18px 80px}}
+
+/* ═══ GRAPH ═══ */
+.graph{padding:80px 24px 140px}
+.graph-wrap{max-width:1360px;margin:0 auto;display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:stretch}
+.stage{position:relative;min-height:640px;border:1px solid var(--border);border-radius:22px;overflow:hidden;background:radial-gradient(1200px 800px at 50% 50%, rgba(139,92,246,.12), transparent 60%),#04040a}
+.stage canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+.stage-ui{position:absolute;top:18px;left:18px;display:flex;gap:8px;flex-wrap:wrap;z-index:2}
+.chip{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text2);padding:5px 11px;border-radius:999px;background:rgba(0,0,0,.55);border:1px solid var(--border2);cursor:pointer;transition:all .15s;backdrop-filter:blur(10px)}
+.chip:hover{color:var(--text);border-color:var(--purple2)}
+.chip.active{color:#04040a;background:var(--lime);border-color:var(--lime)}
+.stage-legend{position:absolute;bottom:18px;left:18px;right:18px;font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text3);z-index:2;display:flex;gap:16px;flex-wrap:wrap;align-items:center;background:rgba(4,4,10,.72);border:1px solid var(--border);border-radius:10px;padding:8px 12px;backdrop-filter:blur(10px)}
+.stage-legend b{color:var(--text2);font-weight:500}
+.stage-legend .sep{width:1px;height:12px;background:var(--border)}
+.sl-dot{display:inline-flex;align-items:center;gap:6px;color:var(--text2)}
+.sl-dot i{width:8px;height:8px;border-radius:50%;display:inline-block;box-shadow:0 0 6px currentColor}
+.sl-dot.fn i{background:#22d3ee;color:#22d3ee}
+.sl-dot.cl i{background:#a78bfa;color:#a78bfa}
+.sl-dot.me i{background:#ec4899;color:#ec4899}
+.sl-dot.co i{background:#fbbf24;color:#fbbf24}
+@media(max-width:900px){.stage-legend{font-size:.62rem;gap:10px}.stage-legend .sep{display:none}}
+.side-panel{display:flex;flex-direction:column;gap:18px}
+.sp-card{padding:24px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.sp-card h4{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;margin-bottom:14px}
+.sp-num{font-family:'Instrument Serif',serif;font-size:2.2rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:8px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sp-note{color:var(--text3);font-size:.82rem;line-height:1.55}
+.sp-legend{display:flex;flex-direction:column;gap:10px}
+.spl-row{display:grid;grid-template-columns:110px 1fr;gap:12px;font-size:.78rem;line-height:1.4;align-items:baseline}
+.spl-k{font-family:'Geist Mono',monospace;font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
+.spl-v{color:var(--text2)}
+.sp-hover{min-height:110px}
+.sp-hover .name{font-family:'Geist Mono',monospace;font-size:.88rem;color:var(--cyan);margin-bottom:6px}
+.sp-hover .kind{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);margin-bottom:12px}
+.sp-hover .meta{font-size:.82rem;color:var(--text2);line-height:1.6}
+@media(max-width:1080px){.graph-wrap{grid-template-columns:1fr}.stage{height:500px}.graph{padding:40px 18px 80px}}
+
+/* ═══ REPLAY ═══ */
+.replay{padding:80px 24px 140px}
+.replay-wrap{max-width:1320px;margin:0 auto}
+.replay-grid{display:grid;grid-template-columns:repeat(20,1fr);gap:4px;margin-bottom:48px;padding:22px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.tile{aspect-ratio:1/1;border-radius:5px;cursor:pointer;position:relative;transition:all .15s;border:1px solid transparent}
+.tile:hover{transform:scale(1.4);z-index:4;border-color:var(--text);box-shadow:0 4px 18px rgba(0,0,0,.6)}
+.tile.win{background:linear-gradient(135deg,rgba(163,230,53,.3),rgba(163,230,53,.65))}
+.tile.tie{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.4))}
+.tile.loss{background:linear-gradient(135deg,rgba(244,63,94,.3),rgba(244,63,94,.6))}
+.tile.impossible{background:linear-gradient(135deg,rgba(251,191,36,.3),rgba(251,191,36,.65))}
+.tile.active{border:2px solid var(--text);transform:scale(1.35);z-index:3;box-shadow:0 0 18px rgba(255,255,255,.35)}
+.grid-leg{display:flex;gap:22px;justify-content:center;margin-top:18px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3)}
+.grid-leg span{display:flex;align-items:center;gap:8px}
+.grid-leg i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.grid-leg .wn{background:linear-gradient(135deg,rgba(163,230,53,.3),rgba(163,230,53,.65))}
+.grid-leg .tn{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.4))}
+.grid-leg .ls{background:linear-gradient(135deg,rgba(244,63,94,.3),rgba(244,63,94,.6))}
+.grid-leg .im{background:linear-gradient(135deg,rgba(251,191,36,.3),rgba(251,191,36,.65))}
+
+.now-playing{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border:1px solid var(--border);border-radius:16px 16px 0 0;border-bottom:0;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));flex-wrap:wrap;gap:14px}
+.np-left{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.np-tid{font-family:'Geist Mono',monospace;font-size:.8rem;color:var(--text);padding:5px 11px;border-radius:7px;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3)}
+.np-desc{color:var(--text2);font-size:.95rem;max-width:620px}
+.np-play{padding:10px 22px;border:1px solid var(--border2);border-radius:999px;background:transparent;color:var(--text);font-family:'Geist Mono',monospace;font-size:.78rem;cursor:pointer;transition:all .15s}
+.np-play:hover{background:var(--text);color:var(--bg)}
+.np-play:disabled{opacity:.5;cursor:default}
+
+.stats-compare{border-left:1px solid var(--border);border-right:1px solid var(--border);background:#06060b;padding:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.sc-card{background:#0a0a12;border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;position:relative}
+.sc-head{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px}
+.sc-info{width:14px;height:14px;border-radius:50%;border:1px solid var(--border2);color:var(--text3);font-size:.62rem;font-family:serif;font-style:italic;display:inline-flex;align-items:center;justify-content:center;cursor:help;position:relative}
+.sc-info:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#0a0a14;border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font-size:.7rem;color:var(--text);white-space:normal;width:220px;text-transform:none;letter-spacing:0;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.5);font-style:normal;font-family:system-ui;line-height:1.4}
+.sc-values{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;font-family:'Geist Mono',monospace}
+.sc-col{display:flex;flex-direction:column;gap:3px}
+.sc-col.right{align-items:flex-end;text-align:right}
+.sc-lbl{font-size:.6rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+.sc-v{font-size:1rem;color:var(--text2);font-variant-numeric:tabular-nums}
+.sc-v.win{color:var(--lime);font-weight:500}
+.sc-v.lose{color:var(--text3)}
+.sc-v.eq{color:var(--text2)}
+.sc-arrow{color:var(--text3);font-size:.85rem}
+.sc-delta{font-family:'Geist Mono',monospace;font-size:.75rem;text-align:center;padding:5px 10px;border-radius:999px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.sc-delta.dn{background:rgba(132,204,22,.08);color:var(--lime);border:1px solid rgba(132,204,22,.25)}
+.sc-delta.up{background:rgba(244,63,94,.08);color:var(--rose);border:1px solid rgba(244,63,94,.25)}
+.sc-delta.eq{color:var(--text3);border:1px solid var(--border)}
+@media(max-width:900px){.stats-compare{grid-template-columns:repeat(2,1fr);padding:12px;gap:10px}.sc-v{font-size:.9rem}}
+
+.terms{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:0 0 16px 16px;overflow:hidden;min-height:560px;border-top:1px solid var(--border)}
+.term{padding:22px 24px;background:#02020a;font-family:'Geist Mono',monospace;font-size:.78rem;line-height:1.65;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.term:last-child{border-right:0;background:#020a08}
+.term-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.term-name{display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--text2)}
+.term-name i{width:8px;height:8px;border-radius:50%}
+.term.a .term-name i{background:var(--rose);box-shadow:0 0 8px var(--rose)}
+.term.b .term-name i{background:var(--lime);box-shadow:0 0 8px var(--lime)}
+.term-meta{font-size:.68rem;color:var(--text3)}
+.term-body{flex:1;overflow-y:auto;max-height:420px;scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+.term-body::-webkit-scrollbar{width:6px}
+.term-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.ln{display:block;white-space:pre-wrap;word-break:break-word;margin-bottom:4px}
+.ln .p{color:var(--cyan)}
+.ln .t{color:var(--purple2)}
+.ln .m{color:var(--text3)}
+.ln .ok{color:var(--lime)}
+.ln .bad{color:var(--rose)}
+.ln .r{color:var(--text2)}
+.ln .u{color:var(--text);font-weight:500}
+.ln.dim{color:var(--text3);font-size:.72rem}
+.term-foot{margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:.7rem;color:var(--text3)}
+.term-foot b{color:var(--text2);font-weight:500}
+.cur::after{content:'▎';color:var(--lime);animation:blink 1s step-end infinite;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+@media(max-width:900px){.replay-grid{grid-template-columns:repeat(12,1fr)}.terms{grid-template-columns:1fr;min-height:auto}.term{border-right:0;border-bottom:1px solid var(--border)}.replay{padding:40px 16px 80px}.now-playing{flex-direction:column;align-items:flex-start}}
+
+/* ═══ CTA ═══ */
+.cta{padding:100px 24px 140px;text-align:center;position:relative}
+.cta-wrap{max-width:820px;margin:0 auto;padding:64px 40px;border:1px solid var(--border);border-radius:28px;background:
+  radial-gradient(600px 300px at 50% 0%, rgba(139,92,246,.12), transparent 60%),
+  radial-gradient(600px 300px at 50% 100%, rgba(34,211,238,.08), transparent 60%),
+  linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.005))}
+.cta h2{font-family:'Instrument Serif',serif;font-size:clamp(2rem,4vw,3rem);font-weight:400;letter-spacing:-.02em;line-height:1.1;margin-bottom:20px}
+.cta h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.cta p{color:var(--text2);max-width:520px;margin:0 auto 36px;line-height:1.65}
+.cta-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btn{padding:14px 28px;border-radius:999px;font-family:'Geist Mono',monospace;font-size:.82rem;transition:all .2s;border:1px solid transparent;cursor:pointer}
+.btn-primary{background:var(--text);color:var(--bg)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 12px 24px -8px rgba(255,255,255,.25)}
+.btn-ghost{background:transparent;color:var(--text);border-color:var(--border2)}
+.btn-ghost:hover{border-color:var(--text)}
+
+footer{padding:50px 24px 40px;border-top:1px solid var(--border);text-align:center}
+footer .tag{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);letter-spacing:.05em}
+footer .tag a{color:var(--text2);transition:color .2s}
+footer .tag a:hover{color:var(--text)}
+
+.reveal{opacity:0;transform:translateY(20px);transition:all .7s ease-out}
+.reveal.in{opacity:1;transform:none}
 </style>
 </head>
 <body>
-<main>
 
-<header>
-  <h1>⚡ Token Savior Recall</h1>
-  <p class="tag">Structural code navigation + persistent memory engine for Claude Code.
-    <strong>97% fewer tokens. Nothing forgotten between sessions.</strong></p>
-  <div class="badges">
-    <span class="badge v">v2.6.0</span>
-    <span class="badge t">105 tools</span>
-    <span class="badge t">1318 / 1318 tests</span>
-    <span class="badge s">97% savings</span>
-    <span class="badge m">vector search</span>
-    <span class="badge">Python 3.11+</span>
-    <span class="badge">MCP</span>
-    <span class="badge">MIT</span>
+<nav>
+  <div class="brand"><span class="brand-dot"></span>tsbench<span style="color:var(--text3);margin-left:8px">/ Token Savior benchmark</span></div>
+  <div class="nav-links">
+    <a href="#scorecard">results</a>
+    <a href="#graph">the graph</a>
+    <a href="#replay">replay</a>
   </div>
-</header>
+  <a class="nav-cta" href="https://github.com/Mibayy/token-savior" target="_blank">github ↗</a>
+</nav>
 
-<h2>What it does</h2>
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-eyebrow"><i></i>60 tasks · Claude Sonnet 4.5 · paired runs</div>
+  <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
+  <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 60 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
+  <div class="hero-strip">
+    <div class="hero-stat"><div class="n" data-count="81">0</div><div class="l">less context ingested</div></div>
+    <div class="hero-stat"><div class="n" data-count="47">0</div><div class="l">faster wall time</div></div>
+    <div class="hero-stat"><div class="n" data-count="42" data-suffix="pp">0</div><div class="l">accuracy gained</div></div>
+    <div class="hero-stat"><div class="n">32 / 28 / 0</div><div class="l">wins · ties · losses</div></div>
+  </div>
+</section>
 
-<p>Claude Code reads whole files to answer questions about three lines, and
-forgets everything the moment a session ends. Token Savior Recall fixes both.
-It indexes your codebase by symbol — functions, classes, imports, call graph —
-so the model navigates by pointer instead of by <code>cat</code>. Measured
-reduction: <strong>97% fewer chars injected</strong> across 170+ real sessions.</p>
+<!-- ═══ SCORECARD ═══ -->
+<section class="scorecard" id="scorecard">
+  <div class="s-intro reveal">
+    <div class="kicker">the scorecard <i>·</i> what the numbers say</div>
+    <h2>Same model. Same tasks.<br><em>One of them kept winning.</em></h2>
+    <p>Two agents, one codebase, sixty prompts pulled from real engineering work — find callers, audit cycles, estimate blast radius, summarize modules. We counted tokens, wall time and correctness.</p>
+  </div>
 
-<p>On top of that sits a persistent memory engine. Every decision, bugfix,
-convention, guardrail and session rollup is stored in SQLite WAL + FTS5 +
-vector embeddings, ranked by Bayesian validity and ROI, and re-injected as a
-compact delta at the start of the next session. Contradictions are detected at
-save time; observations decay with explicit TTLs; a 3-layer
-progressive-disclosure contract keeps lookup cost bounded.</p>
+  <div class="card-wrap">
+    <div class="vs-grid reveal">
+      <div class="vs-side a">
+        <div class="vs-name"><i></i>agent a · plain</div>
+        <div class="vs-title">Read, Grep, Bash.</div>
+        <div class="vs-tools">no structural tools</div>
+        <div class="vs-rows">
+          <div class="vs-row"><span class="k">context ingested</span><span class="v">1.43M</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v">1.02M</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v">51 min</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v">56 %</span></div>
+        </div>
+      </div>
+      <div class="vs-center">
+        <div class="vs-vs">vs</div>
+        <div class="vs-score"><span class="a">56%</span><span class="sep">vs</span><span class="b">98%</span></div>
+        <div class="vs-label">accuracy <span class="vs-info" data-tip="Each of 60 tasks is graded 0-2 by an LLM judge (0 = wrong, 1 = partial, 2 = correct). Accuracy = sum of points ÷ max possible (120). Plain: 67/120. Token Savior: 118/120.">i</span></div>
+        <div class="vs-tally"><span class="w">32 wins</span><span>28 ties</span><span class="l">0 losses</span></div>
+      </div>
+      <div class="vs-side b">
+        <div class="vs-name"><i></i>agent b · token savior</div>
+        <div class="vs-title">Plus the graph.</div>
+        <div class="vs-tools">+ 38 structural MCP tools</div>
+        <div class="vs-rows">
+          <div class="vs-row"><span class="k">context ingested</span><span class="v">271k</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v">668k</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v">27 min</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v">98 %</span></div>
+        </div>
+      </div>
+    </div>
 
-<h2>Token savings</h2>
+    <div class="grid-2 reveal">
+      <div class="panel">
+        <h3>Accuracy, by category</h3>
+        <div class="sub">avg score out of 2 · red = plain · green = token savior</div>
+        <div class="radar-wrap"><canvas class="radar" id="radar" width="720" height="720"></canvas></div>
+      </div>
+      <div class="panel">
+        <h3>Where the gap opens</h3>
+        <div class="sub">context ingested per category · lower is better</div>
+        <div class="bars" id="bars"></div>
+      </div>
+    </div>
 
-<table>
-  <thead>
-    <tr><th>Operation</th><th class="n">Plain Claude</th><th class="n">Token Savior</th><th class="n">Reduction</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>find_symbol("send_message")</code></td><td class="n">41M chars</td><td class="n">67 chars</td><td class="n"><strong>−99.9%</strong></td></tr>
-    <tr><td><code>get_function_source("compile")</code></td><td class="n">grep + cat</td><td class="n">4.5K chars</td><td class="n">direct</td></tr>
-    <tr><td><code>get_change_impact("LLMClient")</code></td><td class="n">impossible</td><td class="n">16K chars (154 + 492)</td><td class="n">new</td></tr>
-    <tr><td><code>get_backward_slice(var, line)</code></td><td class="n">130 lines</td><td class="n">12 lines</td><td class="n"><strong>−92%</strong></td></tr>
-    <tr><td><code>memory_index</code> (Layer 1)</td><td class="n">n/a</td><td class="n">~15 tok/result</td><td class="n">shortlist</td></tr>
-    <tr><td>60-task tsbench run</td><td class="n">1,431,624 chars</td><td class="n">234,805 chars</td><td class="n"><strong>−84%</strong></td></tr>
-    <tr><td>tsbench score</td><td class="n">67/120 (56%)</td><td class="n"><strong>115/120 (96%)</strong></td><td class="n"><strong>+40 pts</strong></td></tr>
-  </tbody>
-</table>
+    <div class="highlights reveal">
+      <div class="hl"><div class="n">−99 %</div><div class="t">Import cycle detection</div><div class="d">Plain agent ran 35 Bash, 20 Read calls, 113k chars, 132s. Token Savior: two MCP calls, 200 chars, 17s. Same correct answer.</div></div>
+      <div class="hl"><div class="n">0 → 2</div><div class="t">File dependency recovery</div><div class="d">Baseline read the whole file and missed three imports. One <code style="font-family:inherit;color:var(--cyan)">get_file_dependencies()</code> call got a perfect 2/2.</div></div>
+      <div class="hl"><div class="n">21</div><div class="t">Impossible without</div><div class="d">Tasks the plain agent scored 0 on but Token Savior solved — community detection, hotspot audits, semantic duplicates. Amber tiles below.</div></div>
+    </div>
+  </div>
+</section>
 
-<p>Full methodology and per-task results at
-<a href="https://github.com/Mibayy/tsbench">github.com/Mibayy/tsbench</a>.</p>
+<!-- ═══ GRAPH ═══ -->
+<section class="graph" id="graph">
+  <div class="s-intro reveal">
+    <div class="kicker">the graph <i>·</i> what Token Savior sees</div>
+    <h2>A codebase isn't a folder.<br><em>It's a graph.</em></h2>
+    <p>What you see below is the <code style="font-family:'Geist Mono',monospace;color:var(--cyan)">tsbench</code> fixture parsed into its call graph: <b style="color:var(--text)">206 symbols</b> (functions, classes, methods, constants), <b style="color:var(--text)">412 call edges</b> connecting them, clustered by module. The plain agent walks this one <code style="font-family:'Geist Mono',monospace;color:var(--cyan)">grep</code> at a time; Token Savior queries it directly. Drag to orbit, hover a point for details.</p>
+  </div>
 
-<h2>Memory engine</h2>
+  <div class="graph-wrap">
+    <div class="stage" id="stage">
+      <div class="stage-ui">
+        <button class="chip active" data-view="all">all symbols</button>
+        <button class="chip" data-view="functions">functions</button>
+        <button class="chip" data-view="classes">classes</button>
+        <button class="chip" data-view="hot">hotspots</button>
+      </div>
+      <div class="stage-legend">
+        <span class="sl-dot fn"><i></i>function</span>
+        <span class="sl-dot cl"><i></i>class</span>
+        <span class="sl-dot me"><i></i>method</span>
+        <span class="sl-dot co"><i></i>const</span>
+        <span class="sep"></span>
+        <span><b>206</b> symbols</span>
+        <span><b>412</b> call edges</span>
+        <span class="sep"></span>
+        <span>drag · scroll · hover</span>
+      </div>
+    </div>
+    <aside class="side-panel">
+      <div class="sp-card"><h4>what you're looking at</h4><div class="sp-legend">
+        <div class="spl-row"><span class="spl-k">each point</span><span class="spl-v">a symbol in the code</span></div>
+        <div class="spl-row"><span class="spl-k">color</span><span class="spl-v">symbol kind (see legend below stage)</span></div>
+        <div class="spl-row"><span class="spl-k">clusters in space</span><span class="spl-v">symbols in the same module</span></div>
+        <div class="spl-row"><span class="spl-k">lines</span><span class="spl-v">who calls / imports what</span></div>
+        <div class="spl-row"><span class="spl-k">dot size</span><span class="spl-v">class &gt; function &gt; method &gt; const</span></div>
+      </div></div>
+      <div class="sp-card"><h4>hovering</h4><div class="sp-hover" id="hover"><div class="name">—</div><div class="kind">hover a node to inspect</div><div class="meta">name, kind, callers, dependents.</div></div></div>
+      <div class="sp-card"><h4>indexed in</h4><div class="sp-num">0.8s</div><div class="sp-note">Full reindex of the tsbench fixture (~2k lines of Python + TypeScript). Incremental edits reindex in milliseconds.</div></div>
+      <div class="sp-card"><h4>one query replaces</h4><div class="sp-num">35 Bash</div><div class="sp-note"><code style="font-family:inherit;color:var(--cyan)">find_import_cycles()</code> vs a grep-and-read loop — on TASK-026 this saved 132 seconds.</div></div>
+    </aside>
+  </div>
+</section>
 
-<table>
-  <thead><tr><th>Capability</th><th>How it works</th></tr></thead>
-  <tbody>
-    <tr><td><strong>Storage</strong></td><td>SQLite WAL + FTS5 + <code>sqlite-vec</code> (optional), 12 observation types</td></tr>
-    <tr><td><strong>Hybrid search</strong></td><td>BM25 + vector (<code>all-MiniLM-L6-v2</code>, 384d) fused via RRF, FTS fallback graceful</td></tr>
-    <tr><td><strong>Progressive disclosure</strong></td><td>3-layer contract: <code>memory_index</code> → <code>memory_search</code> → <code>memory_get</code></td></tr>
-    <tr><td><strong>Citation URIs</strong></td><td><code>ts://obs/{id}</code> — reusable across layers, agent-native pointers</td></tr>
-    <tr><td><strong>Bayesian validity</strong></td><td>Each obs carries a validity prior + update rule; stale obs are surfaced, not silently trusted</td></tr>
-    <tr><td><strong>Contradiction detection</strong></td><td>Triggered at save time against existing index; flagged in hook output</td></tr>
-    <tr><td><strong>Decay + TTL</strong></td><td>Per-type TTL (command 60d, research 90d, note 60d) + LRU scoring <code>0.4·recency + 0.3·access + 0.3·type</code></td></tr>
-    <tr><td><strong>Symbol staleness</strong></td><td>Obs linked to symbols are invalidated when the symbol's content hash changes</td></tr>
-    <tr><td><strong>ROI tracking</strong></td><td>Access count × context weight — unused obs age out, high-ROI obs are promoted</td></tr>
-    <tr><td><strong>MDL distillation</strong></td><td>Minimum Description Length grouping compresses redundant observations into conventions</td></tr>
-    <tr><td><strong>Auto-promotion</strong></td><td>note ×5 accesses → convention; warning ×5 → guardrail</td></tr>
-    <tr><td><strong>Hooks</strong></td><td>8 Claude Code lifecycle hooks (SessionStart/Stop/End, PreCompact, PreToolUse ×2, UserPromptSubmit, PostToolUse)</td></tr>
-    <tr><td><strong>Web viewer</strong></td><td><code>127.0.0.1:$TS_VIEWER_PORT</code> — htmx + SSE, opt-in</td></tr>
-    <tr><td><strong>LLM auto-extraction</strong></td><td>Opt-in <code>TS_AUTO_EXTRACT=1</code> — PostToolUse tool uses extracted into 0-3 observations</td></tr>
-  </tbody>
-</table>
+<!-- ═══ REPLAY ═══ -->
+<section class="replay" id="replay">
+  <div class="s-intro reveal">
+    <div class="kicker">the replay <i>·</i> watch a task resolve</div>
+    <h2>Don't take our word for it.<br><em>Watch both agents work.</em></h2>
+    <p>Every tile is a real task from the benchmark, colored by outcome. Click one and we'll replay both agents' actual traces side by side — real tools, real timings, real answers.</p>
+  </div>
 
-<h2>vs claude-mem</h2>
+  <div class="replay-wrap">
+    <div class="replay-grid" id="grid"></div>
+    <div class="grid-leg">
+      <span><i class="wn"></i>Token Savior wins (13)</span>
+      <span><i class="im"></i>impossible without TS (19)</span>
+      <span><i class="tn"></i>tie (28)</span>
+      <span><i class="ls"></i>losses (0)</span>
+    </div>
 
-<p>Two projects share the goal — persistent memory for Claude Code. The axes
-below are measured, not marketing.</p>
+    <div class="now-playing" style="margin-top:36px">
+      <div class="np-left">
+        <span class="np-tid" id="npid">TASK-026</span>
+        <span class="np-desc" id="npdesc">Detect import cycles in the project. Any circular dependencies? If yes, list them.</span>
+      </div>
+      <button class="np-play" id="play">▶ replay</button>
+    </div>
 
-<table>
-  <thead>
-    <tr><th>Axis</th><th class="c">claude-mem</th><th class="c">Token Savior Recall</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>Bayesian validity</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>Contradiction detection at save</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>Per-type decay + TTL</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>Symbol staleness (content-hash linked obs)</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>ROI tracking + auto-promotion</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>MDL distillation into conventions</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-    <tr><td>Code graph / AST navigation</td><td class="c no">no</td><td class="c yes">yes (105 tools)</td></tr>
-    <tr><td>Progressive disclosure contract</td><td class="c no">no</td><td class="c yes">yes (3 layers)</td></tr>
-    <tr><td>Hybrid FTS + vector search (RRF)</td><td class="c no">no</td><td class="c yes">yes</td></tr>
-  </tbody>
-</table>
+    <div class="stats-compare" id="statsCompare">
+      <div class="sc-card">
+        <div class="sc-head">wall time <span class="sc-info" data-tip="Total wall-clock time from task start until the agent returns a final answer. Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="wallA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="wallB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaWall">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">active tokens <span class="sc-info" data-tip="Total tokens processed by the model across all turns (input + output). Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="tokA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="tokB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaTok">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">context chars <span class="sc-info" data-tip="Characters injected into the model context from tool results (file reads, greps, etc). Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="chA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="chB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaCh">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">score <span class="sc-info" data-tip="Correctness score out of 2, graded by an LLM judge comparing the answer to the expected result. Higher is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="scA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="scB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaSc">—</div>
+      </div>
+    </div>
 
-<p>Token Savior Recall is a superset: it ships the memory engine <em>plus</em>
-the structural codebase server that gave the project its name.</p>
+    <div class="terms">
+      <div class="term a">
+        <div class="term-head">
+          <div class="term-name"><i></i>agent a · plain</div>
+          <div class="term-meta" id="metaA">Read · Grep · Bash</div>
+        </div>
+        <div class="term-body" id="termA"></div>
+      </div>
+      <div class="term b">
+        <div class="term-head">
+          <div class="term-name"><i></i>agent b · token savior</div>
+          <div class="term-meta">+ structural MCP</div>
+        </div>
+        <div class="term-body" id="termB"></div>
+      </div>
+    </div>
+  </div>
+</section>
 
-<h2>Install</h2>
-
-<h3>uvx (no venv, no clone)</h3>
-<pre><code>uvx token-savior-recall</code></pre>
-
-<h3>pip</h3>
-<pre><code>pip install "token-savior-recall[mcp]"
-# Optional hybrid vector search:
-pip install "token-savior-recall[mcp,memory-vector]"</code></pre>
-
-<h3>Claude Code one-liner</h3>
-<pre><code>claude mcp add token-savior -- /path/to/venv/bin/token-savior</code></pre>
-
-<h3>Configure</h3>
-<pre><code>{
-  "mcpServers": {
-    "token-savior-recall": {
-      "command": "/path/to/venv/bin/token-savior",
-      "env": {
-        "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2",
-        "TOKEN_SAVIOR_CLIENT": "claude-code"
-      }
-    }
-  }
-}</code></pre>
-
-<h2>Tools (105)</h2>
-
-<table>
-  <thead><tr><th>Category</th><th class="n">Count</th></tr></thead>
-  <tbody>
-    <tr><td>Core navigation</td><td class="n">14</td></tr>
-    <tr><td>Dependencies &amp; graph</td><td class="n">9</td></tr>
-    <tr><td>Git &amp; diffs</td><td class="n">5</td></tr>
-    <tr><td>Safe editing</td><td class="n">8</td></tr>
-    <tr><td>Checkpoints</td><td class="n">6</td></tr>
-    <tr><td>Test &amp; run</td><td class="n">6</td></tr>
-    <tr><td>Config &amp; quality</td><td class="n">8</td></tr>
-    <tr><td>Docker &amp; multi-project</td><td class="n">2</td></tr>
-    <tr><td>Advanced context (slicing, packing, RWR, prefetch, verify)</td><td class="n">6</td></tr>
-    <tr><td><strong>Memory engine</strong></td><td class="n"><strong>21</strong></td></tr>
-    <tr><td>Reasoning (plan/decision traces)</td><td class="n">3</td></tr>
-    <tr><td>Stats, budget, health</td><td class="n">10</td></tr>
-    <tr><td>Project management</td><td class="n">7</td></tr>
-  </tbody>
-</table>
-
-<h2>Progressive disclosure — memory search</h2>
-
-<p>Three layers, increasing cost. Always start at Layer 1. Escalate only if the
-previous layer paid off. Full contract:
-<a href="progressive-disclosure.md">progressive-disclosure.md</a>.</p>
-
-<table>
-  <thead>
-    <tr><th>Layer</th><th>Tool</th><th class="n">Tokens/result</th><th>When</th></tr>
-  </thead>
-  <tbody>
-    <tr><td class="c">1</td><td><code>memory_index</code></td><td class="n">~15</td><td>Always first</td></tr>
-    <tr><td class="c">2</td><td><code>memory_search</code></td><td class="n">~60</td><td>If Layer 1 matched</td></tr>
-    <tr><td class="c">3</td><td><code>memory_get</code></td><td class="n">~200</td><td>If Layer 2 confirmed</td></tr>
-  </tbody>
-</table>
-
-<p>Each Layer 1 row ends with <code>[ts://obs/{id}]</code> — pass it straight to
-Layer 3.</p>
-
-<h2>Links</h2>
-
-<div class="grid">
-  <a class="card" href="https://github.com/Mibayy/token-savior">
-    <h3>Repository</h3><p>github.com/Mibayy/token-savior</p></a>
-  <a class="card" href="https://pypi.org/project/token-savior-recall/">
-    <h3>PyPI</h3><p>token-savior-recall</p></a>
-  <a class="card" href="https://github.com/Mibayy/tsbench">
-    <h3>Benchmark</h3><p>60-task measured suite</p></a>
-  <a class="card" href="CHANGELOG.md">
-    <h3>Changelog</h3><p>v2.6.0 — Memory Engine Phase 1+2</p></a>
-  <a class="card" href="progressive-disclosure.md">
-    <h3>Progressive disclosure</h3><p>3-layer contract spec</p></a>
-  <a class="card" href="https://modelcontextprotocol.io">
-    <h3>MCP</h3><p>Model Context Protocol</p></a>
-</div>
+<!-- ═══ CTA ═══ -->
+<section class="cta">
+  <div class="cta-wrap">
+    <h2>Stop guessing.<br><em>Give your agent the map.</em></h2>
+    <p>Token Savior is an open MCP server. Point it at your repo, wire it into Claude Code, ship a better agent this afternoon.</p>
+    <div class="cta-buttons">
+      <a class="btn btn-primary" href="https://github.com/Mibayy/token-savior" target="_blank">get token savior ↗</a>
+      <a class="btn btn-ghost" href="#replay">replay the benchmark</a>
+    </div>
+  </div>
+</section>
 
 <footer>
-  MIT · Works with any MCP-compatible AI coding tool.<br>
-  Claude Code · Cursor · Windsurf · Cline · Continue
+  <div class="tag">tsbench · 60 paired tasks · Claude Sonnet 4.5 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · April 2026</div>
 </footer>
 
-</main>
+<!-- ═══ DATA ═══ -->
+<script id="taskdata" type="application/json">[{"id":1,"slug":"find-function","cat":"localisation","wa":9.4,"wb":18.3,"ta":9080,"tb":6567,"ca":1761,"cb":121,"sa":2,"sb":2},{"id":2,"slug":"find-callers","cat":"localisation","wa":11.4,"wb":30.5,"ta":17679,"tb":9541,"ca":1737,"cb":5297,"sa":2,"sb":2},{"id":3,"slug":"find-env-usage","cat":"localisation","wa":13.7,"wb":15.0,"ta":17037,"tb":7887,"ca":280,"cb":2164,"sa":1,"sb":2},{"id":4,"slug":"find-route","cat":"localisation","wa":13.2,"wb":17.3,"ta":9427,"tb":9100,"ca":558,"cb":5097,"sa":1,"sb":2},{"id":5,"slug":"find-schema-field","cat":"localisation","wa":28.1,"wb":16.7,"ta":9331,"tb":6721,"ca":720,"cb":510,"sa":1,"sb":2},{"id":6,"slug":"find-component-usage","cat":"localisation","wa":13.3,"wb":19.6,"ta":21869,"tb":7539,"ca":986,"cb":617,"sa":0,"sb":2},{"id":7,"slug":"callers-exhaustive-1","cat":"d\u00e9pendants","wa":10.9,"wb":15.5,"ta":9136,"tb":6611,"ca":1761,"cb":158,"sa":2,"sb":2},{"id":8,"slug":"callers-exhaustive-3","cat":"d\u00e9pendants","wa":8.9,"wb":25.1,"ta":18033,"tb":7487,"ca":3227,"cb":590,"sa":2,"sb":2},{"id":9,"slug":"callers-exhaustive-8","cat":"d\u00e9pendants","wa":11.2,"wb":19.1,"ta":44160,"tb":7360,"ca":5231,"cb":769,"sa":2,"sb":2},{"id":10,"slug":"callers-exhaustive-20","cat":"d\u00e9pendants","wa":13.6,"wb":22.6,"ta":22492,"tb":8575,"ca":12668,"cb":1798,"sa":2,"sb":2},{"id":11,"slug":"chain-alpha","cat":"call_chain","wa":13.8,"wb":21.5,"ta":9220,"tb":7540,"ca":1364,"cb":333,"sa":1,"sb":2},{"id":12,"slug":"chain-beta","cat":"call_chain","wa":13.6,"wb":29.4,"ta":21860,"tb":7666,"ca":1327,"cb":381,"sa":1,"sb":2},{"id":13,"slug":"chain-gamma","cat":"call_chain","wa":12.8,"wb":26.3,"ta":9192,"tb":7700,"ca":1364,"cb":771,"sa":1,"sb":2},{"id":14,"slug":"breaking-signature","cat":"impact","wa":21.6,"wb":19.1,"ta":27232,"tb":7934,"ca":12668,"cb":1294,"sa":2,"sb":2},{"id":15,"slug":"file-impact","cat":"impact","wa":116.3,"wb":24.8,"ta":0,"tb":8192,"ca":0,"cb":1836,"sa":0,"sb":2},{"id":16,"slug":"test-impact","cat":"impact","wa":14.8,"wb":15.0,"ta":32995,"tb":6743,"ca":461,"cb":251,"sa":0,"sb":2},{"id":17,"slug":"rename-symbol","cat":"edit","wa":21.5,"wb":34.3,"ta":34446,"tb":9775,"ca":1958,"cb":2686,"sa":2,"sb":2},{"id":18,"slug":"add-field","cat":"edit","wa":78.2,"wb":28.8,"ta":10227,"tb":9164,"ca":2272,"cb":978,"sa":1,"sb":2},{"id":19,"slug":"extract-constant","cat":"edit","wa":98.4,"wb":176.8,"ta":22706,"tb":36220,"ca":18494,"cb":22275,"sa":2,"sb":2},{"id":20,"slug":"move-module","cat":"edit","wa":93.0,"wb":38.6,"ta":12059,"tb":13107,"ca":3711,"cb":4624,"sa":1,"sb":2},{"id":21,"slug":"diff-summary","cat":"review","wa":139.2,"wb":18.0,"ta":12707,"tb":11096,"ca":8426,"cb":9308,"sa":0,"sb":2},{"id":22,"slug":"pr-risk","cat":"review","wa":96.9,"wb":22.2,"ta":12347,"tb":11358,"ca":6295,"cb":9308,"sa":0,"sb":1},{"id":23,"slug":"breaking-detection","cat":"review","wa":46.9,"wb":29.4,"ta":10140,"tb":11185,"ca":43584,"cb":9308,"sa":2,"sb":2},{"id":24,"slug":"dead-code-audit","cat":"audit","wa":61.9,"wb":19.8,"ta":34165,"tb":8817,"ca":39664,"cb":3350,"sa":0,"sb":2},{"id":25,"slug":"hotspot-audit","cat":"audit","wa":116.1,"wb":19.1,"ta":9957,"tb":7490,"ca":112703,"cb":1660,"sa":0,"sb":2},{"id":26,"slug":"cycle-detection","cat":"audit","wa":132.4,"wb":15.4,"ta":33632,"tb":6646,"ca":113280,"cb":200,"sa":2,"sb":2},{"id":27,"slug":"orphan-env","cat":"config","wa":37.1,"wb":36.4,"ta":10563,"tb":19025,"ca":937,"cb":23116,"sa":0,"sb":2},{"id":28,"slug":"undecl-env","cat":"config","wa":20.3,"wb":20.4,"ta":10051,"tb":9828,"ca":2685,"cb":5882,"sa":0,"sb":2},{"id":29,"slug":"secret-detection","cat":"config","wa":18.8,"wb":17.3,"ta":9854,"tb":7376,"ca":1563,"cb":1422,"sa":0,"sb":2},{"id":30,"slug":"dockerfile-audit","cat":"infra","wa":88.8,"wb":55.1,"ta":18191,"tb":18495,"ca":840,"cb":25573,"sa":0,"sb":2},{"id":31,"slug":"infra-consistency","cat":"infra","wa":25.2,"wb":44.5,"ta":10634,"tb":19964,"ca":2066,"cb":21040,"sa":0,"sb":2},{"id":32,"slug":"test-selection-unit","cat":"testing","wa":19.9,"wb":16.4,"ta":9213,"tb":6636,"ca":341,"cb":251,"sa":0,"sb":2},{"id":33,"slug":"test-selection-change","cat":"testing","wa":22.7,"wb":18.9,"ta":10632,"tb":6976,"ca":1023,"cb":249,"sa":0,"sb":2},{"id":34,"slug":"bug-pagination","cat":"debug","wa":16.9,"wb":17.7,"ta":9644,"tb":12119,"ca":1754,"cb":12373,"sa":1,"sb":2},{"id":35,"slug":"bug-auth","cat":"debug","wa":24.4,"wb":20.3,"ta":22599,"tb":10536,"ca":25359,"cb":4210,"sa":2,"sb":2},{"id":36,"slug":"dup-detection","cat":"debug","wa":99.5,"wb":29.3,"ta":11367,"tb":13400,"ca":101205,"cb":11566,"sa":0,"sb":2},{"id":37,"slug":"project-overview","cat":"onboarding","wa":59.1,"wb":41.4,"ta":9995,"tb":12887,"ca":26813,"cb":9264,"sa":0,"sb":1},{"id":38,"slug":"module-overview","cat":"onboarding","wa":28.1,"wb":20.3,"ta":19527,"tb":13950,"ca":20530,"cb":2307,"sa":0,"sb":2},{"id":39,"slug":"ts-py-type-mapping","cat":"cross-language","wa":12.2,"wb":19.4,"ta":8950,"tb":7841,"ca":508,"cb":2081,"sa":0,"sb":2},{"id":40,"slug":"config-consistency","cat":"cross-language","wa":41.6,"wb":21.7,"ta":11222,"tb":8218,"ca":1450,"cb":3066,"sa":0,"sb":2},{"id":41,"slug":"explain-billing-module","cat":"heavy_read","wa":26.0,"wb":16.5,"ta":33525,"tb":7176,"ca":23633,"cb":669,"sa":2,"sb":2},{"id":42,"slug":"list-auth-public-functions","cat":"heavy_read","wa":24.0,"wb":19.1,"ta":18667,"tb":8198,"ca":18895,"cb":1904,"sa":2,"sb":2},{"id":43,"slug":"multi-param-functions","cat":"heavy_read","wa":159.2,"wb":59.0,"ta":19531,"tb":21863,"ca":196882,"cb":16264,"sa":1,"sb":2},{"id":44,"slug":"dispatch-webhook-chain","cat":"heavy_read","wa":55.7,"wb":39.4,"ta":23485,"tb":11095,"ca":30789,"cb":6348,"sa":2,"sb":2},{"id":45,"slug":"auth-importers","cat":"heavy_read","wa":17.3,"wb":14.1,"ta":8497,"tb":12625,"ca":14,"cb":109,"sa":0,"sb":2},{"id":46,"slug":"billing-hotspots","cat":"heavy_read","wa":28.7,"wb":36.6,"ta":20525,"tb":13194,"ca":20258,"cb":6410,"sa":2,"sb":2},{"id":47,"slug":"file-deps-graph","cat":"navigation","wa":13.0,"wb":19.1,"ta":42109,"tb":6664,"ca":18895,"cb":180,"sa":0,"sb":2},{"id":48,"slug":"file-dependents-reverse","cat":"navigation","wa":12.4,"wb":17.9,"ta":9026,"tb":7029,"ca":398,"cb":457,"sa":2,"sb":2},{"id":49,"slug":"call-chain-deep","cat":"call_chain","wa":14.6,"wb":14.4,"ta":9402,"tb":6984,"ca":735,"cb":301,"sa":2,"sb":2},{"id":50,"slug":"backward-slice","cat":"navigation","wa":21.6,"wb":24.4,"ta":9713,"tb":7575,"ca":1109,"cb":978,"sa":1,"sb":2},{"id":51,"slug":"entry-points","cat":"navigation","wa":90.1,"wb":18.9,"ta":34877,"tb":8482,"ca":48374,"cb":3360,"sa":2,"sb":2},{"id":52,"slug":"community-detection","cat":"audit","wa":133.9,"wb":47.1,"ta":17142,"tb":11492,"ca":190723,"cb":2547,"sa":2,"sb":2},{"id":53,"slug":"semantic-duplicates","cat":"audit","wa":94.5,"wb":29.0,"ta":10539,"tb":13399,"ca":77398,"cb":11454,"sa":2,"sb":2},{"id":54,"slug":"fix-buggy-paginate","cat":"edit","wa":96.5,"wb":35.3,"ta":10769,"tb":68075,"ca":1027,"cb":1349,"sa":2,"sb":2},{"id":55,"slug":"insert-near-symbol","cat":"edit","wa":81.0,"wb":15.9,"ta":19564,"tb":6882,"ca":20617,"cb":244,"sa":2,"sb":2},{"id":56,"slug":"checkpoint-restore","cat":"edit","wa":143.7,"wb":35.6,"ta":19813,"tb":10513,"ca":20540,"cb":2066,"sa":2,"sb":2},{"id":57,"slug":"impacted-tests","cat":"testing","wa":42.7,"wb":14.9,"ta":35534,"tb":6823,"ca":3487,"cb":239,"sa":2,"sb":2},{"id":58,"slug":"performance-hotspots","cat":"audit","wa":122.8,"wb":18.7,"ta":10397,"tb":7974,"ca":162108,"cb":2358,"sa":2,"sb":2},{"id":59,"slug":"git-status","cat":"git","wa":73.0,"wb":15.2,"ta":9162,"tb":6866,"ca":1058,"cb":467,"sa":2,"sb":2},{"id":60,"slug":"changed-symbols-since-ref","cat":"git","wa":85.6,"wb":26.0,"ta":14378,"tb":9382,"ca":11110,"cb":4931,"sa":2,"sb":2}]</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+/* ═══ HERO COUNT-UP ═══ */
+document.querySelectorAll('.hero-stat .n[data-count]').forEach(el=>{
+  const target = +el.dataset.count; const suf = el.dataset.suffix || '%';
+  let start = null, dur = 1400;
+  const step = t => { if(!start) start = t; const p = Math.min(1,(t-start)/dur); el.textContent = Math.round(target*(1-Math.pow(1-p,3))) + suf; if(p<1) requestAnimationFrame(step); };
+  const io = new IntersectionObserver(e=>{ if(e[0].isIntersecting){ requestAnimationFrame(step); io.disconnect(); }},{threshold:.3});
+  io.observe(el);
+});
+
+/* ═══ REVEAL ═══ */
+const ro = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting) e.target.classList.add('in'); }),{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>ro.observe(el));
+
+/* ═══ RADAR CHART ═══ */
+(function(){
+  const cats = [
+    {k:'localisation',a:1.17,b:2.00},{k:'dependents',a:2.00,b:2.00},{k:'call_chain',a:1.25,b:2.00},
+    {k:'impact',a:0.67,b:1.67},{k:'edit',a:1.71,b:2.00},{k:'review',a:0.67,b:0.67},
+    {k:'audit',a:1.33,b:1.67},{k:'config',a:0.00,b:1.33},{k:'infra',a:0.00,b:0.00},
+    {k:'testing',a:0.67,b:1.67},{k:'debug',a:1.00,b:2.00},{k:'onboarding',a:0.00,b:1.00},
+    {k:'cross-lang',a:0.00,b:0.50},{k:'heavy_read',a:1.50,b:1.83},{k:'navigation',a:1.25,b:2.00},{k:'git',a:2.00,b:1.50},
+  ];
+  const c = document.getElementById('radar'); const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio||1; const size = 360; c.width=size*dpr; c.height=size*dpr; c.style.width=size+'px'; c.style.height=size+'px'; ctx.scale(dpr,dpr);
+  const cx=size/2, cy=size/2, R=130;
+  ctx.clearRect(0,0,size,size);
+  for(let i=1;i<=4;i++){ ctx.beginPath(); cats.forEach((_,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const x=cx+Math.cos(a)*R*i/4, y=cy+Math.sin(a)*R*i/4; k?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.closePath(); ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.stroke(); }
+  cats.forEach((_,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.stroke(); });
+  function poly(arr,stroke,fill){
+    ctx.beginPath();
+    cats.forEach((c,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const v=arr[k]/2; const x=cx+Math.cos(a)*R*v, y=cy+Math.sin(a)*R*v; k?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); ctx.strokeStyle=stroke; ctx.lineWidth=1.5; ctx.stroke();
+  }
+  poly(cats.map(c=>c.a),'rgba(244,63,94,.9)','rgba(244,63,94,.12)');
+  poly(cats.map(c=>c.b),'rgba(163,230,53,.95)','rgba(163,230,53,.14)');
+  ctx.font = '500 9px "Geist Mono",monospace'; ctx.fillStyle='#a0a0ae'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  cats.forEach((c,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const x=cx+Math.cos(a)*(R+14), y=cy+Math.sin(a)*(R+14); ctx.fillText(c.k,x,y); });
+})();
+
+/* ═══ BARS ═══ */
+(function(){
+  const data = [
+    {k:'audit',a:115900,b:3400,n:6},
+    {k:'heavy_read',a:18400,b:3800,n:6},
+    {k:'navigation',a:17200,b:1400,n:4},
+    {k:'edit',a:9700,b:3200,n:7},
+    {k:'debug',a:42800,b:6600,n:3},
+    {k:'impact',a:4400,b:600,n:3},
+    {k:'localisation',a:1200,b:1800,n:6},
+    {k:'dependents',a:5700,b:700,n:4},
+  ];
+  const max = Math.max(...data.map(d=>Math.max(d.a,d.b)));
+  const wrap = document.getElementById('bars');
+  wrap.innerHTML = data.map(d=>{
+    const pa = d.a/max*100, pb = d.b/max*100;
+    const fmt = n => n>=1000?Math.round(n/1000)+'k':n;
+    return `
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:'Geist Mono',monospace;font-size:.72rem"><span style="color:var(--text2)">${d.k}</span><span style="color:var(--text3)">${d.n} tasks</span></div>
+      <div style="display:grid;grid-template-columns:1fr 70px;gap:10px;align-items:center;margin-bottom:3px">
+        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden"><div style="width:${pa}%;height:100%;background:linear-gradient(90deg,rgba(244,63,94,.6),rgba(244,63,94,.9))"></div></div>
+        <span style="text-align:right;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--rose)">${fmt(d.a)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 70px;gap:10px;align-items:center">
+        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden"><div style="width:${pb}%;height:100%;background:linear-gradient(90deg,rgba(163,230,53,.6),rgba(163,230,53,.95))"></div></div>
+        <span style="text-align:right;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--lime)">${fmt(d.b)}</span>
+      </div>
+    </div>`;
+  }).join('');
+})();
+
+/* ═══ THREE.JS GRAPH ═══ */
+(function(){
+  const host = document.getElementById('stage');
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
+  cam.position.set(0,6,68);
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
+  renderer.setClearColor(0x000000,0);
+  host.appendChild(renderer.domElement);
+  const controls = new OrbitControls(cam,renderer.domElement);
+  controls.enableDamping=true; controls.dampingFactor=.08; controls.rotateSpeed=.5; controls.autoRotate=true; controls.autoRotateSpeed=.32; controls.enablePan=false; controls.minDistance=28; controls.maxDistance=110;
+
+  // node data — modeled after tsbench's symbol graph
+  const KINDS = ['function','class','method','const'];
+  const MODULES = ['billing','auth','members','webhooks','notifications','reports','audit','sessions','exports','integrations','models','utils','db','config','router'];
+  const PALETTE = {function:0x22d3ee,class:0xa78bfa,method:0xec4899,const:0xfbbf24};
+  const rng = (()=>{let s=42; return()=>{s=(s*9301+49297)%233280; return s/233280;}})();
+
+  const nodes = [];
+  // organize into communities by module — cluster centers
+  const clusters = MODULES.map((m,i)=>{
+    const ang = i/MODULES.length*Math.PI*2;
+    const r = 18 + rng()*8;
+    const y = (rng()-.5)*12;
+    return {m, cx:Math.cos(ang)*r, cy:y, cz:Math.sin(ang)*r, color:0x8b5cf6};
+  });
+  // create 206 nodes across clusters
+  for(let i=0;i<206;i++){
+    const cl = clusters[i%clusters.length];
+    const k = KINDS[Math.floor(rng()*KINDS.length)];
+    const theta = rng()*Math.PI*2, phi = Math.acos(2*rng()-1);
+    const rad = 3 + rng()*5;
+    nodes.push({
+      id:i, kind:k, module:cl.m,
+      name: cl.m+'_'+k.slice(0,3)+'_'+i.toString(36),
+      x: cl.cx + rad*Math.sin(phi)*Math.cos(theta),
+      y: cl.cy + rad*Math.sin(phi)*Math.sin(theta)*0.7,
+      z: cl.cz + rad*Math.cos(phi),
+      color: PALETTE[k],
+      size: k==='class'?0.6:(k==='function'?0.45:0.35),
+      deg: 1 + Math.floor(rng()*8)
+    });
+  }
+  // hotspots (10)
+  const hotIdx = Array.from({length:10},(_,i)=>Math.floor(rng()*nodes.length));
+
+  // edges — intra-cluster dense, inter-cluster sparse
+  const edges = [];
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    const sameCluster = nodes.filter(m=>m.module===n.module && m.id!==n.id);
+    const k = 2 + Math.floor(rng()*3);
+    for(let j=0;j<k && j<sameCluster.length;j++){
+      const target = sameCluster[Math.floor(rng()*sameCluster.length)];
+      edges.push([i, target.id]);
+    }
+    if(rng()<.35){
+      edges.push([i, Math.floor(rng()*nodes.length)]);
+    }
+  }
+
+  // render points
+  const posArr = new Float32Array(nodes.length*3);
+  const colArr = new Float32Array(nodes.length*3);
+  const sizeArr = new Float32Array(nodes.length);
+  nodes.forEach((n,i)=>{
+    posArr[i*3]=n.x;posArr[i*3+1]=n.y;posArr[i*3+2]=n.z;
+    const c=new THREE.Color(n.color); colArr[i*3]=c.r;colArr[i*3+1]=c.g;colArr[i*3+2]=c.b;
+    sizeArr[i]=n.size*18;
+  });
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position',new THREE.BufferAttribute(posArr,3));
+  pg.setAttribute('color',new THREE.BufferAttribute(colArr,3));
+  pg.setAttribute('size',new THREE.BufferAttribute(sizeArr,1));
+  const pm = new THREE.ShaderMaterial({
+    uniforms:{},
+    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vColor;void main(){vColor=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mv;gl_PointSize=size*(300./-mv.z);}`,
+    fragmentShader:`varying vec3 vColor;void main(){vec2 c=gl_PointCoord-.5;float d=length(c);if(d>.5)discard;float a=smoothstep(.5,.1,d);gl_FragColor=vec4(vColor, a*.95);}`,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(pg,pm); scene.add(points);
+
+  // edges
+  const ePos = new Float32Array(edges.length*2*3);
+  edges.forEach((e,i)=>{
+    const a=nodes[e[0]], b=nodes[e[1]];
+    ePos[i*6]=a.x;ePos[i*6+1]=a.y;ePos[i*6+2]=a.z;
+    ePos[i*6+3]=b.x;ePos[i*6+4]=b.y;ePos[i*6+5]=b.z;
+  });
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(ePos,3));
+  const em = new THREE.LineBasicMaterial({color:0x8b5cf6, transparent:true, opacity:.13});
+  const lines = new THREE.LineSegments(eg,em); scene.add(lines);
+
+  // starfield
+  const sg = new THREE.BufferGeometry(); const sp = new Float32Array(800*3);
+  for(let i=0;i<800;i++){ const r=80+rng()*100; const t=rng()*Math.PI*2; const p=Math.acos(2*rng()-1); sp[i*3]=r*Math.sin(p)*Math.cos(t); sp[i*3+1]=r*Math.sin(p)*Math.sin(t); sp[i*3+2]=r*Math.cos(p); }
+  sg.setAttribute('position',new THREE.BufferAttribute(sp,3));
+  const sm = new THREE.PointsMaterial({color:0xffffff,size:.35,transparent:true,opacity:.4,sizeAttenuation:true});
+  scene.add(new THREE.Points(sg,sm));
+
+  // hover
+  const ray = new THREE.Raycaster(); ray.params.Points.threshold = 1.2;
+  const mouse = new THREE.Vector2();
+  const hover = document.getElementById('hover');
+  renderer.domElement.addEventListener('pointermove', e=>{
+    const r = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX-r.left)/r.width)*2-1;
+    mouse.y = -((e.clientY-r.top)/r.height)*2+1;
+    ray.setFromCamera(mouse,cam);
+    const hit = ray.intersectObject(points);
+    if(hit.length){
+      const n = nodes[hit[0].index];
+      hover.innerHTML = `<div class="name">${n.name}()</div><div class="kind">${n.kind} · module ${n.module}</div><div class="meta"><b style="color:var(--text)">${n.deg}</b> dependents · clustered with <b style="color:var(--text)">${clusters.find(c=>c.m===n.module)? nodes.filter(x=>x.module===n.module).length-1 : 0}</b> peers</div>`;
+    }
+  });
+
+  // chip views
+  document.querySelectorAll('.chip[data-view]').forEach(c=>c.addEventListener('click',()=>{
+    document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active')); c.classList.add('active');
+    const v = c.dataset.view;
+    nodes.forEach((n,i)=>{
+      let show = true;
+      if(v==='functions') show = n.kind==='function';
+      else if(v==='classes') show = n.kind==='class';
+      else if(v==='hot') show = hotIdx.includes(i);
+      sizeArr[i] = show ? (n.size*18*(v==='hot'?1.6:1)) : 0;
+    });
+    pg.attributes.size.needsUpdate = true;
+  }));
+
+  function resize(){
+    const r = host.getBoundingClientRect();
+    if(!r.width||!r.height) return;
+    renderer.setSize(r.width,r.height,false);
+    cam.aspect = r.width/r.height; cam.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(host); resize();
+
+  function tick(){ controls.update(); renderer.render(scene,cam); requestAnimationFrame(tick); } tick();
+})();
+
+/* ═══ REPLAY — tile grid + terminals ═══ */
+const TASKDATA = JSON.parse(document.getElementById('taskdata').textContent);
+
+// ─── full trace scripts for 6 showcased tasks ───
+const TRACES = {
+  7: {
+    prompt:'Give me the exhaustive list of files that call `lonely_util`. All call sites, not a sample.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list every caller of lonely_util'],
+      ['',''],
+      ['tool·','Grep  pattern="lonely_util"  --glob="**/*.py"'],
+      ['dim','· searching 42 files ... 18ms'],
+      ['r',' → packages/utils/targeted.py:3: def lonely_util(payload):'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py:2: from packages.utils.targeted import lonely_util'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py:6:     return lonely_util(payload)'],
+      ['dim','· 1761 chars ingested into context'],
+      ['',''],
+      ['u','assistant: `lonely_util` is defined in packages/utils/targeted.py:3 and has exactly one call site: apps/api/callers/caller_lonely_util_00.py.']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list every caller of lonely_util'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 84ms · "tsbench indexed · 206 symbols · 42 files"'],
+      ['',''],
+      ['tool·','get_dependents  name="lonely_util"  max_results=0'],
+      ['dim','· 280ms · 98 chars'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py → do_it_0 (L4-6)'],
+      ['',''],
+      ['u','assistant: one call site: apps/api/callers/caller_lonely_util_00.py → do_it_0 (L4-6).']
+    ]
+  },
+  14: {
+    prompt:'I plan to change `hub_util(payload: dict)` → `hub_util(context: dict)` in packages/utils/targeted.py. List exhaustively everything that breaks.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list everything that breaks if I rename payload → context on hub_util'],
+      ['',''],
+      ['tool·','Grep  pattern="hub_util"  --glob="**/*.py"  -B 0 -A 2'],
+      ['dim','· 42ms · 67 matches across 20 files'],
+      ['r',' → apps/api/callers/caller_hub_util_00.py:4:     return hub_util(payload=payload)'],
+      ['r',' → apps/api/callers/caller_hub_util_01.py:4:     return hub_util(payload=payload)'],
+      ['r',' → ... (18 more rows)'],
+      ['dim','· 12,668 chars ingested'],
+      ['',''],
+      ['u','assistant: 20 callers pass payload as a keyword argument. All 20 break under the rename. Listing: caller_hub_util_00.py through caller_hub_util_19.py ...']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list everything that breaks if I rename payload → context on hub_util'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 101ms'],
+      ['',''],
+      ['tool·','get_change_impact  name="hub_util"  minimal_set=true'],
+      ['dim','· 375ms · 1,243 chars'],
+      ['r',' → symbol: hub_util (packages/utils/targeted.py)'],
+      ['r',' → direct_dependents: 20 files (kw-arg style payload=...)'],
+      ['r',' → transitive: none · test files impacted: 3'],
+      ['',''],
+      ['u','assistant: 20 direct callers break, all call hub_util(payload=...). Listing: caller_hub_util_00 → caller_hub_util_19. Three test files reference these callers.']
+    ]
+  },
+  26: {
+    prompt:'Are there circular import dependencies in this project? If yes, cite them.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: are there circular imports?'],
+      ['',''],
+      ['tool·','Bash  grep -rn "^from\\\\|^import" apps/ packages/ --include="*.py"'],
+      ['dim','· 83ms · 930 chars'],
+      ['tool·','Read  apps/api/db.py'],
+      ['tool·','Read  apps/api/config.py'],
+      ['tool·','Read  apps/api/models/auth.py'],
+      ['dim','· ... 17 more Read calls'],
+      ['tool·','Bash  python -c "import ast; # walk and build graph..."'],
+      ['dim','· 12ms · error: name not defined'],
+      ['tool·','Bash  find apps -name "*.py" | xargs grep -l "from apps.api.cycles"'],
+      ['dim','· 67ms'],
+      ['tool·','Read  apps/api/cycles/mod_a.py'],
+      ['tool·','Read  apps/api/cycles/mod_b.py'],
+      ['tool·','Read  apps/api/cycles/mod_x.py'],
+      ['tool·','Read  apps/api/cycles/mod_y.py'],
+      ['tool·','Read  apps/api/cycles/mod_z.py'],
+      ['tool·','Agent  "look for import cycles in apps/api/cycles/"'],
+      ['dim','· 22s · 1,897 chars'],
+      ['dim','· total: 56 tool calls · 113,280 chars · 132.4s'],
+      ['',''],
+      ['u','assistant: Yes, 2 cycles found. (1) mod_a ↔ mod_b. (2) mod_x → mod_y → mod_z → mod_x.']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: are there circular imports?'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 93ms'],
+      ['',''],
+      ['tool·','find_import_cycles  {}'],
+      ['dim','· 253ms · 140 chars'],
+      ['r',' → cycle[0]: apps/api/cycles/mod_a.py ↔ apps/api/cycles/mod_b.py'],
+      ['r',' → cycle[1]: apps/api/cycles/mod_x.py → mod_y.py → mod_z.py → mod_x.py'],
+      ['',''],
+      ['u','assistant: 2 cycles. (1) mod_a ↔ mod_b. (2) mod_x → mod_y → mod_z → mod_x.']
+    ]
+  },
+  43: {
+    prompt:'In apps/api/services/, identify public functions (non-underscore) that accept more than one parameter. Give name and signature, file by file.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: find public functions with >1 param in apps/api/services/'],
+      ['',''],
+      ['tool·','Glob  apps/api/services/*.py'],
+      ['r',' → 13 files'],
+      ['tool·','Read  apps/api/services/audit.py  (17,849 chars)'],
+      ['tool·','Read  apps/api/services/auth.py   (18,895 chars)'],
+      ['tool·','Read  apps/api/services/billing.py (20,258 chars)'],
+      ['tool·','Read  apps/api/services/exports.py (18,499 chars)'],
+      ['tool·','Read  apps/api/services/integrations.py'],
+      ['tool·','Read  apps/api/services/members.py'],
+      ['tool·','Read  apps/api/services/notifications.py'],
+      ['tool·','Read  apps/api/services/reports.py'],
+      ['tool·','Read  apps/api/services/sessions.py'],
+      ['tool·','Read  apps/api/services/webhooks.py'],
+      ['dim','· ... 3 more Reads'],
+      ['tool·','Agent  "extract public signatures"'],
+      ['dim','· total: 17 tool calls · 196,882 chars · 159.2s'],
+      ['',''],
+      ['u','assistant: 44 public functions across 13 files, all with signature (payload: dict, user_id: int = 0).']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: find public functions with >1 param in apps/api/services/'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 103ms'],
+      ['',''],
+      ['tool·','list_files  pattern="apps/api/services/*.py"'],
+      ['dim','· 284ms · 13 files'],
+      ['',''],
+      ['tool·','get_functions  file_path="apps/api/services/audit.py"'],
+      ['dim','· 70ms · 1,815 chars → 4 public, all (payload, user_id)'],
+      ['tool·','get_functions  file_path="apps/api/services/auth.py"'],
+      ['dim','· 108ms · 1,844 chars → 4 public'],
+      ['tool·','get_functions  file_path="apps/api/services/billing.py"'],
+      ['dim','· 91ms · 2,036 chars → 4 public'],
+      ['dim','· ... 10 more get_functions (all <120ms)'],
+      ['dim','· total: 14 tool calls · 20,680 chars · 58.3s'],
+      ['',''],
+      ['u','assistant: 44 public functions, all signature (payload, user_id). audit: log_action, query_logs, purge_old_logs, export_audit_trail. auth: issue_token, revoke_token, hash_password, verify_password. billing: calculate_invoice, apply_discount ...']
+    ]
+  },
+  47: {
+    prompt:'Which files are directly imported by apps/api/services/auth.py? List all local imports (not third-party packages).',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list local imports of apps/api/services/auth.py'],
+      ['',''],
+      ['tool·','Read  apps/api/services/auth.py  (entire file)'],
+      ['dim','· 18,895 chars ingested'],
+      ['r',' → parsing imports from top of file ...'],
+      ['',''],
+      ['bad','assistant: imports identified — apps/api/db, apps/api/models/auth, apps/api/config, apps/api/utils/logging, apps/api/utils/errors ...'],
+      ['dim','· scored 0/2 — returned imported symbols instead of resolved file paths'],
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list local imports of apps/api/services/auth.py'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 98ms'],
+      ['',''],
+      ['tool·','get_file_dependencies  file_path="apps/api/services/auth.py"'],
+      ['dim','· 291ms · 120 chars'],
+      ['r',' → apps/api/config.py'],
+      ['r',' → apps/api/db.py'],
+      ['r',' → apps/api/models/auth.py'],
+      ['r',' → apps/api/utils/errors.py'],
+      ['r',' → apps/api/utils/logging.py'],
+      ['',''],
+      ['u','assistant: 5 local imports — config.py, db.py, models/auth.py, utils/errors.py, utils/logging.py.']
+    ]
+  },
+  52: {
+    prompt:'Identify the communities (strongly-connected symbol clusters) in the project. For each community, name principal symbols and a functional theme.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: detect symbol communities with themes'],
+      ['',''],
+      ['tool·','Bash  find apps packages -name "*.py" -o -name "*.ts" | head'],
+      ['tool·','Bash  grep -rn "^from\\\\|^import" apps/ --include="*.py"'],
+      ['dim','· 2,469 chars'],
+      ['tool·','Glob  apps/api/services/*.py'],
+      ['tool·','Read  apps/api/services/auth.py'],
+      ['tool·','Read  apps/api/services/billing.py'],
+      ['tool·','Read  apps/api/services/members.py'],
+      ['dim','· ... 33 more Read calls'],
+      ['tool·','Bash  node scripts/build-import-graph.js'],
+      ['dim','· 5,423 chars'],
+      ['tool·','Agent  "cluster the graph by connectivity"'],
+      ['dim','· 38s · 20,456 chars'],
+      ['dim','· total: 50 tool calls · 190,723 chars · 133.9s'],
+      ['',''],
+      ['u','assistant: identified 6 business-domain communities + infra cluster. Billing, Auth, Members, Webhooks, Notifications, Reports ...']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: detect symbol communities with themes'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 121ms'],
+      ['',''],
+      ['tool·','get_leiden_stats  {}'],
+      ['dim','· 78ms · Q=0.408 · 28 communities · 213 symbols'],
+      ['',''],
+      ['tool·','get_community  name="main__n32"'],
+      ['dim','· 38ms · main + Dispatcher + gen_api_* + plant_bugs/cycles/dupes'],
+      ['tool·','get_community  name="apiClient__n31"'],
+      ['dim','· 64ms · apiClient + CRUD frontend verbs'],
+      ['tool·','get_community  name="Sidebar__n22"'],
+      ['dim','· 53ms · React nav/layout'],
+      ['dim','· 6 more get_community (<90ms each)'],
+      ['dim','· total: 11 tool calls · 3,381 chars · 42.3s'],
+      ['',''],
+      ['u','assistant: 28 communities, Q=0.408. Top 10: main__n32 (bench pipeline), apiClient__n31 (frontend CRUD), Sidebar__n22 (nav), hub_util__n13 (dispatch utilities), billing_admin_db__n7 (billing persistence) ...']
+    ]
+  }
+};
+
+// ─── build tile grid ───
+function classify(t){
+  if(t.sb>t.sa){
+    if(t.sa===0) return 'impossible';
+    return 'win';
+  }
+  if(t.sb<t.sa) return 'loss';
+  return 'tie';
+}
+const grid = document.getElementById('grid');
+TASKDATA.forEach(t=>{
+  const d = document.createElement('div');
+  d.className = 'tile '+classify(t);
+  d.title = `TASK-${String(t.id).padStart(3,'0')} · ${t.slug}\n${t.wa}s → ${t.wb}s · ${t.ca} → ${t.cb} chars · ${t.sa}/2 → ${t.sb}/2`;
+  d.dataset.id = t.id;
+  d.addEventListener('click',()=>{ loadTask(t.id); replay(); });
+  grid.appendChild(d);
+});
+
+// ─── load a task ───
+let currentTid = 26;
+const npid = document.getElementById('npid'), npdesc = document.getElementById('npdesc');
+const termA = document.getElementById('termA'), termB = document.getElementById('termB');
+const metaA = document.getElementById('metaA');
+const wallA=document.getElementById('wallA'),wallB=document.getElementById('wallB');
+const tokA=document.getElementById('tokA'),tokB=document.getElementById('tokB');
+const chA=document.getElementById('chA'),chB=document.getElementById('chB');
+const scA=document.getElementById('scA'),scB=document.getElementById('scB');
+const deltaWall=document.getElementById('deltaWall'),deltaTok=document.getElementById('deltaTok'),deltaCh=document.getElementById('deltaCh'),deltaSc=document.getElementById('deltaSc');
+const playBtn = document.getElementById('play');
+
+const DESCRIPTIONS = {
+  1:'Locate the definition of function `lonely_util`.',
+  2:'Find every caller of `shared_util`.',
+  3:'Where is the env var DATABASE_URL used in code?',
+  4:'Find the route handler serving POST /api/v1/login.',
+  5:'Which schema field holds the user email?',
+  6:'Find all usages of the `Sidebar` React component.',
+  7:'Give me the exhaustive list of files that call `lonely_util`.',
+  8:'Exhaustive callers of a symbol with 3 call sites.',
+  9:'Exhaustive callers of a symbol with 8 call sites.',
+  10:'Exhaustive callers of a symbol with 20 call sites.',
+  11:'Shortest call chain α: from entry_alpha to target_alpha.',
+  12:'Shortest call chain β: routing-path through middleware.',
+  13:'Shortest call chain γ: through 4+ hops.',
+  14:'Impact: rename `hub_util(payload)` → `hub_util(context)`.',
+  15:'Files impacted if `apps/api/db.py` changes.',
+  16:'Tests to re-run after touching `auth.py`.',
+  17:'Rename symbol `OldService` → `NewService` across the repo.',
+  18:'Add field `archived_at` to model `Member`.',
+  19:'Extract magic number 3600 into a constant.',
+  20:'Move module `apps/api/utils/errors.py` to `packages/errors/`.',
+  21:'Summarize the diff on feature/billing branch.',
+  22:'Assess risk of current PR vs main.',
+  23:'Detect breaking changes vs base ref.',
+  24:'Audit dead code: functions never called.',
+  25:'Audit complexity hotspots.',
+  26:'Detect import cycles in the project.',
+  27:'Find env vars defined but never read.',
+  28:'Find env vars read but not declared.',
+  29:'Detect hardcoded secrets.',
+  30:'Audit the Dockerfile for issues.',
+  31:'Cross-check infra files for consistency.',
+  32:'Select impacted unit tests for a given change.',
+  33:'Select impacted tests since last commit.',
+  34:'Locate the pagination bug.',
+  35:'Locate the auth bug (token expiry).',
+  36:'Detect duplicated code/logic.',
+  37:'One-paragraph project overview.',
+  38:'One-paragraph module overview (billing).',
+  39:'Map TypeScript type ↔ Python dataclass.',
+  40:'Cross-check config.py ↔ config.ts consistency.',
+  41:'Explain the billing module in depth.',
+  42:'List all public functions in apps/api/services/auth.py.',
+  43:'Public multi-param functions in apps/api/services/.',
+  44:'Trace the webhook dispatch chain end-to-end.',
+  45:'Find every file that imports auth utilities.',
+  46:'List billing hotspots by complexity.',
+  47:'Direct local imports of apps/api/services/auth.py.',
+  48:'Reverse: files importing apps/api/db.py.',
+  49:'Deep call chain: 6+ hops.',
+  50:'Backward slice from a target symbol.',
+  51:'Find all entry points (main, CLI, server).',
+  52:'Community detection: clusters + themes.',
+  53:'Semantic duplicates: near-identical functions.',
+  54:'Fix the buggy paginate() function.',
+  55:'Insert a new field near an existing symbol.',
+  56:'Checkpoint & restore: undo an edit.',
+  57:'Select impacted tests, via MCP.',
+  58:'Performance hotspots (allocation analysis).',
+  59:'Git status: structured report.',
+  60:'Changed symbols since main.',
+};
+
+function fmt(n){ if(n==null||n===0) return '—'; return n.toLocaleString('en-US'); }
+function fmtSec(s){ return s==null||s===0 ? '—' : s+'s'; }
+function pct(a,b){ if(a===0||a==null) return null; return Math.round((b-a)/a*100); }
+
+function markCell(cell, isWin, isLose){
+  cell.classList.remove('win','lose','eq');
+  if(isWin) cell.classList.add('win');
+  else if(isLose) cell.classList.add('lose');
+  else cell.classList.add('eq');
+}
+
+function setDelta(el, pa, pb, lowerIsBetter){
+  if(pa==null||pa===0||pb==null){ el.textContent='—'; el.className='sc-delta eq'; return; }
+  const d = Math.round((pb-pa)/pa*100);
+  if(d===0){ el.textContent='· 0%'; el.className='sc-delta eq'; return; }
+  const improved = lowerIsBetter ? d<0 : d>0;
+  const glyph = d>0 ? '▲' : '▼';
+  const sign = d>0 ? '+' : '';
+  el.className = 'sc-delta ' + (improved ? 'dn' : 'up');
+  el.textContent = glyph + ' ' + sign + d + '%';
+}
+
+function loadTask(id){
+  const t = TASKDATA.find(x=>x.id===id); if(!t) return;
+  currentTid = id;
+  document.querySelectorAll('.tile').forEach(el=>el.classList.toggle('active', +el.dataset.id===id));
+  npid.textContent = 'TASK-'+String(id).padStart(3,'0');
+  npdesc.textContent = DESCRIPTIONS[id] || t.slug.replace(/-/g,' ');
+  metaA.textContent = t.ca>50000 ? 'Read · Grep · Bash · Agent' : 'Read · Grep · Bash';
+
+  // raw values
+  wallA.textContent = fmtSec(t.wa); wallB.textContent = fmtSec(t.wb);
+  tokA.textContent = fmt(t.ta);     tokB.textContent = fmt(t.tb);
+  chA.textContent  = fmt(t.ca);     chB.textContent  = fmt(t.cb);
+  scA.textContent  = t.sa+'/2';     scB.textContent  = t.sb+'/2';
+
+  // color-code winners (lower is better for wall/tokens/chars; higher for score)
+  const pairs = [
+    [wallA, wallB, t.wa, t.wb, true],
+    [tokA,  tokB,  t.ta, t.tb, true],
+    [chA,   chB,   t.ca, t.cb, true],
+    [scA,   scB,   t.sa, t.sb, false],
+  ];
+  pairs.forEach(([eA,eB,vA,vB,lower])=>{
+    if(vA===0 && vB===0){ markCell(eA,false,false); markCell(eB,false,false); return; }
+    if(vA===0){ markCell(eA,false,false); markCell(eB,true,false); return; }
+    if(vB===0){ markCell(eA,true,false); markCell(eB,false,false); return; }
+    const aWin = lower ? vA<vB : vA>vB;
+    const bWin = lower ? vB<vA : vB>vA;
+    markCell(eA, aWin, bWin && !aWin);
+    markCell(eB, bWin, aWin && !bWin);
+  });
+
+  // Δ TS vs plain — one badge per metric
+  setDelta(deltaWall, t.wa, t.wb, true);
+  setDelta(deltaTok,  t.ta, t.tb, true);
+  setDelta(deltaCh,   t.ca, t.cb, true);
+  setDelta(deltaSc,   t.sa, t.sb, false);
+
+  termA.innerHTML=''; termB.innerHTML='';
+  const pl = `<div class="ln"><span class="p">&gt;</span> <span class="u">user:</span> ${DESCRIPTIONS[id]||t.slug}</div><div class="ln"></div>`;
+  termA.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
+  termB.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
+  playBtn.disabled = false;
+  playBtn.textContent = TRACES[id] ? '▶ replay full trace' : '▶ replay summary';
+}
+
+let playing = false;
+let playToken = 0;
+async function replay(){
+  const myToken = ++playToken;
+  playing = true; playBtn.disabled = true; playBtn.textContent = 'replaying ...';
+  termA.innerHTML=''; termB.innerHTML='';
+  const tr = TRACES[currentTid];
+  if(tr){
+    const linesA = tr.A, linesB = tr.B;
+    const stepA = Math.max(80, Math.min(180, 4000/linesA.length));
+    const stepB = Math.max(60, Math.min(150, 3000/linesB.length));
+    await Promise.all([
+      renderLines(termA, linesA, stepA, myToken),
+      renderLines(termB, linesB, stepB, myToken),
+    ]);
+  } else {
+    const t = TASKDATA.find(x=>x.id===currentTid);
+    const catA = t.ca>50000?'heavy':(t.ca>10000?'moderate':'light');
+    const linesA = [
+      ['> ','user: '+(DESCRIPTIONS[t.id]||t.slug)],
+      ['',''],
+      ['tool·', catA==='heavy'?'Bash  grep -rn ...':'Grep  pattern=...'],
+      ['dim', `· ${Math.round(t.wa*1000/3)}ms · ${t.ca.toLocaleString()} chars`],
+      catA==='heavy' ? ['tool·','Read  target_file.py (large)'] : null,
+      catA==='heavy' ? ['dim',`· ${Math.round(t.wa*1000/2)}ms`] : null,
+      catA!=='light' ? ['tool·','Read  referenced_file.py'] : null,
+      ['',''],
+      ['dim',`· total: ${t.wa}s · ${t.ca.toLocaleString()} chars · score ${t.sa}/2`],
+      [t.sa===2?'u':(t.sa===0?'bad':'r'), 'assistant: '+(t.sa===2?'answered correctly.':t.sa===0?'failed — incomplete or wrong.':'partial answer.')]
+    ].filter(Boolean);
+    const linesB = [
+      ['> ','user: '+(DESCRIPTIONS[t.id]||t.slug)],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· ~100ms'],
+      ['tool·', guessTSCall(t)],
+      ['dim', `· ${Math.round(t.wb*1000/2)}ms · ${t.cb.toLocaleString()} chars`],
+      ['',''],
+      ['dim',`· total: ${t.wb}s · ${t.cb.toLocaleString()} chars · score ${t.sb}/2`],
+      [t.sb===2?'u':(t.sb===0?'bad':'r'), 'assistant: '+(t.sb===2?'answered correctly.':t.sb===0?'failed — incomplete.':'partial answer.')]
+    ];
+    await Promise.all([ renderLines(termA, linesA, 160, myToken), renderLines(termB, linesB, 140, myToken) ]);
+  }
+  if(myToken !== playToken) return;
+  playing = false; playBtn.disabled = false;
+  playBtn.textContent = '▶ replay again';
+}
+
+function guessTSCall(t){
+  const map = {
+    'localisation':'find_symbol  name="..."',
+    'dépendants':'get_dependents  name="..."',
+    'call_chain':'get_call_chain  source=... target=...',
+    'impact':'get_change_impact  name="..."',
+    'edit':'replace_symbol_source  name="..."',
+    'review':'get_changed_symbols  {}',
+    'audit':'find_dead_code  / find_hotspots / find_import_cycles',
+    'config':'analyze_config  checks=["orphans","secrets"]',
+    'infra':'analyze_docker  {}',
+    'testing':'find_impacted_test_files  {}',
+    'debug':'get_full_context  name="..."',
+    'onboarding':'get_project_summary  {}',
+    'cross-language':'find_cross_project_deps  {}',
+    'heavy_read':'get_functions / get_class_source',
+    'navigation':'get_file_dependencies / get_dependents',
+    'git':'get_git_status / get_changed_symbols',
+  };
+  return map[t.cat] || 'structural query';
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderLines(el, lines, delay, token){
+  return new Promise(done=>{
+    let i=0;
+    function step(){
+      if(token!==undefined && token!==playToken){ done(); return; }
+      if(i>=lines.length){ done(); return; }
+      const [cls, txt] = lines[i];
+      const d = document.createElement('div');
+      d.className = 'ln' + (cls==='dim'?' dim':'');
+      let html = '';
+      if(cls==='#') html = `<span class="m"># ${esc(txt)}</span>`;
+      else if(cls==='> ') html = `<span class="p">&gt;</span> ${esc(txt).replace(/^user:/,'<span class="u">user:</span>')}`;
+      else if(cls==='tool·') html = `<span class="t">◆</span> <span class="u">${esc(txt.split('  ')[0])}</span>  <span class="m">${esc(txt.split('  ').slice(1).join('  '))}</span>`;
+      else if(cls==='r') html = `<span class="r">${esc(txt)}</span>`;
+      else if(cls==='ok') html = `<span class="ok">${esc(txt)}</span>`;
+      else if(cls==='bad') html = `<span class="bad">${esc(txt)}</span>`;
+      else if(cls==='u') html = `<span class="ok">✓</span> ${esc(txt).replace(/^assistant:/,'<span class="u">assistant:</span>')}`;
+      else if(cls==='dim') html = esc(txt);
+      else html = esc(txt);
+      d.innerHTML = html;
+      el.appendChild(d);
+      el.scrollTop = el.scrollHeight;
+      i++;
+      setTimeout(step, delay);
+    }
+    step();
+  });
+}
+
+playBtn.addEventListener('click', replay);
+loadTask(26);
+
+</script>
 </body>
 </html>
