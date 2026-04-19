@@ -11,14 +11,14 @@
 [![Tools](https://img.shields.io/badge/tools-105-green)]()
 [![Tests](https://img.shields.io/badge/tests-1318%2F1318-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
-[![Benchmark](https://img.shields.io/badge/tsbench-96%25%20(115%2F120)-brightgreen)](https://mibayy.github.io/tsbench/)
+[![Benchmark](https://img.shields.io/badge/tsbench-98%25%20(118%2F120)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 
-**📖 [mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** — project site
-**📊 [mibayy.github.io/tsbench](https://mibayy.github.io/tsbench/)** — benchmark results ([source](https://github.com/Mibayy/tsbench))
+**📖 [mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** — project site + benchmark landing
+**🧪 [github.com/Mibayy/tsbench](https://github.com/Mibayy/tsbench)** — benchmark source + fixtures
 
 ---
 
@@ -26,11 +26,16 @@
 
 | | Plain Claude Code | With Token Savior |
 |---|---:|---:|
-| **Score** | 67 / 120 (56%) | **115 / 120 (96%)** |
-| **Chars injected** | 1,431,624 | **234,805** (−84%) |
-| **Wins / Ties / Losses** | — | **32 / 28 / 0** |
+| **Score** | 67 / 120 (56%) | **118 / 120 (98%)** |
+| **Active tokens** | 1.02 M | **614 k** (−40%) |
+| **Chars injected** | 1.43 M | **216 k** (−85%) |
+| **Wall time** | 51 min | **28 min** (−46%) |
+| **Wins / Ties / Losses** | — | **31 / 29 / 0** |
 
-Methodology, per-task breakdown and reproduction instructions: **[mibayy.github.io/tsbench](https://mibayy.github.io/tsbench/)**.
+On the 29 ties (identical score): Token Savior still uses **−45% tokens**,
+**−52% wall time** and **−89% context** — ties aren't draws.
+
+Model: Claude Opus 4.7 · Methodology + per-task breakdown: **[mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)**.
 
 </div>
 
@@ -62,8 +67,8 @@ contract keeps lookup cost bounded.
 | `get_change_impact("LLMClient")` | impossible | 16K chars (154 direct + 492 transitive) | new capability |
 | `get_backward_slice(var, line)` | 130 lines | 12 lines | **−92%** |
 | `memory_index` (Layer 1) | n/a | ~15 tokens/result | Layer 1 shortlist |
-| 60-task tsbench run | 1,431,624 chars | 234,805 chars | **−84%** |
-| tsbench score | 67/120 (56%) | **115/120 (96%)** | **+40 pts** |
+| 60-task tsbench run | 1.43 M chars | 216 k chars | **−85%** |
+| tsbench score | 67/120 (56%) | **118/120 (98%)** | **+42 pts** |
 
 Full benchmark methodology and per-task results: [tsbench](https://github.com/Mibayy/tsbench).
 
@@ -162,8 +167,8 @@ pytest tests/ -q
 
 Optional env: `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (critical-observation
 feed), `TS_VIEWER_PORT` (web viewer), `TS_AUTO_EXTRACT=1` + `TS_API_KEY`
-(LLM auto-extraction), `TOKEN_SAVIOR_PROFILE` (`full` / `core` / `nav` — filters
-advertised tool set).
+(LLM auto-extraction), `TOKEN_SAVIOR_PROFILE` (`full` / `core` / `nav` / `lean` /
+`ultra` — filters advertised tool set to shrink the per-turn MCP manifest).
 
 ---
 
@@ -194,9 +199,11 @@ keeping handlers live.
 
 | Profile | Advertised | ~Tokens | Use case |
 |---------|-----------:|--------:|----------|
-| `full` *(default)* | 105 | ~10 200 | All capabilities |
+| `full` *(default)* | 106 | ~10 950 | All capabilities |
 | `core`             | 54  | ~5 800  | Daily coding, no memory engine |
 | `nav`              | 28  | ~3 100  | Read-only exploration |
+| `lean`             | 59  | ~6 620  | Memory engine off — used in tsbench v2 |
+| `ultra`            | 17  | ~2 740  | Hot tools only + `ts_extended` meta-tool for lazy discovery |
 
 ---
 
