@@ -1183,13 +1183,17 @@ class ProjectQueryEngine:
             result = result[:max_results]
         return result
 
-    def search_codebase(self, pattern: str, max_results: int = 100) -> list[dict]:
+    def search_codebase(
+        self,
+        pattern: str,
+        max_results: int = 100,
+        max_line_chars: int = 160,
+    ) -> list[dict]:
         """Regex across all files, returns [{file, line_number, content}].
 
-        Uses pre-sorted file paths and a small thread pool so file scans
-        happen in parallel. When max_results is unbounded (0) we scan all
-        files concurrently; when bounded we keep a lightweight early-exit
-        to avoid scanning more than necessary.
+        Each hit's `content` is truncated to `max_line_chars` (default 160,
+        suffixed with "…") so verbose matches like long comment lines don't
+        explode the response. Pass 0 to disable truncation.
         """
         from token_savior.project_indexer import is_path_excluded_from_scans
 
@@ -1198,6 +1202,12 @@ class ProjectQueryEngine:
         except re.error as e:
             return [{"error": f"Invalid regex: {e}"}]
         limit = max_results if max_results > 0 else 0
+        char_cap = max_line_chars if max_line_chars and max_line_chars > 0 else 0
+
+        def _trim(line: str) -> str:
+            if char_cap and len(line) > char_cap:
+                return line[:char_cap] + "…"
+            return line
 
         raw_paths = self.index.sorted_paths or sorted(self.index.files.keys())
         paths = [p for p in raw_paths if not is_path_excluded_from_scans(p)]
@@ -1208,7 +1218,7 @@ class ProjectQueryEngine:
             hits: list[dict] = []
             for i, line in enumerate(meta.lines):
                 if regex.search(line):
-                    hits.append({"file": path, "line_number": i + 1, "content": line})
+                    hits.append({"file": path, "line_number": i + 1, "content": _trim(line)})
                     if limit and len(hits) >= limit:
                         break
             return hits
