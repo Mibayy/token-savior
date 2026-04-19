@@ -189,6 +189,7 @@ class ProjectIndexer:
             "**/Dockerfile",
             "**/Dockerfile.*",
             "**/*.dockerfile",
+            "**/*.Dockerfile",
         ]
         self.exclude_patterns = exclude_patterns or [
             "**/__pycache__/**",
