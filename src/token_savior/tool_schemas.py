@@ -607,8 +607,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Index management ──────────────────────────────────────────────────
     "reindex": {
-        "description": "Re-index the entire project. Use after making significant file changes to refresh the structural index.",
-        "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
+        "description": "Re-index the entire project. No-op if no tracked file mtimes changed (pass force=true to rebuild anyway). Edit tools (replace_symbol_source, insert_near_symbol, etc.) already reindex inline — only needed after external edits (Edit/Write/sed).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean",
+                    "description": "Rebuild even if no mtime changes detected.",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
     },
     "set_project_root": {
         "description": (

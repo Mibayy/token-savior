@@ -66,9 +66,35 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 def _hm_reindex(arguments: dict[str, Any]) -> list[types.TextContent]:
     project_hint = arguments.get("project")
+    force = bool(arguments.get("force", False))
     slot, err = state._slot_mgr.resolve(project_hint)
     if err:
         return [TextContent(type="text", text=f"Error: {err}")]
+
+    if not force and slot.indexer is not None and slot.indexer._project_index is not None:
+        idx = slot.indexer._project_index
+        root = slot.root
+        stored = idx.file_mtimes
+        fresh = True
+        for rel_path, mtime in stored.items():
+            abs_path = os.path.join(root, rel_path)
+            try:
+                if os.stat(abs_path).st_mtime != mtime:
+                    fresh = False
+                    break
+            except OSError:
+                fresh = False
+                break
+        if fresh:
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Project '{os.path.basename(slot.root)}' already up-to-date "
+                    f"({idx.total_files} files, no mtime changes). "
+                    "Pass force=true to rebuild anyway."
+                ),
+            )]
+
     slot.indexer = None
     slot.query_fns = None
     state._slot_mgr.build(slot)
