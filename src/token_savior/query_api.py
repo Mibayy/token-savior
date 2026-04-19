@@ -1762,7 +1762,12 @@ class ProjectQueryEngine:
     # Semantic duplicate detection (P9 part A integration)
     # ------------------------------------------------------------------
 
-    def find_semantic_duplicates(self, min_lines: int = 2, max_groups: int = 30) -> str:
+    def find_semantic_duplicates(
+        self,
+        min_lines: int = 2,
+        max_groups: int = 30,
+        max_members_per_group: int = 6,
+    ) -> str:
         """Group functions whose AST-normalised hash collides.
 
         *min_lines* skips trivial one-liner functions where collisions
@@ -1770,6 +1775,9 @@ class ProjectQueryEngine:
         short utilities (slugify, start_of_day etc.) that are common
         duplication patterns.
         *max_groups* caps the number of duplicate groups returned.
+        *max_members_per_group* truncates large boilerplate clusters
+        (20-way __init__ duplicates) to the first N members plus a
+        "+K more" suffix. Pairs (size==2) are always shown in full.
         Groups of size 2 (exact pairs) are surfaced first because a
         clean 2-member clone is usually more actionable than a 20-way
         boilerplate cluster.
@@ -1792,8 +1800,13 @@ class ProjectQueryEngine:
         duplicates = duplicates[:max_groups]
 
         lines = [f"Semantic duplicates: {total} group(s) found (showing top {len(duplicates)})"]
+        cap = max(2, max_members_per_group) if max_members_per_group > 0 else 0
         for h, syms in duplicates:
-            lines.append(f"  hash {h}: {', '.join(syms)}")
+            if cap and len(syms) > cap:
+                shown = ", ".join(syms[:cap])
+                lines.append(f"  hash {h}: {shown}, +{len(syms) - cap} more")
+            else:
+                lines.append(f"  hash {h}: {', '.join(syms)}")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

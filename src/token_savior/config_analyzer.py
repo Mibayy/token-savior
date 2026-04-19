@@ -601,14 +601,20 @@ def check_orphans(
     # ------------------------------------------------------------------
     # Check 1 — Orphan keys (config keys not used in code)
     # ------------------------------------------------------------------
+    # UPPER_SNAKE_CASE names (env vars) use a stricter check: we trust only the
+    # language-specific access patterns (os.environ/process.env/…). Plain
+    # substring fallback is too permissive — such keys commonly appear in
+    # generator/fixture code as string literals without being read at runtime.
+    _env_style = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
     for key, occurrences in config_keys.items():
         if key in convention_key_allowlist:
             continue
         # Primary: access-pattern match
         if key in referenced_keys:
             continue
-        # Fallback: plain substring presence in any code line
-        if any(key in line for line in all_code_text):
+        # Fallback: plain substring presence in any code line (skipped for env vars)
+        if not _env_style.match(key) and any(key in line for line in all_code_text):
             continue
         # Not referenced anywhere → orphan
         for source_name, line_no in occurrences:

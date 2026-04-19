@@ -112,6 +112,8 @@ def annotate(
             file_type = "dockerfile"
         elif _basename.lower().endswith(".gradle.kts"):
             file_type = "gradle"
+        elif _basename.startswith(".env") or _basename.endswith(".env"):
+            file_type = "env"
         else:
             dot_idx = source_name.rfind(".")
             if dot_idx >= 0:
