@@ -1,12 +1,12 @@
 # Changelog
 
-## v2.6.0 — Memory Engine Phase 1+2 + tsbench 97.8% (2026-04-20)
+## v2.6.0 — Memory Engine Phase 1+2 + tsbench 98.9% (2026-04-20)
 
-### tsbench (90 paired tasks, Opus 4.7) — 176/180 (97.8%) vs 120/180 (66.7%)
+### tsbench (90 paired tasks, Opus 4.7) — 178/180 (98.9%) vs 120/180 (66.7%)
 
 - Active tokens: 1.55M → 821k (−47%)
 - Wall time: 166min → 36min (−78%)
-- Wins/Ties/Losses: 40 / 48 / 2
+- Wins/Ties/Losses: 42 / 46 / 2
 
 ### Bench-driven fixes
 
@@ -17,6 +17,8 @@
 - Empty-result `_suggestion` on `search_codebase` and `get_dependents`
 - Lower defaults on noisy analyses (`analyze_config`, `find_dead_code`, `find_semantic_duplicates`)
 - `lean` profile (59 tools) confirmed as bench default
+- App-factory detection in `get_entry_points` (`create_app`, `make_app`, `build_app`, factory in `main.py`/`app.py`/`__init__.py`)
+- Infra-tech surfacing in `get_project_summary` — flags top-level `infra/` / `deploy/` / `k8s/` and detected techs (docker, terraform, k8s)
 
 ### Phase 1 — Gap closure
 - P1: `<private>` tag stripper (UserPromptSubmit hook)
