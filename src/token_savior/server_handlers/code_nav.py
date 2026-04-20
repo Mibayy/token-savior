@@ -123,9 +123,9 @@ def _csc_compact_response(
         lines.append(
             f"(body unchanged since last view - {view_count} view{'s' if view_count != 1 else ''} this session)"
         )
-    lines.append(
-        "Use force_full=true to bypass the session cache and get the full body."
-    )
+        lines.append(
+            "Reuse the body you already have. Only re-call with force_full=true if you suspect external mutation."
+        )
     return "\n".join(lines)
 
 
@@ -610,7 +610,7 @@ QFN_HANDLERS: dict[str, object] = {
     ),
     "find_symbol": _q_find_symbol,
     "get_dependencies": lambda q, a: q["get_dependencies"](
-        a["name"], max_results=a.get("max_results", 0)
+        a["name"], max_results=a.get("max_results", 0), depth=a.get("depth", 1)
     ),
     "get_dependents": lambda q, a: _suggest_if_empty_dependents(
         q["get_dependents"](

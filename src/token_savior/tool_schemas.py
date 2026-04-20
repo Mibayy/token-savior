@@ -51,7 +51,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "get_changed_symbols": {
-        "description": "Symbol-level summary of changes (worktree, or HEAD vs ref).",
+        "description": (
+            "Symbol-level summary of changes (worktree, or HEAD vs ref). "
+            "For PR/commit-message tasks prefer build_commit_summary which is tuned "
+            "to produce a compact narrative with stats, hotspots, and suggested type."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -456,12 +460,17 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_dependencies": {
-        "description": "Symbols called/used by this symbol.",
+        "description": (
+            "Symbols called/used by this symbol. Pass depth>1 to walk the call "
+            "chain transitively (BFS) — saves N round trips when tracing a chain "
+            "X→Y→Z→... in one shot. Each hop is tagged with `depth` and `from`."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
                 "max_results": {"type": "integer", "description": "0=unlimited."},
+                "depth": {"type": "integer", "description": "Transitive BFS depth (default 1)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
             },
@@ -1530,13 +1539,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": (
             "Return the Leiden community (symbol cluster) for a symbol, or by "
             "community name. Communities are detected via greedy modularity "
-            "maximization on the symbol dependency graph."
+            "maximization on the symbol dependency graph. Pass list_all=true "
+            "(or call with no arguments) to enumerate ALL communities at once "
+            "with member preview — use this for 'identify clusters' tasks."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "symbol": {"type": "string", "description": "Symbol to look up by membership."},
                 "name": {"type": "string", "description": "Community name to fetch directly."},
+                "list_all": {"type": "boolean", "description": "Enumerate all communities (default false)."},
+                "min_size": {"type": "integer", "description": "Min members for list_all (default 2)."},
+                "max_results": {"type": "integer", "description": "Max communities returned by list_all (default 30)."},
             },
         },
     },
