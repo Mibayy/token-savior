@@ -186,8 +186,27 @@ def _parse_workspace_roots() -> list[str]:
 
 
 def _register_roots(roots: list[str]) -> None:
-    """Create slots for each root. Index is built lazily on first use."""
+    """Create slots for each root. Index is built lazily on first use.
+
+    Honors CLAUDE_PROJECT_ROOT env: if set and the path is one of the
+    registered roots, promote it to active. This lets short-lived subprocess
+    callers (benchmarks, `claude -p`, scripted flows) skip switch_project
+    entirely when the calling shell already knows which project is in focus.
+    """
     s._slot_mgr.register_roots(roots)
+    hint = os.environ.get("CLAUDE_PROJECT_ROOT", "").strip()
+    hint_abs = os.path.abspath(hint) if hint else ""
+    if hint_abs and hint_abs in s._slot_mgr.projects:
+        s._slot_mgr.active_root = hint_abs
+
+    if os.environ.get("TS_WARM_START", "").strip() in ("1", "true", "yes"):
+        targets = [hint_abs] if hint_abs in s._slot_mgr.projects else list(s._slot_mgr.projects)
+        for root in targets:
+            slot = s._slot_mgr.projects[root]
+            try:
+                _prep(slot)
+            except Exception as e:
+                print(f"[token-savior] warm-start failed for {root}: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

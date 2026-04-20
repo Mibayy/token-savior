@@ -30,12 +30,16 @@ from token_savior.slot_manager import _ProjectSlot
 
 def _h_analyze_config(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    # Default cap lowered 30 -> 10 to keep MCP output bounded. Bench showed
+    # full audits returning ~9.6K chars were dominating active_tokens on
+    # tasks where only the top issues matter. Pass explicit max_issues for
+    # the full picture.
     return run_config_analysis(
         slot.indexer._project_index,
         checks=args.get("checks"),
         file_path=args.get("file_path"),
         severity=args.get("severity", "all"),
-        max_issues=args.get("max_issues", 30),
+        max_issues=args.get("max_issues", 10),
     )
 
 
@@ -46,9 +50,11 @@ def _h_find_dead_code(slot: _ProjectSlot, args: dict) -> object:
         state._slot_mgr.ensure(sibling_slot)
         if sibling_slot.indexer and sibling_slot.indexer._project_index:
             loaded[os.path.basename(root)] = sibling_slot.indexer._project_index
+    # Default 50 -> 20. The header still prints the true total, so callers
+    # know when they need to page. Raise via max_results= for audits.
     return run_dead_code(
         slot.indexer._project_index,
-        max_results=args.get("max_results", 50),
+        max_results=args.get("max_results", 20),
         sibling_indices=loaded,
     )
 

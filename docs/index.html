@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Token Savior — we gave Claude a map of your codebase</title>
-<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 60 tasks. 31 wins, 29 ties, 0 losses.">
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 90 tasks. 40 wins, 48 ties, 2 losses. 97.8% vs 66.7%.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
@@ -265,14 +265,14 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-eyebrow"><i></i>60 tasks · Claude Opus 4.7 · paired runs</div>
+  <div class="hero-eyebrow"><i></i>90 tasks · Claude Opus 4.7 · paired runs</div>
   <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
-  <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 60 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
+  <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 90 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
   <div class="hero-strip">
-    <div class="hero-stat"><div class="n" data-count="81">0</div><div class="l">less context ingested</div></div>
-    <div class="hero-stat"><div class="n" data-count="47">0</div><div class="l">faster wall time</div></div>
-    <div class="hero-stat"><div class="n" data-count="42" data-suffix="pp">0</div><div class="l">accuracy gained</div></div>
-    <div class="hero-stat"><div class="n">32 / 28 / 0</div><div class="l">wins · ties · losses</div></div>
+    <div class="hero-stat"><div class="n" data-count="47">0</div><div class="l">fewer active tokens</div></div>
+    <div class="hero-stat"><div class="n" data-count="78">0</div><div class="l">faster wall time</div></div>
+    <div class="hero-stat"><div class="n" data-count="31" data-suffix="pp">0</div><div class="l">accuracy gained</div></div>
+    <div class="hero-stat"><div class="n">40 / 48 / 2</div><div class="l">wins · ties · losses</div></div>
   </div>
 </section>
 
@@ -281,7 +281,7 @@ footer .tag a:hover{color:var(--text)}
   <div class="s-intro reveal">
     <div class="kicker">the scorecard <i>·</i> what the numbers say</div>
     <h2>Same model. Same tasks.<br><em>One of them kept winning.</em></h2>
-    <p>Two agents, one codebase, sixty prompts pulled from real engineering work — find callers, audit cycles, estimate blast radius, summarize modules. We counted tokens, wall time and correctness.</p>
+    <p>Two agents, one codebase, ninety prompts pulled from real engineering work — find callers, audit cycles, estimate blast radius, summarize modules. We counted tokens, wall time and correctness.</p>
   </div>
 
   <div class="card-wrap">
@@ -291,27 +291,27 @@ footer .tag a:hover{color:var(--text)}
         <div class="vs-title">Read, Grep, Bash.</div>
         <div class="vs-tools">no structural tools</div>
         <div class="vs-rows">
-          <div class="vs-row"><span class="k">context ingested</span><span class="v">1.43M</span></div>
-          <div class="vs-row"><span class="k">active tokens</span><span class="v">1.02M</span></div>
-          <div class="vs-row"><span class="k">wall time</span><span class="v">51 min</span></div>
-          <div class="vs-row"><span class="k">accuracy</span><span class="v">56 %</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v">1.55M</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v">166 min</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v">66.7 %</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v">120 / 180</span></div>
         </div>
       </div>
       <div class="vs-center">
         <div class="vs-vs">vs</div>
-        <div class="vs-score"><span class="a">56%</span><span class="sep">vs</span><span class="b">98%</span></div>
-        <div class="vs-label">accuracy <span class="vs-info" data-tip="Each of 60 tasks is graded 0-2 by an LLM judge (0 = wrong, 1 = partial, 2 = correct). Accuracy = sum of points ÷ max possible (120). Plain: 67/120. Token Savior: 118/120.">i</span></div>
-        <div class="vs-tally"><span class="w">31 wins</span><span class="t">29 ties · TS −45% tokens<span class="vs-info" data-tip="On the 29 tasks where both agents scored identically, Token Savior still uses 45% fewer active tokens (580k → 317k), is 52% faster (27min → 13min), and ingests 89% less context (877k → 95k chars). Ties aren't draws — TS wins on the efficiency axis for ~83% of them.">i</span></span><span class="l">0 losses</span></div>
+        <div class="vs-score"><span class="a">66.7%</span><span class="sep">vs</span><span class="b">97.8%</span></div>
+        <div class="vs-label">accuracy <span class="vs-info" data-tip="Each of 90 tasks is graded 0-2 by an LLM judge or token-match scorer (0 = wrong, 1 = partial, 2 = correct). Accuracy = sum of points ÷ max possible (180). Plain: 120/180. Token Savior: 176/180.">i</span></div>
+        <div class="vs-tally"><span class="w">40 wins</span><span class="t">48 ties · TS −47% tokens<span class="vs-info" data-tip="Active tokens: Plain 1.55M vs TS 821k (−47%). Wall time: 166min vs 36min (−78%). Ties aren't draws — TS wins on the efficiency axis on all of them.">i</span></span><span class="l">2 losses</span></div>
       </div>
       <div class="vs-side b">
         <div class="vs-name"><i></i>agent b · token savior</div>
         <div class="vs-title">Plus the graph.</div>
-        <div class="vs-tools">+ 38 structural MCP tools</div>
+        <div class="vs-tools">+ 59 structural MCP tools (lean profile)</div>
         <div class="vs-rows">
-          <div class="vs-row"><span class="k">context ingested</span><span class="v">216k</span></div>
-          <div class="vs-row"><span class="k">active tokens</span><span class="v">614k</span></div>
-          <div class="vs-row"><span class="k">wall time</span><span class="v">28 min</span></div>
-          <div class="vs-row"><span class="k">accuracy</span><span class="v">98 %</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v">821k</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v">36 min</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v">97.8 %</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v">176 / 180</span></div>
         </div>
       </div>
     </div>
@@ -476,7 +476,7 @@ footer .tag a:hover{color:var(--text)}
 </section>
 
 <footer>
-  <div class="tag">tsbench · 60 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · April 2026</div>
+  <div class="tag">tsbench · 90 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · April 2026</div>
 </footer>
 
 <!-- ═══ DATA ═══ -->

@@ -315,9 +315,16 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
     if mem_handler is not None:
         return [TextContent(type="text", text=mem_handler(arguments))]
 
-    slot, err = s._slot_mgr.resolve(arguments.get("project"))
+    project_hint = arguments.get("project")
+    slot, err = s._slot_mgr.resolve(project_hint)
     if err:
         return [TextContent(type="text", text=f"Error: {err}")]
+    # Auto-promote explicit project hint to active. Previously the hint only
+    # resolved for the current call, forcing agents to either repeat the
+    # project= arg on every call or prefix a switch_project. This makes the
+    # first real tool call implicitly set the session's active project.
+    if project_hint and slot is not None and s._slot_mgr.active_root != slot.root:
+        s._slot_mgr.active_root = slot.root
 
     handler = _SLOT_HANDLERS.get(name)
     if handler is not None:

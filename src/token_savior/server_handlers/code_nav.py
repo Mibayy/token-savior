@@ -480,11 +480,66 @@ def _q_get_full_context(qfns, args: dict[str, Any]):
     batch = _batch_dispatch(qfns, args, _q_get_full_context)
     if batch is not None:
         return batch
-    return qfns["get_full_context"](
+    result = qfns["get_full_context"](
         args["name"],
         depth=args.get("depth", 1),
         max_lines=args.get("max_lines", 200),
     )
+    mode = args.get("mode", "compact")
+    if mode == "compact" and isinstance(result, dict):
+        return _compact_full_context(result)
+    return result
+
+
+def _compact_full_context(result: dict) -> dict:
+    """Trim heavy fields: deps/dependents → names only, source → head 80 lines."""
+    compact: dict[str, Any] = {}
+    for key in ("name", "file", "line", "type", "signature", "error"):
+        if key in result:
+            compact[key] = result[key]
+    src = result.get("source")
+    if isinstance(src, str):
+        lines = src.splitlines()
+        if len(lines) > 80:
+            compact["source"] = "\n".join(lines[:80]) + f"\n# ... +{len(lines) - 80} lines (use mode='full')"
+        else:
+            compact["source"] = src
+    for key in ("dependencies", "dependents", "callers", "callees", "change_impact"):
+        val = result.get(key)
+        if isinstance(val, list):
+            compact[key] = [
+                item.get("name") if isinstance(item, dict) else item
+                for item in val
+            ]
+        elif val is not None:
+            compact[key] = val
+    return compact
+
+
+def _suggest_if_empty_search(result, pattern: str):
+    if isinstance(result, list) and len(result) == 0:
+        return {
+            "matches": [],
+            "_suggestion": (
+                f"No matches for pattern='{pattern}'. "
+                f"Try a broader regex, list_files(pattern='*{pattern}*'), "
+                f"or check non-indexed files (.sql, .graphql, .prisma) with Read/Grep."
+            ),
+        }
+    return result
+
+
+def _suggest_if_empty_dependents(result, name: str):
+    if isinstance(result, list) and len(result) == 0:
+        return {
+            "dependents": [],
+            "_suggestion": (
+                f"No dependents found for '{name}'. Likely a leaf / entry-point / "
+                f"dead code. Try get_dependencies('{name}') to see what it uses, "
+                f"or find_dead_code() for an audit."
+            ),
+        }
+    return result
 
 
 def _q_find_symbol(qfns, args: dict[str, Any]):
@@ -557,9 +612,12 @@ QFN_HANDLERS: dict[str, object] = {
     "get_dependencies": lambda q, a: q["get_dependencies"](
         a["name"], max_results=a.get("max_results", 0)
     ),
-    "get_dependents": lambda q, a: q["get_dependents"](
-        a["name"], max_results=a.get("max_results", 0),
-        max_total_chars=a.get("max_total_chars", 50_000),
+    "get_dependents": lambda q, a: _suggest_if_empty_dependents(
+        q["get_dependents"](
+            a["name"], max_results=a.get("max_results", 0),
+            max_total_chars=a.get("max_total_chars", 50_000),
+        ),
+        a["name"],
     ),
     "get_change_impact": lambda q, a: q["get_change_impact"](
         a["name"], max_direct=a.get("max_direct", 0), max_transitive=a.get("max_transitive", 0),
@@ -576,8 +634,9 @@ QFN_HANDLERS: dict[str, object] = {
     "get_file_dependents": lambda q, a: q["get_file_dependents"](
         a["file_path"], max_results=a.get("max_results", 0)
     ),
-    "search_codebase": lambda q, a: q["search_codebase"](
-        a["pattern"], max_results=a.get("max_results", 100)
+    "search_codebase": lambda q, a: _suggest_if_empty_search(
+        q["search_codebase"](a["pattern"], max_results=a.get("max_results", 100)),
+        a["pattern"],
     ),
     "get_routes": lambda q, a: q["get_routes"](max_results=a.get("max_results", 0)),
     "get_env_usage": lambda q, a: q["get_env_usage"](
@@ -608,7 +667,7 @@ QFN_HANDLERS: dict[str, object] = {
     ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 2),
-        max_groups=a.get("max_groups", 30),
+        max_groups=a.get("max_groups", 10),
     ),
     "find_import_cycles": lambda q, a: q["find_import_cycles"](
         max_cycles=a.get("max_cycles", 20),

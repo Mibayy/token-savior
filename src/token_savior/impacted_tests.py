@@ -290,6 +290,11 @@ def _graph_based_test_candidates(index: ProjectIndex, seed_symbols: set[str]) ->
     results: dict[str, list[str]] = {}
     visited: set[str] = set(seed_symbols)
     queue = list(seed_symbols)
+    files_in_closure: set[str] = set()
+    for seed in seed_symbols:
+        seed_file = index.symbol_table.get(seed)
+        if seed_file:
+            files_in_closure.add(seed_file)
     while queue:
         symbol = queue.pop(0)
         for dependent in index.reverse_dependency_graph.get(symbol, set()):
@@ -300,8 +305,15 @@ def _graph_based_test_candidates(index: ProjectIndex, seed_symbols: set[str]) ->
             file_path = index.symbol_table.get(dependent)
             if not file_path:
                 continue
+            files_in_closure.add(file_path)
             if _is_test_file(file_path):
                 results.setdefault(file_path, []).append(f"graph_dep:{symbol}")
+    for touched_file in files_in_closure:
+        for importer in index.reverse_import_graph.get(touched_file, set()):
+            if _is_test_file(importer):
+                results.setdefault(importer, []).append(
+                    f"transitive_import:{touched_file}"
+                )
     return results
 
 
