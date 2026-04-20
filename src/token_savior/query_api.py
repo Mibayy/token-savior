@@ -1081,18 +1081,50 @@ class ProjectQueryEngine:
             return {"error": f"symbol '{name}' not found"}
         return result
 
-    def get_dependencies(self, name: str, max_results: int = 0) -> list[dict]:
-        """What this function/class references (from global_dependency_graph)."""
+    def get_dependencies(
+        self, name: str, max_results: int = 0, depth: int = 1
+    ) -> list[dict]:
+        """What this function/class references (from global_dependency_graph).
+
+        ``depth`` controls transitive walking (BFS). Default 1 = direct deps only.
+        When depth>1, returns a flat ordered list with each entry tagged ``depth=N``;
+        the BFS visits nodes in increasing distance from the seed and stops when
+        either ``max_results`` or ``depth`` is reached. Cycles are skipped.
+        """
         resolved_name = self._resolve_graph_symbol_name(name)
         if resolved_name is None:
             return [{"error": f"'{name}' not found in dependency graph"}]
-        deps = self._get_aggregated_dependencies(resolved_name)
-        if deps is None:
-            return [{"error": f"'{name}' not found in dependency graph"}]
-        result = sorted(deps)
-        if max_results > 0:
-            result = result[:max_results]
-        return [self._resolve_symbol_info(dep, strip_preview=True) for dep in result]
+        if depth <= 1:
+            deps = self._get_aggregated_dependencies(resolved_name)
+            if deps is None:
+                return [{"error": f"'{name}' not found in dependency graph"}]
+            result = sorted(deps)
+            if max_results > 0:
+                result = result[:max_results]
+            return [self._resolve_symbol_info(dep, strip_preview=True) for dep in result]
+
+        seen: set[str] = {resolved_name}
+        out: list[dict] = []
+        frontier = [resolved_name]
+        for layer in range(1, depth + 1):
+            next_frontier: list[str] = []
+            for node in frontier:
+                deps = self._get_aggregated_dependencies(node) or set()
+                for dep in sorted(deps):
+                    if dep in seen:
+                        continue
+                    seen.add(dep)
+                    info = self._resolve_symbol_info(dep, strip_preview=True)
+                    info["depth"] = layer
+                    info["from"] = node
+                    out.append(info)
+                    next_frontier.append(dep)
+                    if max_results > 0 and len(out) >= max_results:
+                        return out
+            frontier = next_frontier
+            if not frontier:
+                break
+        return out
 
     def get_dependents(self, name: str, max_results: int = 0, max_total_chars: int = 50_000) -> list[dict]:
         """What references this function/class (from reverse_dependency_graph)."""

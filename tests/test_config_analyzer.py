@@ -656,7 +656,8 @@ class TestFormatIssues:
 
     def test_zero_issues_message(self):
         result = _format_issues([], "all")
-        assert result == "Config Analysis -- 0 issues found"
+        assert result.startswith("VERDICT: CONSISTENT")
+        assert "0 issues" in result
 
     def test_header_contains_count(self):
         issues = [self._make_issue("warning", "duplicate")]
@@ -693,7 +694,8 @@ class TestFormatIssues:
     def test_severity_filter_error_all_warnings_gives_zero(self):
         issues = [self._make_issue("warning", "orphan")]
         result = _format_issues(issues, "error")
-        assert result == "Config Analysis -- 0 issues found"
+        assert result.startswith("VERDICT: CONSISTENT")
+        assert "0 issues" in result
 
     def test_compact_format_no_detail(self):
         issue = ConfigIssue(
@@ -796,7 +798,7 @@ class TestAnalyzeConfig:
         index = _make_index({"settings.yaml": orphan_meta})
         result = analyze_config(index, checks=["orphans"], severity="error")
         # All orphan issues are warnings → filtered out
-        assert "0 issues found" in result
+        assert "VERDICT: CONSISTENT" in result
 
     def test_severity_error_still_shows_error_issues(self):
         """severity='error' preserves genuine error-level secrets."""

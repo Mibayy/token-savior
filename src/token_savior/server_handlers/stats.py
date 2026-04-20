@@ -464,8 +464,29 @@ def _hm_get_dcp_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
 def _hm_get_community(arguments: dict[str, Any]) -> list[types.TextContent]:
     sym = arguments.get("symbol")
     cname = arguments.get("name")
-    if not sym and not cname:
-        return [TextContent(type="text", text="Error: provide 'symbol' or 'name'.")]
+    list_all = bool(arguments.get("list_all", False))
+
+    if list_all or (not sym and not cname):
+        comms = getattr(state._leiden, "communities", {}) or {}
+        if not comms:
+            return [TextContent(type="text", text="No communities detected (run reindex or community detection first).")]
+        min_size = int(arguments.get("min_size", 2) or 2)
+        max_results = int(arguments.get("max_results", 30) or 30)
+        max_members_preview = int(arguments.get("max_members_preview", 8) or 8)
+        rows = sorted(
+            ((name, sorted(members)) for name, members in comms.items() if len(members) >= min_size),
+            key=lambda kv: -len(kv[1]),
+        )[:max_results]
+        if not rows:
+            return [TextContent(type="text", text=f"No communities with size>={min_size}.")]
+        lines = [f"🏘️  {len(rows)} communities (size>={min_size}, top {max_results})"]
+        lines.append("─" * 60)
+        for name, members in rows:
+            preview = ", ".join(members[:max_members_preview])
+            extra = f" (+{len(members) - max_members_preview} more)" if len(members) > max_members_preview else ""
+            lines.append(f"• {name} [{len(members)}] {preview}{extra}")
+        return [TextContent(type="text", text="\n".join(lines))]
+
     comm = state._leiden.get_community_for(sym) if sym else state._leiden.get_community(cname)
     if not comm:
         hint = sym or cname

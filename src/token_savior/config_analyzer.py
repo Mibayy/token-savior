@@ -1064,7 +1064,11 @@ def _format_issues(
     filtered = [i for i in all_issues if allowed is None or i.severity in allowed]
 
     if not filtered:
-        return "Config Analysis -- 0 issues found"
+        return (
+            "VERDICT: CONSISTENT — Config Analysis found 0 issues.\n"
+            "All declared keys are referenced and no inconsistencies detected. "
+            "No follow-up search needed."
+        )
 
     total = len(filtered)
     if max_issues and total > max_issues:

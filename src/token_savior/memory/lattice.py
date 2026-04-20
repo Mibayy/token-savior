@@ -91,9 +91,14 @@ def thompson_sample_level(context_type: str = "unknown") -> int:
         print(f"[token-savior:memory] thompson_sample_level error: {exc}", file=sys.stderr)
         return 0
 
+    rows_d = [dict(r) for r in rows]
+    if rows_d and all(
+        abs(d.get("alpha", 1.0) - 1.0) < 1e-9 and abs(d.get("beta", 1.0) - 1.0) < 1e-9
+        for d in rows_d
+    ):
+        return 0
     samples: list[tuple[int, float]] = []
-    for r in rows:
-        d = dict(r)
+    for d in rows_d:
         try:
             draw = _rnd.betavariate(max(d["alpha"], 0.01), max(d["beta"], 0.01))
         except ValueError:
