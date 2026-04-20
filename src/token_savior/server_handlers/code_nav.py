@@ -494,7 +494,7 @@ def _q_get_full_context(qfns, args: dict[str, Any]):
 def _compact_full_context(result: dict) -> dict:
     """Trim heavy fields: deps/dependents → names only, source → head 80 lines."""
     compact: dict[str, Any] = {}
-    for key in ("name", "file", "line", "type", "signature", "error"):
+    for key in ("name", "file", "line", "type", "signature", "error", "symbol"):
         if key in result:
             compact[key] = result[key]
     src = result.get("source")
