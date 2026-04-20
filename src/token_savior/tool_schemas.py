@@ -510,6 +510,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "description": "0=symbol+source, 1=+deps/dependents (default), 2=+change_impact.",
                 },
                 "max_lines": {"type": "integer", "description": "Cap source lines (default 200)."},
+                "mode": {
+                    "type": "string",
+                    "enum": ["compact", "full"],
+                    "description": "compact (default): source head 80 lines + deps/dependents as names only. full: raw payload.",
+                },
                 **_PROJECT_PARAM,
             },
         },
@@ -716,7 +721,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "file_path": {"type": "string", "description": "Specific config file"},
                 "severity": {"type": "string", "enum": ["all", "error", "warning"], "description": "Severity filter"},
-                "max_issues": {"type": "integer", "description": "Cap total issues shown (default 30, 0 = unlimited)."},
+                "max_issues": {"type": "integer", "description": "Cap total issues shown (default 10, 0 = unlimited). Raise for full audit."},
                 **_PROJECT_PARAM,
             },
         },
@@ -731,7 +736,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "properties": {
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of dead symbols to report (default: 50).",
+                    "description": "Maximum number of dead symbols to report (default: 20). Header always shows true total; raise for full audit.",
                 },
                 **_PROJECT_PARAM,
             },
@@ -1264,7 +1269,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "max_groups": {
                     "type": "integer",
-                    "description": "Max duplicate groups to return (default 30).",
+                    "description": "Max duplicate groups to return (default 10). Raise for full audit.",
                 },
                 **_PROJECT_PARAM,
             },

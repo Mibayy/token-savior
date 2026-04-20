@@ -11,7 +11,7 @@
 [![Tools](https://img.shields.io/badge/tools-105-green)]()
 [![Tests](https://img.shields.io/badge/tests-1318%2F1318-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
-[![Benchmark](https://img.shields.io/badge/tsbench-98%25%20(118%2F120)-brightgreen)](https://mibayy.github.io/token-savior/)
+[![Benchmark](https://img.shields.io/badge/tsbench-97.8%25%20(176%2F180)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -22,18 +22,19 @@
 
 ---
 
-### Benchmark — 60 real coding tasks
+### Benchmark — 90 real coding tasks
 
 | | Plain Claude Code | With Token Savior |
 |---|---:|---:|
-| **Score** | 67 / 120 (56%) | **118 / 120 (98%)** |
-| **Active tokens** | 1.02 M | **614 k** (−40%) |
-| **Chars injected** | 1.43 M | **216 k** (−85%) |
-| **Wall time** | 51 min | **28 min** (−46%) |
-| **Wins / Ties / Losses** | — | **31 / 29 / 0** |
+| **Score** | 120 / 180 (66.7%) | **176 / 180 (97.8%)** |
+| **Active tokens** | 1.55 M | **821 k** (−47%) |
+| **Wall time** | 166 min | **36 min** (−78%) |
+| **Wins / Ties / Losses** | — | **40 / 48 / 2** |
 
-On the 29 ties (identical score): Token Savior still uses **−45% tokens**,
-**−52% wall time** and **−89% context** — ties aren't draws.
+Perfect scores (100%) on 8 of 11 categories: `audit`, `code_generation`,
+`code_review`, `config_infra`, `documentation`, `git`, `refactoring`,
+`writing_tests`. The 4 remaining misses are llm-judge borderlines on
+`explanation` / `navigation`.
 
 Model: Claude Opus 4.7 · Methodology + per-task breakdown: **[mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)**.
 

@@ -272,12 +272,18 @@ def move_symbol(
     """Move a symbol from its current file to *target_file*.
 
     Steps:
-    1. Locate and read the symbol source.
-    2. Delete the symbol block from the source file.
-    3. Append the symbol to the target file (create it if needed).
-    4. Update imports in all files that reference the symbol.
+    1. Snapshot pre-move callers (dependents from the dependency graph).
+    2. Locate and read the symbol source.
+    3. Delete the symbol block from the source file.
+    4. Append the symbol to the target file (create it if needed).
+    5. Update imports in all files that reference the symbol.
 
-    Returns a summary dict with files modified.
+    Returns a summary dict with:
+      - pre_move_callers: symbols that depended on the moved symbol before the
+        move (enumerated for downstream consumers / LLM responses).
+      - updated_imports: files whose import statements were rewritten.
+      - callers_not_auto_rewritten: pre-move caller files whose imports were
+        not automatically rewritten (manual review candidates).
     """
     loc = resolve_symbol_location(index, symbol_name)
     if "error" in loc:
@@ -290,28 +296,49 @@ def move_symbol(
     _validate_path(src_abs, root)
     _validate_path(tgt_abs, root)
 
-    # 1. Read source block
+    # 1. Pre-move callers snapshot from the reverse dependency graph
+    resolved_key = loc["name"] if loc["name"] in index.reverse_dependency_graph else symbol_name
+    caller_symbols = sorted(index.reverse_dependency_graph.get(resolved_key, set()))
+    pre_move_callers: list[dict] = []
+    caller_files: set[str] = set()
+    for caller in caller_symbols:
+        caller_file = index.symbol_table.get(caller)
+        if not caller_file:
+            pre_move_callers.append({"symbol": caller, "file": None, "line": None})
+            continue
+        caller_files.add(caller_file)
+        line: int | None = None
+        meta = index.files.get(caller_file)
+        if meta is not None:
+            for func in meta.functions:
+                if func.qualified_name == caller or func.name == caller:
+                    line = func.line_range.start
+                    break
+            if line is None:
+                for cls in meta.classes:
+                    if cls.qualified_name == caller or cls.name == caller:
+                        line = cls.line_range.start
+                        break
+        pre_move_callers.append({"symbol": caller, "file": caller_file, "line": line})
+
     src_lines, src_trailing = _read_lines(src_abs)
     start_0 = loc["line"] - 1
-    end_0 = loc["end_line"]  # exclusive upper for slice
+    end_0 = loc["end_line"]
     symbol_block = src_lines[start_0:end_0]
 
-    # 2. Delete from source
     del src_lines[start_0:end_0]
-    # Clean up blank lines left behind (collapse >2 consecutive blanks to 1)
     cleaned: list[str] = []
     blank_run = 0
-    for line in src_lines:
-        if line.strip() == "":
+    for line_text in src_lines:
+        if line_text.strip() == "":
             blank_run += 1
             if blank_run <= 2:
-                cleaned.append(line)
+                cleaned.append(line_text)
         else:
             blank_run = 0
-            cleaned.append(line)
+            cleaned.append(line_text)
     _write_lines(src_abs, cleaned, src_trailing)
 
-    # 3. Write to target
     if os.path.exists(tgt_abs):
         tgt_lines, tgt_trailing = _read_lines(tgt_abs)
     else:
@@ -320,19 +347,16 @@ def move_symbol(
         os.makedirs(os.path.dirname(tgt_abs), exist_ok=True)
         tgt_lines, tgt_trailing = [], True
 
-    # Add two blank lines separator if file has content
     if tgt_lines and tgt_lines[-1].strip() != "":
         tgt_lines.append("")
         tgt_lines.append("")
     elif tgt_lines and len(tgt_lines) >= 1:
-        # Ensure at least one blank line before new symbol
         if tgt_lines[-1].strip() != "":
             tgt_lines.append("")
 
     tgt_lines.extend(symbol_block)
     _write_lines(tgt_abs, tgt_lines, tgt_trailing)
 
-    # 4. Fix imports in all files that reference the symbol
     src_module = _file_to_module(src_rel)
     tgt_module = _file_to_module(target_file)
     updated_imports: list[str] = []
@@ -355,12 +379,18 @@ def move_symbol(
                     f.write(new_content)
                 updated_imports.append(rel_path)
 
+    callers_not_auto_rewritten = sorted(
+        f for f in caller_files if f not in set(updated_imports) and f != src_rel
+    )
+
     return {
         "ok": True,
         "from_file": src_rel,
         "to_file": target_file,
         "symbol": loc["name"],
+        "pre_move_callers": pre_move_callers,
         "updated_imports": updated_imports,
+        "callers_not_auto_rewritten": callers_not_auto_rewritten,
     }
 
 
