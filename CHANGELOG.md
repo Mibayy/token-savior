@@ -1,6 +1,22 @@
 # Changelog
 
-## v2.6.0 — Memory Engine Phase 1+2 (2026-04-17)
+## v2.6.0 — Memory Engine Phase 1+2 + tsbench 97.8% (2026-04-20)
+
+### tsbench (90 paired tasks, Opus 4.7) — 176/180 (97.8%) vs 120/180 (66.7%)
+
+- Active tokens: 1.55M → 821k (−47%)
+- Wall time: 166min → 36min (−78%)
+- Wins/Ties/Losses: 40 / 48 / 2
+
+### Bench-driven fixes
+
+- `CLAUDE_PROJECT_ROOT` env auto-promotes active project at boot (no `switch_project` round trip)
+- Explicit `project=` hint auto-promotes active project on first call
+- `TS_WARM_START=1` pre-builds index at server start
+- `get_full_context` defaults to compact mode: source head 80 lines + names-only deps
+- Empty-result `_suggestion` on `search_codebase` and `get_dependents`
+- Lower defaults on noisy analyses (`analyze_config`, `find_dead_code`, `find_semantic_duplicates`)
+- `lean` profile (59 tools) confirmed as bench default
 
 ### Phase 1 — Gap closure
 - P1: `<private>` tag stripper (UserPromptSubmit hook)
