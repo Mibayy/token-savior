@@ -743,6 +743,29 @@ class ProjectQueryEngine:
             parts.append(f"Packages ({len(top_packages)}): {', '.join(top_packages[:15])}")
             if len(top_packages) > 15:
                 parts.append(f"  ... and {len(top_packages) - 15} more")
+            infra_top = {"infra", "infrastructure", "deploy", "deployment", "k8s", "kubernetes",
+                         "terraform", "docker", "helm", "ansible", ".github", "ci", "cicd"}
+            infra_hits = [p for p in top_packages if p.lower() in infra_top]
+            if infra_hits:
+                infra_techs: set[str] = set()
+                for path in index.files:
+                    parts_l = path.lower().split("/")
+                    if not parts_l or parts_l[0] not in infra_hits:
+                        continue
+                    for seg in parts_l[1:]:
+                        if seg in {"docker", "k8s", "kubernetes", "terraform", "helm", "ansible"}:
+                            infra_techs.add(seg)
+                    fn = parts_l[-1]
+                    if fn.startswith("dockerfile") or fn.endswith(".dockerfile"):
+                        infra_techs.add("docker")
+                    if fn.endswith((".tf", ".tfvars")):
+                        infra_techs.add("terraform")
+                    if fn.endswith((".yaml", ".yml")) and any(
+                        seg in {"k8s", "kubernetes", "manifests"} for seg in parts_l
+                    ):
+                        infra_techs.add("k8s")
+                tech_str = f" (techs: {', '.join(sorted(infra_techs))})" if infra_techs else ""
+                parts.append(f"Infra dirs: {', '.join(infra_hits)}{tech_str}")
 
         # Counts per type, no individual names
         class_count = sum(len(meta.classes) for meta in index.files.values())

@@ -57,6 +57,19 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
             if func.name in ("main", "run", "start", "serve", "app", "cli"):
                 score += 2.0
                 reasons.append(f"entry name ({func.name})")
+            if any(
+                func.name.startswith(p)
+                for p in ("create_app", "make_app", "build_app", "get_app", "init_app")
+            ):
+                score += 2.5
+                reasons.append(f"app factory ({func.name})")
+            elif (
+                func.name.startswith(("create_", "make_", "build_", "get_", "init_"))
+                and filename in ("main.py", "app.py", "server.py", "__init__.py", "factory.py")
+                and not func.is_method
+            ):
+                score += 1.5
+                reasons.append(f"factory in entry file ({func.name})")
             if file_path.endswith(".java") and func.name == "main":
                 score += 1.5
                 reasons.append("java main method")
