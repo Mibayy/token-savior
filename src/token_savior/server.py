@@ -12,6 +12,33 @@ Multi-project workspace usage:
 
 Each root gets its own isolated index — no symbol collision, no dependency
 graph pollution, no shared RAM between unrelated projects.
+
+## Agent decision tree (pick the right tool first time)
+
+    "Where is X defined?"              -> find_symbol(name=X)
+    "Show me the source of X"          -> get_function_source / get_class_source
+    "What calls X?"                    -> get_dependents(X)
+    "What does X call?"                -> get_dependencies(X)
+    "Impact of changing X"             -> get_change_impact(X)
+    "Orient me on X (source+callers)"  -> get_full_context(X)
+    "Find Y in code, want symbol ctx"  -> search_in_symbols(pattern=Y)
+    "Raw regex grep"                   -> search_codebase(pattern=Y)
+    "Audit this file"                  -> audit_file(file_path=F)
+    "Dead / unused code"               -> find_dead_code
+    "Complexity hotspots"              -> find_hotspots (T0=most actionable)
+    "Breaking API changes"             -> detect_breaking_changes (T0=breaking)
+    "Tests impacted by my change"      -> find_impacted_test_files
+    "Config drift / secrets"           -> analyze_config
+    "Routes / endpoints"               -> get_routes (stub flag = unimpl handler)
+
+Rules of thumb:
+  - Start with find_symbol or get_full_context, NOT search_codebase.
+  - Edit code via replace_symbol_source / insert_near_symbol, NOT Edit/Write —
+    these keep the index in sync automatically.
+  - `_complete: true` in the result means the scan was exhaustive; no need
+    to fall back to grep.
+  - switch_project is idempotent: calling it with the current project is a
+    cheap no-op.
 """
 
 from __future__ import annotations

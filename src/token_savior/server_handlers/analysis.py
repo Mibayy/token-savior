@@ -146,6 +146,74 @@ def _h_analyze_docker(slot: _ProjectSlot, args: dict) -> object:
     return run_docker_analysis(slot.indexer._project_index)
 
 
+def _h_audit_file(slot: _ProjectSlot, args: dict) -> object:
+    """Mega-batch: dead_code + hotspots + semantic duplicates filtered to one file.
+
+    Replaces three round-trips with a single call when the agent is triaging a
+    specific file. Each section is capped tight; raise the per-section limits
+    via ``max_dead``/``max_hotspots``/``max_dup_groups`` for a deeper audit.
+    """
+    _prep(slot)
+    file_path = args.get("file_path")
+    if not file_path:
+        return {"ok": False, "error": "file_path is required"}
+
+    index = slot.indexer._project_index
+    out: dict[str, Any] = {"file": file_path}
+
+    # Dead code — filter project-wide result to this file only.
+    try:
+        loaded: dict[str, ProjectIndex] = {}
+        for root, sibling_slot in state._slot_mgr.projects.items():
+            state._slot_mgr.ensure(sibling_slot)
+            if sibling_slot.indexer and sibling_slot.indexer._project_index:
+                loaded[os.path.basename(root)] = sibling_slot.indexer._project_index
+        dead_raw = run_dead_code(
+            index,
+            max_results=args.get("max_dead", 50),
+            sibling_indices=loaded,
+        )
+        dead_lines = [ln for ln in str(dead_raw).splitlines() if file_path in ln]
+        out["dead_code"] = "\n".join(dead_lines) if dead_lines else "(none)"
+    except Exception as exc:  # pragma: no cover
+        out["dead_code"] = f"error: {exc}"
+
+    # Hotspots — same filter.
+    try:
+        hot_raw = run_hotspots(
+            index,
+            max_results=args.get("max_hotspots", 50),
+            min_score=args.get("min_score", 0.0),
+        )
+        hot_lines = [ln for ln in str(hot_raw).splitlines() if file_path in ln]
+        out["hotspots"] = "\n".join(hot_lines) if hot_lines else "(none)"
+    except Exception as exc:  # pragma: no cover
+        out["hotspots"] = f"error: {exc}"
+
+    # Semantic duplicates — filter groups that touch the file.
+    try:
+        qfns = slot.query_fns
+        find_dups = qfns.get("find_semantic_duplicates") if qfns else None
+        if find_dups is not None:
+            dups = find_dups(
+                min_lines=args.get("min_lines", 6),
+                max_groups=args.get("max_dup_groups", 20),
+                max_members_per_group=5,
+            )
+            touching = []
+            for group in dups.get("groups", []) if isinstance(dups, dict) else []:
+                members = group.get("members", [])
+                if any(m.get("file") == file_path for m in members):
+                    touching.append(group)
+            out["duplicates"] = touching or "(none)"
+        else:
+            out["duplicates"] = "(unavailable)"
+    except Exception as exc:  # pragma: no cover
+        out["duplicates"] = f"error: {exc}"
+
+    return out
+
+
 HANDLERS: dict[str, Any] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
@@ -153,4 +221,5 @@ HANDLERS: dict[str, Any] = {
     "detect_breaking_changes": _h_detect_breaking_changes,
     "find_cross_project_deps": _h_find_cross_project_deps,
     "analyze_docker": _h_analyze_docker,
+    "audit_file": _h_audit_file,
 }

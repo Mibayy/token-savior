@@ -760,6 +760,8 @@ def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
             f"Breaking Change Analysis ({since_ref}..working tree) -- no breaking changes detected"
         )
 
+    # Tiers: T0=BREAKING (public API break), T1=WARNING (risky signature drift),
+    # T2=NON-BREAKING (informational). Callers address T0 first.
     breaking = [c for c in changes if c.severity == "breaking"]
     warnings = [c for c in changes if c.severity == "warning"]
     infos = [c for c in changes if c.severity == "info"]
@@ -767,24 +769,25 @@ def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
     total = len(changes)
     lines: list[str] = [
         f"Breaking Change Analysis ({since_ref}..working tree) "
-        f"-- {total} issue{'s' if total != 1 else ''} found",
+        f"-- {total} issue{'s' if total != 1 else ''} "
+        f"(T0={len(breaking)} T1={len(warnings)} T2={len(infos)})",
     ]
 
     if breaking:
         lines.append("")
-        lines.append("BREAKING:")
+        lines.append(f"BREAKING: [T0] ({len(breaking)})")
         for c in breaking:
             lines.append(f"  {c.file}:{c.line} - {c.message}")
 
     if warnings:
         lines.append("")
-        lines.append("WARNING:")
+        lines.append(f"WARNING: [T1] ({len(warnings)})")
         for c in warnings:
             lines.append(f"  {c.file}:{c.line} - {c.message}")
 
     if infos:
         lines.append("")
-        lines.append("NON-BREAKING:")
+        lines.append(f"NON-BREAKING: [T2] ({len(infos)})")
         for c in infos:
             lines.append(f"  {c.file}:{c.line} - {c.message}")
 

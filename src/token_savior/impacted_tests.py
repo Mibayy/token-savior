@@ -285,6 +285,14 @@ def _resolve_changed_symbols(
 
 
 def _graph_based_test_candidates(index: ProjectIndex, seed_symbols: set[str]) -> dict[str, list[str]]:
+    """Walk reverse_dependency_graph (symbol-level) and reverse_import_graph
+    (file-level) transitively to find every test file that could be impacted.
+
+    Previous behaviour only walked file importers one hop from the closure;
+    this version keeps pulling importers-of-importers until no new files
+    appear, which catches tests that depend on a service through a router or
+    worker re-export.
+    """
     if not seed_symbols:
         return {}
     results: dict[str, list[str]] = {}
@@ -308,8 +316,18 @@ def _graph_based_test_candidates(index: ProjectIndex, seed_symbols: set[str]) ->
             files_in_closure.add(file_path)
             if _is_test_file(file_path):
                 results.setdefault(file_path, []).append(f"graph_dep:{symbol}")
-    for touched_file in files_in_closure:
+
+    # Transitive file-importer walk: BFS over reverse_import_graph so a test
+    # that imports a module which re-exports a changed symbol is still caught.
+    file_queue = list(files_in_closure)
+    visited_files: set[str] = set(files_in_closure)
+    while file_queue:
+        touched_file = file_queue.pop(0)
         for importer in index.reverse_import_graph.get(touched_file, set()):
+            if importer in visited_files:
+                continue
+            visited_files.add(importer)
+            file_queue.append(importer)
             if _is_test_file(importer):
                 results.setdefault(importer, []).append(
                     f"transitive_import:{touched_file}"

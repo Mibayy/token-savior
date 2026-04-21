@@ -672,7 +672,15 @@ QFN_HANDLERS: dict[str, object] = {
         a["file_path"], max_results=a.get("max_results", 0)
     ),
     "search_codebase": lambda q, a: _suggest_if_empty_search(
-        q["search_codebase"](a["pattern"], max_results=a.get("max_results", 100)),
+        q["search_codebase"](
+            a["pattern"],
+            max_results=a.get("max_results", 100),
+            ignore_generated=a.get("ignore_generated", True),
+        ),
+        a["pattern"],
+    ),
+    "search_in_symbols": lambda q, a: _suggest_if_empty_search(
+        q["search_in_symbols"](a["pattern"], max_results=a.get("max_results", 100)),
         a["pattern"],
     ),
     "get_routes": lambda q, a: q["get_routes"](max_results=a.get("max_results", 0)),

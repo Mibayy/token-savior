@@ -311,6 +311,7 @@ class ProjectIndexer:
 
         # Step 3: build global symbol table
         symbol_table = self._build_symbol_table(files)
+        normalized_symbol_index = self._build_normalized_symbol_index(symbol_table)
         duplicate_classes = self._build_duplicate_classes(files)
 
         # Step 4: build cross-file import graph
@@ -347,6 +348,7 @@ class ProjectIndexer:
             import_graph=import_graph,
             reverse_import_graph=reverse_import_graph,
             symbol_table=symbol_table,
+            normalized_symbol_index=normalized_symbol_index,
             duplicate_classes=duplicate_classes,
             total_files=len(files),
             total_lines=total_lines,
@@ -481,6 +483,7 @@ class ProjectIndexer:
         idx.total_functions += len(metadata.functions)
         idx.total_classes += len(metadata.classes)
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
         # Rebuild import graph for this file
@@ -548,6 +551,7 @@ class ProjectIndexer:
         idx.total_files = len(idx.files)
         _rebuild_path_indexes(idx)
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
     def rebuild_graphs(self) -> None:
@@ -561,6 +565,7 @@ class ProjectIndexer:
 
         idx = self._project_index
         idx.symbol_table = self._build_symbol_table(idx.files)
+        idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
         idx.import_graph = self._build_import_graph(idx.files)
         idx.reverse_import_graph = self._build_reverse_graph(idx.import_graph)
@@ -703,6 +708,32 @@ class ProjectIndexer:
                 symbol_table[alias] = alias_targets[alias]
 
         return symbol_table
+
+    @staticmethod
+    def _normalize_symbol_name(name: str) -> str:
+        """Normalize a symbol for cross-language matching.
+
+        Strips common separators (``_``, ``-``, ``.``) and lowercases so that
+        ``UserService``, ``user_service``, and ``userService`` all collapse to
+        ``userservice``. The final component is used for qualified names
+        (``foo.bar.UserService`` -> ``userservice``).
+        """
+        tail = name.rsplit(".", 1)[-1]
+        return tail.replace("_", "").replace("-", "").lower()
+
+    def _build_normalized_symbol_index(
+        self, symbol_table: dict[str, str]
+    ) -> dict[str, list[str]]:
+        """Build normalized-name -> [canonical symbol names] lookup."""
+        out: dict[str, list[str]] = {}
+        for name in symbol_table:
+            key = self._normalize_symbol_name(name)
+            if not key:
+                continue
+            bucket = out.setdefault(key, [])
+            if name not in bucket:
+                bucket.append(name)
+        return out
 
     def _build_duplicate_classes(self, files: dict[str, StructuralMetadata]) -> dict[str, list[str]]:
         duplicates: dict[str, set[str]] = {}

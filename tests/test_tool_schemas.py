@@ -55,7 +55,9 @@ class TestToolSchemas:
         # +1 A1-2 memory_vector_reindex = 106.
         # v2.6 fusions: stats 9->1 (-8), checkpoints 6->1 (-5), clustering 4->1 (-3),
         # hotspots 3->1 (-2). Total -18 => 88 tools.
-        assert len(TOOL_SCHEMAS) == 88, f"Expected 88 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 search_in_symbols (content search + structural enclosing symbol) = 89.
+        # +1 audit_file (mega-batch: dead_code + hotspots + duplicates) = 90.
+        assert len(TOOL_SCHEMAS) == 90, f"Expected 90 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

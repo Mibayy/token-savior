@@ -101,6 +101,7 @@ class CacheManager:
                 "decorator_details": fi.decorator_details,
                 "visibility": fi.visibility,
                 "return_type": fi.return_type,
+                "scaffold_kind": fi.scaffold_kind,
             }
 
         def _ci(ci) -> dict:
@@ -200,6 +201,7 @@ class CacheManager:
                 decorator_details=d.get("decorator_details", {}),
                 visibility=d.get("visibility"),
                 return_type=d.get("return_type"),
+                scaffold_kind=d.get("scaffold_kind", ""),
             )
 
         def _ci(d: dict) -> ClassInfo:

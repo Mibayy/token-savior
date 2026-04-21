@@ -51,6 +51,9 @@ class FunctionInfo:
     decorator_details: dict[str, str] = field(default_factory=dict)
     visibility: str | None = None
     return_type: str | None = None
+    # Scaffold flag: body is pass/Ellipsis/docstring-only/raise NotImplementedError.
+    # "" unknown (legacy cache, non-py annotator), "stub" scaffold, "impl" real body.
+    scaffold_kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -244,6 +247,13 @@ class ProjectIndex:
     # the O(n) endswith fallback with an O(1) lookup when the caller passes
     # a bare filename. Refreshed alongside sorted_paths.
     basename_map: dict[str, list[str]] = field(default_factory=dict)
+
+    # Normalized-symbol index: lowercased + underscore/hyphen stripped name
+    # -> list of full symbol names present in symbol_table. Lets resolvers
+    # find `UserService` when the code actually defines `user_service`
+    # (Python) or `userService` (TS) — a partial cross-language bridge.
+    # Rebuilt alongside symbol_table.
+    normalized_symbol_index: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass

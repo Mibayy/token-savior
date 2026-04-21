@@ -40,13 +40,16 @@ def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     slot, err = state._slot_mgr.resolve(hint)
     if err:
         return [TextContent(type="text", text=f"Error: {err}")]
+    already_active = (state._slot_mgr.active_root == slot.root and slot.indexer is not None)
     state._slot_mgr.active_root = slot.root
-    state._slot_mgr.ensure(slot)
+    if not already_active:
+        state._slot_mgr.ensure(slot)
     idx = slot.indexer._project_index if slot.indexer else None
     info = f"{idx.total_files} files" if idx else "index not built"
+    prefix = "Already active" if already_active else "Switched to"
     return [TextContent(
         type="text",
-        text=f"Switched to '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
+        text=f"{prefix} '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
     )]
 
 

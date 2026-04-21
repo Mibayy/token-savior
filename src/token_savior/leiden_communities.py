@@ -191,18 +191,29 @@ class LeidenCommunities:
         }
 
     # ------------------------------------------------------------------ access
-    def get_community_for(self, symbol: str) -> dict | None:
+    def get_community_for(self, symbol: str, max_members: int = 50) -> dict | None:
         name = self.symbol_to_community.get(symbol)
         if not name:
             return None
-        members = sorted(self.communities.get(name, set()))
-        return {"name": name, "members": members, "size": len(members)}
+        all_members = sorted(self.communities.get(name, set()))
+        total = len(all_members)
+        members = all_members if max_members <= 0 else all_members[:max_members]
+        out = {"name": name, "members": members, "size": total}
+        if max_members > 0 and total > max_members:
+            out["truncated"] = total - max_members
+        return out
 
-    def get_community(self, name: str) -> dict | None:
+    def get_community(self, name: str, max_members: int = 50) -> dict | None:
         members = self.communities.get(name)
         if members is None:
             return None
-        return {"name": name, "members": sorted(members), "size": len(members)}
+        all_members = sorted(members)
+        total = len(all_members)
+        shown = all_members if max_members <= 0 else all_members[:max_members]
+        out = {"name": name, "members": shown, "size": total}
+        if max_members > 0 and total > max_members:
+            out["truncated"] = total - max_members
+        return out
 
     def get_stats(self) -> dict:
         if not self.communities:

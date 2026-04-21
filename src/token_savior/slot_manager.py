@@ -121,6 +121,10 @@ class SlotManager:
                 slot.indexer._project_index = cached_index
                 if not cached_index.sorted_paths or not cached_index.basename_map:
                     _rebuild_path_indexes(cached_index)
+                if not cached_index.normalized_symbol_index:
+                    cached_index.normalized_symbol_index = slot.indexer._build_normalized_symbol_index(
+                        cached_index.symbol_table
+                    )
                 slot.query_fns = create_project_query_functions(cached_index)
                 slot.cache_gen += 1
                 return
@@ -137,6 +141,10 @@ class SlotManager:
                 slot.indexer._project_index = cached_index
                 if not cached_index.sorted_paths or not cached_index.basename_map:
                     _rebuild_path_indexes(cached_index)
+                if not cached_index.normalized_symbol_index:
+                    cached_index.normalized_symbol_index = slot.indexer._build_normalized_symbol_index(
+                        cached_index.symbol_table
+                    )
                 slot.query_fns = create_project_query_functions(cached_index)
                 slot.cache_gen += 1
                 return

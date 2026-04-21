@@ -7,8 +7,8 @@
 > Structural code navigation + persistent memory engine for Claude Code.
 > **97% fewer tokens. Nothing forgotten between sessions.**
 
-[![Version](https://img.shields.io/badge/version-2.6.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.6.0)
-[![Tools](https://img.shields.io/badge/tools-105-green)]()
+[![Version](https://img.shields.io/badge/version-2.7.1-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.7.1)
+[![Tools](https://img.shields.io/badge/tools-90-green)]()
 [![Tests](https://img.shields.io/badge/tests-1318%2F1318-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(180%2F180)-brightgreen)](https://mibayy.github.io/token-savior/)
@@ -111,7 +111,7 @@ below are measured, not marketing.
 | Symbol staleness (content-hash linked obs) | no | **yes** |
 | ROI tracking + auto-promotion | no | **yes** |
 | MDL distillation into conventions | no | **yes** |
-| Code graph / AST navigation | no | **yes** (105 tools, cross-language) |
+| Code graph / AST navigation | no | **yes** (90 tools, cross-language) |
 | Progressive disclosure contract | no | **yes** (3 layers, ~15/60/200 tokens) |
 | Hybrid FTS + vector search (RRF) | no | **yes** |
 
@@ -175,7 +175,7 @@ feed), `TS_VIEWER_PORT` (web viewer), `TS_AUTO_EXTRACT=1` + `TS_API_KEY`
 
 ---
 
-## Tools (105)
+## Tools (90)
 
 Category counts — full catalog is served via MCP `tools/list`.
 

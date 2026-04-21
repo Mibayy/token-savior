@@ -472,7 +472,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_full_context": {
-        "description": "Full symbol context in one call: location + source + dependencies/dependents (depth=1) or + change_impact (depth=2). Batch: pass `names` (max 10) instead of `name`.",
+        "description": (
+            "Symbol: location + source + deps/dependents (depth=1) or + change_impact (depth=2). "
+            "BATCH: pass `names=[...]` (max 10) for 2+ symbols. `brief=true` for tighter deps."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -550,7 +553,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_file_dependents": {
-        "description": "List files that import from this file (reverse import graph).",
+        "description": (
+            "Files that import from this file (reverse import graph). "
+            "USE THIS instead of search_codebase('import X') for 'who depends on this module'."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -568,7 +574,38 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "search_codebase": {
-        "description": "Regex search across all indexed files. Returns up to 100 matches with file, line number, and content.",
+        "description": (
+            "Regex search across indexed files (100 matches max). Skips generated/minified "
+            "(ignore_generated=false to include). Symbol lookup: find_symbol. "
+            "Content + enclosing symbol: search_in_symbols."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regular expression pattern to search for.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default 100, 0 = unlimited).",
+                },
+                "ignore_generated": {
+                    "type": "boolean",
+                    "description": "Skip generated/minified files (default true).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["pattern"],
+        },
+    },
+    "search_in_symbols": {
+        "description": (
+            "Regex search that also returns the enclosing function/class for each "
+            "match. Use this instead of search_codebase when the next step is "
+            "probably 'read the containing symbol' — the `symbol` field in each "
+            "hit plugs directly into get_function_source / get_class_source."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -717,7 +754,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Analysis tools ────────────────────────────────────────────────────
     "analyze_config": {
-        "description": "Audit config files for issues.",
+        "description": (
+            "Audit config files (.env/.yaml/.toml/.json). Default = duplicates+secrets+orphans. "
+            "Use `checks=['orphans']` for targeted 'env vars defined but unread' (cheaper)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -781,8 +821,8 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "detect_breaking_changes": {
         "description": (
-            "Detect breaking API changes between the current code and a git ref. "
-            "Finds removed functions, removed parameters, added required parameters, and signature changes."
+            "Breaking API changes vs a git ref: removed funcs/params, added required params, "
+            "signature changes. TERMINAL — output is complete; do NOT re-explore each item."
         ),
         "inputSchema": {
             "type": "object",
@@ -815,6 +855,26 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "properties": {
                 **_PROJECT_PARAM,
             },
+        },
+    },
+    "audit_file": {
+        "description": (
+            "Mega-batch audit of a single file: dead_code + hotspots + semantic "
+            "duplicates in one call. Use when triaging or reviewing a specific "
+            "file instead of chaining three separate tool calls."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Relative path of the file to audit."},
+                "max_dead": {"type": "integer", "description": "Cap on dead-code scan (default 50)."},
+                "max_hotspots": {"type": "integer", "description": "Cap on hotspot scan (default 50)."},
+                "min_score": {"type": "number", "description": "Minimum complexity score (default 0)."},
+                "min_lines": {"type": "integer", "description": "Semantic-dup min length (default 6)."},
+                "max_dup_groups": {"type": "integer", "description": "Semantic-dup group cap (default 20)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["file_path"],
         },
     },
     "get_entry_points": {

@@ -117,6 +117,12 @@ def find_hotspots(
 ) -> str:
     """Analyse every function in the index and return a formatted complexity report.
 
+    Results are grouped into actionability tiers (0=most actionable):
+      T0  high score (>=20) AND body contains TODO/FIXME/HACK/XXX
+      T1  high score (>=30)
+      T2  medium score (>=15)
+      T3  rest
+
     Args:
         index: The project index to analyse.
         max_results: Maximum number of functions to include in the report.
@@ -127,8 +133,11 @@ def find_hotspots(
     """
     from token_savior.project_indexer import is_path_excluded_from_scans
 
-    results: list[tuple[float, int, int, int, str, int, str]] = []
-    # tuple: (score, line_count, branch_count, nesting, func_name, start_line, file_path)
+    import re as _re
+    _MARKER_RE = _re.compile(r"\b(TODO|FIXME|XXX|HACK)\b", _re.IGNORECASE)
+
+    results: list[tuple[int, float, int, int, int, str, int, str, bool]] = []
+    # tuple: (tier, score, line_count, branch_count, nesting, func_name, start_line, file_path, has_marker)
 
     for file_path, meta in index.files.items():
         if is_path_excluded_from_scans(file_path):
@@ -137,7 +146,6 @@ def find_hotspots(
             start = func.line_range.start  # 1-indexed
             end = func.line_range.end  # 1-indexed
 
-            # Extract the source lines (lines list is 0-indexed)
             func_lines = meta.lines[start - 1 : end]
 
             line_count = end - start + 1
@@ -147,38 +155,55 @@ def find_hotspots(
 
             score = _score_function(line_count, branch_count, nesting, param_count)
 
-            if score >= min_score:
-                results.append(
-                    (
-                        score,
-                        line_count,
-                        branch_count,
-                        nesting,
-                        func.qualified_name,
-                        start,
-                        file_path,
-                    )
+            if score < min_score:
+                continue
+
+            body_text = "\n".join(func_lines)
+            has_marker = bool(_MARKER_RE.search(body_text))
+
+            if score >= 20 and has_marker:
+                tier = 0
+            elif score >= 30:
+                tier = 1
+            elif score >= 15:
+                tier = 2
+            else:
+                tier = 3
+
+            results.append(
+                (
+                    tier,
+                    score,
+                    line_count,
+                    branch_count,
+                    nesting,
+                    func.qualified_name,
+                    start,
+                    file_path,
+                    has_marker,
                 )
+            )
 
     if not results:
         return "No functions found."
 
-    # Sort descending by score
-    results.sort(key=lambda r: r[0], reverse=True)
+    # Primary sort: tier asc (T0 first), then score desc.
+    results.sort(key=lambda r: (r[0], -r[1]))
     results = results[:max_results]
 
     n = len(results)
     lines_out: list[str] = [
-        f"Complexity Hotspots -- top {n} function{'s' if n != 1 else ''}",
+        f"Complexity Hotspots -- top {n} function{'s' if n != 1 else ''} (T0=most actionable)",
         "",
-        "Score | Lines | Branches | Depth | Function",
-        "------+-------+----------+-------+---------",
+        "Tier | Score | Lines | Branches | Depth | Flag | Function",
+        "-----+-------+-------+----------+-------+------+---------",
     ]
 
-    for score, line_count, branch_count, nesting, qualified_name, start_line, file_path in results:
+    for tier, score, line_count, branch_count, nesting, qualified_name, start_line, file_path, has_marker in results:
+        flag = "TODO" if has_marker else "    "
         location = f"{file_path}:{start_line} {qualified_name}()"
         lines_out.append(
-            f"{score:5.1f} | {line_count:5d} | {branch_count:8d} | {nesting:5d} | {location}"
+            f"  T{tier} | {score:5.1f} | {line_count:5d} | {branch_count:8d} | {nesting:5d} | {flag} | {location}"
         )
 
     return "\n".join(lines_out)

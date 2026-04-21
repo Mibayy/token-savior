@@ -56,6 +56,50 @@ def _base_name(node: ast.expr) -> str:
     return ast.dump(node)
 
 
+def _detect_scaffold(body: list[ast.stmt]) -> str:
+    """Classify a function body as 'stub' (scaffold) or 'impl' (real body).
+
+    A body is a stub if it contains nothing beyond:
+    - `pass`
+    - bare `...` (Ellipsis expression)
+    - a single docstring
+    - `return` / `return None`
+    - `raise NotImplementedError(...)`
+    """
+    effective: list[ast.stmt] = []
+    for i, stmt in enumerate(body):
+        if (
+            i == 0
+            and isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue  # docstring
+        effective.append(stmt)
+    if not effective:
+        return "stub"
+    for stmt in effective:
+        if isinstance(stmt, ast.Pass):
+            continue
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
+            continue
+        if isinstance(stmt, ast.Return) and (stmt.value is None or (
+            isinstance(stmt.value, ast.Constant) and stmt.value.value is None
+        )):
+            continue
+        if isinstance(stmt, ast.Raise):
+            exc = stmt.exc
+            name = None
+            if isinstance(exc, ast.Name):
+                name = exc.id
+            elif isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+                name = exc.func.id
+            if name == "NotImplementedError":
+                continue
+        return "impl"
+    return "stub"
+
+
 def _extract_function_info(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     parent_class: str | None = None,
@@ -95,6 +139,7 @@ def _extract_function_info(
         docstring=docstring,
         is_method=is_method,
         parent_class=parent_class,
+        scaffold_kind=_detect_scaffold(node.body),
     )
 
 

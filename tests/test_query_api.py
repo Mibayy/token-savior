@@ -734,13 +734,15 @@ class TestProjectQueryFunctions:
 
     def test_find_symbol_level_2_minimal(self):
         result = self.funcs["find_symbol"]("helper", level=2)
-        assert set(result.keys()) == {"name", "file", "line", "type"}
+        assert {"name", "file", "line", "type"}.issubset(result.keys())
         assert result["type"] == "function"
+        assert result.get("complete") is True
 
     def test_find_symbol_class_level_2_minimal(self):
         result = self.funcs["find_symbol"]("Engine", level=2)
-        assert set(result.keys()) == {"name", "file", "line", "type"}
+        assert {"name", "file", "line", "type"}.issubset(result.keys())
         assert result["type"] == "class"
+        assert result.get("complete") is True
 
     def test_get_dependencies(self):
         deps = self.funcs["get_dependencies"]("Engine.run")

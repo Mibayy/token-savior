@@ -694,6 +694,7 @@ class ProjectQueryEngine:
         "get_file_dependencies",
         "get_file_dependents",
         "search_codebase",
+        "search_in_symbols",
         "get_change_impact",
         "get_full_context",
         "get_routes",
@@ -989,7 +990,15 @@ class ProjectQueryEngine:
         """Source of a function at the requested abstraction level (0-3)."""
         if level and level > 0:
             return self.get_symbol_abstract(name, level=level, file_path=file_path)
-        return self._get_symbol_source(name, "function", file_path, max_lines)
+        body = self._get_symbol_source(name, "function", file_path, max_lines)
+        if body.startswith("Error:"):
+            return body
+        resolved = self._resolve_any_symbol(name, file_path)
+        if resolved is not None:
+            kind, _, sym = resolved
+            if kind == "function" and getattr(sym, "scaffold_kind", "") == "stub":
+                return f"[scaffold: stub — body is pass/docstring/NotImplementedError]\n{body}"
+        return body
 
     def get_class_source(
         self,
@@ -998,10 +1007,27 @@ class ProjectQueryEngine:
         max_lines: int = 0,
         level: int = 0,
     ) -> str:
-        """Source of a class at the requested abstraction level (0-3)."""
+        """Source of a class at the requested abstraction level (0-3).
+
+        When ``max_lines`` is 0 (caller took the default) and the class body
+        exceeds 300 lines, auto-downgrades to a method-signature summary
+        (level=2 equivalent) and appends a hint. Pass an explicit
+        ``max_lines`` or ``force_full`` flag elsewhere to override.
+        """
         if level and level > 0:
             return self.get_symbol_abstract(name, level=level, file_path=file_path)
-        return self._get_symbol_source(name, "class", file_path, max_lines)
+        source = self._get_symbol_source(name, "class", file_path, max_lines)
+        if (
+            max_lines == 0
+            and not source.startswith("Error:")
+            and source.count("\n") > 300
+        ):
+            abstract = self.get_symbol_abstract(name, level=2, file_path=file_path)
+            return (
+                f"[class too large -- {source.count(chr(10)) + 1} lines. "
+                f"Showing L2 summary; pass max_lines=N for raw source.]\n{abstract}"
+            )
+        return source
 
     # -----------------------------------------------------------------
     # Abstraction levels (L0-L3) — trade detail for tokens.
@@ -1075,10 +1101,19 @@ class ProjectQueryEngine:
         """Find where a symbol is defined: {file, line, type, signature, source_preview}.
 
         level: 0 full (preview included), 1 no source_preview, 2 minimal {name, file, line, type}.
+
+        Adds ``complete=True`` on success and ``scanned_files=N`` on the error
+        path so callers know the scan was exhaustive and they do not need to
+        fall back to grep/search_codebase.
         """
         result = self._resolve_symbol_info(name, level=level)
         if "file" not in result:
-            return {"error": f"symbol '{name}' not found"}
+            return {
+                "error": f"symbol '{name}' not found",
+                "scanned_files": len(self.index.files),
+                "complete": True,
+            }
+        result["complete"] = True
         return result
 
     def get_dependencies(
@@ -1090,6 +1125,9 @@ class ProjectQueryEngine:
         When depth>1, returns a flat ordered list with each entry tagged ``depth=N``;
         the BFS visits nodes in increasing distance from the seed and stops when
         either ``max_results`` or ``depth`` is reached. Cycles are skipped.
+
+        Appends a trailing ``{"_complete": true, "total": N}`` entry when the
+        full set was walked (no truncation).
         """
         resolved_name = self._resolve_graph_symbol_name(name)
         if resolved_name is None:
@@ -1099,13 +1137,18 @@ class ProjectQueryEngine:
             if deps is None:
                 return [{"error": f"'{name}' not found in dependency graph"}]
             result = sorted(deps)
+            total = len(result)
             if max_results > 0:
                 result = result[:max_results]
-            return [self._resolve_symbol_info(dep, strip_preview=True) for dep in result]
+            entries = [self._resolve_symbol_info(dep, strip_preview=True) for dep in result]
+            if max_results == 0 or len(entries) == total:
+                entries.append({"_complete": True, "total": total})
+            return entries
 
         seen: set[str] = {resolved_name}
         out: list[dict] = []
         frontier = [resolved_name]
+        hit_cap = False
         for layer in range(1, depth + 1):
             next_frontier: list[str] = []
             for node in frontier:
@@ -1120,22 +1163,36 @@ class ProjectQueryEngine:
                     out.append(info)
                     next_frontier.append(dep)
                     if max_results > 0 and len(out) >= max_results:
-                        return out
+                        hit_cap = True
+                        break
+                if hit_cap:
+                    break
+            if hit_cap:
+                break
             frontier = next_frontier
             if not frontier:
                 break
+        if not hit_cap:
+            out.append({"_complete": True, "total": len(out), "depth_reached": depth})
         return out
 
     def get_dependents(self, name: str, max_results: int = 0, max_total_chars: int = 50_000) -> list[dict]:
-        """What references this function/class (from reverse_dependency_graph)."""
+        """What references this function/class (from reverse_dependency_graph).
+
+        Appends a trailing ``{"_complete": true, "total": N}`` entry when the
+        full set was returned (no truncation), so callers know no further
+        scanning is needed.
+        """
         resolved_name, deps = self._resolve_dep_name(name)
         if deps is None:
             return [{"error": f"'{name}' not found in reverse dependency graph"}]
         result = sorted(deps)
+        total = len(result)
         if max_results > 0:
             result = result[:max_results]
-        entries = []
+        entries: list[dict] = []
         chars_used = 0
+        truncated = False
         for dep in result:
             entry = self._resolve_symbol_info(dep, strip_preview=True)
             entry_len = len(str(entry))
@@ -1145,11 +1202,14 @@ class ProjectQueryEngine:
                     "message": f"... output truncated at {max_total_chars} chars. "
                     "Use max_results to narrow the scope.",
                     "shown": len(entries),
-                    "total": len(result),
+                    "total": total,
                 })
+                truncated = True
                 break
             chars_used += entry_len
             entries.append(entry)
+        if not truncated and (max_results == 0 or len(entries) == total):
+            entries.append({"_complete": True, "total": total})
         return entries
 
     def get_call_chain(self, from_name: str, to_name: str, level: int = 2) -> dict:
@@ -1243,12 +1303,19 @@ class ProjectQueryEngine:
         pattern: str,
         max_results: int = 100,
         max_line_chars: int = 160,
+        ignore_generated: bool = True,
     ) -> list[dict]:
         """Regex across all files, returns [{file, line_number, content}].
 
         Each hit's `content` is truncated to `max_line_chars` (default 160,
         suffixed with "…") so verbose matches like long comment lines don't
         explode the response. Pass 0 to disable truncation.
+
+        ``ignore_generated`` (default True) filters out files that are
+        typically auto-generated or minified — ``*.generated.*``, ``*.min.*``,
+        ``*.pb.*``, ``*.proto``, ``dist/``, ``build/``, ``.next/``,
+        ``node_modules/`` — so Prisma/proto schema lookups don't drown in
+        boilerplate hits. Pass False to scan everything.
         """
         from token_savior.project_indexer import is_path_excluded_from_scans
 
@@ -1259,6 +1326,18 @@ class ProjectQueryEngine:
         limit = max_results if max_results > 0 else 0
         char_cap = max_line_chars if max_line_chars and max_line_chars > 0 else 0
 
+        _GEN_MARKERS = (
+            ".generated.", ".min.", ".pb.",
+            "/dist/", "/build/", "/.next/", "/node_modules/",
+        )
+        _GEN_SUFFIXES = (".proto",)
+
+        def _is_generated(path: str) -> bool:
+            p = "/" + path.lstrip("/")
+            if any(m in p for m in _GEN_MARKERS):
+                return True
+            return any(path.endswith(s) for s in _GEN_SUFFIXES)
+
         def _trim(line: str) -> str:
             if char_cap and len(line) > char_cap:
                 return line[:char_cap] + "…"
@@ -1266,6 +1345,8 @@ class ProjectQueryEngine:
 
         raw_paths = self.index.sorted_paths or sorted(self.index.files.keys())
         paths = [p for p in raw_paths if not is_path_excluded_from_scans(p)]
+        if ignore_generated:
+            paths = [p for p in paths if not _is_generated(p)]
         files = self.index.files
 
         def _scan(path: str) -> list[dict]:
@@ -1278,8 +1359,6 @@ class ProjectQueryEngine:
                         break
             return hits
 
-        # Small project or no limit check needed: direct loop is faster than
-        # paying the ThreadPoolExecutor overhead.
         if len(paths) <= 8:
             results: list[dict] = []
             for path in paths:
@@ -1293,7 +1372,6 @@ class ProjectQueryEngine:
 
         results = []
         with ThreadPoolExecutor(max_workers=4) as pool:
-            # submit in batches so we can stop early when limit reached
             BATCH = 16
             for i in range(0, len(paths), BATCH):
                 batch_paths = paths[i : i + BATCH]
@@ -1303,6 +1381,61 @@ class ProjectQueryEngine:
                         if limit and len(results) >= limit:
                             return results
         return results
+
+    def search_in_symbols(
+        self,
+        pattern: str,
+        max_results: int = 100,
+        max_line_chars: int = 160,
+    ) -> list[dict]:
+        """Content search that returns STRUCTURAL locations.
+
+        Same regex as ``search_codebase`` but each hit is annotated with the
+        enclosing function/class, so the caller can jump straight to
+        ``get_function_source(symbol)`` instead of pasting random line
+        numbers. Lines outside any function/class are returned with
+        ``symbol=None, kind="module"`` so they are still actionable.
+        """
+        raw_hits = self.search_codebase(pattern, max_results=max_results, max_line_chars=max_line_chars)
+        if raw_hits and isinstance(raw_hits[0], dict) and "error" in raw_hits[0]:
+            return raw_hits
+
+        files = self.index.files
+        out: list[dict] = []
+        for hit in raw_hits:
+            path = hit.get("file")
+            line = hit.get("line_number")
+            if not path or line is None or path not in files:
+                out.append(hit)
+                continue
+            meta = files[path]
+            enclosing_sym: str | None = None
+            enclosing_kind: str = "module"
+            # Methods first (more specific than classes).
+            for cls in meta.classes:
+                if cls.line_range.start <= line <= cls.line_range.end:
+                    enclosing_sym = cls.qualified_name or cls.name
+                    enclosing_kind = "class"
+                    for m in cls.methods:
+                        if m.line_range.start <= line <= m.line_range.end:
+                            enclosing_sym = m.qualified_name
+                            enclosing_kind = "method"
+                            break
+                    break
+            if enclosing_sym is None:
+                for func in meta.functions:
+                    if func.is_method:
+                        continue
+                    if func.line_range.start <= line <= func.line_range.end:
+                        enclosing_sym = func.qualified_name
+                        enclosing_kind = "function"
+                        break
+            out.append({
+                **hit,
+                "symbol": enclosing_sym,
+                "kind": enclosing_kind,
+            })
+        return out
 
     def get_change_impact(
         self, name: str, max_direct: int = 0, max_transitive: int = 0, max_total_chars: int = 50_000
@@ -1376,6 +1509,7 @@ class ProjectQueryEngine:
         name: str,
         depth: int = 1,
         max_lines: int = 200,
+        brief: bool = False,
     ) -> dict:
         """Symbol location + source + optional dep graph, in one call.
 
@@ -1385,6 +1519,10 @@ class ProjectQueryEngine:
         depth=0 : {symbol, source}
         depth=1 : {symbol, source, dependencies, dependents}   (default)
         depth=2 : + {change_impact}
+
+        ``brief=True`` tightens the dependency lists (12 entries, 4000 char budget)
+        so the structural view fits in a few hundred tokens when the agent only
+        needs a quick orientation.
         """
         symbol = self.find_symbol(name, level=2)
         if "error" in symbol or "file" not in symbol:
@@ -1404,13 +1542,15 @@ class ProjectQueryEngine:
         if depth <= 0:
             return result
 
+        deps_cap = 12 if brief else 20
+        chars_cap = 4000 if brief else 8000
         try:
-            result["dependencies"] = self.get_dependencies(name, max_results=20)
+            result["dependencies"] = self.get_dependencies(name, max_results=deps_cap)
         except Exception as exc:  # pragma: no cover
             result["dependencies"] = [{"error": str(exc)}]
         try:
             result["dependents"] = self.get_dependents(
-                name, max_results=20, max_total_chars=8000
+                name, max_results=deps_cap, max_total_chars=chars_cap
             )
         except Exception as exc:  # pragma: no cover
             result["dependents"] = [{"error": str(exc)}]
@@ -1419,9 +1559,9 @@ class ProjectQueryEngine:
             try:
                 result["change_impact"] = self.get_change_impact(
                     name,
-                    max_direct=20,
-                    max_transitive=30,
-                    max_total_chars=8000,
+                    max_direct=deps_cap,
+                    max_transitive=30 if not brief else 15,
+                    max_total_chars=chars_cap,
                 )
             except Exception as exc:  # pragma: no cover
                 result["change_impact"] = {"error": str(exc)}
@@ -1452,10 +1592,28 @@ class ProjectQueryEngine:
 
     def get_routes(self, max_results: int = 0) -> list[dict]:
         """Detect API routes and pages from the project structure.
-        Returns [{route, file, methods, type}] for Next.js App Router,
-        Spring controllers, and similar frameworks."""
+        Returns [{route, file, methods, type, stub?}] for Next.js App Router,
+        Spring controllers, and similar frameworks. `stub` flags a handler
+        whose body is a scaffold (pass / NotImplementedError / empty / TODO)."""
         routes: list[dict] = []
         seen_route_keys: set[tuple[str, str, str, int]] = set()
+
+        def _fn_is_stub(meta, func) -> bool:
+            if getattr(func, "scaffold_kind", "") == "stub":
+                return True
+            if getattr(func, "scaffold_kind", "") == "impl":
+                return False
+            try:
+                body = "\n".join(meta.lines[func.line_range.start - 1 : func.line_range.end])
+            except Exception:
+                return False
+            low = body.lower()
+            if "not implemented" in low or "todo" in low or "fixme" in low:
+                return True
+            stripped = [ln.strip() for ln in body.splitlines() if ln.strip()]
+            if len(stripped) <= 2:
+                return True
+            return False
 
         def add_route(route: dict) -> None:
             methods = route.get("methods") or [""]
@@ -1471,13 +1629,13 @@ class ProjectQueryEngine:
         for path, meta in self.index.files.items():
             # Next.js App Router: app/**/route.ts -> API route
             if "/route." in path and ("app/" in path or "pages/api/" in path):
-                # Extract HTTP methods from exported functions
                 methods = []
+                stub_flags: list[bool] = []
                 for func in meta.functions:
                     upper = func.name.upper()
                     if upper in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
                         methods.append(upper)
-                # Derive the route path from file path
+                        stub_flags.append(_fn_is_stub(meta, func))
                 route_path = path
                 for prefix in ("app/", "src/app/"):
                     if prefix in route_path:
@@ -1486,16 +1644,16 @@ class ProjectQueryEngine:
                 route_path = route_path.rsplit("/route.", 1)[0]
                 if not route_path:
                     route_path = "/"
-                add_route(
-                    {
-                        "route": route_path,
-                        "file": path,
-                        "methods": methods or ["GET"],
-                        "type": "api",
-                        "line": 1,
-                    }
-                )
-            # Next.js App Router: app/**/page.tsx -> Page
+                entry = {
+                    "route": route_path,
+                    "file": path,
+                    "methods": methods or ["GET"],
+                    "type": "api",
+                    "line": 1,
+                }
+                if stub_flags and all(stub_flags):
+                    entry["stub"] = True
+                add_route(entry)
             elif "/page." in path and "app/" in path:
                 route_path = path
                 for prefix in ("app/", "src/app/"):
@@ -1514,7 +1672,6 @@ class ProjectQueryEngine:
                         "line": 1,
                     }
                 )
-            # Next.js App Router: app/**/layout.tsx -> Layout
             elif "/layout." in path and "app/" in path:
                 route_path = path
                 for prefix in ("app/", "src/app/"):
@@ -1542,17 +1699,19 @@ class ProjectQueryEngine:
                             continue
                         mappings = _extract_spring_method_mappings(meta, func)
                         decl_line = _spring_method_declaration_line(meta, func)
+                        is_stub = _fn_is_stub(meta, func)
                         for methods, method_paths in mappings:
                             for route_path in _combine_route_paths(class_paths, method_paths):
-                                add_route(
-                                    {
-                                        "route": route_path,
-                                        "file": path,
-                                        "methods": methods,
-                                        "type": "api",
-                                        "line": decl_line,
-                                    }
-                                )
+                                entry = {
+                                    "route": route_path,
+                                    "file": path,
+                                    "methods": methods,
+                                    "type": "api",
+                                    "line": decl_line,
+                                }
+                                if is_stub:
+                                    entry["stub"] = True
+                                add_route(entry)
         routes.sort(key=lambda r: (r["type"], r["route"], r["file"], r.get("line", 1)))
         if max_results > 0:
             routes = routes[:max_results]
@@ -2152,8 +2311,15 @@ class ProjectQueryEngine:
         variable: str,
         line: int,
         file_path: str | None = None,
+        max_symbol_lines: int = 500,
     ) -> str:
-        """Backward slice of *variable* at *line* (1-based, absolute) inside symbol *name*."""
+        """Backward slice of *variable* at *line* (1-based, absolute) inside symbol *name*.
+
+        Refuses to run on symbols larger than ``max_symbol_lines`` (default 500)
+        to avoid the multi-second CFG walks seen in bench TASK-050. Pass a
+        larger cap explicitly if you need it, or narrow the slice by calling
+        on a smaller enclosing function first.
+        """
         from token_savior.program_slicer import backward_slice
 
         resolved = self._resolve_any_symbol(name, file_path)
@@ -2168,10 +2334,17 @@ class ProjectQueryEngine:
                 f"Error: line {line} is outside symbol '{name}' (lines {start}-{end})"
             )
 
+        symbol_size = end - start + 1
+        if max_symbol_lines and symbol_size > max_symbol_lines:
+            return (
+                f"Error: symbol '{name}' is {symbol_size} lines "
+                f"(cap {max_symbol_lines}). Narrow to a smaller enclosing "
+                f"function, or raise max_symbol_lines explicitly."
+            )
+
         body_lines = meta.lines[start - 1 : end]
         source = "\n".join(body_lines)
 
-        # backward_slice works on 1-based lines relative to *source*, so map.
         relative_line = line - start + 1
         result = backward_slice(source, variable, relative_line)
 
@@ -2316,6 +2489,10 @@ class ProjectQueryEngine:
         the returned dict. Used by list-producing tools (get_dependents,
         get_dependencies, get_call_chain) where each entry is a pointer — the
         caller can fetch the body via get_function_source when needed.
+
+        Cross-language partial fallback: when the exact name misses, try the
+        normalized-name index so ``UserService`` matches ``user_service`` /
+        ``userService`` across Python and TS.
         """
         def _strip(info: dict) -> dict:
             if strip_preview and isinstance(info, dict):
@@ -2364,6 +2541,28 @@ class ProjectQueryEngine:
                 "name": name,
                 "error": f"function '{name}' is ambiguous; use a fully qualified signature",
             }
+        # Cross-language partial fallback via normalized-name index.
+        norm_idx = getattr(index, "normalized_symbol_index", None) or {}
+        if norm_idx:
+            key = name.rsplit(".", 1)[-1].replace("_", "").replace("-", "").lower()
+            candidates = norm_idx.get(key) or []
+            candidates = [c for c in candidates if c != name]
+            if len(candidates) == 1:
+                info = self._resolve_symbol_info(
+                    candidates[0], level=level, strip_preview=strip_preview
+                )
+                if "file" in info:
+                    info["matched_via"] = f"normalized:{candidates[0]}"
+                    return info
+            elif len(candidates) > 1:
+                return {
+                    "name": name,
+                    "error": (
+                        f"no exact match; normalized-name candidates "
+                        f"({len(candidates)}): {', '.join(candidates[:5])}"
+                    ),
+                    "normalized_candidates": candidates[:10],
+                }
         return {"name": name}
 
     def _resolve_dep_name(self, name: str) -> tuple[str, set | None]:
