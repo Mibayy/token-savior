@@ -252,14 +252,23 @@ footer .tag a:hover{color:var(--text)}
 .reveal.in{opacity:1;transform:none}
 
 /* ═══ CONFIG PICKER (dual: left base · right TS) ═══ */
-.config-picker{display:inline-flex;align-items:center;gap:14px;padding:8px;border:1px solid var(--border);border-radius:18px;background:rgba(7,7,14,.55);backdrop-filter:blur(14px);margin-bottom:28px;font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center}
-.cp-side{display:inline-flex;align-items:center;gap:0;padding:3px;border-radius:999px;background:rgba(255,255,255,.015);border:1px solid var(--border)}
+.picker-shell{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:32px}
+.picker-caption{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.16em;display:inline-flex;align-items:center;gap:10px}
+.picker-caption i{display:inline-block;width:18px;height:1px;background:var(--text3)}
+.config-picker{display:flex;align-items:stretch;gap:14px;padding:10px;border:1px solid var(--border2);border-radius:22px;background:rgba(7,7,14,.65);backdrop-filter:blur(14px);font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center;max-width:100%}
+.cp-side{display:flex;flex-direction:column;gap:6px;padding:10px 12px 8px;border-radius:16px;background:rgba(255,255,255,.015);border:1px solid var(--border);min-width:240px}
 .cp-side.left{box-shadow:inset 0 0 0 1px rgba(244,63,94,.22)}
 .cp-side.right{box-shadow:inset 0 0 0 1px rgba(163,230,53,.22)}
-.cp-label{font-size:.62rem;text-transform:uppercase;letter-spacing:.14em;padding:0 10px 0 8px;color:var(--text3)}
-.cp-side.left .cp-label{color:var(--rose)}
-.cp-side.right .cp-label{color:var(--lime)}
-.cp-btn{position:relative;padding:8px 14px;font-size:.72rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
+.cp-side-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.cp-title{font-size:.72rem;font-weight:600;letter-spacing:.04em}
+.cp-side.left .cp-title{color:var(--rose)}
+.cp-side.right .cp-title{color:var(--lime)}
+.cp-title .cp-badge{display:inline-block;padding:1px 7px;margin-right:6px;border-radius:4px;font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.cp-side.left .cp-badge{background:rgba(244,63,94,.18);color:#ffb4c2}
+.cp-side.right .cp-badge{background:rgba(163,230,53,.18);color:#d5f58c}
+.cp-hint{font-size:.62rem;color:var(--text3);text-transform:lowercase;letter-spacing:.04em;font-family:'Geist',sans-serif;font-style:italic}
+.cp-buttons{display:inline-flex;align-items:center;gap:0;padding:3px;border-radius:999px;background:rgba(0,0,0,.2);border:1px solid var(--border)}
+.cp-btn{position:relative;padding:7px 13px;font-size:.7rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
 .cp-btn:hover{color:var(--text)}
 .cp-side.left .cp-btn.active{background:linear-gradient(135deg,#f43f5e,#ec4899);color:#fff;font-weight:600}
 .cp-side.right .cp-btn.active{background:linear-gradient(135deg,#a3e635,#22d3ee);color:#04040a;font-weight:600}
@@ -268,8 +277,15 @@ footer .tag a:hover{color:var(--text)}
 .cp-btn .cp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
 .cp-btn .cp-dot.empty{background:var(--text3)}
 .cp-btn.active .cp-dot{box-shadow:none}
-.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:1.15rem;color:var(--text3);padding:0 2px}
-@media(max-width:720px){.config-picker{gap:8px;padding:6px}.cp-btn{padding:7px 11px;font-size:.66rem}.cp-label{padding:0 8px 0 6px;font-size:.58rem}.cp-vs{font-size:.95rem}}
+.cp-vs-col{display:flex;align-items:center;justify-content:center;align-self:center}
+.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:1.6rem;color:var(--text2);padding:0 2px;line-height:1}
+.picker-recap{font-family:'Geist Mono',monospace;font-size:.76rem;color:var(--text2);display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;padding:10px 18px;border-radius:999px;background:rgba(255,255,255,.015);border:1px solid var(--border);max-width:680px}
+.picker-recap .r-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(0,0,0,.25)}
+.picker-recap .r-chip.a{color:#ffc4ce;border:1px solid rgba(244,63,94,.3)}
+.picker-recap .r-chip.b{color:#d7f891;border:1px solid rgba(163,230,53,.3)}
+.picker-recap .r-sep{color:var(--text3);font-style:italic;font-family:'Instrument Serif',serif;font-size:.95rem}
+.picker-recap .r-tools{color:var(--text3);font-size:.68rem}
+@media(max-width:720px){.cp-side{min-width:0;width:100%}.cp-vs-col{width:100%;padding:2px 0}.cp-btn{padding:7px 10px;font-size:.64rem}.picker-recap{font-size:.68rem}}
 
 /* ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ */
 .matchup{padding:40px 24px 80px}
@@ -336,20 +352,34 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="config-picker" role="group" aria-label="Pick configurations to compare">
-    <div class="cp-side left" role="tablist" aria-label="Left — baseline (no TS)">
-      <span class="cp-label">A · base</span>
-      <button class="cp-btn" data-side="left" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku</button>
-      <button class="cp-btn" data-side="left" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet</button>
-      <button class="cp-btn active" data-side="left" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus</button>
+  <div class="picker-shell">
+    <div class="picker-caption"><i></i>pick two agents to compare<i></i></div>
+    <div class="config-picker" role="group" aria-label="Pick configurations to compare">
+      <div class="cp-side left" role="tablist" aria-label="Agent A — plain, no Token Savior">
+        <div class="cp-side-head">
+          <div class="cp-title"><span class="cp-badge">A</span>plain agent</div>
+          <div class="cp-hint">Read · Grep · Bash</div>
+        </div>
+        <div class="cp-buttons">
+          <button class="cp-btn" data-side="left" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku 4.5</button>
+          <button class="cp-btn" data-side="left" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
+          <button class="cp-btn active" data-side="left" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
+        </div>
+      </div>
+      <div class="cp-vs-col"><span class="cp-vs">vs</span></div>
+      <div class="cp-side right" role="tablist" aria-label="Agent B — same model wired to Token Savior">
+        <div class="cp-side-head">
+          <div class="cp-title"><span class="cp-badge">B</span>+ token savior</div>
+          <div class="cp-hint">+ 59 structural MCP tools</div>
+        </div>
+        <div class="cp-buttons">
+          <button class="cp-btn" data-side="right" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku 4.5</button>
+          <button class="cp-btn" data-side="right" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
+          <button class="cp-btn active" data-side="right" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
+        </div>
+      </div>
     </div>
-    <span class="cp-vs">vs</span>
-    <div class="cp-side right" role="tablist" aria-label="Right — Token Savior">
-      <span class="cp-label">B · TS</span>
-      <button class="cp-btn" data-side="right" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku</button>
-      <button class="cp-btn" data-side="right" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet</button>
-      <button class="cp-btn active" data-side="right" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus</button>
-    </div>
+    <div class="picker-recap" id="pickerRecap" aria-live="polite"></div>
   </div>
   <div class="hero-eyebrow"><i></i><span id="heroEyebrow">90 tasks · Claude Opus 4.7 · paired runs</span></div>
   <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
@@ -1562,6 +1592,18 @@ function renderPicker(){
     const picked = side === 'left' ? leftModel : rightModel;
     btn.classList.toggle('active', model === picked);
   });
+  // plain-language recap below the picker
+  const recap = document.getElementById('pickerRecap');
+  if(recap){
+    const same = leftModel === rightModel;
+    recap.innerHTML =
+      `<span class="r-chip a">A · ${MODEL_LABEL_FULL[leftModel]}</span>` +
+      `<span class="r-sep">vs</span>` +
+      `<span class="r-chip b">B · ${MODEL_LABEL_FULL[rightModel]} + Token Savior</span>` +
+      (same
+        ? `<span class="r-tools">same model · only tools differ</span>`
+        : `<span class="r-tools">cross-model comparison</span>`);
+  }
 }
 
 function renderPending(sBase, sTs){
