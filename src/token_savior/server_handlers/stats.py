@@ -1,10 +1,9 @@
 """Handlers for stats/observability tools and the _usage_* formatting helpers.
 
-Covers the 12 _hm_get_* meta-handlers (get_usage_stats, get_session_budget,
-get_coactive_symbols, get_tca_stats, get_dcp_stats, get_community,
-get_linucb_stats, get_warmstart_stats, get_leiden_stats,
-get_speculation_stats, get_lattice_stats, get_call_predictions) plus the
-18 _usage_* section builders and _format_usage_stats / _format_duration.
+Public tools: get_stats (fused 9 categories), get_related_symbols
+(fused 4 clustering methods), get_call_predictions. Internal handlers are
+the _hm_get_* functions plus the 18 _usage_* section builders used by
+_format_usage_stats.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ def _usage_tool_counts() -> list[str]:
     if not state._tool_call_counts:
         return []
     top_tools = sorted(
-        ((t, c) for t, c in state._tool_call_counts.items() if t != "get_usage_stats"),
+        ((t, c) for t, c in state._tool_call_counts.items() if t != "get_stats"),
         key=lambda x: -x[1],
     )
     tool_str = ", ".join(f"{t}:{c}" for t, c in top_tools[:8])
@@ -349,7 +348,7 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     """Format session usage statistics, optionally with cumulative history."""
     elapsed = time.time() - state._session_start
     total_calls = sum(state._tool_call_counts.values())
-    query_calls = total_calls - state._tool_call_counts.get("get_usage_stats", 0)
+    query_calls = total_calls - state._tool_call_counts.get("get_stats", 0)
 
     source_chars = 0
     for slot in state._slot_mgr.projects.values():
@@ -592,17 +591,96 @@ def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextConten
     return [TextContent(type="text", text="\n".join(lines))]
 
 
+def _hm_get_related_symbols(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Unified dispatcher: community / rwr / cluster / coactive."""
+    method = (arguments.get("method") or "community").strip().lower()
+
+    if method == "coactive":
+        return _hm_get_coactive_symbols(arguments)
+
+    if method == "community":
+        sym = arguments.get("name") or arguments.get("symbol")
+        cname = arguments.get("community_name") or (
+            arguments.get("name") if arguments.get("list_all") else None
+        )
+        list_all = bool(arguments.get("list_all", False))
+        if list_all or (not sym and not cname):
+            return _hm_get_community({
+                "list_all": True,
+                "min_size": arguments.get("min_size", 2),
+                "max_results": arguments.get("max_results", 30),
+                "max_members_preview": arguments.get("max_members_preview", 8),
+            })
+        return _hm_get_community({"symbol": sym, "name": cname})
+
+    if method in ("rwr", "cluster"):
+        import json
+        from token_savior import server_state as st_mod
+        from token_savior.server_runtime import _prep
+
+        name = (arguments.get("name") or "").strip()
+        if not name:
+            return [TextContent(
+                type="text",
+                text=f"Error: 'name' required for method='{method}'.",
+            )]
+        slot, err = st_mod._slot_mgr.resolve(arguments.get("project"))
+        if err or slot is None:
+            return [TextContent(type="text", text=f"Error: {err or 'no slot'}")]
+        _prep(slot)
+        if slot.query_fns is None:
+            return [TextContent(
+                type="text",
+                text=f"Error: index not built for '{slot.root}'. Call reindex first.",
+            )]
+        qfns = slot.query_fns
+        if method == "cluster":
+            result = qfns["get_symbol_cluster"](
+                name, max_members=int(arguments.get("max_members", 30)),
+            )
+        else:
+            result = qfns["get_relevance_cluster"](
+                name,
+                budget=int(arguments.get("budget", 10)),
+                include_reverse=bool(arguments.get("include_reverse", True)),
+            )
+        if isinstance(result, str):
+            return [TextContent(type="text", text=result)]
+        return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+    return [TextContent(
+        type="text",
+        text=f"Unknown method '{method}'. Valid: community, rwr, cluster, coactive.",
+    )]
+
+
+_STATS_CATEGORIES: dict[str, Any] = {
+    "usage": _hm_get_usage_stats,
+    "session_budget": _hm_get_session_budget,
+    "tca": _hm_get_tca_stats,
+    "dcp": _hm_get_dcp_stats,
+    "linucb": _hm_get_linucb_stats,
+    "warmstart": _hm_get_warmstart_stats,
+    "leiden": _hm_get_leiden_stats,
+    "speculation": _hm_get_speculation_stats,
+    "lattice": _hm_get_lattice_stats,
+}
+
+
+def _hm_get_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
+    category = (arguments.get("category") or "usage").strip().lower()
+    handler = _STATS_CATEGORIES.get(category)
+    if handler is None:
+        valid = ", ".join(sorted(_STATS_CATEGORIES))
+        return [TextContent(
+            type="text",
+            text=f"Unknown stats category '{category}'. Valid: {valid}.",
+        )]
+    return handler(arguments)
+
+
 HANDLERS: dict[str, Any] = {
-    "get_usage_stats": _hm_get_usage_stats,
-    "get_session_budget": _hm_get_session_budget,
-    "get_coactive_symbols": _hm_get_coactive_symbols,
-    "get_tca_stats": _hm_get_tca_stats,
-    "get_dcp_stats": _hm_get_dcp_stats,
-    "get_community": _hm_get_community,
-    "get_linucb_stats": _hm_get_linucb_stats,
-    "get_warmstart_stats": _hm_get_warmstart_stats,
-    "get_leiden_stats": _hm_get_leiden_stats,
-    "get_speculation_stats": _hm_get_speculation_stats,
-    "get_lattice_stats": _hm_get_lattice_stats,
+    "get_stats": _hm_get_stats,
+    "get_related_symbols": _hm_get_related_symbols,
     "get_call_predictions": _hm_get_call_predictions,
 }

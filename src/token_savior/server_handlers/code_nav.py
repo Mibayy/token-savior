@@ -649,9 +649,6 @@ QFN_HANDLERS: dict[str, object] = {
         a["keyword"], max_results=a.get("max_results", 0)
     ),
     "get_entry_points": lambda q, a: q["get_entry_points"](max_results=a.get("max_results", 20)),
-    "get_symbol_cluster": lambda q, a: q["get_symbol_cluster"](
-        a["name"], max_members=a.get("max_members", 30)
-    ),
     "get_backward_slice": lambda q, a: q["get_backward_slice"](
         a["name"], a["variable"], a["line"], file_path=a.get("file_path")
     ),
@@ -659,11 +656,6 @@ QFN_HANDLERS: dict[str, object] = {
         a["query"],
         budget_tokens=a.get("budget_tokens", 4000),
         max_symbols=a.get("max_symbols", 20),
-    ),
-    "get_relevance_cluster": lambda q, a: q["get_relevance_cluster"](
-        a["name"],
-        budget=a.get("budget", 10),
-        include_reverse=a.get("include_reverse", True),
     ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 2),

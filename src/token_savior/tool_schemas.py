@@ -91,83 +91,45 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["changed_files"],
         },
     },
-    # ── Checkpoints ───────────────────────────────────────────────────────
-    "create_checkpoint": {
-        "description": "Create a compact checkpoint for a bounded set of files before a workflow mutation.",
+    # ── Checkpoints (unified) ─────────────────────────────────────────────
+    "checkpoint": {
+        "description": (
+            "Unified checkpoint CRUD. Pass op to select:\n"
+            "  - create: snapshot a bounded set of files (requires file_paths)\n"
+            "  - list (default): list available checkpoints for active project\n"
+            "  - restore: revert files from a checkpoint (requires checkpoint_id)\n"
+            "  - delete: remove one checkpoint (requires checkpoint_id)\n"
+            "  - prune: keep only the newest N checkpoints (keep_last, default 10)\n"
+            "  - compare: symbol-level diff of a checkpoint vs current files "
+            "(requires checkpoint_id)"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "op": {
+                    "type": "string",
+                    "enum": ["create", "list", "restore", "delete", "prune", "compare"],
+                    "description": "Operation to perform (default 'list').",
+                },
                 "file_paths": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Project files to save into the checkpoint.",
+                    "description": "For op=create: project files to snapshot.",
                 },
-                **_PROJECT_PARAM,
-            },
-            "required": ["file_paths"],
-        },
-    },
-    "list_checkpoints": {
-        "description": "List available checkpoints for the active project.",
-        "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
-    },
-    "delete_checkpoint": {
-        "description": "Delete a specific checkpoint.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
                 "checkpoint_id": {
                     "type": "string",
-                    "description": "Checkpoint identifier to delete.",
+                    "description": "For op=restore/delete/compare: checkpoint identifier.",
                 },
-                **_PROJECT_PARAM,
-            },
-            "required": ["checkpoint_id"],
-        },
-    },
-    "prune_checkpoints": {
-        "description": "Keep only the newest N checkpoints and delete older ones.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
                 "keep_last": {
                     "type": "integer",
-                    "description": "How many recent checkpoints to keep (default 10).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "restore_checkpoint": {
-        "description": "Restore files from a previously created checkpoint.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "checkpoint_id": {
-                    "type": "string",
-                    "description": "Checkpoint identifier returned by create_checkpoint.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["checkpoint_id"],
-        },
-    },
-    "compare_checkpoint_by_symbol": {
-        "description": "Compare a checkpoint against current files at symbol level, returning added/removed/changed symbols without a textual diff.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "checkpoint_id": {
-                    "type": "string",
-                    "description": "Checkpoint identifier returned by create_checkpoint.",
+                    "description": "For op=prune: how many recent checkpoints to keep (default 10).",
                 },
                 "max_files": {
                     "type": "integer",
-                    "description": "Maximum files to compare (default 20).",
+                    "description": "For op=compare: max files compared (default 20).",
                 },
                 **_PROJECT_PARAM,
             },
-            "required": ["checkpoint_id"],
         },
     },
     # ── Structural edits ──────────────────────────────────────────────────
@@ -663,10 +625,42 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["keyword"],
         },
     },
-    # ── Usage stats ───────────────────────────────────────────────────────
-    "get_usage_stats": {
-        "description": "Session efficiency stats: tool calls, characters returned vs total source, estimated token savings.",
-        "inputSchema": {"type": "object", "properties": {}},
+    # ── Stats (unified) ───────────────────────────────────────────────────
+    "get_stats": {
+        "description": (
+            "Unified stats dispatcher. Pass category to select which subsystem:\n"
+            "  - usage (default): session efficiency, tool calls, chars saved\n"
+            "  - session_budget: current session token budget consumption\n"
+            "  - tca: co-activation matrix (symbols tracked, top pairs)\n"
+            "  - dcp: differential context protocol chunk registry\n"
+            "  - linucb: injection model feature weights θ\n"
+            "  - warmstart: cross-session signature store\n"
+            "  - leiden: community detector (modularity Q, sizes)\n"
+            "  - speculation: speculative tool-tree execution stats\n"
+            "  - lattice: adaptive Beta-Binomial posteriors per (context, level)"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "usage", "session_budget", "tca", "dcp", "linucb",
+                        "warmstart", "leiden", "speculation", "lattice",
+                    ],
+                    "description": "Which stats subsystem to report (default 'usage').",
+                },
+                "context_type": {
+                    "type": "string",
+                    "description": "For category=lattice: filter to one context (navigation/edit/review/unknown).",
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "For category=session_budget: soft budget cap (default 200000).",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
     },
     # ── Routes, Env, Components ───────────────────────────────────────────
     "get_routes": {
@@ -753,59 +747,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_hotspots": {
         "description": (
-            "Rank functions by complexity score (line count, branching, nesting depth, parameter count). "
-            "Helps identify code that needs refactoring."
+            "Rank functions by a chosen *kind* of hotspot.\n"
+            "  • complexity  — all languages: line count, branching, nesting, params (default min_score 0).\n"
+            "  • allocation  — Java only: object/collection/stream allocation, boxing, formatting (default min_score 1).\n"
+            "  • performance — Java only: blocking calls, locks, synchronized sections, mutable state (default min_score 1).\n"
+            "Replaces find_allocation_hotspots / find_performance_hotspots."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["complexity", "allocation", "performance"],
+                    "description": "Hotspot category (default 'complexity').",
+                },
                 "max_results": {
                     "type": "integer",
                     "description": "Maximum number of functions to report (default: 20).",
                 },
                 "min_score": {
                     "type": "number",
-                    "description": "Minimum complexity score to include (default: 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "find_allocation_hotspots": {
-        "description": (
-            "Rank Java functions by allocation-heavy ULL antipatterns such as object construction, "
-            "collection creation, stream pipelines, boxing helpers, and formatting."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of Java functions to report (default: 20).",
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Minimum allocation score to include (default: 1).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "find_performance_hotspots": {
-        "description": (
-            "Rank Java functions by non-allocation ULL antipatterns such as blocking calls, locks, "
-            "synchronized sections, blocking I/O, and shared mutable state without cache-line padding."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of Java functions to report (default: 20).",
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Minimum performance score to include (default: 1).",
+                    "description": "Minimum score to include (default: 0 for complexity, 1 for Java kinds).",
                 },
                 **_PROJECT_PARAM,
             },
@@ -862,27 +824,62 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "get_symbol_cluster": {
+    "get_related_symbols": {
         "description": (
-            "Get the functional cluster for a symbol -- all closely related symbols "
-            "grouped by community detection on the dependency graph. Useful for "
-            "understanding which symbols belong to the same functional area without "
-            "chaining multiple dependency queries."
+            "Unified related-symbols query. Choose *method*:\n"
+            "  • community  — Leiden community for `name` (or `list_all=true` to enumerate all).\n"
+            "  • rwr        — Random-walk-with-restart ranking centred on `name` (catches multi-hop).\n"
+            "  • cluster    — Greedy-modularity cluster for `name` (dependency graph).\n"
+            "  • coactive   — TCA co-activation (symbols often accessed together with `name`).\n"
+            "Replaces get_community / get_relevance_cluster / get_symbol_cluster / "
+            "get_coactive_symbols."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["community", "rwr", "cluster", "coactive"],
+                    "description": "Algorithm (default 'community').",
+                },
                 "name": {
                     "type": "string",
-                    "description": "Symbol name to find the cluster for.",
+                    "description": "Seed symbol. Required for rwr/cluster/coactive; optional for community when list_all=true.",
                 },
                 "max_members": {
                     "type": "integer",
-                    "description": "Maximum cluster members to return (default 30).",
+                    "description": "cluster: max members (default 30).",
+                },
+                "budget": {
+                    "type": "integer",
+                    "description": "rwr: top-K symbols (default 10).",
+                },
+                "include_reverse": {
+                    "type": "boolean",
+                    "description": "rwr: include reverse-dependency edges (default true).",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "coactive: max results (default 5).",
+                },
+                "community_name": {
+                    "type": "string",
+                    "description": "community: look up by community name instead of seed symbol.",
+                },
+                "list_all": {
+                    "type": "boolean",
+                    "description": "community: enumerate all communities (default false).",
+                },
+                "min_size": {
+                    "type": "integer",
+                    "description": "community+list_all: min members (default 2).",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "community+list_all: max communities (default 30).",
                 },
                 **_PROJECT_PARAM,
             },
-            "required": ["name"],
         },
     },
     "get_duplicate_classes": {
@@ -1325,31 +1322,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["tool_name"],
         },
     },
-    "get_relevance_cluster": {
-        "description": (
-            "RWR-ranked relevant symbols. Mathematically optimal context for editing `name`. "
-            "Catches symbols BFS misses through multi-hop reinforcement."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Seed symbol (function/method/class) to centre the random walk on.",
-                },
-                "budget": {
-                    "type": "integer",
-                    "description": "Top-K symbols to return (default 10).",
-                },
-                "include_reverse": {
-                    "type": "boolean",
-                    "description": "Include reverse-dependency edges in the walk graph (default true).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["name"],
-        },
-    },
     "pack_context": {
         "description": "Knapsack-packed context bundle for a query within token budget.",
         "inputSchema": {
@@ -1428,37 +1400,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "get_lattice_stats": {
-        "description": (
-            "Show the adaptive lattice's Beta-Binomial posteriors per "
-            "(context_type, level). Mean = α/(α+β), trials = α+β−2."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "context_type": {
-                    "type": "string",
-                    "description": "Filter to one context (navigation/edit/review/unknown).",
-                },
-            },
-        },
-    },
-    "get_session_budget": {
-        "description": (
-            "Show the current session's token budget consumption "
-            "(injected vs. saved vs. cap) with 🟢/🟡/🔴 status indicator."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "budget_tokens": {
-                    "type": "integer",
-                    "description": "Soft budget cap in tokens (default 200000).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
     "reasoning_save": {
         "description": "Persist a reasoning trace (goal+steps+conclusion) for reuse.",
         "inputSchema": {
@@ -1503,74 +1444,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
         },
-    },
-    "get_dcp_stats": {
-        "description": (
-            "DCP chunk registry stats: stable chunks, cache benefit estimate."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "get_coactive_symbols": {
-        "description": (
-            "Symbols most often accessed together with the seed via TCA "
-            "(normalized PMI-scored, higher = more co-active)."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Seed symbol."},
-                "top_k": {"type": "integer", "description": "Max results (default 5)."},
-            },
-            "required": ["name"],
-        },
-    },
-    "get_tca_stats": {
-        "description": "TCA co-activation matrix stats: symbols tracked, top pairs.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "get_speculation_stats": {
-        "description": (
-            "Show Speculative Tool Tree Execution stats: beam branches explored, "
-            "warmed in cache, hit by subsequent calls, and rough tokens saved."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "get_community": {
-        "description": (
-            "Return the Leiden community (symbol cluster) for a symbol, or by "
-            "community name. Communities are detected via greedy modularity "
-            "maximization on the symbol dependency graph. Pass list_all=true "
-            "(or call with no arguments) to enumerate ALL communities at once "
-            "with member preview — use this for 'identify clusters' tasks."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "symbol": {"type": "string", "description": "Symbol to look up by membership."},
-                "name": {"type": "string", "description": "Community name to fetch directly."},
-                "list_all": {"type": "boolean", "description": "Enumerate all communities (default false)."},
-                "min_size": {"type": "integer", "description": "Min members for list_all (default 2)."},
-                "max_results": {"type": "integer", "description": "Max communities returned by list_all (default 30)."},
-            },
-        },
-    },
-    "get_leiden_stats": {
-        "description": (
-            "Leiden community detector stats: communities, covered symbols, "
-            "size distribution, modularity Q."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "get_linucb_stats": {
-        "description": "LinUCB injection model: feature weights θ, updates count, top feature.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "get_warmstart_stats": {
-        "description": (
-            "Cross-session warm start: stored signatures, pairwise similarity, "
-            "per-project distribution."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
     },
     "memory_consistency": {
         "description": (

@@ -261,7 +261,7 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
         os.makedirs(s._STATS_DIR, exist_ok=True)
         cum = _load_cumulative_stats(slot.stats_file)
         session_calls = sum(s._tool_call_counts.values()) - s._tool_call_counts.get(
-            "get_usage_stats", 0
+            "get_stats", 0
         )
         cum["project"] = slot.root
         cum["last_session"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -285,7 +285,7 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
             "tool_counts": {
                 tool: count
                 for tool, count in s._tool_call_counts.items()
-                if tool != "get_usage_stats"
+                if tool != "get_stats"
             },
         }
         history.append(session_entry)
@@ -339,12 +339,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_changed_symbols": 0.12,
     "summarize_patch_by_symbol": 0.15,
     "build_commit_summary": 0.18,
-    "create_checkpoint": 0.05,
-    "list_checkpoints": 0.02,
-    "delete_checkpoint": 0.02,
-    "prune_checkpoints": 0.03,
-    "compare_checkpoint_by_symbol": 0.18,
-    "restore_checkpoint": 0.08,
+    "checkpoint": 0.08,
     "replace_symbol_source": 0.20,
     "insert_near_symbol": 0.10,
     "add_field_to_model": 0.15,
@@ -365,7 +360,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_components": 0.06,
     "get_feature_files": 0.20,
     "get_entry_points": 0.10,
-    "get_symbol_cluster": 0.15,
+    "get_related_symbols": 0.12,
     "get_duplicate_classes": 0.05,
 }
 
@@ -435,7 +430,8 @@ def _estimate_naive_chars_for_call(
                 total += file_sizes[resolved]
         return total
 
-    if tool_name in {"summarize_patch_by_symbol", "build_commit_summary", "create_checkpoint"}:
+    is_ckpt_create = tool_name == "checkpoint" and (arguments.get("op") or "list") == "create"
+    if tool_name in {"summarize_patch_by_symbol", "build_commit_summary"} or is_ckpt_create:
         changed_files = arguments.get("changed_files") or arguments.get("file_paths") or []
         return max(size_for(changed_files), len(_format_result(result)))
 
@@ -458,10 +454,8 @@ def _estimate_naive_chars_for_call(
             size_for(([file_path] if file_path else []) + impacted) * 2, len(_format_result(result))
         )
 
-    if tool_name in {
-        "get_changed_symbols",
-        "compare_checkpoint_by_symbol",
-    } and isinstance(result, dict):
+    is_ckpt_compare = tool_name == "checkpoint" and (arguments.get("op") or "list") == "compare"
+    if (tool_name == "get_changed_symbols" or is_ckpt_compare) and isinstance(result, dict):
         files = [entry.get("file") for entry in result.get("files", []) if entry.get("file")]
         return max(size_for(files), len(_format_result(result)))
 

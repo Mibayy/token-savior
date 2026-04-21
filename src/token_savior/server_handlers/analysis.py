@@ -1,8 +1,8 @@
 """Handlers for code-quality and analysis tools.
 
-Covers: analyze_config, find_dead_code, find_hotspots,
-find_allocation_hotspots, find_performance_hotspots,
-detect_breaking_changes, find_cross_project_deps, analyze_docker.
+Covers: analyze_config, find_dead_code, find_hotspots (fused
+complexity/allocation/performance kinds), detect_breaking_changes,
+find_cross_project_deps, analyze_docker.
 """
 
 from __future__ import annotations
@@ -59,30 +59,25 @@ def _h_find_dead_code(slot: _ProjectSlot, args: dict) -> object:
     )
 
 
+_HOTSPOT_KINDS: dict[str, tuple[object, float]] = {
+    "complexity": (run_hotspots, 0.0),
+    "allocation": (run_allocation_hotspots, 1.0),
+    "performance": (run_performance_hotspots, 1.0),
+}
+
+
 def _h_find_hotspots(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
-    return run_hotspots(
+    kind = (args.get("kind") or "complexity").strip().lower()
+    entry = _HOTSPOT_KINDS.get(kind)
+    if entry is None:
+        valid = ", ".join(sorted(_HOTSPOT_KINDS))
+        return {"ok": False, "error": f"Unknown kind '{kind}'. Valid: {valid}."}
+    runner, default_min = entry
+    return runner(
         slot.indexer._project_index,
         max_results=args.get("max_results", 20),
-        min_score=args.get("min_score", 0.0),
-    )
-
-
-def _h_find_allocation_hotspots(slot: _ProjectSlot, args: dict) -> object:
-    _prep(slot)
-    return run_allocation_hotspots(
-        slot.indexer._project_index,
-        max_results=args.get("max_results", 20),
-        min_score=args.get("min_score", 1.0),
-    )
-
-
-def _h_find_performance_hotspots(slot: _ProjectSlot, args: dict) -> object:
-    _prep(slot)
-    return run_performance_hotspots(
-        slot.indexer._project_index,
-        max_results=args.get("max_results", 20),
-        min_score=args.get("min_score", 1.0),
+        min_score=args.get("min_score", default_min),
     )
 
 
@@ -155,8 +150,6 @@ HANDLERS: dict[str, Any] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
     "find_hotspots": _h_find_hotspots,
-    "find_allocation_hotspots": _h_find_allocation_hotspots,
-    "find_performance_hotspots": _h_find_performance_hotspots,
     "detect_breaking_changes": _h_detect_breaking_changes,
     "find_cross_project_deps": _h_find_cross_project_deps,
     "analyze_docker": _h_analyze_docker,

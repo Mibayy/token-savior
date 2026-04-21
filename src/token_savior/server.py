@@ -100,16 +100,13 @@ _LEAN_EXCLUDES: set[str] = {
     "memory_from_bash", "memory_set_global",
     # Reasoning (3) — memory-adjacent
     "reasoning_save", "reasoning_search", "reasoning_list",
-    # Internal stats / ML infra (8)
-    "get_lattice_stats", "get_dcp_stats", "get_tca_stats",
-    "get_speculation_stats", "get_leiden_stats", "get_linucb_stats",
-    "get_warmstart_stats", "get_session_budget",
+    # (stats fused into single get_stats tool — kept in lean since usage stats
+    # are useful; ML subsystem categories are opt-in via category=)
     # Corpus / discover actions (4)
     "corpus_build", "corpus_query",
     "discover_project_actions", "run_project_action",
-    # Niche analysis (5) — edge cases, rare in practice
-    "find_allocation_hotspots", "find_performance_hotspots",
-    "get_duplicate_classes", "get_coactive_symbols", "get_call_predictions",
+    # Niche analysis — edge cases, rare in practice
+    "get_duplicate_classes", "get_call_predictions",
     "pack_context",
 }
 

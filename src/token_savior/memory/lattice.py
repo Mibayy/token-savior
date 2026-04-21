@@ -41,7 +41,7 @@ def _detect_context_type(call_sequence: list[str] | None, lookback: int = 5) -> 
     review_tools = {
         "get_git_status", "get_changed_symbols", "get_changed_symbols_since_ref",
         "summarize_patch_by_symbol", "build_commit_summary",
-        "detect_breaking_changes", "compare_checkpoint_by_symbol",
+        "detect_breaking_changes", "checkpoint",
     }
     nav_tools = {
         "get_function_source", "get_class_source", "find_symbol",

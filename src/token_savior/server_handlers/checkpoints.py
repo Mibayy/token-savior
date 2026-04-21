@@ -52,11 +52,25 @@ def _h_compare_checkpoint_by_symbol(slot: _ProjectSlot, args: dict) -> object:
     )
 
 
+_CHECKPOINT_OPS: dict[str, object] = {
+    "create": _h_create_checkpoint,
+    "list": _h_list_checkpoints,
+    "delete": _h_delete_checkpoint,
+    "prune": _h_prune_checkpoints,
+    "restore": _h_restore_checkpoint,
+    "compare": _h_compare_checkpoint_by_symbol,
+}
+
+
+def _h_checkpoint(slot: _ProjectSlot, args: dict) -> object:
+    op = (args.get("op") or "list").strip().lower()
+    handler = _CHECKPOINT_OPS.get(op)
+    if handler is None:
+        valid = ", ".join(sorted(_CHECKPOINT_OPS))
+        return {"ok": False, "error": f"Unknown op '{op}'. Valid: {valid}."}
+    return handler(slot, args)
+
+
 HANDLERS: dict[str, object] = {
-    "create_checkpoint": _h_create_checkpoint,
-    "list_checkpoints": _h_list_checkpoints,
-    "delete_checkpoint": _h_delete_checkpoint,
-    "prune_checkpoints": _h_prune_checkpoints,
-    "restore_checkpoint": _h_restore_checkpoint,
-    "compare_checkpoint_by_symbol": _h_compare_checkpoint_by_symbol,
+    "checkpoint": _h_checkpoint,
 }

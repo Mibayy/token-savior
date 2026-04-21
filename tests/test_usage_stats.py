@@ -70,11 +70,11 @@ class TestFormatUsageStats:
         import token_savior.server_state as state
 
         state._tool_call_counts["find_symbol"] = 3
-        state._tool_call_counts["get_usage_stats"] = 2
+        state._tool_call_counts["get_stats"] = 2
 
         result = srv._format_usage_stats()
         assert "3 queries" in result
-        assert "get_usage_stats" not in result
+        assert "get_stats" not in result
 
     def test_with_indexed_project(self, tmp_path):
         import token_savior.server as srv
