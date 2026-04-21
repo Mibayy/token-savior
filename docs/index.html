@@ -252,40 +252,33 @@ footer .tag a:hover{color:var(--text)}
 .reveal.in{opacity:1;transform:none}
 
 /* ═══ CONFIG PICKER (dual: left base · right TS) ═══ */
-.picker-shell{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:32px}
-.picker-caption{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.16em;display:inline-flex;align-items:center;gap:10px}
-.picker-caption i{display:inline-block;width:18px;height:1px;background:var(--text3)}
-.config-picker{display:flex;align-items:stretch;gap:14px;padding:10px;border:1px solid var(--border2);border-radius:22px;background:rgba(7,7,14,.65);backdrop-filter:blur(14px);font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center;max-width:100%}
-.cp-side{display:flex;flex-direction:column;gap:6px;padding:10px 12px 8px;border-radius:16px;background:rgba(255,255,255,.015);border:1px solid var(--border);min-width:240px}
-.cp-side.left{box-shadow:inset 0 0 0 1px rgba(244,63,94,.22)}
-.cp-side.right{box-shadow:inset 0 0 0 1px rgba(163,230,53,.22)}
-.cp-side-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.cp-title{font-size:.72rem;font-weight:600;letter-spacing:.04em}
+.picker-shell{display:flex;flex-direction:column;align-items:center;gap:18px;margin:8px auto 40px;max-width:920px}
+.picker-caption{font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(1.1rem,2.2vw,1.45rem);color:var(--text2);letter-spacing:-.005em}
+.config-picker{display:flex;align-items:stretch;gap:18px;padding:16px;border:1px solid var(--border2);border-radius:24px;background:rgba(7,7,14,.7);backdrop-filter:blur(14px);font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center;width:100%}
+.cp-side{flex:1 1 320px;display:flex;flex-direction:column;gap:12px;padding:16px 18px 14px;border-radius:18px;background:rgba(255,255,255,.015);border:1px solid var(--border);min-width:300px}
+.cp-side.left{box-shadow:inset 0 0 0 1px rgba(244,63,94,.25)}
+.cp-side.right{box-shadow:inset 0 0 0 1px rgba(163,230,53,.25)}
+.cp-side-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.cp-title{font-size:.98rem;font-weight:600;letter-spacing:.02em;text-transform:lowercase}
 .cp-side.left .cp-title{color:var(--rose)}
 .cp-side.right .cp-title{color:var(--lime)}
-.cp-title .cp-badge{display:inline-block;padding:1px 7px;margin-right:6px;border-radius:4px;font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
-.cp-side.left .cp-badge{background:rgba(244,63,94,.18);color:#ffb4c2}
-.cp-side.right .cp-badge{background:rgba(163,230,53,.18);color:#d5f58c}
-.cp-hint{font-size:.62rem;color:var(--text3);text-transform:lowercase;letter-spacing:.04em;font-family:'Geist',sans-serif;font-style:italic}
-.cp-buttons{display:inline-flex;align-items:center;gap:0;padding:3px;border-radius:999px;background:rgba(0,0,0,.2);border:1px solid var(--border)}
-.cp-btn{position:relative;padding:7px 13px;font-size:.7rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
-.cp-btn:hover{color:var(--text)}
-.cp-side.left .cp-btn.active{background:linear-gradient(135deg,#f43f5e,#ec4899);color:#fff;font-weight:600}
-.cp-side.right .cp-btn.active{background:linear-gradient(135deg,#a3e635,#22d3ee);color:#04040a;font-weight:600}
-.cp-btn .cp-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.cp-title .cp-badge{display:inline-block;padding:3px 10px;margin-right:10px;border-radius:6px;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;vertical-align:middle}
+.cp-side.left .cp-badge{background:rgba(244,63,94,.2);color:#ffb4c2}
+.cp-side.right .cp-badge{background:rgba(163,230,53,.2);color:#d5f58c}
+.cp-hint{font-size:.72rem;color:var(--text3);letter-spacing:.02em;font-family:'Geist Mono',monospace}
+.cp-buttons{display:flex;align-items:center;gap:4px;padding:5px;border-radius:999px;background:rgba(0,0,0,.28);border:1px solid var(--border);width:100%}
+.cp-btn{flex:1;position:relative;padding:11px 12px;font-size:.86rem;color:var(--text2);letter-spacing:.01em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
+.cp-btn:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.cp-side.left .cp-btn.active{background:linear-gradient(135deg,#f43f5e,#ec4899);color:#fff;font-weight:600;box-shadow:0 6px 18px -8px rgba(244,63,94,.6)}
+.cp-side.right .cp-btn.active{background:linear-gradient(135deg,#a3e635,#22d3ee);color:#04040a;font-weight:600;box-shadow:0 6px 18px -8px rgba(163,230,53,.6)}
+.cp-btn .cp-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle}
 .cp-btn .cp-dot.ok{background:var(--lime);box-shadow:0 0 6px var(--lime)}
 .cp-btn .cp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
 .cp-btn .cp-dot.empty{background:var(--text3)}
 .cp-btn.active .cp-dot{box-shadow:none}
-.cp-vs-col{display:flex;align-items:center;justify-content:center;align-self:center}
-.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:1.6rem;color:var(--text2);padding:0 2px;line-height:1}
-.picker-recap{font-family:'Geist Mono',monospace;font-size:.76rem;color:var(--text2);display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;padding:10px 18px;border-radius:999px;background:rgba(255,255,255,.015);border:1px solid var(--border);max-width:680px}
-.picker-recap .r-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(0,0,0,.25)}
-.picker-recap .r-chip.a{color:#ffc4ce;border:1px solid rgba(244,63,94,.3)}
-.picker-recap .r-chip.b{color:#d7f891;border:1px solid rgba(163,230,53,.3)}
-.picker-recap .r-sep{color:var(--text3);font-style:italic;font-family:'Instrument Serif',serif;font-size:.95rem}
-.picker-recap .r-tools{color:var(--text3);font-size:.68rem}
-@media(max-width:720px){.cp-side{min-width:0;width:100%}.cp-vs-col{width:100%;padding:2px 0}.cp-btn{padding:7px 10px;font-size:.64rem}.picker-recap{font-size:.68rem}}
+.cp-vs-col{display:flex;align-items:center;justify-content:center;align-self:center;padding:0 6px}
+.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:2.4rem;color:var(--text2);line-height:1;background:linear-gradient(135deg,var(--purple2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+@media(max-width:720px){.cp-side{min-width:0;width:100%;flex:1 1 100%}.cp-vs-col{width:100%;padding:4px 0}.cp-vs{font-size:1.9rem}.cp-btn{padding:10px 8px;font-size:.76rem}.cp-title{font-size:.9rem}.picker-caption{font-size:1.05rem}}
 
 /* ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ */
 .matchup{padding:40px 24px 80px}
@@ -352,8 +345,13 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
+  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">90 tasks · Claude Opus 4.7 · paired runs</span></div>
+  <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
+  <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 90 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
+  <div class="pending-banner" id="pendingBanner"></div>
+
   <div class="picker-shell">
-    <div class="picker-caption"><i></i>pick two agents to compare<i></i></div>
+    <div class="picker-caption">Pick the two agents to compare</div>
     <div class="config-picker" role="group" aria-label="Pick configurations to compare">
       <div class="cp-side left" role="tablist" aria-label="Agent A — plain, no Token Savior">
         <div class="cp-side-head">
@@ -379,12 +377,8 @@ footer .tag a:hover{color:var(--text)}
         </div>
       </div>
     </div>
-    <div class="picker-recap" id="pickerRecap" aria-live="polite"></div>
   </div>
-  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">90 tasks · Claude Opus 4.7 · paired runs</span></div>
-  <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
-  <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 90 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
-  <div class="pending-banner" id="pendingBanner"></div>
+
   <div class="hero-strip">
     <div class="hero-stat"><div class="n" id="hActive">—</div><div class="l">fewer active tokens</div></div>
     <div class="hero-stat"><div class="n" id="hWall">—</div><div class="l">faster wall time</div></div>
@@ -1592,18 +1586,6 @@ function renderPicker(){
     const picked = side === 'left' ? leftModel : rightModel;
     btn.classList.toggle('active', model === picked);
   });
-  // plain-language recap below the picker
-  const recap = document.getElementById('pickerRecap');
-  if(recap){
-    const same = leftModel === rightModel;
-    recap.innerHTML =
-      `<span class="r-chip a">A · ${MODEL_LABEL_FULL[leftModel]}</span>` +
-      `<span class="r-sep">vs</span>` +
-      `<span class="r-chip b">B · ${MODEL_LABEL_FULL[rightModel]} + Token Savior</span>` +
-      (same
-        ? `<span class="r-tools">same model · only tools differ</span>`
-        : `<span class="r-tools">cross-model comparison</span>`);
-  }
 }
 
 function renderPending(sBase, sTs){
