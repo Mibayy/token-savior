@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Token Savior — we gave Claude a map of your codebase</title>
-<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 90 tasks. 42 wins, 46 ties, 2 losses. 98.9% vs 66.7%.">
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 90 tasks. 25 wins, 65 ties, 0 losses. 100.0% vs 78.3%.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
@@ -162,6 +162,7 @@ section{position:relative;z-index:1}
 .tile.tie{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.4))}
 .tile.loss{background:linear-gradient(135deg,rgba(244,63,94,.3),rgba(244,63,94,.6))}
 .tile.impossible{background:linear-gradient(135deg,rgba(251,191,36,.3),rgba(251,191,36,.65))}
+.tile.pending{background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.12);pointer-events:none;opacity:.4}
 .tile.active{border:2px solid var(--text);transform:scale(1.35);z-index:3;box-shadow:0 0 18px rgba(255,255,255,.35)}
 .grid-leg{display:flex;gap:22px;justify-content:center;margin-top:18px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3)}
 .grid-leg span{display:flex;align-items:center;gap:8px}
@@ -249,6 +250,23 @@ footer .tag a:hover{color:var(--text)}
 
 .reveal{opacity:0;transform:translateY(20px);transition:all .7s ease-out}
 .reveal.in{opacity:1;transform:none}
+
+/* ═══ MODEL PICKER ═══ */
+.model-picker{display:inline-flex;align-items:center;gap:0;padding:5px;border:1px solid var(--border);border-radius:999px;background:rgba(7,7,14,.55);backdrop-filter:blur(14px);margin-bottom:28px;font-family:'Geist Mono',monospace}
+.model-picker .mp-label{font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;padding:0 14px 0 10px;border-right:1px solid var(--border)}
+.mp-btn{position:relative;padding:9px 18px;font-size:.74rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
+.mp-btn:hover{color:var(--text)}
+.mp-btn.active{background:linear-gradient(135deg,var(--purple),var(--cyan));color:#04040a;font-weight:600}
+.mp-btn .mp-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.mp-btn .mp-dot.ok{background:var(--lime);box-shadow:0 0 6px var(--lime)}
+.mp-btn .mp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
+.mp-btn .mp-dot.empty{background:var(--text3)}
+.mp-btn.active .mp-dot{box-shadow:none}
+@media(max-width:640px){.model-picker{flex-wrap:wrap}.model-picker .mp-label{padding:4px 10px;border-right:0;border-bottom:1px solid var(--border);width:100%;text-align:center}.mp-btn{padding:8px 13px;font-size:.68rem}}
+
+.pending-banner{display:none;max-width:720px;margin:0 auto 32px;padding:12px 20px;border-radius:14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fbbf24;font-family:'Geist Mono',monospace;font-size:.76rem;text-align:center}
+.pending-banner.show{display:block}
+.pending-banner b{color:var(--text);font-weight:500}
 </style>
 </head>
 <body>
@@ -265,14 +283,21 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-eyebrow"><i></i>90 tasks · Claude Opus 4.7 · paired runs</div>
+  <div class="model-picker" role="tablist" aria-label="Pick a model">
+    <span class="mp-label">model</span>
+    <button class="mp-btn" data-model="haiku"  role="tab"><span class="mp-dot empty"></span>Haiku 4.5</button>
+    <button class="mp-btn" data-model="sonnet" role="tab"><span class="mp-dot empty"></span>Sonnet 4.6</button>
+    <button class="mp-btn active" data-model="opus" role="tab"><span class="mp-dot ok"></span>Opus 4.7</button>
+  </div>
+  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">90 tasks · Claude Opus 4.7 · paired runs</span></div>
   <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
   <p class="hero-sub">Token Savior is an MCP server that indexes a project into a symbol graph — callers, dependents, communities, import cycles, change impact. We ran the same model against the same 90 tasks, first with Read/Grep/Bash, then with Token Savior wired in. Here is what changed.</p>
+  <div class="pending-banner" id="pendingBanner"></div>
   <div class="hero-strip">
-    <div class="hero-stat"><div class="n" data-count="47">0</div><div class="l">fewer active tokens</div></div>
-    <div class="hero-stat"><div class="n" data-count="78">0</div><div class="l">faster wall time</div></div>
-    <div class="hero-stat"><div class="n" data-count="31" data-suffix="pp">0</div><div class="l">accuracy gained</div></div>
-    <div class="hero-stat"><div class="n">42 / 46 / 2</div><div class="l">wins · ties · losses</div></div>
+    <div class="hero-stat"><div class="n" id="hActive">—</div><div class="l">fewer active tokens</div></div>
+    <div class="hero-stat"><div class="n" id="hWall">—</div><div class="l">faster wall time</div></div>
+    <div class="hero-stat"><div class="n" id="hAcc">—</div><div class="l">accuracy gained</div></div>
+    <div class="hero-stat"><div class="n" id="hWTL">—</div><div class="l">wins · ties · losses</div></div>
   </div>
 </section>
 
@@ -291,27 +316,27 @@ footer .tag a:hover{color:var(--text)}
         <div class="vs-title">Read, Grep, Bash.</div>
         <div class="vs-tools">no structural tools</div>
         <div class="vs-rows">
-          <div class="vs-row"><span class="k">active tokens</span><span class="v">1.55M</span></div>
-          <div class="vs-row"><span class="k">wall time</span><span class="v">166 min</span></div>
-          <div class="vs-row"><span class="k">accuracy</span><span class="v">66.7 %</span></div>
-          <div class="vs-row"><span class="k">score</span><span class="v">120 / 180</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v" id="aActive">—</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v" id="aWall">—</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v" id="aAcc">—</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v" id="aScore">—</span></div>
         </div>
       </div>
       <div class="vs-center">
         <div class="vs-vs">vs</div>
-        <div class="vs-score"><span class="a">66.7%</span><span class="sep">vs</span><span class="b">98.9%</span></div>
-        <div class="vs-label">accuracy <span class="vs-info" data-tip="Each of 90 tasks is graded 0-2 by an LLM judge or token-match scorer (0 = wrong, 1 = partial, 2 = correct). Accuracy = sum of points ÷ max possible (180). Plain: 120/180. Token Savior: 178/180.">i</span></div>
-        <div class="vs-tally"><span class="w">42 wins</span><span class="t">46 ties · TS −47% tokens<span class="vs-info" data-tip="Active tokens: Plain 1.55M vs TS 821k (−47%). Wall time: 166min vs 36min (−78%). Ties aren't draws — TS wins on the efficiency axis on all of them.">i</span></span><span class="l">2 losses</span></div>
+        <div class="vs-score"><span class="a" id="cAccA">—</span><span class="sep">vs</span><span class="b" id="cAccB">—</span></div>
+        <div class="vs-label">accuracy <span class="vs-info" id="accTip" data-tip="">i</span></div>
+        <div class="vs-tally"><span class="w" id="tWins">—</span><span class="t" id="tTies">—<span class="vs-info" id="tiesTip" data-tip="">i</span></span><span class="l" id="tLosses">—</span></div>
       </div>
       <div class="vs-side b">
         <div class="vs-name"><i></i>agent b · token savior</div>
         <div class="vs-title">Plus the graph.</div>
         <div class="vs-tools">+ 59 structural MCP tools (lean profile)</div>
         <div class="vs-rows">
-          <div class="vs-row"><span class="k">active tokens</span><span class="v">821k</span></div>
-          <div class="vs-row"><span class="k">wall time</span><span class="v">36 min</span></div>
-          <div class="vs-row"><span class="k">accuracy</span><span class="v">98.9 %</span></div>
-          <div class="vs-row"><span class="k">score</span><span class="v">178 / 180</span></div>
+          <div class="vs-row"><span class="k">active tokens</span><span class="v" id="bActive">—</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v" id="bWall">—</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v" id="bAcc">—</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v" id="bScore">—</span></div>
         </div>
       </div>
     </div>
@@ -390,11 +415,11 @@ footer .tag a:hover{color:var(--text)}
 
   <div class="replay-wrap">
     <div class="replay-grid" id="grid"></div>
-    <div class="grid-leg">
-      <span><i class="wn"></i>Token Savior wins (11)</span>
-      <span><i class="im"></i>impossible without TS (21)</span>
-      <span><i class="tn"></i>tie (28)</span>
-      <span><i class="ls"></i>losses (0)</span>
+    <div class="grid-leg" id="gridLegend">
+      <span><i class="wn"></i>Token Savior wins (<span data-legend="wins">—</span>)</span>
+      <span><i class="im"></i>impossible without TS (<span data-legend="impossible">—</span>)</span>
+      <span><i class="tn"></i>tie (<span data-legend="ties">—</span>)</span>
+      <span><i class="ls"></i>losses (<span data-legend="losses">—</span>)</span>
     </div>
 
     <div class="now-playing" style="margin-top:36px">
@@ -479,83 +504,14 @@ footer .tag a:hover{color:var(--text)}
   <div class="tag">tsbench · 90 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · April 2026</div>
 </footer>
 
-<!-- ═══ DATA ═══ -->
-<script id="taskdata" type="application/json">[{"id":1,"slug":"find-function","cat":"localisation","wa":9.4,"wb":17.2,"ta":9080,"tb":6771,"ca":1761,"cb":121,"sa":2,"sb":2},{"id":2,"slug":"find-callers","cat":"localisation","wa":11.4,"wb":14.5,"ta":17679,"tb":6916,"ca":1737,"cb":352,"sa":2,"sb":2},{"id":3,"slug":"find-env-usage","cat":"localisation","wa":13.7,"wb":14.5,"ta":17037,"tb":7616,"ca":280,"cb":2164,"sa":1,"sb":2},{"id":4,"slug":"find-route","cat":"localisation","wa":13.2,"wb":26.9,"ta":9427,"tb":9624,"ca":558,"cb":4266,"sa":1,"sb":2},{"id":5,"slug":"find-schema-field","cat":"localisation","wa":28.1,"wb":20.8,"ta":9331,"tb":8548,"ca":720,"cb":3694,"sa":1,"sb":2},{"id":6,"slug":"find-component-usage","cat":"localisation","wa":13.3,"wb":19.3,"ta":21869,"tb":7485,"ca":986,"cb":617,"sa":0,"sb":2},{"id":7,"slug":"callers-exhaustive-1","cat":"dépendants","wa":10.9,"wb":14.5,"ta":9136,"tb":6801,"ca":1761,"cb":158,"sa":2,"sb":2},{"id":8,"slug":"callers-exhaustive-3","cat":"dépendants","wa":8.9,"wb":15.8,"ta":18033,"tb":6992,"ca":3227,"cb":352,"sa":2,"sb":2},{"id":9,"slug":"callers-exhaustive-8","cat":"dépendants","wa":11.2,"wb":19.3,"ta":44160,"tb":8139,"ca":5231,"cb":1901,"sa":2,"sb":2},{"id":10,"slug":"callers-exhaustive-20","cat":"dépendants","wa":13.6,"wb":18.0,"ta":22492,"tb":8320,"ca":12668,"cb":1788,"sa":2,"sb":2},{"id":11,"slug":"chain-alpha","cat":"call_chain","wa":13.8,"wb":24.2,"ta":9220,"tb":7534,"ca":1364,"cb":392,"sa":1,"sb":2},{"id":12,"slug":"chain-beta","cat":"call_chain","wa":13.6,"wb":28.2,"ta":21860,"tb":8349,"ca":1327,"cb":469,"sa":1,"sb":2},{"id":13,"slug":"chain-gamma","cat":"call_chain","wa":12.8,"wb":32.5,"ta":9192,"tb":7979,"ca":1364,"cb":392,"sa":1,"sb":2},{"id":14,"slug":"breaking-signature","cat":"impact","wa":21.6,"wb":19.2,"ta":27232,"tb":7843,"ca":12668,"cb":1287,"sa":2,"sb":2},{"id":15,"slug":"file-impact","cat":"impact","wa":116.3,"wb":23.7,"ta":0,"tb":7418,"ca":0,"cb":256,"sa":0,"sb":2},{"id":16,"slug":"test-impact","cat":"impact","wa":14.8,"wb":14.6,"ta":32995,"tb":6758,"ca":461,"cb":251,"sa":0,"sb":1},{"id":17,"slug":"rename-symbol","cat":"edit","wa":21.5,"wb":34.9,"ta":34446,"tb":12613,"ca":1958,"cb":6203,"sa":2,"sb":2},{"id":18,"slug":"add-field","cat":"edit","wa":78.2,"wb":57.2,"ta":10227,"tb":10792,"ca":2272,"cb":2616,"sa":1,"sb":2},{"id":19,"slug":"extract-constant","cat":"edit","wa":98.4,"wb":138.9,"ta":22706,"tb":41970,"ca":18494,"cb":18363,"sa":2,"sb":2},{"id":20,"slug":"move-module","cat":"edit","wa":93.0,"wb":22.4,"ta":12059,"tb":19646,"ca":3711,"cb":1478,"sa":1,"sb":1},{"id":21,"slug":"diff-summary","cat":"review","wa":139.2,"wb":22.5,"ta":12707,"tb":12253,"ca":8426,"cb":11036,"sa":0,"sb":2},{"id":22,"slug":"pr-risk","cat":"review","wa":96.9,"wb":23.1,"ta":12347,"tb":11317,"ca":6295,"cb":9308,"sa":0,"sb":2},{"id":23,"slug":"breaking-detection","cat":"review","wa":46.9,"wb":18.0,"ta":10140,"tb":11184,"ca":43584,"cb":9308,"sa":2,"sb":2},{"id":24,"slug":"dead-code-audit","cat":"audit","wa":61.9,"wb":19.9,"ta":34165,"tb":8996,"ca":39664,"cb":4124,"sa":0,"sb":2},{"id":25,"slug":"hotspot-audit","cat":"audit","wa":116.1,"wb":18.5,"ta":9957,"tb":7491,"ca":112703,"cb":1660,"sa":0,"sb":2},{"id":26,"slug":"cycle-detection","cat":"audit","wa":132.4,"wb":18.3,"ta":33632,"tb":6635,"ca":113280,"cb":200,"sa":2,"sb":2},{"id":27,"slug":"orphan-env","cat":"config","wa":37.1,"wb":16.2,"ta":10563,"tb":8109,"ca":937,"cb":3135,"sa":0,"sb":2},{"id":28,"slug":"undecl-env","cat":"config","wa":20.3,"wb":87.3,"ta":10051,"tb":10802,"ca":2685,"cb":7182,"sa":0,"sb":2},{"id":29,"slug":"secret-detection","cat":"config","wa":18.8,"wb":17.5,"ta":9854,"tb":7439,"ca":1563,"cb":1422,"sa":0,"sb":2},{"id":30,"slug":"dockerfile-audit","cat":"infra","wa":88.8,"wb":38.1,"ta":18191,"tb":10679,"ca":840,"cb":7901,"sa":0,"sb":2},{"id":31,"slug":"infra-consistency","cat":"infra","wa":25.2,"wb":67.0,"ta":10634,"tb":19973,"ca":2066,"cb":17868,"sa":0,"sb":2},{"id":32,"slug":"test-selection-unit","cat":"testing","wa":19.9,"wb":14.5,"ta":9213,"tb":6629,"ca":341,"cb":251,"sa":0,"sb":2},{"id":33,"slug":"test-selection-change","cat":"testing","wa":22.7,"wb":24.6,"ta":10632,"tb":7131,"ca":1023,"cb":249,"sa":0,"sb":2},{"id":34,"slug":"bug-pagination","cat":"debug","wa":16.9,"wb":19.0,"ta":9644,"tb":10267,"ca":1754,"cb":3711,"sa":1,"sb":2},{"id":35,"slug":"bug-auth","cat":"debug","wa":24.4,"wb":26.5,"ta":22599,"tb":8445,"ca":25359,"cb":2214,"sa":2,"sb":2},{"id":36,"slug":"dup-detection","cat":"debug","wa":99.5,"wb":26.1,"ta":11367,"tb":10676,"ca":101205,"cb":6952,"sa":0,"sb":2},{"id":37,"slug":"project-overview","cat":"onboarding","wa":59.1,"wb":40.1,"ta":9995,"tb":11714,"ca":26813,"cb":6388,"sa":0,"sb":2},{"id":38,"slug":"module-overview","cat":"onboarding","wa":28.1,"wb":18.9,"ta":19527,"tb":14062,"ca":20530,"cb":2584,"sa":0,"sb":2},{"id":39,"slug":"ts-py-type-mapping","cat":"cross-language","wa":12.2,"wb":17.1,"ta":8950,"tb":6704,"ca":508,"cb":385,"sa":0,"sb":2},{"id":40,"slug":"config-consistency","cat":"cross-language","wa":41.6,"wb":25.3,"ta":11222,"tb":8315,"ca":1450,"cb":3272,"sa":0,"sb":2},{"id":41,"slug":"explain-billing-module","cat":"heavy_read","wa":26.0,"wb":23.9,"ta":33525,"tb":18427,"ca":23633,"cb":8943,"sa":2,"sb":2},{"id":42,"slug":"list-auth-public-functions","cat":"heavy_read","wa":24.0,"wb":18.1,"ta":18667,"tb":9086,"ca":18895,"cb":4834,"sa":2,"sb":2},{"id":43,"slug":"multi-param-functions","cat":"heavy_read","wa":159.2,"wb":56.3,"ta":19531,"tb":21328,"ca":196882,"cb":16506,"sa":1,"sb":2},{"id":44,"slug":"dispatch-webhook-chain","cat":"heavy_read","wa":55.7,"wb":27.1,"ta":23485,"tb":8878,"ca":30789,"cb":1018,"sa":2,"sb":2},{"id":45,"slug":"auth-importers","cat":"heavy_read","wa":17.3,"wb":14.0,"ta":8497,"tb":6733,"ca":14,"cb":109,"sa":0,"sb":2},{"id":46,"slug":"billing-hotspots","cat":"heavy_read","wa":28.7,"wb":46.5,"ta":20525,"tb":15030,"ca":20258,"cb":9315,"sa":2,"sb":2},{"id":47,"slug":"file-deps-graph","cat":"navigation","wa":13.0,"wb":16.5,"ta":42109,"tb":6650,"ca":18895,"cb":180,"sa":0,"sb":2},{"id":48,"slug":"file-dependents-reverse","cat":"navigation","wa":12.4,"wb":16.1,"ta":9026,"tb":6859,"ca":398,"cb":457,"sa":2,"sb":2},{"id":49,"slug":"call-chain-deep","cat":"call_chain","wa":14.6,"wb":17.9,"ta":9402,"tb":6812,"ca":735,"cb":301,"sa":2,"sb":2},{"id":50,"slug":"backward-slice","cat":"navigation","wa":21.6,"wb":29.0,"ta":9713,"tb":7635,"ca":1109,"cb":978,"sa":1,"sb":2},{"id":51,"slug":"entry-points","cat":"navigation","wa":90.1,"wb":23.0,"ta":34877,"tb":8286,"ca":48374,"cb":3360,"sa":2,"sb":2},{"id":52,"slug":"community-detection","cat":"audit","wa":133.9,"wb":35.9,"ta":17142,"tb":10451,"ca":190723,"cb":3257,"sa":2,"sb":2},{"id":53,"slug":"semantic-duplicates","cat":"audit","wa":94.5,"wb":30.2,"ta":10539,"tb":11116,"ca":77398,"cb":6952,"sa":2,"sb":2},{"id":54,"slug":"fix-buggy-paginate","cat":"edit","wa":96.5,"wb":38.5,"ta":10769,"tb":22107,"ca":1027,"cb":2824,"sa":2,"sb":2},{"id":55,"slug":"insert-near-symbol","cat":"edit","wa":81.0,"wb":15.4,"ta":19564,"tb":6893,"ca":20617,"cb":244,"sa":2,"sb":2},{"id":56,"slug":"checkpoint-restore","cat":"edit","wa":143.7,"wb":32.5,"ta":19813,"tb":9918,"ca":20540,"cb":2670,"sa":2,"sb":2},{"id":57,"slug":"impacted-tests","cat":"testing","wa":42.7,"wb":18.4,"ta":35534,"tb":6726,"ca":3487,"cb":239,"sa":2,"sb":2},{"id":58,"slug":"performance-hotspots","cat":"audit","wa":122.8,"wb":17.0,"ta":10397,"tb":8103,"ca":162108,"cb":2365,"sa":2,"sb":2},{"id":59,"slug":"git-status","cat":"git","wa":73.0,"wb":16.0,"ta":9162,"tb":6909,"ca":1058,"cb":417,"sa":2,"sb":2},{"id":60,"slug":"changed-symbols-since-ref","cat":"git","wa":85.6,"wb":23.2,"ta":14378,"tb":8953,"ca":11110,"cb":4272,"sa":2,"sb":2}]</script>
 
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-/* ═══ HERO COUNT-UP ═══ */
-document.querySelectorAll('.hero-stat .n[data-count]').forEach(el=>{
-  const target = +el.dataset.count; const suf = el.dataset.suffix || '%';
-  let start = null, dur = 1400;
-  const step = t => { if(!start) start = t; const p = Math.min(1,(t-start)/dur); el.textContent = Math.round(target*(1-Math.pow(1-p,3))) + suf; if(p<1) requestAnimationFrame(step); };
-  const io = new IntersectionObserver(e=>{ if(e[0].isIntersecting){ requestAnimationFrame(step); io.disconnect(); }},{threshold:.3});
-  io.observe(el);
-});
-
 /* ═══ REVEAL ═══ */
 const ro = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting) e.target.classList.add('in'); }),{threshold:.15});
 document.querySelectorAll('.reveal').forEach(el=>ro.observe(el));
-
-/* ═══ RADAR CHART ═══ */
-(function(){
-  const cats = [
-    {k:'localisation',a:1.17,b:2.00},{k:'dependents',a:2.00,b:2.00},{k:'call_chain',a:1.25,b:2.00},
-    {k:'impact',a:0.67,b:1.67},{k:'edit',a:1.71,b:2.00},{k:'review',a:0.67,b:0.67},
-    {k:'audit',a:1.33,b:1.67},{k:'config',a:0.00,b:1.33},{k:'infra',a:0.00,b:0.00},
-    {k:'testing',a:0.67,b:1.67},{k:'debug',a:1.00,b:2.00},{k:'onboarding',a:0.00,b:1.00},
-    {k:'cross-lang',a:0.00,b:0.50},{k:'heavy_read',a:1.50,b:1.83},{k:'navigation',a:1.25,b:2.00},{k:'git',a:2.00,b:1.50},
-  ];
-  const c = document.getElementById('radar'); const ctx = c.getContext('2d');
-  const dpr = window.devicePixelRatio||1; const size = 360; c.width=size*dpr; c.height=size*dpr; c.style.width=size+'px'; c.style.height=size+'px'; ctx.scale(dpr,dpr);
-  const cx=size/2, cy=size/2, R=130;
-  ctx.clearRect(0,0,size,size);
-  for(let i=1;i<=4;i++){ ctx.beginPath(); cats.forEach((_,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const x=cx+Math.cos(a)*R*i/4, y=cy+Math.sin(a)*R*i/4; k?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.closePath(); ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.stroke(); }
-  cats.forEach((_,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.stroke(); });
-  function poly(arr,stroke,fill){
-    ctx.beginPath();
-    cats.forEach((c,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const v=arr[k]/2; const x=cx+Math.cos(a)*R*v, y=cy+Math.sin(a)*R*v; k?ctx.lineTo(x,y):ctx.moveTo(x,y); });
-    ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); ctx.strokeStyle=stroke; ctx.lineWidth=1.5; ctx.stroke();
-  }
-  poly(cats.map(c=>c.a),'rgba(244,63,94,.9)','rgba(244,63,94,.12)');
-  poly(cats.map(c=>c.b),'rgba(163,230,53,.95)','rgba(163,230,53,.14)');
-  ctx.font = '500 9px "Geist Mono",monospace'; ctx.fillStyle='#a0a0ae'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  cats.forEach((c,k)=>{ const a=k/cats.length*Math.PI*2-Math.PI/2; const x=cx+Math.cos(a)*(R+14), y=cy+Math.sin(a)*(R+14); ctx.fillText(c.k,x,y); });
-})();
-
-/* ═══ BARS ═══ */
-(function(){
-  const data = [
-    {k:'audit',a:115900,b:3400,n:6},
-    {k:'heavy_read',a:18400,b:3800,n:6},
-    {k:'navigation',a:17200,b:1400,n:4},
-    {k:'edit',a:9700,b:3200,n:7},
-    {k:'debug',a:42800,b:6600,n:3},
-    {k:'impact',a:4400,b:600,n:3},
-    {k:'localisation',a:1200,b:1800,n:6},
-    {k:'dependents',a:5700,b:700,n:4},
-  ];
-  const max = Math.max(...data.map(d=>Math.max(d.a,d.b)));
-  const wrap = document.getElementById('bars');
-  wrap.innerHTML = data.map(d=>{
-    const pa = d.a/max*100, pb = d.b/max*100;
-    const fmt = n => n>=1000?Math.round(n/1000)+'k':n;
-    return `
-    <div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:'Geist Mono',monospace;font-size:.72rem"><span style="color:var(--text2)">${d.k}</span><span style="color:var(--text3)">${d.n} tasks</span></div>
-      <div style="display:grid;grid-template-columns:1fr 70px;gap:10px;align-items:center;margin-bottom:3px">
-        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden"><div style="width:${pa}%;height:100%;background:linear-gradient(90deg,rgba(244,63,94,.6),rgba(244,63,94,.9))"></div></div>
-        <span style="text-align:right;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--rose)">${fmt(d.a)}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 70px;gap:10px;align-items:center">
-        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.04);overflow:hidden"><div style="width:${pb}%;height:100%;background:linear-gradient(90deg,rgba(163,230,53,.6),rgba(163,230,53,.95))"></div></div>
-        <span style="text-align:right;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--lime)">${fmt(d.b)}</span>
-      </div>
-    </div>`;
-  }).join('');
-})();
 
 /* ═══ THREE.JS GRAPH ═══ */
 (function(){
@@ -699,7 +655,37 @@ document.querySelectorAll('.reveal').forEach(el=>ro.observe(el));
 })();
 
 /* ═══ REPLAY — tile grid + terminals ═══ */
-const TASKDATA = JSON.parse(document.getElementById('taskdata').textContent);
+let MATRIX = null;
+let currentModel = 'opus';
+let TASKDATA = [];
+
+const MODEL_LABEL = { haiku:'Claude Haiku 4.5', sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
+const CATS = ['navigation','code_review','refactoring','audit','config_infra','bug_fixing','explanation','git','code_generation','writing_tests','documentation'];
+const CAT_LABEL = {
+  navigation:'navigation', code_review:'code review', refactoring:'refactoring',
+  audit:'audit', config_infra:'config·infra', bug_fixing:'bug fixing',
+  explanation:'explanation', git:'git', code_generation:'code gen',
+  writing_tests:'tests', documentation:'docs',
+};
+
+function buildTaskdata(model){
+  const baseKey = `${model}-base`, tsKey = `${model}-ts`;
+  const arr = [];
+  for (const [tid, t] of Object.entries(MATRIX.tasks)){
+    const a = t.results[baseKey] || {};
+    const b = t.results[tsKey] || {};
+    const idNum = parseInt(tid.replace(/^TASK-/,''), 10);
+    arr.push({
+      id: idNum, tid, slug: t.slug, cat: t.category, prompt: t.prompt,
+      wa: a.wall_time_seconds ?? 0, wb: b.wall_time_seconds ?? 0,
+      ta: a.active_tokens ?? 0,     tb: b.active_tokens ?? 0,
+      ca: a.context_chars ?? 0,     cb: b.context_chars ?? 0,
+      sa: a.score ?? null,          sb: b.score ?? null,
+      hasA: a.score != null,        hasB: b.score != null,
+    });
+  }
+  return arr.sort((x,y)=>x.id-y.id);
+}
 
 // ─── full trace scripts for 6 showcased tasks ───
 const TRACES = {
@@ -928,24 +914,30 @@ const TRACES = {
   }
 };
 
-// ─── build tile grid ───
+// ─── tile grid ───
 function classify(t){
-  if(t.sb>t.sa){
-    if(t.sa===0) return 'impossible';
-    return 'win';
-  }
+  if(!t.hasA || !t.hasB) return 'pending';
+  if(t.sb>t.sa){ return t.sa===0 ? 'impossible' : 'win'; }
   if(t.sb<t.sa) return 'loss';
   return 'tie';
 }
 const grid = document.getElementById('grid');
-TASKDATA.forEach(t=>{
-  const d = document.createElement('div');
-  d.className = 'tile '+classify(t);
-  d.title = `TASK-${String(t.id).padStart(3,'0')} · ${t.slug}\n${t.wa}s → ${t.wb}s · ${t.ca} → ${t.cb} chars · ${t.sa}/2 → ${t.sb}/2`;
-  d.dataset.id = t.id;
-  d.addEventListener('click',()=>{ loadTask(t.id); replay(); });
-  grid.appendChild(d);
-});
+function renderTiles(){
+  grid.innerHTML = '';
+  TASKDATA.forEach(t=>{
+    const d = document.createElement('div');
+    const cls = classify(t);
+    d.className = 'tile '+cls;
+    const wa = t.hasA ? `${t.wa}s` : '—';
+    const wb = t.hasB ? `${t.wb}s` : '—';
+    const sa = t.hasA ? `${t.sa}/2` : '—';
+    const sb = t.hasB ? `${t.sb}/2` : '—';
+    d.title = `${t.tid} · ${t.slug}\n${wa} → ${wb} · ${t.ca} → ${t.cb} chars · ${sa} → ${sb}`;
+    d.dataset.id = t.id;
+    d.addEventListener('click',()=>{ loadTask(t.id); replay(); });
+    grid.appendChild(d);
+  });
+}
 
 // ─── load a task ───
 let currentTid = 26;
@@ -1048,15 +1040,16 @@ function loadTask(id){
   const t = TASKDATA.find(x=>x.id===id); if(!t) return;
   currentTid = id;
   document.querySelectorAll('.tile').forEach(el=>el.classList.toggle('active', +el.dataset.id===id));
-  npid.textContent = 'TASK-'+String(id).padStart(3,'0');
-  npdesc.textContent = DESCRIPTIONS[id] || t.slug.replace(/-/g,' ');
+  npid.textContent = t.tid;
+  npdesc.textContent = t.prompt || DESCRIPTIONS[id] || t.slug.replace(/-/g,' ');
   metaA.textContent = t.ca>50000 ? 'Read · Grep · Bash · Agent' : 'Read · Grep · Bash';
 
   // raw values
   wallA.textContent = fmtSec(t.wa); wallB.textContent = fmtSec(t.wb);
   tokA.textContent = fmt(t.ta);     tokB.textContent = fmt(t.tb);
   chA.textContent  = fmt(t.ca);     chB.textContent  = fmt(t.cb);
-  scA.textContent  = t.sa+'/2';     scB.textContent  = t.sb+'/2';
+  scA.textContent  = t.hasA ? t.sa+'/2' : '—';
+  scB.textContent  = t.hasB ? t.sb+'/2' : '—';
 
   // color-code winners (lower is better for wall/tokens/chars; higher for score)
   const pairs = [
@@ -1082,11 +1075,12 @@ function loadTask(id){
   setDelta(deltaSc,   t.sa, t.sb, false);
 
   termA.innerHTML=''; termB.innerHTML='';
-  const pl = `<div class="ln"><span class="p">&gt;</span> <span class="u">user:</span> ${DESCRIPTIONS[id]||t.slug}</div><div class="ln"></div>`;
+  const promptTxt = t.prompt || DESCRIPTIONS[id] || t.slug;
+  const pl = `<div class="ln"><span class="p">&gt;</span> <span class="u">user:</span> ${esc(promptTxt)}</div><div class="ln"></div>`;
   termA.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
   termB.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
-  playBtn.disabled = false;
-  playBtn.textContent = TRACES[id] ? '▶ replay full trace' : '▶ replay summary';
+  playBtn.disabled = !(t.hasA && t.hasB);
+  playBtn.textContent = TRACES[id] ? '▶ replay full trace' : (playBtn.disabled ? 'run pending' : '▶ replay summary');
 }
 
 let playing = false;
@@ -1191,7 +1185,248 @@ function renderLines(el, lines, delay, token){
 }
 
 playBtn.addEventListener('click', replay);
-loadTask(26);
+
+/* ═══ DYNAMIC RENDER ═══ */
+const heroEyebrow = document.getElementById('heroEyebrow');
+const pendingBanner = document.getElementById('pendingBanner');
+const hActive = document.getElementById('hActive');
+const hWall   = document.getElementById('hWall');
+const hAcc    = document.getElementById('hAcc');
+const hWTL    = document.getElementById('hWTL');
+const aActive = document.getElementById('aActive');
+const aWall   = document.getElementById('aWall');
+const aAcc    = document.getElementById('aAcc');
+const aScore  = document.getElementById('aScore');
+const bActive = document.getElementById('bActive');
+const bWall   = document.getElementById('bWall');
+const bAcc    = document.getElementById('bAcc');
+const bScore  = document.getElementById('bScore');
+const cAccA = document.getElementById('cAccA');
+const cAccB = document.getElementById('cAccB');
+const tWins = document.getElementById('tWins');
+const tTies = document.getElementById('tTies');
+const tLosses = document.getElementById('tLosses');
+const accTip = document.getElementById('accTip');
+const tiesTip = document.getElementById('tiesTip');
+
+function fmtMin(s){
+  if(!s) return '—';
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return m ? `${m}m ${sec}s` : `${sec}s`;
+}
+function fmtPctDrop(p){ return (p>0?'−':'+') + Math.abs(p).toFixed(1) + '%'; }
+
+function renderHero(pair){
+  heroEyebrow.textContent = `90 tasks · ${MODEL_LABEL[currentModel]} · paired runs`;
+  if(!pair || !pair.n_paired){
+    hActive.textContent = '—'; hWall.textContent = '—'; hAcc.textContent = '—'; hWTL.textContent = '—';
+    return;
+  }
+  const accDelta = pair.accuracy_delta_pp;
+  hActive.textContent = fmtPctDrop(pair.reduction_active_pct);
+  hWall.textContent   = fmtPctDrop(pair.reduction_wall_pct);
+  hAcc.textContent    = (accDelta>=0?'+':'') + accDelta + 'pp';
+  hWTL.textContent    = `${pair.wins_ts} · ${pair.ties} · ${pair.wins_base}`;
+}
+
+function renderScorecard(sBase, sTs, pair){
+  const setSide = (els, summary)=>{
+    if(!summary || !summary.n_tasks){
+      els.active.textContent='—'; els.wall.textContent='—';
+      els.acc.textContent='—'; els.score.textContent='—'; return;
+    }
+    els.active.textContent = summary.active_tokens_total.toLocaleString('en-US');
+    els.wall.textContent   = fmtMin(summary.wall_time_total);
+    els.acc.textContent    = summary.score_pct.toFixed(1) + '%';
+    els.score.textContent  = `${summary.score_total}/${summary.score_max_total}`;
+  };
+  setSide({active:aActive,wall:aWall,acc:aAcc,score:aScore}, sBase);
+  setSide({active:bActive,wall:bWall,acc:bAcc,score:bScore}, sTs);
+
+  if(sBase && sBase.n_tasks){
+    cAccA.textContent = sBase.score_pct.toFixed(1) + '%';
+  } else cAccA.textContent = '—';
+  if(sTs && sTs.n_tasks){
+    cAccB.textContent = sTs.score_pct.toFixed(1) + '%';
+  } else cAccB.textContent = '—';
+
+  if(pair && pair.n_paired){
+    tWins.textContent   = `+${pair.wins_ts} wins`;
+    tTies.firstChild.nodeValue = `${pair.ties} ties`;
+    tLosses.textContent = `${pair.wins_base} losses`;
+    accTip.setAttribute('data-tip', `${MODEL_LABEL[currentModel]}: ${pair.score_base}/${pair.score_max} vs ${pair.score_ts}/${pair.score_max} over ${pair.n_paired} paired tasks.`);
+    tiesTip.setAttribute('data-tip', `A "tie" means both agents hit the scoring rubric — Token Savior usually reaches it with fewer tokens and less wall time.`);
+  } else {
+    tWins.textContent='—'; tLosses.textContent='—';
+    tTies.firstChild.nodeValue = '—';
+  }
+}
+
+function renderRadar(sBase, sTs){
+  const c = document.getElementById('radar'); if(!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height, cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 80;
+  ctx.clearRect(0,0,W,H);
+  const cats = CATS.filter(k => (sBase && sBase.by_category && sBase.by_category[k]) || (sTs && sTs.by_category && sTs.by_category[k]));
+  if(!cats.length) return;
+  const N = cats.length;
+  const angle = i => -Math.PI/2 + i * (Math.PI*2/N);
+
+  // grid rings
+  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+  for(let ring=1; ring<=4; ring++){
+    ctx.beginPath();
+    for(let i=0;i<N;i++){
+      const r = R * ring/4;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath(); ctx.stroke();
+  }
+  // spokes + labels
+  ctx.fillStyle = 'rgba(160,160,174,.8)';
+  ctx.font = '500 22px "Geist Mono", monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for(let i=0;i<N;i++){
+    const x2 = cx + Math.cos(angle(i))*R, y2 = cy + Math.sin(angle(i))*R;
+    ctx.strokeStyle='rgba(255,255,255,.06)';
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x2,y2); ctx.stroke();
+    const lx = cx + Math.cos(angle(i))*(R+44), ly = cy + Math.sin(angle(i))*(R+44);
+    ctx.fillText(CAT_LABEL[cats[i]] || cats[i], lx, ly);
+  }
+
+  const plotPoly = (summary, fill, stroke, dot) => {
+    if(!summary || !summary.by_category) return;
+    ctx.beginPath();
+    for(let i=0;i<N;i++){
+      const cat = summary.by_category[cats[i]];
+      const v = cat ? (cat.pct || 0) / 100 : 0;
+      const r = R * v;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke();
+    for(let i=0;i<N;i++){
+      const cat = summary.by_category[cats[i]];
+      const v = cat ? (cat.pct || 0) / 100 : 0;
+      const r = R * v;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      ctx.fillStyle = dot;
+      ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
+    }
+  };
+  plotPoly(sBase, 'rgba(244,63,94,.14)',  'rgba(244,63,94,.75)',  '#f43f5e');
+  plotPoly(sTs,   'rgba(163,230,53,.18)', 'rgba(163,230,53,.85)', '#a3e635');
+}
+
+function renderBars(sBase, sTs){
+  const host = document.getElementById('bars'); if(!host) return;
+  host.innerHTML = '';
+  const cats = CATS.filter(k => (sBase?.by_category?.[k]) || (sTs?.by_category?.[k]));
+  if(!cats.length) return;
+  const maxChars = cats.reduce((m,k)=>{
+    const a = sBase?.by_category?.[k]?.chars || 0;
+    const b = sTs?.by_category?.[k]?.chars || 0;
+    return Math.max(m, a, b);
+  }, 0);
+  if(!maxChars) return;
+
+  cats.forEach(k=>{
+    const a = sBase?.by_category?.[k]?.chars || 0;
+    const b = sTs?.by_category?.[k]?.chars || 0;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="lb">${CAT_LABEL[k]||k}</div>
+      <div>
+        <div class="bar-tr"><div class="bar-a" style="width:${Math.max(2, a/maxChars*100).toFixed(1)}%"></div></div>
+        <div class="bar-tr" style="margin-top:4px"><div class="bar-b" style="width:${Math.max(1, b/maxChars*100).toFixed(1)}%;bottom:0;top:0"></div></div>
+      </div>
+      <div class="vv">${(a/1000).toFixed(0)}k→${(b/1000).toFixed(0)}k</div>`;
+    host.appendChild(row);
+  });
+}
+
+function renderLegend(pair){
+  const map = { wins: pair?.wins_ts ?? 0, ties: pair?.ties ?? 0, losses: pair?.wins_base ?? 0 };
+  const impossible = TASKDATA.filter(t => t.hasA && t.hasB && t.sa===0 && t.sb>0).length;
+  map.impossible = impossible;
+  document.querySelectorAll('[data-legend]').forEach(el=>{
+    el.textContent = map[el.dataset.legend] ?? '—';
+  });
+}
+
+function renderPicker(){
+  document.querySelectorAll('.mp-btn[data-model]').forEach(btn=>{
+    const model = btn.dataset.model;
+    const sBase = MATRIX.summary[`${model}-base`];
+    const sTs = MATRIX.summary[`${model}-ts`];
+    const nB = sBase?.n_tasks || 0, nT = sTs?.n_tasks || 0;
+    const dot = btn.querySelector('.mp-dot');
+    dot.className = 'mp-dot ' + (nB>=90 && nT>=90 ? 'ok' : (nB>0 || nT>0 ? 'pending' : 'empty'));
+    btn.classList.toggle('active', model === currentModel);
+  });
+}
+
+function renderPending(sBase, sTs){
+  const nB = sBase?.n_tasks || 0, nT = sTs?.n_tasks || 0;
+  if(nB>=90 && nT>=90){
+    pendingBanner.classList.remove('show'); pendingBanner.textContent=''; return;
+  }
+  const lbl = MODEL_LABEL[currentModel];
+  if(!nB && !nT){
+    pendingBanner.innerHTML = `<b>${lbl}</b> is pending — runs in progress. Numbers below will fill in as the matrix completes.`;
+  } else {
+    pendingBanner.innerHTML = `<b>${lbl}</b> partial — base ${nB}/90 · ts ${nT}/90. Showing what we have so far.`;
+  }
+  pendingBanner.classList.add('show');
+}
+
+function render(model){
+  currentModel = model;
+  TASKDATA = buildTaskdata(model);
+  const pair  = MATRIX.pairs[model];
+  const sBase = MATRIX.summary[`${model}-base`];
+  const sTs   = MATRIX.summary[`${model}-ts`];
+  renderPicker();
+  renderPending(sBase, sTs);
+  renderHero(pair);
+  renderScorecard(sBase, sTs, pair);
+  renderRadar(sBase, sTs);
+  renderBars(sBase, sTs);
+  renderTiles();
+  renderLegend(pair);
+  const fallback = TASKDATA.find(x=>x.id===currentTid) || TASKDATA.find(x=>x.hasA && x.hasB) || TASKDATA[0];
+  if(fallback) loadTask(fallback.id);
+}
+
+async function init(){
+  try {
+    const res = await fetch('./matrix.json', { cache: 'no-store' });
+    MATRIX = await res.json();
+  } catch (e) {
+    console.error('matrix.json fetch failed', e);
+    pendingBanner.textContent = 'Benchmark data failed to load.';
+    pendingBanner.classList.add('show');
+    return;
+  }
+  // default: opus if complete, else first complete pair, else opus
+  const priority = ['opus','sonnet','haiku'];
+  const complete = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>=90) && (MATRIX.summary[`${m}-ts`]?.n_tasks>=90));
+  const anyData  = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>0) || (MATRIX.summary[`${m}-ts`]?.n_tasks>0));
+  currentModel = complete || anyData || 'opus';
+  document.querySelectorAll('.mp-btn[data-model]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m = btn.dataset.model;
+      if(m === currentModel) return;
+      render(m);
+    });
+  });
+  render(currentModel);
+}
+init();
 
 </script>
 </body>

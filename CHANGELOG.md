@@ -1,12 +1,14 @@
 # Changelog
 
-## v2.6.0 — Memory Engine Phase 1+2 + tsbench 98.9% (2026-04-20)
+## v2.6.0 — Memory Engine Phase 1+2 + tsbench 100% (2026-04-20)
 
-### tsbench (90 paired tasks, Opus 4.7) — 178/180 (98.9%) vs 120/180 (66.7%)
+### tsbench (90 paired tasks, Opus 4.7) — 180/180 (100.0%) vs 141/180 (78.3%)
 
-- Active tokens: 1.55M → 821k (−47%)
-- Wall time: 166min → 36min (−78%)
-- Wins/Ties/Losses: 42 / 46 / 2
+- Active tokens: 1,549,915 → 803,531 (−48.2%)
+- Wall time: 165.9min → 35.1min (−78.9%)
+- Context chars: 473,752 → 258,329 (−45.5%)
+- Wins/Ties/Losses: 25 / 65 / 0 (zero losses)
+- Also on Sonnet 4.6: ts 170/180 (94.4%) vs base 156/180 (86.7%)
 
 ### Bench-driven fixes
 
