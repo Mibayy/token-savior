@@ -380,10 +380,10 @@ footer .tag a:hover{color:var(--text)}
   </div>
 
   <div class="hero-strip">
-    <div class="hero-stat"><div class="n" id="hActive">—</div><div class="l">fewer active tokens</div></div>
     <div class="hero-stat"><div class="n" id="hWall">—</div><div class="l">faster wall time</div></div>
-    <div class="hero-stat"><div class="n" id="hAcc">—</div><div class="l">accuracy gained</div></div>
-    <div class="hero-stat"><div class="n" id="hWTL">—</div><div class="l">wins · ties · losses</div></div>
+    <div class="hero-stat"><div class="n" id="hActive">—</div><div class="l">fewer active tokens</div></div>
+    <div class="hero-stat"><div class="n" id="hAcc">—</div><div class="l">higher accuracy</div></div>
+    <div class="hero-stat"><div class="n" id="hWTL">—</div><div class="l">losses · 90 tasks</div></div>
   </div>
 </section>
 
@@ -1426,10 +1426,18 @@ function renderHero(pair){
     return;
   }
   const accDelta = pair.accuracy_delta_pp;
-  hActive.textContent = fmtPctDrop(pair.reduction_active_pct);
-  hWall.textContent   = fmtPctDrop(pair.reduction_wall_pct);
+  const ratioWall = pair.wall_seconds_ts   > 0 ? pair.wall_seconds_base   / pair.wall_seconds_ts   : null;
+  const ratioTok  = pair.active_tokens_ts  > 0 ? pair.active_tokens_base  / pair.active_tokens_ts  : null;
+  const fmtRatio = r => {
+    if(r == null) return '—';
+    if(r >= 1) return r.toFixed(r >= 10 ? 0 : 1) + '×';
+    // TS slower/heavier than base (cross-model where base is cheaper) → show fraction
+    return '÷' + (1/r).toFixed(1);
+  };
+  hWall.textContent   = fmtRatio(ratioWall);
+  hActive.textContent = fmtRatio(ratioTok);
   hAcc.textContent    = (accDelta>=0?'+':'') + accDelta + 'pp';
-  hWTL.textContent    = `${pair.wins_ts} · ${pair.ties} · ${pair.wins_base}`;
+  hWTL.textContent    = `${pair.wins_base}`;
 }
 
 function renderScorecard(sBase, sTs, pair){
