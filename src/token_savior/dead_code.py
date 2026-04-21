@@ -490,6 +490,24 @@ _CLASS_INSTANTIATION_RE = re.compile(r"\b([A-Z]\w*)\s*\(")
 _METHOD_CALL_RE = re.compile(r"\.([A-Za-z_]\w*)\s*\(")
 _SELF_CALL_RE = re.compile(r"\bself\.(\w+)\s*\(")
 _DICT_VALUE_RE = re.compile(r":\s*([A-Za-z_]\w*)\s*[,}\n]")
+_STRING_LITERAL_RE = re.compile(
+    r"'''(?:[^\\]|\\.)*?'''"
+    r'|"""(?:[^\\]|\\.)*?"""'
+    r"|'(?:[^'\\\n]|\\.)*'"
+    r'|"(?:[^"\\\n]|\\.)*"',
+    re.DOTALL,
+)
+
+
+def _strip_string_literals(text: str) -> str:
+    """Remove Python string literals before token-scanning for liveness.
+
+    Without this, any symbol name that appears as a STRING (e.g. registry
+    entries like ``("apps/…/legacy_helpers.py", "calculate_legacy_discount")``
+    in a generator script) gets marked live, hiding real dead symbols. We
+    only care about bare-identifier references, not name strings.
+    """
+    return _STRING_LITERAL_RE.sub("", text)
 
 
 def _dynamic_live_symbols(
@@ -509,7 +527,7 @@ def _dynamic_live_symbols(
     for fp, meta in python_files:
         text = "\n".join(meta.lines)
         file_text[fp] = text
-        file_tokens[fp] = set(_TOKEN_RE.findall(text))
+        file_tokens[fp] = set(_TOKEN_RE.findall(_strip_string_literals(text)))
 
     toplevel_defs: dict[str, list[tuple[str, FunctionInfo]]] = {}
     class_by_simple: dict[str, list[tuple[str, ClassInfo]]] = {}
@@ -687,7 +705,29 @@ def _collect_dead_symbols(
                 )
             )
 
-    dead.sort(key=lambda s: (s.file_path, s.line))
+    _NAME_MARKERS = ("legacy", "deprecated", "unused", "old_", "stale", "orphan", "obsolete")
+    _FILE_MARKERS = ("legacy", "deprecated", "unused", "stale", "orphan", "obsolete", "dead")
+
+    def _cleanup_rank(sym: _DeadSymbol) -> tuple[int, str, int]:
+        name_l = sym.name.lower()
+        path_l = sym.file_path.lower()
+        name_hit = any(mk in name_l for mk in _NAME_MARKERS)
+        file_hit = any(mk in path_l for mk in _FILE_MARKERS)
+        # Tier 0 = both markers agree (strongest signal, e.g. legacy_foo in legacy.py).
+        # Tier 1 = file is a cleanup file (every symbol inside is suspect).
+        # Tier 2 = only name suggests cleanup (weaker: could be a stray "old_" match).
+        # Tier 3 = neither (the long tail).
+        if name_hit and file_hit:
+            tier = 0
+        elif file_hit:
+            tier = 1
+        elif name_hit:
+            tier = 2
+        else:
+            tier = 3
+        return (tier, sym.file_path, sym.line)
+
+    dead.sort(key=_cleanup_rank)
     return dead
 
 

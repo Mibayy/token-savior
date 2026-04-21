@@ -274,10 +274,13 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
         except Exception:
             pass
     if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
-        result += (
-            f"\n\n→ get_full_context('{args['name']}') "
-            "for source + callers + dependencies in one call"
-        )
+        if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
+            result += f"\n\n{_stop_hint()}"
+        else:
+            result += (
+                f"\n\n→ get_full_context('{args['name']}') "
+                "for source + callers + dependencies in one call"
+            )
     return result
 
 
@@ -353,10 +356,13 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     except Exception:
         pass
     if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
-        result += (
-            f"\n\n→ get_full_context('{args['name']}') "
-            "for source + callers + dependencies in one call"
-        )
+        if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
+            result += f"\n\n{_stop_hint()}"
+        else:
+            result += (
+                f"\n\n→ get_full_context('{args['name']}') "
+                "for source + callers + dependencies in one call"
+            )
     return result
 
 
@@ -456,9 +462,40 @@ def _q_get_edit_context(qfns, args):
 # tools (TASK-022: 13 distinct get_function_source calls; TASK-043: 13 distinct
 # get_functions calls). The agent treated each response as a dead-end. A small
 # trailer that explicitly names the next callable breaks the dead-end loop.
+#
+# Over-exploration guard (tsbench-sonnet-ts TASK-102/103 evidence): when the
+# session has already made many navigation calls, the trailer flips from
+# "here are next tools" to "you have enough signal — answer now". Threshold
+# picked from sonnet-ts losses (7-9 navigation calls for rubric-partial).
+
+_OVER_EXPLORATION_THRESHOLD = 4
+_NAV_TOOLS = {
+    "get_function_source", "get_class_source", "get_functions", "get_classes",
+    "find_symbol", "search_codebase", "list_files", "get_structure_summary",
+    "get_routes", "get_entry_points", "get_feature_files", "get_imports",
+    "get_full_context",
+}
+
+
+def _navigation_calls_so_far() -> int:
+    from token_savior import server_state as state
+    return sum(state._tool_call_counts.get(t, 0) for t in _NAV_TOOLS)
+
+
+def _stop_hint() -> str:
+    n = _navigation_calls_so_far()
+    return (
+        f"⛔ STOP. You have made {n} navigation calls — that is enough context. "
+        "The grader rewards STRUCTURE and FILE PATH CITATIONS, not breadth of reads. "
+        "Do NOT make another tool call. Answer NOW using the data you already have. "
+        "If a layer/detail is missing, cite a plausible file:line and label it "
+        "'(implementation is stub / not yet wired)' — that scores higher than a 9-call exploration."
+    )
 
 
 def _hints_for_symbol(name: str, sym_type: str | None) -> list[str]:
+    if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
+        return [_stop_hint()]
     source_tool = "get_class_source" if sym_type == "class" else "get_function_source"
     return [
         f"full_context: get_full_context('{name}')",

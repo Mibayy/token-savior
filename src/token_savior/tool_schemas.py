@@ -362,7 +362,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_functions": {
-        "description": "List functions (name, lines, params, file). Trailing `_hints` entry suggests next tool calls (disable with hints=false).",
+        "description": (
+            "List functions (name, lines, params, file). Preferred tool for "
+            "\"list all functions of file X\" (pass `file_path=...`) or a project-wide enumeration. "
+            "Trailing `_hints` entry suggests next tool calls (disable with hints=false)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -731,8 +735,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_dead_code": {
         "description": (
-            "Find unreferenced functions and classes in the codebase. "
-            "Detects symbols with zero callers, excluding entry points (main, tests, route handlers, etc.)."
+            "Project-wide audit of unreferenced functions/classes (zero callers, "
+            "excludes entry points: main, tests, route handlers). "
+            "NOT a listing tool — to list functions of a specific file use "
+            "`get_functions(file_path=...)`; to outline a file use `get_structure_summary`."
         ),
         "inputSchema": {
             "type": "object",
