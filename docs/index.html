@@ -251,18 +251,71 @@ footer .tag a:hover{color:var(--text)}
 .reveal{opacity:0;transform:translateY(20px);transition:all .7s ease-out}
 .reveal.in{opacity:1;transform:none}
 
-/* ═══ MODEL PICKER ═══ */
-.model-picker{display:inline-flex;align-items:center;gap:0;padding:5px;border:1px solid var(--border);border-radius:999px;background:rgba(7,7,14,.55);backdrop-filter:blur(14px);margin-bottom:28px;font-family:'Geist Mono',monospace}
-.model-picker .mp-label{font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;padding:0 14px 0 10px;border-right:1px solid var(--border)}
-.mp-btn{position:relative;padding:9px 18px;font-size:.74rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
-.mp-btn:hover{color:var(--text)}
-.mp-btn.active{background:linear-gradient(135deg,var(--purple),var(--cyan));color:#04040a;font-weight:600}
-.mp-btn .mp-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:7px;vertical-align:middle}
-.mp-btn .mp-dot.ok{background:var(--lime);box-shadow:0 0 6px var(--lime)}
-.mp-btn .mp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
-.mp-btn .mp-dot.empty{background:var(--text3)}
-.mp-btn.active .mp-dot{box-shadow:none}
-@media(max-width:640px){.model-picker{flex-wrap:wrap}.model-picker .mp-label{padding:4px 10px;border-right:0;border-bottom:1px solid var(--border);width:100%;text-align:center}.mp-btn{padding:8px 13px;font-size:.68rem}}
+/* ═══ CONFIG PICKER (dual: left base · right TS) ═══ */
+.config-picker{display:inline-flex;align-items:center;gap:14px;padding:8px;border:1px solid var(--border);border-radius:18px;background:rgba(7,7,14,.55);backdrop-filter:blur(14px);margin-bottom:28px;font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center}
+.cp-side{display:inline-flex;align-items:center;gap:0;padding:3px;border-radius:999px;background:rgba(255,255,255,.015);border:1px solid var(--border)}
+.cp-side.left{box-shadow:inset 0 0 0 1px rgba(244,63,94,.22)}
+.cp-side.right{box-shadow:inset 0 0 0 1px rgba(163,230,53,.22)}
+.cp-label{font-size:.62rem;text-transform:uppercase;letter-spacing:.14em;padding:0 10px 0 8px;color:var(--text3)}
+.cp-side.left .cp-label{color:var(--rose)}
+.cp-side.right .cp-label{color:var(--lime)}
+.cp-btn{position:relative;padding:8px 14px;font-size:.72rem;color:var(--text2);letter-spacing:.02em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
+.cp-btn:hover{color:var(--text)}
+.cp-side.left .cp-btn.active{background:linear-gradient(135deg,#f43f5e,#ec4899);color:#fff;font-weight:600}
+.cp-side.right .cp-btn.active{background:linear-gradient(135deg,#a3e635,#22d3ee);color:#04040a;font-weight:600}
+.cp-btn .cp-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.cp-btn .cp-dot.ok{background:var(--lime);box-shadow:0 0 6px var(--lime)}
+.cp-btn .cp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
+.cp-btn .cp-dot.empty{background:var(--text3)}
+.cp-btn.active .cp-dot{box-shadow:none}
+.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:1.15rem;color:var(--text3);padding:0 2px}
+@media(max-width:720px){.config-picker{gap:8px;padding:6px}.cp-btn{padding:7px 11px;font-size:.66rem}.cp-label{padding:0 8px 0 6px;font-size:.58rem}.cp-vs{font-size:.95rem}}
+
+/* ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ */
+.matchup{padding:40px 24px 80px}
+.matchup-wrap{max-width:1240px;margin:0 auto}
+.mt-summary{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:24px;font-family:'Geist Mono',monospace;font-size:.74rem}
+.mt-summary span{padding:6px 14px;border-radius:999px;border:1px solid var(--border);color:var(--text2)}
+.mt-summary span b{color:var(--text);font-weight:500}
+.mt-summary .w{color:var(--lime);border-color:rgba(163,230,53,.3)}
+.mt-summary .l{color:var(--rose);border-color:rgba(244,63,94,.3)}
+.mt-summary .t{color:#e9b14a;border-color:rgba(233,177,74,.35)}
+.mt-summary .i{color:var(--amber);border-color:rgba(251,191,36,.35)}
+.mt-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:24px}
+.mt-chip{padding:7px 14px;border:1px solid var(--border);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text2);cursor:pointer;background:transparent;transition:all .2s}
+.mt-chip:hover{border-color:var(--border2);color:var(--text)}
+.mt-chip.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+.mt-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.01)}
+.mt-table{width:100%;border-collapse:separate;border-spacing:0;font-family:'Geist Mono',monospace;font-size:.76rem}
+.mt-table thead{background:rgba(255,255,255,.03)}
+.mt-table th{text-align:left;padding:13px 14px;font-weight:500;font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.09em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;background:#0c0c14;z-index:2}
+.mt-table th.num{text-align:right}
+.mt-table th:hover{color:var(--text)}
+.mt-table th .so{margin-left:4px;font-size:.58rem;opacity:.5}
+.mt-table th.sorted{color:var(--cyan)}
+.mt-table th.sorted .so{opacity:1;color:var(--cyan)}
+.mt-table td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text2)}
+.mt-table tbody tr:last-child td{border-bottom:0}
+.mt-table tbody tr{cursor:pointer;transition:background .15s}
+.mt-table tbody tr:hover td{background:rgba(139,92,246,.06)}
+.mt-table tbody tr.active td{background:rgba(34,211,238,.08)}
+.mt-table td.num{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.mt-table td .tid{color:var(--text);font-weight:500}
+.mt-table td .cat{color:var(--text3);font-size:.7rem;text-transform:lowercase}
+.mt-table td .slug{color:var(--text);display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Geist',sans-serif;font-weight:400;font-size:.82rem}
+.mt-out{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;border:1px solid;font-weight:500}
+.mt-out.win{color:var(--lime);border-color:rgba(163,230,53,.4);background:rgba(163,230,53,.06)}
+.mt-out.loss{color:var(--rose);border-color:rgba(244,63,94,.4);background:rgba(244,63,94,.06)}
+.mt-out.tie{color:#e9b14a;border-color:rgba(233,177,74,.4);background:rgba(233,177,74,.06)}
+.mt-out.impossible{color:var(--amber);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.06)}
+.mt-out.pending{color:var(--text3);border-color:var(--border)}
+.mt-delta.dn{color:var(--lime)}
+.mt-delta.up{color:var(--rose)}
+.mt-delta.eq{color:var(--text3)}
+.mt-score{display:inline-block;min-width:28px}
+.mt-score.win{color:var(--lime)}.mt-score.loss{color:var(--rose)}.mt-score.eq{color:var(--text)}
+.mt-empty{padding:60px 20px;text-align:center;color:var(--text3);font-family:'Geist Mono',monospace;font-size:.82rem}
+@media(max-width:900px){.mt-table{font-size:.68rem}.mt-table th,.mt-table td{padding:9px 10px}.mt-table td .slug{max-width:180px}.mt-table th.hide-sm,.mt-table td.hide-sm{display:none}}
 
 .pending-banner{display:none;max-width:720px;margin:0 auto 32px;padding:12px 20px;border-radius:14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fbbf24;font-family:'Geist Mono',monospace;font-size:.76rem;text-align:center}
 .pending-banner.show{display:block}
@@ -283,11 +336,20 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="model-picker" role="tablist" aria-label="Pick a model">
-    <span class="mp-label">model</span>
-    <button class="mp-btn" data-model="haiku"  role="tab"><span class="mp-dot empty"></span>Haiku 4.5</button>
-    <button class="mp-btn" data-model="sonnet" role="tab"><span class="mp-dot empty"></span>Sonnet 4.6</button>
-    <button class="mp-btn active" data-model="opus" role="tab"><span class="mp-dot ok"></span>Opus 4.7</button>
+  <div class="config-picker" role="group" aria-label="Pick configurations to compare">
+    <div class="cp-side left" role="tablist" aria-label="Left — baseline (no TS)">
+      <span class="cp-label">A · base</span>
+      <button class="cp-btn" data-side="left" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku</button>
+      <button class="cp-btn" data-side="left" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet</button>
+      <button class="cp-btn active" data-side="left" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus</button>
+    </div>
+    <span class="cp-vs">vs</span>
+    <div class="cp-side right" role="tablist" aria-label="Right — Token Savior">
+      <span class="cp-label">B · TS</span>
+      <button class="cp-btn" data-side="right" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku</button>
+      <button class="cp-btn" data-side="right" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet</button>
+      <button class="cp-btn active" data-side="right" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus</button>
+    </div>
   </div>
   <div class="hero-eyebrow"><i></i><span id="heroEyebrow">90 tasks · Claude Opus 4.7 · paired runs</span></div>
   <h1>We gave Claude a map<br>of your codebase.<br><em>It stopped getting lost.</em></h1>
@@ -358,6 +420,45 @@ footer .tag a:hover{color:var(--text)}
       <div class="hl"><div class="n">−99 %</div><div class="t">Import cycle detection</div><div class="d">Plain agent ran 35 Bash, 20 Read calls, 113k chars, 132s. Token Savior: two MCP calls, 200 chars, 17s. Same correct answer.</div></div>
       <div class="hl"><div class="n">0 → 2</div><div class="t">File dependency recovery</div><div class="d">Baseline read the whole file and missed three imports. One <code style="font-family:inherit;color:var(--cyan)">get_file_dependencies()</code> call got a perfect 2/2.</div></div>
       <div class="hl"><div class="n">21</div><div class="t">Impossible without</div><div class="d">Tasks the plain agent scored 0 on but Token Savior solved — community detection, hotspot audits, semantic duplicates. Amber tiles below.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ -->
+<section class="matchup" id="matchup">
+  <div class="s-intro reveal">
+    <div class="kicker">the matchup <i>·</i> task by task</div>
+    <h2>Every task.<br><em>Side by side.</em></h2>
+    <p>All 90 tasks from the benchmark. Pick any base model on the left, any Token-Savior-wired model on the right — the numbers recompute. Click a row to jump the replay below to that task.</p>
+  </div>
+
+  <div class="matchup-wrap reveal">
+    <div class="mt-summary" id="mtSummary"></div>
+    <div class="mt-controls">
+      <button class="mt-chip active" data-filter="all">all</button>
+      <button class="mt-chip" data-filter="win">B wins</button>
+      <button class="mt-chip" data-filter="impossible">impossible w/o TS</button>
+      <button class="mt-chip" data-filter="tie">ties</button>
+      <button class="mt-chip" data-filter="loss">A wins</button>
+      <button class="mt-chip" data-filter="pending">pending</button>
+    </div>
+    <div class="mt-table-wrap">
+      <table class="mt-table" id="mtTable">
+        <thead>
+          <tr>
+            <th data-sort="id">#<span class="so">↕</span></th>
+            <th data-sort="cat" class="hide-sm">category<span class="so">↕</span></th>
+            <th data-sort="slug">task<span class="so">↕</span></th>
+            <th data-sort="sa" class="num">A<span class="so">↕</span></th>
+            <th data-sort="sb" class="num">B<span class="so">↕</span></th>
+            <th data-sort="dtok" class="num hide-sm">Δ tokens<span class="so">↕</span></th>
+            <th data-sort="dwall" class="num hide-sm">Δ wall<span class="so">↕</span></th>
+            <th data-sort="dchar" class="num hide-sm">Δ chars<span class="so">↕</span></th>
+            <th data-sort="out" class="num">outcome<span class="so">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="mtBody"></tbody>
+      </table>
     </div>
   </div>
 </section>
@@ -656,10 +757,12 @@ document.querySelectorAll('.reveal').forEach(el=>ro.observe(el));
 
 /* ═══ REPLAY — tile grid + terminals ═══ */
 let MATRIX = null;
-let currentModel = 'opus';
+let leftModel = 'opus';
+let rightModel = 'opus';
 let TASKDATA = [];
 
-const MODEL_LABEL = { haiku:'Claude Haiku 4.5', sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
+const MODEL_LABEL = { haiku:'Haiku 4.5', sonnet:'Sonnet 4.6', opus:'Opus 4.7' };
+const MODEL_LABEL_FULL = { haiku:'Claude Haiku 4.5', sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
 const CATS = ['navigation','code_review','refactoring','audit','config_infra','bug_fixing','explanation','git','code_generation','writing_tests','documentation'];
 const CAT_LABEL = {
   navigation:'navigation', code_review:'code review', refactoring:'refactoring',
@@ -668,8 +771,11 @@ const CAT_LABEL = {
   writing_tests:'tests', documentation:'docs',
 };
 
-function buildTaskdata(model){
-  const baseKey = `${model}-base`, tsKey = `${model}-ts`;
+function baseCfg(){ return `${leftModel}-base`; }
+function tsCfg(){ return `${rightModel}-ts`; }
+
+function buildTaskdata(){
+  const baseKey = baseCfg(), tsKey = tsCfg();
   const arr = [];
   for (const [tid, t] of Object.entries(MATRIX.tasks)){
     const a = t.results[baseKey] || {};
@@ -685,6 +791,75 @@ function buildTaskdata(model){
     });
   }
   return arr.sort((x,y)=>x.id-y.id);
+}
+
+/* Compute head-to-head pair stats on the fly for any left/right combo */
+function computePair(){
+  const baseKey = baseCfg(), tsKey = tsCfg();
+  let nP = 0, sA=0, sB=0, sMax=0;
+  let tokA=0, tokB=0, wallA=0, wallB=0, chA=0, chB=0;
+  let wTs=0, ties=0, wBase=0;
+  for (const t of Object.values(MATRIX.tasks)){
+    const a = t.results[baseKey], b = t.results[tsKey];
+    if(!a || !b || a.score==null || b.score==null) continue;
+    nP++;
+    sA += a.score; sB += b.score; sMax += a.max_score || 2;
+    tokA += a.active_tokens||0; tokB += b.active_tokens||0;
+    wallA += a.wall_time_seconds||0; wallB += b.wall_time_seconds||0;
+    chA += a.context_chars||0; chB += b.context_chars||0;
+    if(b.score>a.score) wTs++;
+    else if(b.score<a.score) wBase++;
+    else ties++;
+  }
+  if(!nP) return null;
+  const red = (x,y) => x>0 ? Math.round((x-y)/x*1000)/10 : 0;
+  return {
+    base: baseKey, ts: tsKey,
+    n_paired: nP,
+    score_base: sA, score_ts: sB, score_max: sMax,
+    accuracy_base_pct: Math.round(sA/sMax*1000)/10,
+    accuracy_ts_pct: Math.round(sB/sMax*1000)/10,
+    accuracy_delta_pp: Math.round((sB-sA)/sMax*1000)/10,
+    active_tokens_base: tokA, active_tokens_ts: tokB,
+    wall_seconds_base: wallA, wall_seconds_ts: wallB,
+    context_chars_base: chA, context_chars_ts: chB,
+    reduction_active_pct: red(tokA, tokB),
+    reduction_wall_pct: red(wallA, wallB),
+    reduction_chars_pct: red(chA, chB),
+    delta_score: sB-sA,
+    wins_ts: wTs, ties, wins_base: wBase,
+  };
+}
+
+/* Fallback scoped summary for left/right side (uses pair totals, not the global matrix summary) */
+function sideSummary(pair, side){
+  if(!pair) return null;
+  const baseKey = baseCfg(), tsKey = tsCfg();
+  const key = side==='a' ? baseKey : tsKey;
+  const preset = MATRIX.summary[key];
+  // when leftModel===rightModel we can use global per-config summary; otherwise build from paired subset
+  const byCat = {};
+  for (const t of Object.values(MATRIX.tasks)){
+    const a = t.results[baseKey], b = t.results[tsKey];
+    if(!a || !b || a.score==null || b.score==null) continue;
+    const r = side==='a' ? a : b;
+    const c = byCat[t.category] || (byCat[t.category] = {n:0,score:0,max:0,chars:0,active:0,wall:0});
+    c.n++; c.score += r.score; c.max += r.max_score||2;
+    c.chars += r.context_chars||0; c.active += r.active_tokens||0; c.wall += r.wall_time_seconds||0;
+  }
+  for (const k of Object.keys(byCat)){
+    const c = byCat[k]; c.pct = c.max ? Math.round(c.score/c.max*1000)/10 : 0;
+  }
+  return {
+    n_tasks: pair.n_paired,
+    active_tokens_total: side==='a'?pair.active_tokens_base:pair.active_tokens_ts,
+    wall_time_total:     side==='a'?pair.wall_seconds_base:pair.wall_seconds_ts,
+    context_chars_total: side==='a'?pair.context_chars_base:pair.context_chars_ts,
+    score_total:         side==='a'?pair.score_base:pair.score_ts,
+    score_max_total:     pair.score_max,
+    score_pct:           side==='a'?pair.accuracy_base_pct:pair.accuracy_ts_pct,
+    by_category: byCat,
+  };
 }
 
 // ─── full trace scripts for 6 showcased tasks ───
@@ -1217,7 +1392,11 @@ function fmtMin(s){
 function fmtPctDrop(p){ return (p>0?'−':'+') + Math.abs(p).toFixed(1) + '%'; }
 
 function renderHero(pair){
-  heroEyebrow.textContent = `90 tasks · ${MODEL_LABEL[currentModel]} · paired runs`;
+  const leftLbl = MODEL_LABEL_FULL[leftModel], rightLbl = MODEL_LABEL_FULL[rightModel];
+  const same = leftModel === rightModel;
+  heroEyebrow.textContent = same
+    ? `90 tasks · ${leftLbl} · paired runs`
+    : `90 tasks · ${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
   if(!pair || !pair.n_paired){
     hActive.textContent = '—'; hWall.textContent = '—'; hAcc.textContent = '—'; hWTL.textContent = '—';
     return;
@@ -1243,6 +1422,16 @@ function renderScorecard(sBase, sTs, pair){
   setSide({active:aActive,wall:aWall,acc:aAcc,score:aScore}, sBase);
   setSide({active:bActive,wall:bWall,acc:bAcc,score:bScore}, sTs);
 
+  // Re-label the vs-side cards with the picked models
+  const aLabel = document.querySelector('.vs-side.a .vs-name');
+  const bLabel = document.querySelector('.vs-side.b .vs-name');
+  const aTitle = document.querySelector('.vs-side.a .vs-title');
+  const bTitle = document.querySelector('.vs-side.b .vs-title');
+  if(aLabel) aLabel.innerHTML = `<i></i>${MODEL_LABEL[leftModel]} · plain`;
+  if(bLabel) bLabel.innerHTML = `<i></i>${MODEL_LABEL[rightModel]} · token savior`;
+  if(aTitle) aTitle.textContent = `${MODEL_LABEL_FULL[leftModel]}.`;
+  if(bTitle) bTitle.textContent = `${MODEL_LABEL_FULL[rightModel]} + graph.`;
+
   if(sBase && sBase.n_tasks){
     cAccA.textContent = sBase.score_pct.toFixed(1) + '%';
   } else cAccA.textContent = '—';
@@ -1254,7 +1443,11 @@ function renderScorecard(sBase, sTs, pair){
     tWins.textContent   = `+${pair.wins_ts} wins`;
     tTies.firstChild.nodeValue = `${pair.ties} ties`;
     tLosses.textContent = `${pair.wins_base} losses`;
-    accTip.setAttribute('data-tip', `${MODEL_LABEL[currentModel]}: ${pair.score_base}/${pair.score_max} vs ${pair.score_ts}/${pair.score_max} over ${pair.n_paired} paired tasks.`);
+    const sameModel = leftModel === rightModel;
+    const label = sameModel
+      ? MODEL_LABEL_FULL[leftModel]
+      : `${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
+    accTip.setAttribute('data-tip', `${label}: ${pair.score_base}/${pair.score_max} vs ${pair.score_ts}/${pair.score_max} over ${pair.n_paired} paired tasks.`);
     tiesTip.setAttribute('data-tip', `A "tie" means both agents hit the scoring rubric — Token Savior usually reaches it with fewer tokens and less wall time.`);
   } else {
     tWins.textContent='—'; tLosses.textContent='—';
@@ -1359,14 +1552,15 @@ function renderLegend(pair){
 }
 
 function renderPicker(){
-  document.querySelectorAll('.mp-btn[data-model]').forEach(btn=>{
-    const model = btn.dataset.model;
-    const sBase = MATRIX.summary[`${model}-base`];
-    const sTs = MATRIX.summary[`${model}-ts`];
-    const nB = sBase?.n_tasks || 0, nT = sTs?.n_tasks || 0;
-    const dot = btn.querySelector('.mp-dot');
-    dot.className = 'mp-dot ' + (nB>=90 && nT>=90 ? 'ok' : (nB>0 || nT>0 ? 'pending' : 'empty'));
-    btn.classList.toggle('active', model === currentModel);
+  document.querySelectorAll('.cp-btn[data-side][data-model]').forEach(btn=>{
+    const model = btn.dataset.model, side = btn.dataset.side;
+    const key = side === 'left' ? `${model}-base` : `${model}-ts`;
+    const s = MATRIX.summary[key];
+    const n = s?.n_tasks || 0;
+    const dot = btn.querySelector('.cp-dot');
+    dot.className = 'cp-dot ' + (n>=90 ? 'ok' : (n>0 ? 'pending' : 'empty'));
+    const picked = side === 'left' ? leftModel : rightModel;
+    btn.classList.toggle('active', model === picked);
   });
 }
 
@@ -1375,29 +1569,131 @@ function renderPending(sBase, sTs){
   if(nB>=90 && nT>=90){
     pendingBanner.classList.remove('show'); pendingBanner.textContent=''; return;
   }
-  const lbl = MODEL_LABEL[currentModel];
+  const lL = MODEL_LABEL_FULL[leftModel], rL = MODEL_LABEL_FULL[rightModel];
   if(!nB && !nT){
-    pendingBanner.innerHTML = `<b>${lbl}</b> is pending — runs in progress. Numbers below will fill in as the matrix completes.`;
+    pendingBanner.innerHTML = `<b>${lL} (base)</b> vs <b>${rL} (+TS)</b> — runs pending.`;
   } else {
-    pendingBanner.innerHTML = `<b>${lbl}</b> partial — base ${nB}/90 · ts ${nT}/90. Showing what we have so far.`;
+    pendingBanner.innerHTML = `<b>${lL}</b> base ${nB}/90 · <b>${rL}</b> ts ${nT}/90 — showing what we have.`;
   }
   pendingBanner.classList.add('show');
 }
 
-function render(model){
-  currentModel = model;
-  TASKDATA = buildTaskdata(model);
-  const pair  = MATRIX.pairs[model];
-  const sBase = MATRIX.summary[`${model}-base`];
-  const sTs   = MATRIX.summary[`${model}-ts`];
+/* ═══ MATCHUP TABLE ═══ */
+let mtSortKey = 'id', mtSortDir = 1, mtFilter = 'all';
+const mtBody = document.getElementById('mtBody');
+const mtSummary = document.getElementById('mtSummary');
+
+function outcomeOf(t){
+  if(!t.hasA || !t.hasB) return 'pending';
+  if(t.sb > t.sa) return t.sa === 0 ? 'impossible' : 'win';
+  if(t.sb < t.sa) return 'loss';
+  return 'tie';
+}
+function deltaPct(a, b){ if(!a || a===0) return null; return Math.round((b-a)/a*1000)/10; }
+function fmtDelta(d){
+  if(d==null) return { txt:'—', cls:'eq' };
+  if(d===0) return { txt:'0%', cls:'eq' };
+  const sign = d>0?'+':'';
+  const cls = d<0 ? 'dn' : 'up';
+  return { txt:`${sign}${d.toFixed(d%1?1:0)}%`, cls };
+}
+const OUT_RANK = { win:0, impossible:1, tie:2, loss:3, pending:4 };
+
+function renderSummaryBar(pair){
+  if(!pair){ mtSummary.innerHTML = '<span>no paired data for this combo yet</span>'; return; }
+  const red = (v) => (v>0?'−':'+') + Math.abs(v).toFixed(1) + '%';
+  const acc = (pair.accuracy_delta_pp>=0?'+':'') + pair.accuracy_delta_pp + 'pp';
+  mtSummary.innerHTML = `
+    <span>${pair.n_paired} paired</span>
+    <span class="w"><b>+${pair.wins_ts}</b> wins</span>
+    <span class="t"><b>${pair.ties}</b> ties</span>
+    <span class="l"><b>${pair.wins_base}</b> losses</span>
+    <span class="i"><b>${TASKDATA.filter(t=>t.hasA&&t.hasB&&t.sa===0&&t.sb>0).length}</b> impossible w/o TS</span>
+    <span>tokens <b>${red(pair.reduction_active_pct)}</b></span>
+    <span>wall <b>${red(pair.reduction_wall_pct)}</b></span>
+    <span>chars <b>${red(pair.reduction_chars_pct)}</b></span>
+    <span>accuracy <b>${acc}</b></span>`;
+}
+
+function mtRowValue(t, key){
+  if(key==='id') return t.id;
+  if(key==='cat') return t.cat || '';
+  if(key==='slug') return t.slug || '';
+  if(key==='sa') return t.sa==null ? -1 : t.sa;
+  if(key==='sb') return t.sb==null ? -1 : t.sb;
+  if(key==='dtok') { const d = deltaPct(t.ta, t.tb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='dwall'){ const d = deltaPct(t.wa, t.wb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='dchar'){ const d = deltaPct(t.ca, t.cb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='out')  return OUT_RANK[outcomeOf(t)] ?? 5;
+  return 0;
+}
+
+function renderTable(){
+  // filter
+  let rows = TASKDATA.slice();
+  if(mtFilter !== 'all') rows = rows.filter(t => outcomeOf(t) === mtFilter);
+  // sort
+  rows.sort((a,b)=>{
+    const va = mtRowValue(a, mtSortKey), vb = mtRowValue(b, mtSortKey);
+    if(typeof va === 'string') return mtSortDir * va.localeCompare(vb);
+    return mtSortDir * (va - vb);
+  });
+  // build
+  if(!rows.length){
+    mtBody.innerHTML = `<tr><td colspan="9" class="mt-empty">No tasks match this filter.</td></tr>`;
+  } else {
+    const frag = rows.map(t => {
+      const out = outcomeOf(t);
+      const dtok  = fmtDelta(deltaPct(t.ta, t.tb));
+      const dwall = fmtDelta(deltaPct(t.wa, t.wb));
+      const dchar = fmtDelta(deltaPct(t.ca, t.cb));
+      const sa = t.hasA ? t.sa+'/2' : '—';
+      const sb = t.hasB ? t.sb+'/2' : '—';
+      let saCls = 'eq', sbCls = 'eq';
+      if(t.hasA && t.hasB){
+        if(t.sa>t.sb){ saCls='win'; sbCls='loss'; }
+        else if(t.sb>t.sa){ sbCls='win'; saCls='loss'; }
+      }
+      const prompt = esc(t.slug || '').replace(/-/g,' ');
+      const active = t.id === currentTid ? ' class="active"' : '';
+      return `<tr data-id="${t.id}"${active}>
+        <td><span class="tid">${t.tid}</span></td>
+        <td class="hide-sm"><span class="cat">${CAT_LABEL[t.cat]||t.cat||'—'}</span></td>
+        <td><span class="slug" title="${esc(t.prompt||prompt)}">${prompt}</span></td>
+        <td class="num"><span class="mt-score ${saCls}">${sa}</span></td>
+        <td class="num"><span class="mt-score ${sbCls}">${sb}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dtok.cls}">${dtok.txt}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dwall.cls}">${dwall.txt}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dchar.cls}">${dchar.txt}</span></td>
+        <td class="num"><span class="mt-out ${out}">${out}</span></td>
+      </tr>`;
+    }).join('');
+    mtBody.innerHTML = frag;
+  }
+  // header arrows
+  document.querySelectorAll('#mtTable th[data-sort]').forEach(th=>{
+    const k = th.dataset.sort;
+    th.classList.toggle('sorted', k === mtSortKey);
+    const so = th.querySelector('.so');
+    if(so) so.textContent = k === mtSortKey ? (mtSortDir>0?'↑':'↓') : '↕';
+  });
+}
+
+function render(){
+  TASKDATA = buildTaskdata();
+  const pair  = computePair();
+  const sBase = sideSummary(pair, 'a');
+  const sTs   = sideSummary(pair, 'b');
   renderPicker();
-  renderPending(sBase, sTs);
+  renderPending(MATRIX.summary[baseCfg()], MATRIX.summary[tsCfg()]);
   renderHero(pair);
   renderScorecard(sBase, sTs, pair);
   renderRadar(sBase, sTs);
   renderBars(sBase, sTs);
   renderTiles();
   renderLegend(pair);
+  renderSummaryBar(pair);
+  renderTable();
   const fallback = TASKDATA.find(x=>x.id===currentTid) || TASKDATA.find(x=>x.hasA && x.hasB) || TASKDATA[0];
   if(fallback) loadTask(fallback.id);
 }
@@ -1412,19 +1708,48 @@ async function init(){
     pendingBanner.classList.add('show');
     return;
   }
-  // default: opus if complete, else first complete pair, else opus
+  // default: most complete model for each side
   const priority = ['opus','sonnet','haiku'];
-  const complete = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>=90) && (MATRIX.summary[`${m}-ts`]?.n_tasks>=90));
-  const anyData  = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>0) || (MATRIX.summary[`${m}-ts`]?.n_tasks>0));
-  currentModel = complete || anyData || 'opus';
-  document.querySelectorAll('.mp-btn[data-model]').forEach(btn=>{
+  leftModel  = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>=90)) || priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>0)) || 'opus';
+  rightModel = priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>=90))   || priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>0))   || 'opus';
+
+  document.querySelectorAll('.cp-btn[data-side][data-model]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const m = btn.dataset.model;
-      if(m === currentModel) return;
-      render(m);
+      const m = btn.dataset.model, side = btn.dataset.side;
+      if(side==='left'){ if(m===leftModel) return; leftModel = m; }
+      else { if(m===rightModel) return; rightModel = m; }
+      render();
     });
   });
-  render(currentModel);
+
+  // matchup filters + sort
+  document.querySelectorAll('.mt-chip[data-filter]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.mt-chip').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      mtFilter = btn.dataset.filter;
+      renderTable();
+    });
+  });
+  document.querySelectorAll('#mtTable th[data-sort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k = th.dataset.sort;
+      if(k === mtSortKey) mtSortDir = -mtSortDir;
+      else { mtSortKey = k; mtSortDir = (k==='id'||k==='cat'||k==='slug') ? 1 : -1; }
+      renderTable();
+    });
+  });
+  // click row → load task in replay
+  mtBody.addEventListener('click', e=>{
+    const tr = e.target.closest('tr[data-id]');
+    if(!tr) return;
+    const id = +tr.dataset.id;
+    loadTask(id);
+    document.getElementById('replay')?.scrollIntoView({behavior:'smooth', block:'start'});
+    replay();
+  });
+
+  render();
 }
 init();
 
