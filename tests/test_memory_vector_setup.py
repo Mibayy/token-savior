@@ -86,7 +86,7 @@ class TestMigrationsWithoutVec:
 
 class TestEmbeddingsModule:
     def test_embed_none_when_library_missing(self, monkeypatch):
-        """If sentence-transformers can't be imported, embed returns None."""
+        """If fastembed can't be imported, embed returns None."""
         # Reset lazy state
         monkeypatch.setattr(embeddings, "_model", None)
         monkeypatch.setattr(embeddings, "_model_load_attempted", False)
@@ -95,7 +95,7 @@ class TestEmbeddingsModule:
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __import__
 
         def fake_import(name, *args, **kwargs):
-            if name == "sentence_transformers" or name.startswith("sentence_transformers."):
+            if name == "fastembed" or name.startswith("fastembed."):
                 raise ImportError("simulated absence")
             return real_import(name, *args, **kwargs)
 
@@ -109,7 +109,7 @@ class TestEmbeddingsModule:
         assert embeddings.embed(123) is None  # type: ignore[arg-type]
 
     def test_embed_dim_constant(self):
-        assert embeddings.EMBED_DIM == 384
+        assert embeddings.EMBED_DIM == 768
 
     def test_warning_emitted_once(self, monkeypatch, caplog):
         monkeypatch.setattr(embeddings, "_model", None)
@@ -117,7 +117,7 @@ class TestEmbeddingsModule:
         monkeypatch.setattr(embeddings, "_warning_emitted", False)
 
         def fake_import(name, *args, **kwargs):
-            if name == "sentence_transformers":
+            if name == "fastembed":
                 raise ImportError("simulated")
             return importlib.__import__(name, *args, **kwargs)
 
@@ -126,5 +126,5 @@ class TestEmbeddingsModule:
             embeddings.embed("a")
             embeddings.embed("b")
             embeddings.embed("c")
-        hits = [r for r in caplog.records if "sentence-transformers" in r.message]
+        hits = [r for r in caplog.records if "fastembed" in r.message]
         assert len(hits) == 1

@@ -1,7 +1,7 @@
 """A1-3: hybrid search (FTS5 + vec) with RRF fusion.
 
 These tests run on a VPS that typically doesn't have sqlite-vec /
-sentence-transformers installed. They exercise both the graceful
+fastembed installed. They exercise both the graceful
 fallback path (pure FTS5) and a monkey-patched simulated-available path
 that stubs ``embed`` and injects synthetic vec rows — no real model is
 ever downloaded.
@@ -84,7 +84,7 @@ class TestHybridSearchFallback:
         """embed() returning None (model missing) → FTS preserved."""
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         from token_savior.memory import embeddings
-        monkeypatch.setattr(embeddings, "embed", lambda text: None)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: None)
         fts = [{"id": 1}, {"id": 2}, {"id": 3}]
         out = hybrid_search(None, fts, "q", PROJECT, limit=10)
         assert [r["id"] for r in out] == [1, 2, 3]
@@ -93,7 +93,7 @@ class TestHybridSearchFallback:
         """No vec rows returned (missing table) → FTS preserved."""
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         from token_savior.memory import embeddings
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
         monkeypatch.setattr(search_mod, "vec_search_rows",
                             lambda *a, **kw: [])
         fts = [{"id": 1}, {"id": 2}]
@@ -117,7 +117,7 @@ class TestHybridSearchFused:
         """Simulate vec availability and verify RRF fusion promotes overlap."""
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         from token_savior.memory import embeddings
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.1] * 384)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.1] * 768)
 
         # #7 is mid-rank in FTS but also mid-rank in vec → highest fused.
         fts = [{"id": 1}, {"id": 2}, {"id": 7}, {"id": 3}, {"id": 4}]

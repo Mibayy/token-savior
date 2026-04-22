@@ -128,7 +128,7 @@ def hybrid_search(
         from token_savior.memory.embeddings import embed
     except Exception:
         return fts_rows[:limit]
-    vec = embed(query)
+    vec = embed(query, as_query=True)
     if vec is None:
         return fts_rows[:limit]
     vec_rows = vec_search_rows(

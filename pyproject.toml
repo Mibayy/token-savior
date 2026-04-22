@@ -31,7 +31,7 @@ dependencies = [
 mcp = ["mcp>=1.25"]
 dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.5"]
 benchmark = ["aiohttp>=3.9"]
-memory-vector = ["sqlite-vec>=0.1", "sentence-transformers>=2.2"]
+memory-vector = ["sqlite-vec>=0.1", "fastembed>=0.4", "onnxruntime>=1.16"]
 
 [project.scripts]
 token-savior = "token_savior.server:main_sync"

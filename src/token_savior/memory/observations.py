@@ -540,7 +540,12 @@ def observation_update(
     importance: int | None = None,
     archived: bool | None = None,
 ) -> bool:
-    """Update fields on an existing observation. Returns True on success."""
+    """Update fields on an existing observation. Returns True on success.
+
+    When content-bearing fields change and vector search is active, the
+    corresponding obs_vectors row is refreshed so semantic search stays in
+    sync with the FTS5 index (the SQL trigger handles FTS automatically).
+    """
     sets: list[str] = []
     params: list[Any] = []
 
@@ -573,14 +578,34 @@ def observation_update(
     params.append(_now_iso())
     params.append(obs_id)
 
+    content_changed = any(k is not None for k in (title, content, why, how_to_apply))
+
     try:
         conn = memory_db.get_db()
         cur = conn.execute(
             f"UPDATE observations SET {', '.join(sets)} WHERE id=?",
             params,
         )
-        conn.commit()
         changed = cur.rowcount > 0
+        if changed and content_changed:
+            from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+            if VECTOR_SEARCH_AVAILABLE:
+                try:
+                    from token_savior.memory.embeddings import maybe_index_obs
+                    row = conn.execute(
+                        "SELECT COALESCE(narrative, content) AS text "
+                        "FROM observations WHERE id=?",
+                        (obs_id,),
+                    ).fetchone()
+                    if row is not None:
+                        maybe_index_obs(obs_id, row["text"], conn)
+                except Exception as exc:
+                    print(
+                        f"[token-savior:memory] obs_vectors refresh on "
+                        f"update failed (obs={obs_id}): {exc}",
+                        file=sys.stderr,
+                    )
+        conn.commit()
         conn.close()
         return changed
     except sqlite3.Error as exc:

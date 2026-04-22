@@ -1,7 +1,7 @@
 """A1-2: vector indexation on save + reindex tool + doctor/status hooks.
 
 The VPS that runs these tests typically does not have sqlite-vec or
-sentence-transformers installed. Each test below either exercises the
+fastembed installed. Each test below either exercises the
 unavailable-path explicitly or monkey-patches the embedding pipeline to
 simulate an available one while still using a plain SQLite ``obs_vectors``
 table (no vec0 extension required).
@@ -86,8 +86,8 @@ class TestObservationSaveVectorHookSimulatedAvailable:
         """Simulate sqlite-vec + embedding availability, verify row insertion."""
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         # Skip the real model + serializer.
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 1536)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         oid = _save(title="with-vec", content="hello world", narrative="narrative txt")
@@ -102,7 +102,7 @@ class TestObservationSaveVectorHookSimulatedAvailable:
             conn.close()
         assert row is not None
         assert row["obs_id"] == oid
-        assert row["n"] == 1536
+        assert row["n"] == 3072
 
     def test_embed_receives_narrative_preferred_over_content(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
@@ -110,10 +110,10 @@ class TestObservationSaveVectorHookSimulatedAvailable:
 
         def fake_embed(text: str):
             captured["text"] = text or ""
-            return [0.0] * 384
+            return [0.0] * 768
 
         monkeypatch.setattr(embeddings, "embed", fake_embed)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 4)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         _save(title="t", content="CONTENT", narrative="NARRATIVE")
@@ -135,13 +135,20 @@ class TestBackfillFunction:
         monkeypatch.setattr(embeddings, "_load_model", lambda: None)
         res = embeddings.backfill_obs_vectors(project_root=PROJECT, limit=10)
         assert res["status"] == "unavailable"
-        assert "sentence-transformers" in res["reason"]
+        assert "fastembed" in res["reason"]
 
     def test_unavailable_when_obs_vectors_table_missing(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         monkeypatch.setattr(embeddings, "_load_model", lambda: object())
-        # Create some obs but no obs_vectors table.
+        # Create some obs, then drop obs_vectors to simulate a DB where the
+        # vec0 extension could not be loaded on this connection.
         _save(title="solo", content="body")
+        conn = memory_db.get_db()
+        try:
+            conn.execute("DROP TABLE IF EXISTS obs_vectors")
+            conn.commit()
+        finally:
+            conn.close()
         res = embeddings.backfill_obs_vectors(project_root=PROJECT, limit=10)
         assert res["status"] == "unavailable"
         assert "obs_vectors" in res["reason"]
@@ -149,8 +156,8 @@ class TestBackfillFunction:
     def test_backfill_ok_indexes_missing_rows(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         monkeypatch.setattr(embeddings, "_load_model", lambda: object())
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 8)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         # Save 3 obs BEFORE enabling embed (simulate legacy rows without vec).
@@ -191,8 +198,8 @@ class TestVectorReindexHandler:
     def test_ok_path_renders_coverage(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         monkeypatch.setattr(embeddings, "_load_model", lambda: object())
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 4)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         _save(title="x", content="xx")
@@ -220,8 +227,8 @@ class TestDoctorVectorLine:
 
     def test_enabled_line_when_available(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 4)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         _save(title="one", content="aa")
@@ -241,12 +248,12 @@ class TestStatusVectorLine:
 
     def test_enabled_row_renders_dim_and_coverage(self, monkeypatch):
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
-        monkeypatch.setattr(embeddings, "embed", lambda text: [0.0] * 384)
-        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 4)
+        monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.0] * 768)
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
         _create_plain_obs_vectors_table()
 
         _save(title="z", content="zz")
         out = _mh_memory_status({"project": PROJECT})
         assert "Vectors" in out
-        assert "enabled (384d)" in out
+        assert "enabled (768d)" in out
         assert "1/1" in out

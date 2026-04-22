@@ -1,30 +1,39 @@
 """A1-1: embedding helper for memory observations (vector search prep).
 
-Lazy-loads ``SentenceTransformer("all-MiniLM-L6-v2")`` on first use. If the
-``sentence-transformers`` package is missing or the model fails to
-materialize, :func:`embed` returns ``None`` silently — callers degrade to
-keyword-only search. One warning is emitted per process when the library
-or the model cannot be loaded; subsequent calls are cheap no-ops.
+Backend: FastEmbed + ``nomic-ai/nomic-embed-text-v1.5-Q``
+  - 768-dim L2-normalized vectors
+  - INT8 quantized ONNX, ~210MB RAM, ~160ms/call on a 4-core CPU
+  - Context 8192 tokens, Matryoshka truncation supported (64-768)
+  - Task prefixes: ``search_document:`` (stored) / ``search_query:`` (user query)
+
+If ``fastembed`` is missing or the model fails to materialize, :func:`embed`
+returns ``None`` silently -- callers degrade to keyword-only search. One
+warning is emitted per process when the library or the model cannot be
+loaded; subsequent calls are cheap no-ops.
 
 Install the optional stack with::
 
     pip install 'token-savior-recall[memory-vector]'
 
-The chosen model outputs 384-dim vectors to match the
-``obs_vectors USING vec0(embedding FLOAT[384])`` table declared in
+The chosen model outputs 768-dim vectors to match the
+``obs_vectors USING vec0(embedding FLOAT[768])`` table declared in
 :mod:`token_savior.db_core`.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 _logger = logging.getLogger(__name__)
 
-_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBED_DIM = 384
-_MAX_INPUT_CHARS = 512
+_MODEL_NAME = "nomic-ai/nomic-embed-text-v1.5-Q"
+EMBED_DIM = 768
+_MAX_INPUT_CHARS = 2000
+
+PREFIX_DOCUMENT = "search_document: "
+PREFIX_QUERY = "search_query: "
 
 _model: Any | None = None
 _model_load_attempted = False
@@ -46,16 +55,16 @@ def _load_model() -> Any | None:
         return _model
     _model_load_attempted = True
     try:
-        from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+        from fastembed import TextEmbedding  # type: ignore[import-not-found]
     except ImportError:
         _emit_warning_once(
-            "[token-savior:memory] sentence-transformers not installed; "
+            "[token-savior:memory] fastembed not installed; "
             "embedding disabled. Install with: "
             "pip install 'token-savior-recall[memory-vector]'",
         )
         return None
     try:
-        _model = SentenceTransformer(_MODEL_NAME)
+        _model = TextEmbedding(model_name=_MODEL_NAME)
     except Exception as exc:
         _emit_warning_once(
             "[token-savior:memory] failed to load %s (%s); embedding disabled.",
@@ -65,17 +74,34 @@ def _load_model() -> Any | None:
     return _model
 
 
-def embed(text: str | None) -> list[float] | None:
-    """Embed ``text`` into a 384-dim vector.
+def _normalize_l2(values: Any) -> list[float] | None:
+    try:
+        flat = [float(x) for x in values]
+    except (TypeError, ValueError):
+        return None
+    norm_sq = sum(v * v for v in flat)
+    if norm_sq <= 0.0:
+        return None
+    inv = 1.0 / math.sqrt(norm_sq)
+    return [v * inv for v in flat]
+
+
+def embed(text: str | None, *, as_query: bool = False) -> list[float] | None:
+    """Embed ``text`` into a 768-dim L2-normalized vector.
+
+    The Nomic v1.5 family is task-tuned: the model expects a prefix that
+    describes the role of the text. Stored observations use
+    ``search_document:`` (the default); user-facing queries should pass
+    ``as_query=True`` to get ``search_query:``.
 
     Returns ``None`` when:
       * ``text`` is empty / not a string
-      * ``sentence-transformers`` is not installed
-      * model load or encode fails at runtime
+      * ``fastembed`` is not installed or the model failed to load
+      * the embed call or the normalization fails at runtime
 
-    Input is truncated to 512 characters — callers typically pass
-    ``COALESCE(narrative, content)`` and the first 512 chars carry
-    the semantic payload for observations.
+    Input is truncated to :data:`_MAX_INPUT_CHARS` to cap CPU latency --
+    2000 chars is well within the 8192-token context window and covers the
+    narrative payload of an observation or the body of most code symbols.
     """
     if not text or not isinstance(text, str):
         return None
@@ -84,14 +110,13 @@ def embed(text: str | None) -> list[float] | None:
         return None
     try:
         truncated = text[:_MAX_INPUT_CHARS]
-        vec = model.encode(truncated, show_progress_bar=False)
+        prefix = PREFIX_QUERY if as_query else PREFIX_DOCUMENT
+        vec_iter = model.embed([prefix + truncated])
+        raw = next(iter(vec_iter))
     except Exception as exc:
         _logger.debug("[token-savior:memory] embed failed: %s", exc)
         return None
-    try:
-        return [float(x) for x in vec]
-    except (TypeError, ValueError):
-        return None
+    return _normalize_l2(raw)
 
 
 def is_available() -> bool:
@@ -167,7 +192,7 @@ def backfill_obs_vectors(
       * status   : "ok" / "unavailable" / "error"
       * indexed  : rows inserted this run
       * total    : total eligible obs
-      * pending  : total − (previously_indexed + indexed_this_run)
+      * pending  : total - (previously_indexed + indexed_this_run)
       * reason   : filled when status != "ok"
     """
     from token_savior import memory_db
@@ -182,7 +207,7 @@ def backfill_obs_vectors(
     if _load_model() is None:
         return {
             "status": "unavailable", "indexed": 0, "total": 0, "pending": 0,
-            "reason": "sentence-transformers not installed or model load failed",
+            "reason": "fastembed not installed or model load failed",
         }
 
     where_proj = "AND project_root=?" if project_root else ""

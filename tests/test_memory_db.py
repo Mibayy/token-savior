@@ -111,7 +111,14 @@ class TestSummaryTimelinePositioning:
 
 
 class TestFTS5Triggers:
-    def test_update_syncs_fts(self):
+    def test_update_syncs_fts(self, monkeypatch):
+        # Force FTS-only search path: with vector search active the hybrid
+        # ranker may still surface the obs via semantic neighborhood even
+        # after its text was rewritten. This test targets the FTS trigger
+        # specifically.
+        from token_savior import db_core as _db_core
+        monkeypatch.setattr(_db_core, "VECTOR_SEARCH_AVAILABLE", False)
+
         sid = memory_db.session_start(PROJECT)
         obs_id = memory_db.observation_save(
             sid, PROJECT, "convention", "old title", "old content about widgets",
