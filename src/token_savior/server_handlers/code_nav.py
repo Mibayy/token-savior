@@ -677,6 +677,7 @@ QFN_HANDLERS: dict[str, object] = {
             a["pattern"],
             max_results=a.get("max_results", 100),
             ignore_generated=a.get("ignore_generated", True),
+            semantic=a.get("semantic", False),
         ),
         a["pattern"],
     ),

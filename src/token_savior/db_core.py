@@ -232,6 +232,42 @@ def run_migrations(db_path: Path | str | None = None) -> None:
                     "vector search disabled.", exc,
                 )
 
+            # Feature 1: symbol-level vector index for search_codebase(semantic=True).
+            # vec0 demands INTEGER primary keys and a dense FLOAT[N] column, so
+            # symbol metadata (project + key) lives in a sibling mapping table
+            # and the vec row is joined via symbol_id.
+            try:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS symbols("
+                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "  project_root TEXT NOT NULL,"
+                    "  symbol_key TEXT NOT NULL,"
+                    "  file_path TEXT NOT NULL,"
+                    "  lineno INTEGER NOT NULL,"
+                    "  kind TEXT NOT NULL,"
+                    "  signature TEXT,"
+                    "  docstring_head TEXT,"
+                    "  content_hash TEXT NOT NULL,"
+                    "  updated_at_epoch INTEGER NOT NULL,"
+                    "  UNIQUE(project_root, symbol_key)"
+                    ")"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_symbols_proj "
+                    "ON symbols(project_root)"
+                )
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS symbol_vectors USING vec0("
+                    "  symbol_id INTEGER PRIMARY KEY,"
+                    "  embedding FLOAT[768]"
+                    ")"
+                )
+            except sqlite3.OperationalError as exc:
+                _logger.warning(
+                    "[token-savior:memory] symbol_vectors create failed (%s); "
+                    "semantic code search disabled.", exc,
+                )
+
         conn.commit()
     finally:
         conn.close()
