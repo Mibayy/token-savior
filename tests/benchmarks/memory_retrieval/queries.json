@@ -121,6 +121,66 @@
       "query": "protection contre hallucinations subagent",
       "gt": ["error-ts-stop-hint-hallucination", "feedback_subagent_token_savior"],
       "kind": "semantic"
+    },
+    {
+      "id": "Q21",
+      "query": "tsbench Run A vs Run B Opus 4.7",
+      "gt": ["feedback_token_savior_not_religion"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q22",
+      "query": "le SaaS pour gerer des associations",
+      "gt": ["mapetiteasso-project"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q23",
+      "query": "Stripe Supabase Brevo multi-tenant",
+      "gt": ["mapetiteasso-project"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q24",
+      "query": "pieges Supabase invitation adherent",
+      "gt": ["error-improvence-invite-links"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q25",
+      "query": "flow PKCE magic link action_link",
+      "gt": ["error-improvence-invite-links"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q26",
+      "query": "pas de monetisation par emailing",
+      "gt": ["feedback_no_newsletter"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q27",
+      "query": "verifier github actions avant d'insister que c'est OK",
+      "gt": ["feedback_check_ci_before_arguing"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q28",
+      "query": "4 modules FastAPI portail React responsive",
+      "gt": ["letsignit-demo-context"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q29",
+      "query": "quand faut-il reindexer apres edition",
+      "gt": ["feedback_token_savior_limitations"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q30",
+      "query": "use best tool not just TS everywhere",
+      "gt": ["feedback_token_savior_not_religion"],
+      "kind": "paraphrase-en"
     }
   ]
 }

@@ -113,7 +113,7 @@ def _vec_search(conn, query, limit=40):
     return [{"id": r[0]} for r in rows]
 
 
-def _hybrid(conn, query, limit=40):
+def _hybrid(conn, query, limit=40, rrf_k=60):
     from token_savior.memory.search import rrf_merge
     fts = _fts_search(conn, query, limit=limit * 2)
     vec = _vec_search(conn, query, limit=limit * 2)
@@ -121,7 +121,7 @@ def _hybrid(conn, query, limit=40):
         return fts[:limit]
     if not fts:
         return vec[:limit]
-    return rrf_merge(fts, vec, limit=limit)
+    return rrf_merge(fts, vec, limit=limit, k=rrf_k)
 
 
 def _metrics(ranked_stems: list[str], gt: list[str]) -> dict:
@@ -159,7 +159,7 @@ def _agg(per_query: list[dict]) -> dict:
     }
 
 
-def run() -> dict:
+def run(sweep_rrf: list[int] | None = None) -> dict:
     qspec = json.loads(QUERIES_PATH.read_text())
     queries = qspec["queries"]
     docs = _load_corpus()
@@ -175,11 +175,14 @@ def run() -> dict:
         import token_savior.memory_db as memory_db
         conn = memory_db.get_db(db_path)
 
-        configs = {
+        configs: dict = {
             "fts5": _fts_search,
             "vector": _vec_search,
             "hybrid": _hybrid,
         }
+        if sweep_rrf:
+            for k in sweep_rrf:
+                configs[f"hybrid_k{k}"] = (lambda kv: lambda c, q, limit=10: _hybrid(c, q, limit, rrf_k=kv))(k)
 
         all_results: dict[str, list[dict]] = {k: [] for k in configs}
         per_query_table: list[dict] = []
@@ -225,7 +228,8 @@ def _print_report(result: dict) -> str:
     lines.append("")
     lines.append("| Config | MRR@10 | Recall@3 | Recall@10 | P50 ms | P95 ms |")
     lines.append("|---|---|---|---|---|---|")
-    for name in ("fts5", "vector", "hybrid"):
+    ordered = ["fts5", "vector", "hybrid"] + [k for k in agg if k.startswith("hybrid_k")]
+    for name in ordered:
         a = agg[name]
         lines.append(
             f"| **{name}** | {a['mrr_10']} | {a['recall_3']} | {a['recall_10']} | "
@@ -252,8 +256,15 @@ def _print_report(result: dict) -> str:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sweep-rrf", type=str, default="",
+                        help="Comma-separated RRF k values, e.g. '5,10,20,30,60'")
+    args = parser.parse_args()
+    sweep = [int(x) for x in args.sweep_rrf.split(",") if x.strip()] if args.sweep_rrf else None
+
     sys.path.insert(0, "/root/token-savior/src")
-    result = run()
+    result = run(sweep_rrf=sweep)
     report = _print_report(result)
     print()
     print(report)
