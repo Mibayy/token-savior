@@ -57,7 +57,10 @@ class TestToolSchemas:
         # hotspots 3->1 (-2). Total -18 => 88 tools.
         # +1 search_in_symbols (content search + structural enclosing symbol) = 89.
         # +1 audit_file (mega-batch: dead_code + hotspots + duplicates) = 90.
-        assert len(TOOL_SCHEMAS) == 90, f"Expected 90 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 get_db_schema (SQL migrations parser) = 91.
+        # +1 get_library_symbol (.d.ts / Python stub lookup) = 92.
+        # +1 list_library_symbols (package export list) = 93.
+        assert len(TOOL_SCHEMAS) == 93, f"Expected 93 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

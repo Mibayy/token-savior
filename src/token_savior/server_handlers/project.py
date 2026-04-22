@@ -35,6 +35,32 @@ def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
+_HINT_REL_PATHS = (".token-savior/hint.md", ".token-savior.md")
+_HINT_MAX_CHARS = 2000
+
+
+def _read_project_hint(project_root: str) -> str | None:
+    """Return the contents of a per-project hint file if present.
+
+    Looked up at `<root>/.token-savior/hint.md` first, then `<root>/.token-savior.md`
+    as a convenience single-file form. Capped to avoid polluting the context
+    with long prose (use CLAUDE.md for that).
+    """
+    for rel in _HINT_REL_PATHS:
+        path = os.path.join(project_root, rel)
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read().strip()
+        except OSError:
+            continue
+        if not text:
+            continue
+        if len(text) > _HINT_MAX_CHARS:
+            text = text[:_HINT_MAX_CHARS] + "\n... [truncated; raise TS_HINT_MAX or split file]"
+        return text
+    return None
+
+
 def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     hint = arguments["name"]
     slot, err = state._slot_mgr.resolve(hint)
@@ -47,10 +73,11 @@ def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     idx = slot.indexer._project_index if slot.indexer else None
     info = f"{idx.total_files} files" if idx else "index not built"
     prefix = "Already active" if already_active else "Switched to"
-    return [TextContent(
-        type="text",
-        text=f"{prefix} '{os.path.basename(slot.root)}' ({slot.root}) -- {info}.",
-    )]
+    body = f"{prefix} '{os.path.basename(slot.root)}' ({slot.root}) -- {info}."
+    hint_body = _read_project_hint(slot.root)
+    if hint_body:
+        body += "\n\n--- project hint (.token-savior/hint.md) ---\n" + hint_body
+    return [TextContent(type="text", text=body)]
 
 
 def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
