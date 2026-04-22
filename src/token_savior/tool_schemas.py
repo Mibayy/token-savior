@@ -857,6 +857,92 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "get_db_schema": {
+        "description": (
+            "Parse SQL migrations under the active project and return a condensed schema "
+            "snapshot: tables with columns (name, type, nullable, default), primary keys, "
+            "foreign keys, indexes, and RLS policies. Auto-detects common migration "
+            "directories (supabase/migrations, migrations, db/migrations, prisma/migrations). "
+            "Use instead of re-reading raw .sql files every time the agent writes a query."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "migrations_dir": {
+                    "type": "string",
+                    "description": "Relative or absolute path to the migrations directory (default: auto-detect).",
+                },
+                "dialect": {
+                    "type": "string",
+                    "description": "SQL dialect -- currently only 'postgres' is implemented.",
+                },
+                "tables": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional filter: only return these table names.",
+                },
+                **_PROJECT_PARAM,
+            },
+        },
+    },
+    "get_library_symbol": {
+        "description": (
+            "Resolve a symbol inside an installed library (TypeScript .d.ts in node_modules, "
+            "or a Python module) and return signature + JSDoc/docstring + source location. "
+            "Prefer this over Context7/doc fetches for API signature lookups -- it reflects the "
+            "installed version exactly and costs ~100 tokens. For dotted paths, pass the full "
+            "chain (e.g. 'SupabaseAuthClient.signInWithOtp')."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package": {
+                    "type": "string",
+                    "description": "npm package name (e.g. '@supabase/supabase-js') or Python module (e.g. 'pandas').",
+                },
+                "symbol_path": {
+                    "type": "string",
+                    "description": "Dotted symbol path inside the package (e.g. 'createClient', 'SupabaseAuthClient.signInWithOtp').",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Cap on .d.ts files scanned (default 200).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["package"],
+        },
+    },
+    "list_library_symbols": {
+        "description": (
+            "List top-level exports of an installed library (npm .d.ts or Python module), "
+            "optionally filtered by regex. Use before get_library_symbol when you don't know "
+            "the exact exported name."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package": {
+                    "type": "string",
+                    "description": "npm package name or Python module.",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Case-insensitive regex filter on symbol names (optional).",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Cap on .d.ts files scanned (default 100).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Cap on results (default 100).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["package"],
+        },
+    },
     "audit_file": {
         "description": (
             "Mega-batch audit of a single file: dead_code + hotspots + semantic "

@@ -17,8 +17,13 @@ from token_savior.breaking_changes import detect_breaking_changes as run_breakin
 from token_savior.complexity import find_hotspots as run_hotspots
 from token_savior.config_analyzer import analyze_config as run_config_analysis
 from token_savior.cross_project import find_cross_project_deps as run_cross_project
+from token_savior.db_schema import get_db_schema as run_get_db_schema
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
+from token_savior.library_api import (
+    get_library_symbol as run_get_library_symbol,
+    list_library_symbols as run_list_library_symbols,
+)
 from token_savior.java_quality import (
     find_allocation_hotspots as run_allocation_hotspots,
     find_performance_hotspots as run_performance_hotspots,
@@ -214,6 +219,44 @@ def _h_audit_file(slot: _ProjectSlot, args: dict) -> object:
     return out
 
 
+def _h_get_db_schema(slot: _ProjectSlot, args: dict) -> object:
+    tables = args.get("tables")
+    if isinstance(tables, str):
+        tables = [t.strip() for t in tables.split(",") if t.strip()]
+    return run_get_db_schema(
+        slot.root,
+        migrations_dir=args.get("migrations_dir"),
+        dialect=args.get("dialect", "postgres"),
+        tables=tables,
+    )
+
+
+def _h_get_library_symbol(slot: _ProjectSlot, args: dict) -> object:
+    package = args.get("package")
+    symbol_path = args.get("symbol_path", "")
+    if not package:
+        return {"ok": False, "error": "'package' is required"}
+    return run_get_library_symbol(
+        package,
+        symbol_path,
+        project_root=slot.root,
+        max_files=int(args.get("max_files", 200)),
+    )
+
+
+def _h_list_library_symbols(slot: _ProjectSlot, args: dict) -> object:
+    package = args.get("package")
+    if not package:
+        return {"ok": False, "error": "'package' is required"}
+    return run_list_library_symbols(
+        package,
+        project_root=slot.root,
+        pattern=args.get("pattern"),
+        max_files=int(args.get("max_files", 100)),
+        limit=int(args.get("limit", 100)),
+    )
+
+
 HANDLERS: dict[str, Any] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
@@ -222,4 +265,7 @@ HANDLERS: dict[str, Any] = {
     "find_cross_project_deps": _h_find_cross_project_deps,
     "analyze_docker": _h_analyze_docker,
     "audit_file": _h_audit_file,
+    "get_db_schema": _h_get_db_schema,
+    "get_library_symbol": _h_get_library_symbol,
+    "list_library_symbols": _h_list_library_symbols,
 }
