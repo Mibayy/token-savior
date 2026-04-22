@@ -707,6 +707,8 @@ QFN_HANDLERS: dict[str, object] = {
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 2),
         max_groups=a.get("max_groups", 10),
+        method=a.get("method", "ast"),
+        min_similarity=a.get("min_similarity", 0.90),
     ),
     "find_import_cycles": lambda q, a: q["find_import_cycles"](
         max_cycles=a.get("max_cycles", 20),

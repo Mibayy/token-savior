@@ -185,3 +185,42 @@ def test_reindex_prunes_deleted_symbols(fixture_project: Path, tmp_path: Path):
     second = reindex_project_symbols(fixture_project)
     assert second["removed"] == 3  # class + 2 methods
     assert second["total"] == 2
+
+
+@_VECTOR_REQUIRED
+def test_find_semantic_duplicates_embedding_filters_class_method_pairs(
+    fixture_project: Path, tmp_path: Path,
+):
+    """Feature 2 regression: at a realistic similarity threshold, a
+    class and its own method must not form a 2-element duplicate
+    cluster. The filter blocks the direct pair comparison; transitive
+    unions at very low thresholds are legitimate and not what this
+    guard is about.
+    """
+    from token_savior import db_core, memory_db
+    from token_savior.project_indexer import ProjectIndexer
+    from token_savior.query_api import ProjectQueryEngine
+
+    db = tmp_path / "bench.db"
+    db_core.run_migrations(db)
+    memory_db.MEMORY_DB_PATH = str(db)
+    idx = ProjectIndexer(str(fixture_project)).index()
+    engine = ProjectQueryEngine(idx)
+
+    report = engine.find_semantic_duplicates(
+        method="embedding", min_similarity=0.95, max_groups=30,
+    )
+    for line in report.splitlines():
+        if not line.startswith("  cluster(2)"):
+            continue
+        members = line.split(":", 1)[1]
+        # Parse the "a, b" into the two symbol keys. A cluster(2) pair
+        # where one ends with ".<member>" of the other is the exact
+        # failure mode the filter exists to prevent.
+        a, b = [m.strip() for m in members.split(",", 1)]
+        _, a_q = a.split("::", 1)
+        _, b_q = b.split("::", 1)
+        parent, child = sorted((a_q, b_q), key=len)
+        assert not child.startswith(parent + "."), (
+            f"class↔method pair slipped through: {line}"
+        )
