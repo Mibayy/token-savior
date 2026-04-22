@@ -215,7 +215,7 @@ def run() -> dict:
 def _print_report(result: dict) -> str:
     agg = result["agg"]
     lines = []
-    lines.append(f"# Memory retrieval bench")
+    lines.append("# Memory retrieval bench")
     lines.append("")
     lines.append(f"- Corpus: {result['corpus_size']} docs (auto-memory .md)")
     lines.append(f"- Queries: {result['num_queries']} handcrafted with ground truth")

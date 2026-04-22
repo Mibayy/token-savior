@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import textwrap
 
-import pytest
-
 from token_savior.db_schema import get_db_schema
 
 
