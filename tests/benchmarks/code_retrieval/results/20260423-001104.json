@@ -1,0 +1,243 @@
+{
+  "corpus_source": "/root/token-savior/src/token_savior",
+  "corpus_symbols": 999,
+  "indexed": 999,
+  "skipped": 0,
+  "index_seconds": 124.56,
+  "num_queries": 15,
+  "agg": {
+    "mrr_10": 0.7944,
+    "recall_3": 0.9333,
+    "recall_10": 1.0,
+    "p50_ms": 34.4,
+    "p95_ms": 82.1,
+    "low_confidence_rate": 0.87
+  },
+  "per_query": [
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q01",
+      "query": "fuse two ranked lists of search results",
+      "kind": "paraphrase",
+      "latency_ms": 32.93702192604542,
+      "low_confidence": true,
+      "top3": [
+        "rrf_merge",
+        "observation_search",
+        "get_relevance_cluster"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q02",
+      "query": "merge results via reciprocal rank fusion",
+      "kind": "paraphrase",
+      "latency_ms": 33.25128089636564,
+      "low_confidence": true,
+      "top3": [
+        "rrf_merge",
+        "observation_search",
+        "get_relevance_cluster"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q03",
+      "query": "convert plain text into a dense vector embedding",
+      "kind": "paraphrase",
+      "latency_ms": 39.1774398740381,
+      "low_confidence": true,
+      "top3": [
+        "embed",
+        "_mh_memory_vector_reindex",
+        "maybe_index_obs"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q04",
+      "query": "detect strongly connected components in an import graph",
+      "kind": "paraphrase",
+      "latency_ms": 43.52034907788038,
+      "low_confidence": false,
+      "top3": [
+        "find_import_cycles",
+        "_graph_based_test_candidates",
+        "_build_import_graph"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q05",
+      "query": "backfill missing vector rows for existing observations",
+      "kind": "paraphrase",
+      "latency_ms": 32.46970311738551,
+      "low_confidence": true,
+      "top3": [
+        "backfill_obs_vectors",
+        "_mh_memory_vector_reindex",
+        "observation_update"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q06",
+      "query": "deduplicate memory observations that are too similar",
+      "kind": "semantic-hard",
+      "latency_ms": 30.56463203392923,
+      "low_confidence": true,
+      "top3": [
+        "dedup_sweep",
+        "predict_next_ppm",
+        "global_dedup_check"
+      ]
+    },
+    {
+      "rr": 0.3333333333333333,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q07",
+      "query": "walk a project tree and enumerate all functions and classes",
+      "kind": "paraphrase",
+      "latency_ms": 34.39169004559517,
+      "low_confidence": true,
+      "top3": [
+        "get_env_usage",
+        "index",
+        "collect_project_symbols"
+      ]
+    },
+    {
+      "rr": 0.3333333333333333,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q08",
+      "query": "scan an FTS5 index with BM25 ranking",
+      "kind": "semantic",
+      "latency_ms": 30.849785078316927,
+      "low_confidence": true,
+      "top3": [
+        "_fts5_safe_query",
+        "get_recent_index",
+        "observation_search"
+      ]
+    },
+    {
+      "rr": 0.5,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q09",
+      "query": "save a new memory observation to the database",
+      "kind": "paraphrase",
+      "latency_ms": 32.95395500026643,
+      "low_confidence": true,
+      "top3": [
+        "_mh_memory_delete",
+        "observation_save",
+        "_mh_memory_restore"
+      ]
+    },
+    {
+      "rr": 0.5,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q10",
+      "query": "load the embedding model only once",
+      "kind": "semantic",
+      "latency_ms": 25.60191205702722,
+      "low_confidence": true,
+      "top3": [
+        "is_available",
+        "_load_model",
+        "embed"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q11",
+      "query": "turn a numpy array into L2 normalised float list",
+      "kind": "paraphrase",
+      "latency_ms": 39.11193087697029,
+      "low_confidence": false,
+      "top3": [
+        "_normalize_l2",
+        "_cosine",
+        "ASTNormalizer"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q12",
+      "query": "detect which tests are impacted by a change",
+      "kind": "semantic",
+      "latency_ms": 37.27145888842642,
+      "low_confidence": true,
+      "top3": [
+        "find_impacted_test_files",
+        "find_impacted_test_files",
+        "run_impacted_tests"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q13",
+      "query": "find duplicates via AST hash",
+      "kind": "semantic",
+      "latency_ms": 82.05539896152914,
+      "low_confidence": true,
+      "top3": [
+        "find_semantic_duplicates",
+        "check_duplicates",
+        "get_duplicate_classes"
+      ]
+    },
+    {
+      "rr": 0.25,
+      "recall_3": 0.0,
+      "recall_10": 1.0,
+      "id": "Q14",
+      "query": "list every file that imports a given file",
+      "kind": "paraphrase",
+      "latency_ms": 62.276525888592005,
+      "low_confidence": true,
+      "top3": [
+        "get_imports",
+        "_get_all_imports",
+        "_file_get_imports_impl"
+      ]
+    },
+    {
+      "rr": 1.0,
+      "recall_3": 1.0,
+      "recall_10": 1.0,
+      "id": "Q15",
+      "query": "extract the shortest path between two symbols in the call graph",
+      "kind": "paraphrase",
+      "latency_ms": 46.54855513945222,
+      "low_confidence": true,
+      "top3": [
+        "get_call_chain",
+        "get_full_context",
+        "_ts_lookup"
+      ]
+    }
+  ]
+}
