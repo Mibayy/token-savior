@@ -21,6 +21,7 @@ from token_savior.db_schema import get_db_schema as run_get_db_schema
 from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 from token_savior.library_api import (
+    find_library_symbol_by_description as run_find_library_symbol_by_description,
     get_library_symbol as run_get_library_symbol,
     list_library_symbols as run_list_library_symbols,
 )
@@ -257,6 +258,23 @@ def _h_list_library_symbols(slot: _ProjectSlot, args: dict) -> object:
     )
 
 
+def _h_find_library_symbol_by_description(slot: _ProjectSlot, args: dict) -> object:
+    package = args.get("package")
+    description = args.get("description")
+    if not package:
+        return {"ok": False, "error": "'package' is required"}
+    if not description:
+        return {"ok": False, "error": "'description' is required"}
+    return run_find_library_symbol_by_description(
+        package,
+        description,
+        project_root=slot.root,
+        limit=int(args.get("limit", 10)),
+        max_files=int(args.get("max_files", 100)),
+        candidate_pool=int(args.get("candidate_pool", 200)),
+    )
+
+
 HANDLERS: dict[str, Any] = {
     "analyze_config": _h_analyze_config,
     "find_dead_code": _h_find_dead_code,
@@ -268,4 +286,5 @@ HANDLERS: dict[str, Any] = {
     "get_db_schema": _h_get_db_schema,
     "get_library_symbol": _h_get_library_symbol,
     "list_library_symbols": _h_list_library_symbols,
+    "find_library_symbol_by_description": _h_find_library_symbol_by_description,
 }

@@ -2059,8 +2059,27 @@ class ProjectQueryEngine:
         min_lines: int = 2,
         max_groups: int = 30,
         max_members_per_group: int = 6,
+        method: str = "ast",
+        min_similarity: float = 0.90,
     ) -> str:
-        """Group functions whose AST-normalised hash collides.
+        """Group functions that do the same thing.
+
+        Two strategies:
+
+        * ``method="ast"`` (default, fast): group functions whose
+          AST-normalised hash collides. Catches copy-paste and minor
+          renames cleanly, misses conceptual clones rewritten from
+          scratch.
+        * ``method="embedding"`` (slower, requires Nomic stack):
+          rank every pair of functions by cosine similarity of their
+          embedding; emit clusters above ``min_similarity``. Catches
+          rewrites that AST hash can't see (reordered branches,
+          different variable names) but introduces false positives
+          around boilerplate — always cross-check via
+          ``get_function_source`` before merging. Reuses the
+          ``symbol_vectors`` index populated by
+          ``search_codebase(semantic=True)``; first call triggers a
+          reindex.
 
         *min_lines* skips trivial one-liner functions where collisions
         are noise (`return None`, getters, etc). Default 2 catches
@@ -2074,6 +2093,12 @@ class ProjectQueryEngine:
         clean 2-member clone is usually more actionable than a 20-way
         boilerplate cluster.
         """
+        if method == "embedding":
+            return self._find_semantic_duplicates_embedding(
+                min_similarity=min_similarity,
+                max_groups=max_groups,
+                max_members_per_group=max_members_per_group,
+            )
         if self._semantic_hash_cache is None:
             self._build_semantic_hash_cache(min_lines)
 
@@ -2099,6 +2124,151 @@ class ProjectQueryEngine:
                 lines.append(f"  hash {h}: {shown}, +{len(syms) - cap} more")
             else:
                 lines.append(f"  hash {h}: {', '.join(syms)}")
+        return "\n".join(lines)
+
+    def _find_semantic_duplicates_embedding(
+        self,
+        min_similarity: float,
+        max_groups: int,
+        max_members_per_group: int,
+    ) -> str:
+        """Embedding-based duplicate detection — clusters symbols whose
+        pairwise cosine similarity exceeds ``min_similarity``.
+
+        Uses a simple union-find over edges ``sim(a, b) >= threshold``
+        to collapse transitive clusters. On a 1000-symbol project the
+        pair enumeration is 500k comparisons; each is a cheap dot
+        product on normalised 768d vectors — runs in 1-2 seconds once
+        the index is warm. The real cost is the first-call reindex
+        (~2 min, same as ``search_codebase(semantic=True)``).
+        """
+        try:
+            from token_savior.memory.symbol_embeddings import (
+                reindex_project_symbols,
+            )
+            from token_savior import memory_db
+            import sqlite_vec  # noqa: F401  # loaded side-effect
+        except ImportError as exc:
+            return f"Semantic duplicates (embedding): unavailable ({exc})"
+
+        root = self.index.root_path
+        reindex = reindex_project_symbols(root)
+        if reindex.get("status") != "ok":
+            return (
+                "Semantic duplicates (embedding): unavailable "
+                f"({reindex.get('reason', 'unknown')})"
+            )
+
+        # Fetch every (symbol_id, symbol_key, embedding) for this project.
+        # sqlite-vec doesn't expose the raw float vector via the vec0 table
+        # once serialised, so we deserialise client-side.
+        import struct
+
+        with memory_db.db_session() as conn:
+            rows = conn.execute(
+                "SELECT s.id, s.symbol_key, s.kind, v.embedding "
+                "FROM symbols s JOIN symbol_vectors v ON v.symbol_id = s.id "
+                "WHERE s.project_root = ?",
+                (root,),
+            ).fetchall()
+
+        symbols: list[tuple[int, str, str, list[float]]] = []
+        for r in rows:
+            blob = bytes(r["embedding"])
+            if len(blob) % 4 != 0:
+                continue
+            n = len(blob) // 4
+            vec = list(struct.unpack(f"{n}f", blob))
+            symbols.append((r["id"], r["symbol_key"], r["kind"], vec))
+
+        # Collapse clusters via Union-Find: every edge whose cosine
+        # meets the threshold joins two nodes. For normalised vectors,
+        # cos(a, b) = dot(a, b).
+        parent = list(range(len(symbols)))
+
+        def _find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def _union(a: int, b: int) -> None:
+            ra, rb = _find(a), _find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        def _is_container_member_pair(a_key: str, b_key: str) -> bool:
+            """True when one symbol is a direct member of the other
+            (e.g. ``pkg/x.py::Foo`` vs ``pkg/x.py::Foo.__init__``). The
+            embeddings are naturally close because both share the class
+            name, but structurally they're not clones — skip.
+            """
+            if "::" not in a_key or "::" not in b_key:
+                return False
+            a_file, a_qname = a_key.split("::", 1)
+            b_file, b_qname = b_key.split("::", 1)
+            if a_file != b_file:
+                return False
+            if a_qname == b_qname:
+                return True
+            return (
+                b_qname.startswith(a_qname + ".")
+                or a_qname.startswith(b_qname + ".")
+            )
+
+        threshold = float(min_similarity)
+        pairs_checked = 0
+        skipped_container = 0
+        for i in range(len(symbols)):
+            vi = symbols[i][3]
+            key_i = symbols[i][1]
+            for j in range(i + 1, len(symbols)):
+                key_j = symbols[j][1]
+                if _is_container_member_pair(key_i, key_j):
+                    skipped_container += 1
+                    continue
+                vj = symbols[j][3]
+                dot = 0.0
+                for a, b in zip(vi, vj, strict=True):
+                    dot += a * b
+                pairs_checked += 1
+                if dot >= threshold:
+                    _union(i, j)
+
+        # Materialise clusters of size >= 2.
+        clusters: dict[int, list[str]] = {}
+        for i, (_, key, _, _) in enumerate(symbols):
+            root_id = _find(i)
+            clusters.setdefault(root_id, []).append(key)
+        groups = [
+            sorted(members) for members in clusters.values() if len(members) >= 2
+        ]
+        if not groups:
+            return (
+                f"Semantic duplicates (embedding, sim>={threshold:.2f}): "
+                f"none found across {len(symbols)} symbols "
+                f"({pairs_checked} pairs checked)."
+            )
+
+        # Pairs first, then larger clusters, as in the AST path.
+        groups.sort(key=lambda g: (0 if len(g) == 2 else 1, -len(g)))
+        total = len(groups)
+        groups = groups[:max_groups]
+
+        lines = [
+            f"Semantic duplicates (embedding, sim>={threshold:.2f}): "
+            f"{total} cluster(s) found across {len(symbols)} symbols "
+            f"(showing top {len(groups)})",
+            "WARNING: embedding matches can be conceptual but not functional."
+            " Verify with get_function_source before merging or deleting.",
+        ]
+        cap = max(2, max_members_per_group) if max_members_per_group > 0 else 0
+        for members in groups:
+            if cap and len(members) > cap:
+                shown = ", ".join(members[:cap])
+                lines.append(f"  cluster({len(members)}): {shown}, +{len(members) - cap} more")
+            else:
+                lines.append(f"  cluster({len(members)}): {', '.join(members)}")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

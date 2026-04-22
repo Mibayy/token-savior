@@ -966,6 +966,47 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["package"],
         },
     },
+    "find_library_symbol_by_description": {
+        "description": (
+            "Rank a library's exports by embedding similarity to a "
+            "natural-language description. On-the-fly, no persistent "
+            "index — scans the package, embeds each export (Python gets "
+            "enriched with docstring + signature via inspect; TS uses "
+            "name + kind), cosine-ranks against the query. Returns top-K "
+            "with scores. "
+            "SAFETY — the same rule as search_codebase(semantic=True): "
+            "re-resolve by exact name via get_library_symbol before "
+            "acting on a hit. A `warning` is set when confidence is low "
+            "(top1 < 0.75 or top1-top2 gap < 0.02)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package": {
+                    "type": "string",
+                    "description": "npm package name or Python module.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Natural-language description of what the symbol does.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Top-K hits to return (default 10).",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Cap on .d.ts files scanned (default 100).",
+                },
+                "candidate_pool": {
+                    "type": "integer",
+                    "description": "Max exports considered before ranking (default 200).",
+                },
+                **_PROJECT_PARAM,
+            },
+            "required": ["package", "description"],
+        },
+    },
     "audit_file": {
         "description": (
             "Mega-batch audit of a single file: dead_code + hotspots + semantic "
@@ -1438,19 +1479,42 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_semantic_duplicates": {
         "description": (
-            "Find semantically identical functions across the codebase via "
-            "AST-normalised hashing (alpha-renaming, docstrings stripped)."
+            "Find duplicate functions across the codebase. Two methods: "
+            "method='ast' (default, fast) groups by AST-normalised hash "
+            "(alpha-renaming, docstrings stripped) — catches copy-paste and "
+            "renames, misses rewrites. method='embedding' clusters by "
+            "cosine similarity over Nomic symbol embeddings — catches "
+            "conceptual clones AST hash can't see, but introduces false "
+            "positives on boilerplate. Always verify via "
+            "get_function_source before merging or deleting."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "min_lines": {
                     "type": "integer",
-                    "description": "Skip functions shorter than this (default 2).",
+                    "description": "Skip functions shorter than this (default 2). Applies to method='ast'.",
                 },
                 "max_groups": {
                     "type": "integer",
                     "description": "Max duplicate groups to return (default 10). Raise for full audit.",
+                },
+                "method": {
+                    "type": "string",
+                    "enum": ["ast", "embedding"],
+                    "description": (
+                        "ast (default, fast, exact) or embedding (slower, "
+                        "catches conceptual clones). Embedding reuses the "
+                        "symbol_vectors index from search_codebase(semantic=True) "
+                        "— first call triggers a ~2min reindex."
+                    ),
+                },
+                "min_similarity": {
+                    "type": "number",
+                    "description": (
+                        "Cosine threshold for method='embedding' (default 0.90). "
+                        "Lower = more recall + more noise."
+                    ),
                 },
                 **_PROJECT_PARAM,
             },
