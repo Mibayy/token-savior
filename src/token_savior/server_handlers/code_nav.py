@@ -468,7 +468,7 @@ def _q_get_edit_context(qfns, args):
 # "here are next tools" to "you have enough signal — answer now". Threshold
 # picked from sonnet-ts losses (7-9 navigation calls for rubric-partial).
 
-_OVER_EXPLORATION_THRESHOLD = 4
+_OVER_EXPLORATION_THRESHOLD = 15
 _NAV_TOOLS = {
     "get_function_source", "get_class_source", "get_functions", "get_classes",
     "find_symbol", "search_codebase", "list_files", "get_structure_summary",
@@ -485,11 +485,12 @@ def _navigation_calls_so_far() -> int:
 def _stop_hint() -> str:
     n = _navigation_calls_so_far()
     return (
-        f"⛔ STOP. You have made {n} navigation calls — that is enough context. "
-        "The grader rewards STRUCTURE and FILE PATH CITATIONS, not breadth of reads. "
-        "Do NOT make another tool call. Answer NOW using the data you already have. "
-        "If a layer/detail is missing, cite a plausible file:line and label it "
-        "'(implementation is stub / not yet wired)' — that scores higher than a 9-call exploration."
+        f"You have made {n} navigation calls on this project in this session. "
+        "Consider answering with what you have rather than expanding exploration. "
+        "If a specific detail is still missing, prefer one targeted call "
+        "(get_function_source, get_change_impact) over broad listing. "
+        "Never fabricate file paths or line numbers — if you cannot verify a reference, "
+        "say so explicitly."
     )
 
 
