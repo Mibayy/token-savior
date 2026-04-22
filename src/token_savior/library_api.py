@@ -456,6 +456,130 @@ def get_library_symbol(
     }
 
 
+def find_library_symbol_by_description(
+    package: str,
+    description: str,
+    *,
+    project_root: str,
+    limit: int = 10,
+    max_files: int = 100,
+    candidate_pool: int = 200,
+) -> dict[str, Any]:
+    """Rank package exports by embedding cosine similarity to a
+    natural-language description.
+
+    Short-lived, on-the-fly index: lists every export via
+    ``list_library_symbols``, enriches each (Python path only — uses
+    ``inspect`` for docstrings / signatures; TS stays on the raw
+    declared name + kind), embeds the pool sequentially, then cosine-
+    ranks against ``embed(description, as_query=True)``. Nothing is
+    persisted — library calls are one-shot lookups, a disk index would
+    be dead weight.
+
+    SAFETY — the same caveats as ``search_codebase(semantic=True)``
+    apply: the result is a ranked suggestion list, never a trusted
+    single answer. Verify via ``get_library_symbol(package, exact_name)``
+    before acting on a hit.
+
+    Returns a dict shaped like::
+
+        {"ok": True, "package": str, "description": str,
+         "candidates_scanned": int, "hits": [{
+             "name": str, "kind": str, "score": float,
+             "doc_preview": str, "file": str|None, "line": int|None,
+         }, ...],
+         "warning": "low_confidence: ..." | None}
+    """
+    try:
+        from token_savior.memory.embeddings import embed, is_available
+    except ImportError as exc:
+        return {"ok": False, "error": f"embedding stack unavailable: {exc}"}
+    if not is_available():
+        return {"ok": False, "error": "fastembed model not loadable"}
+
+    listing = list_library_symbols(
+        package, project_root=project_root,
+        max_files=max_files, limit=candidate_pool,
+    )
+    if not listing.get("ok"):
+        return listing
+    language = listing.get("language")
+    items = listing.get("items", [])
+    if not items:
+        return {"ok": False, "error": f"no exports enumerated for {package}"}
+
+    qvec = embed(description, as_query=True)
+    if qvec is None:
+        return {"ok": False, "error": "query embedding failed"}
+
+    candidates: list[tuple[dict, list[float]]] = []
+    for item in items:
+        name = item.get("name", "")
+        kind = item.get("kind", "symbol")
+        doc = ""
+        sig = ""
+        file_ = item.get("file")
+        line = item.get("line")
+        if language == "python":
+            dotted = f"{package}.{name}" if "." not in name else name
+            detailed = _py_symbol(dotted)
+            if detailed and detailed.get("ok"):
+                doc = (detailed.get("doc") or "").strip()
+                sig = detailed.get("signature") or ""
+                file_ = detailed.get("file") or file_
+                line = detailed.get("line") or line
+        doc_head = "\n".join(doc.splitlines()[:3])
+        embed_doc = (
+            f"{kind} {name}\n"
+            f"{sig}\n"
+            f"{doc_head}"
+        ).strip()
+        vec = embed(embed_doc)
+        if vec is None:
+            continue
+        candidates.append((
+            {
+                "name": name, "kind": kind,
+                "doc_preview": doc_head[:240],
+                "file": file_, "line": line,
+            },
+            vec,
+        ))
+
+    def _cos(a: list[float], b: list[float]) -> float:
+        return sum(x * y for x, y in zip(a, b, strict=False))
+
+    scored = sorted(
+        ((cand, _cos(qvec, v)) for cand, v in candidates),
+        key=lambda t: t[1], reverse=True,
+    )
+    hits = []
+    for cand, score in scored[:limit]:
+        cand["score"] = round(max(0.0, score), 4)
+        hits.append(cand)
+
+    warning: str | None = None
+    if hits:
+        top1 = hits[0]["score"]
+        top2 = hits[1]["score"] if len(hits) > 1 else 0.0
+        if top1 < 0.75 or (top1 - top2) < 0.02:
+            warning = (
+                f"low_confidence: top1={top1:.2f}, top2={top2:.2f}. "
+                f"Verify the exact name via get_library_symbol "
+                f"before acting on any hit."
+            )
+
+    return {
+        "ok": True,
+        "language": language,
+        "package": package,
+        "description": description,
+        "candidates_scanned": len(candidates),
+        "hits": hits,
+        "warning": warning,
+    }
+
+
 def list_library_symbols(
     package: str,
     *,
