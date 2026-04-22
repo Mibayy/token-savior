@@ -1,0 +1,126 @@
+{
+  "_about": "Handcrafted retrieval queries against Louis's auto-memory .md corpus (~45 docs). Ground truth = filenames (without .md) that should appear in top-k. Queries mix FR/EN, paraphrase, keyword-exact, and acronym-like lookups.",
+  "_corpus_source": "/root/.claude/projects/-root/memory/*.md",
+  "queries": [
+    {
+      "id": "Q01",
+      "query": "la regle sur les tirets cadratins",
+      "gt": ["feedback_no_em_dash"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q02",
+      "query": "em dash",
+      "gt": ["feedback_no_em_dash"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q03",
+      "query": "Louis hates being asked for permission",
+      "gt": ["feedback_act_dont_ask"],
+      "kind": "keyword-en"
+    },
+    {
+      "id": "Q04",
+      "query": "pourquoi ne pas demander de confirmation avant d'executer",
+      "gt": ["feedback_act_dont_ask"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q05",
+      "query": "ou est heberge le site de theatre",
+      "gt": ["hosting-planethoster", "improvence-dual-deploy", "improvence-wordpress-apex"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q06",
+      "query": "PlanetHoster N0C deployment",
+      "gt": ["hosting-planethoster", "improvence-dual-deploy", "estalle-deploy-workflow"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q07",
+      "query": "le bug qui fait fabriquer des fausses citations dans les reponses",
+      "gt": ["error-ts-stop-hint-hallucination"],
+      "kind": "paraphrase"
+    },
+    {
+      "id": "Q08",
+      "query": "prompt injection stop hint",
+      "gt": ["error-ts-stop-hint-hallucination"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q09",
+      "query": "credentials pour publier un package sur PyPI",
+      "gt": ["reference_pypi_token"],
+      "kind": "paraphrase"
+    },
+    {
+      "id": "Q10",
+      "query": "cle API pour scraper LinkedIn",
+      "gt": ["reference_apify_token"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q11",
+      "query": "Apify token",
+      "gt": ["reference_apify_token"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q12",
+      "query": "middleware auth improvence",
+      "gt": ["feedback_improvence_middleware_auth"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q13",
+      "query": "ne pas deplacer l'authentification hors du middleware",
+      "gt": ["feedback_improvence_middleware_auth"],
+      "kind": "paraphrase-fr"
+    },
+    {
+      "id": "Q14",
+      "query": "WordPress legacy apex domain",
+      "gt": ["improvence-wordpress-apex"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q15",
+      "query": "Content Security Policy sans unsafe-eval",
+      "gt": ["feedback_recharts_csp", "session-20260412-improvence-perf-csp"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q16",
+      "query": "deploiement github actions sur N0C via ssh",
+      "gt": ["estalle-deploy-workflow", "hosting-planethoster", "improvence-dual-deploy"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q17",
+      "query": "la derniere session sur tsbench",
+      "gt": ["session-20260421-token-savior-v27-optimizations", "session-20260419-tsbench-v2", "tsbench-matrix-plan", "tsbench-90-tasks"],
+      "kind": "semantic"
+    },
+    {
+      "id": "Q18",
+      "query": "combien de tasks dans le benchmark",
+      "gt": ["tsbench-90-tasks"],
+      "kind": "paraphrase"
+    },
+    {
+      "id": "Q19",
+      "query": "shadcn ui composants base-ui",
+      "gt": ["feedback_shadcn_baseui"],
+      "kind": "keyword"
+    },
+    {
+      "id": "Q20",
+      "query": "protection contre hallucinations subagent",
+      "gt": ["error-ts-stop-hint-hallucination", "feedback_subagent_token_savior"],
+      "kind": "semantic"
+    }
+  ]
+}
