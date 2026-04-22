@@ -11,11 +11,20 @@ Runs standalone (not pytest):
 from __future__ import annotations
 
 import json
+import resource
 import statistics
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+def _peak_rss_mb() -> float:
+    """Peak resident set size of this process, in MB.
+
+    Linux ru_maxrss is in KB, so divide by 1024 to get MB.
+    """
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
 
 CORPUS_DIR = Path("/root/.claude/projects/-root/memory")
 HERE = Path(__file__).resolve().parent
@@ -260,20 +269,51 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sweep-rrf", type=str, default="",
                         help="Comma-separated RRF k values, e.g. '5,10,20,30,60'")
+    parser.add_argument("--model", type=str, default="",
+                        help="FastEmbed model name, overrides embeddings._MODEL_NAME")
+    parser.add_argument("--quiet-output", action="store_true",
+                        help="Emit a single-line JSON summary on stdout (for compare_models.py)")
     args = parser.parse_args()
     sweep = [int(x) for x in args.sweep_rrf.split(",") if x.strip()] if args.sweep_rrf else None
 
     sys.path.insert(0, "/root/token-savior/src")
+
+    if args.model:
+        import token_savior.memory.embeddings as emb
+        emb._MODEL_NAME = args.model
+        emb._model = None
+        emb._model_load_attempted = False
+
     result = run(sweep_rrf=sweep)
-    report = _print_report(result)
-    print()
-    print(report)
-    RESULTS_DIR.mkdir(exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_md = RESULTS_DIR / f"{stamp}.md"
-    out_json = RESULTS_DIR / f"{stamp}.json"
-    out_md.write_text(report, encoding="utf-8")
-    out_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    print()
-    print(f"[bench] wrote {out_md}")
-    print(f"[bench] wrote {out_json}")
+    result["model"] = args.model or "nomic-ai/nomic-embed-text-v1.5-Q"
+    result["peak_rss_mb"] = round(_peak_rss_mb(), 1)
+
+    if args.quiet_output:
+        agg = result["agg"]["hybrid"]
+        summary = {
+            "model": result["model"],
+            "mrr_10": agg["mrr_10"],
+            "recall_3": agg["recall_3"],
+            "recall_10": agg["recall_10"],
+            "p50_ms": agg["p50_ms"],
+            "p95_ms": agg["p95_ms"],
+            "peak_rss_mb": result["peak_rss_mb"],
+            "seed_seconds": result["seed_seconds"],
+            "fts5_mrr": result["agg"]["fts5"]["mrr_10"],
+            "vector_mrr": result["agg"]["vector"]["mrr_10"],
+        }
+        print(json.dumps(summary))
+    else:
+        report = _print_report(result)
+        print()
+        print(report)
+        print(f"\nmodel={result['model']} peak_rss={result['peak_rss_mb']}MB")
+        RESULTS_DIR.mkdir(exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        out_md = RESULTS_DIR / f"{stamp}.md"
+        out_json = RESULTS_DIR / f"{stamp}.json"
+        out_md.write_text(report, encoding="utf-8")
+        out_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print()
+        print(f"[bench] wrote {out_md}")
+        print(f"[bench] wrote {out_json}")
