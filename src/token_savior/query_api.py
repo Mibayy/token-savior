@@ -1304,19 +1304,39 @@ class ProjectQueryEngine:
         max_results: int = 100,
         max_line_chars: int = 160,
         ignore_generated: bool = True,
+        semantic: bool = False,
     ) -> list[dict]:
-        """Regex across all files, returns [{file, line_number, content}].
+        """Regex (default) or semantic search across project files.
 
-        Each hit's `content` is truncated to `max_line_chars` (default 160,
-        suffixed with "…") so verbose matches like long comment lines don't
-        explode the response. Pass 0 to disable truncation.
+        Regex mode (``semantic=False``) returns ``[{file, line_number,
+        content}]``. Each hit's `content` is truncated to
+        ``max_line_chars`` (default 160, suffixed with "…"). Pass 0 to
+        disable truncation.
 
         ``ignore_generated`` (default True) filters out files that are
-        typically auto-generated or minified — ``*.generated.*``, ``*.min.*``,
-        ``*.pb.*``, ``*.proto``, ``dist/``, ``build/``, ``.next/``,
-        ``node_modules/`` — so Prisma/proto schema lookups don't drown in
-        boilerplate hits. Pass False to scan everything.
+        typically auto-generated or minified — ``*.generated.*``,
+        ``*.min.*``, ``*.pb.*``, ``*.proto``, ``dist/``, ``build/``,
+        ``.next/``, ``node_modules/`` — so Prisma/proto schema lookups
+        don't drown in boilerplate hits. Pass False to scan everything.
+
+        Semantic mode (``semantic=True``) treats ``pattern`` as a natural
+        language description and returns the top-K matching symbols
+        (Python functions/classes/methods) by embedding cosine similarity.
+        Each hit carries ``{symbol, kind, file, line, score, signature,
+        docstring_head}`` for disambiguation. A ``warning`` entry is
+        prepended when confidence is low (score < 0.75 or top1-top2 gap
+        < 0.02) — the caller should refine the query or fall back to
+        regex. **Never act on a semantic hit (call / edit / delete) without
+        verifying via ``find_symbol(exact_name)`` first** — semantic
+        near-misses are plausible by design.
+
+        First semantic call triggers a one-time embedding reindex of all
+        project symbols (~2 min for 1000 symbols on CPU). Subsequent calls
+        are fast (hash-based skip of unchanged symbols). Silent fallback
+        to an empty result list when the vector stack is unavailable.
         """
+        if semantic:
+            return self._search_codebase_semantic(pattern, max_results)
         from token_savior.project_indexer import is_path_excluded_from_scans
 
         try:
@@ -1381,6 +1401,54 @@ class ProjectQueryEngine:
                         if limit and len(results) >= limit:
                             return results
         return results
+
+    def _search_codebase_semantic(
+        self, pattern: str, max_results: int,
+    ) -> list[dict]:
+        """Semantic path of ``search_codebase``. Auto-reindexes symbols on
+        the first call per project, then runs a k-NN query. Returns a list
+        where the first item may be a ``{"warning": ...}`` dict followed
+        by hit dicts, mirroring the shape of the regex path (so both modes
+        stay uniform for JSON consumers).
+        """
+        try:
+            from token_savior.memory.symbol_embeddings import (
+                reindex_project_symbols,
+                search_symbols_semantic,
+            )
+        except ImportError as exc:
+            return [{"error": f"semantic search unavailable: {exc}"}]
+
+        root = self.index.root_path
+        limit = max(int(max_results), 5) if max_results else 10
+
+        reindex = reindex_project_symbols(root)
+        if reindex.get("status") != "ok":
+            return [{
+                "error": (
+                    f"semantic index unavailable: "
+                    f"{reindex.get('reason', 'unknown')}"
+                ),
+            }]
+
+        result = search_symbols_semantic(pattern, root, limit=limit)
+        if result.get("status") != "ok":
+            return [{"error": result.get("reason", "semantic search failed")}]
+
+        out: list[dict] = []
+        if result.get("warning"):
+            out.append({"warning": result["warning"]})
+        out.extend(result["hits"])
+        if reindex.get("indexed", 0) > 0 or reindex.get("removed", 0) > 0:
+            out.append({
+                "reindex_info": (
+                    f"indexed={reindex['indexed']} "
+                    f"skipped={reindex['skipped']} "
+                    f"removed={reindex['removed']} "
+                    f"elapsed_s={reindex['elapsed_s']}"
+                ),
+            })
+        return out
 
     def search_in_symbols(
         self,

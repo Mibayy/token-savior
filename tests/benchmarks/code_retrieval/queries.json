@@ -1,0 +1,21 @@
+{
+  "_about": "Handcrafted retrieval queries against the token-savior codebase. Ground truth = list of symbol names that should appear in top-K of a semantic search. Queries deliberately avoid keyword overlap with the target symbol name to stress the semantic path.",
+  "_corpus_source": "/root/token-savior/src/token_savior/**/*.py",
+  "queries": [
+    {"id": "Q01", "query": "fuse two ranked lists of search results", "gt": ["rrf_merge"], "kind": "paraphrase"},
+    {"id": "Q02", "query": "merge results via reciprocal rank fusion", "gt": ["rrf_merge"], "kind": "paraphrase"},
+    {"id": "Q03", "query": "convert plain text into a dense vector embedding", "gt": ["embed"], "kind": "paraphrase"},
+    {"id": "Q04", "query": "detect strongly connected components in an import graph", "gt": ["find_import_cycles"], "kind": "paraphrase"},
+    {"id": "Q05", "query": "backfill missing vector rows for existing observations", "gt": ["backfill_obs_vectors"], "kind": "paraphrase"},
+    {"id": "Q06", "query": "deduplicate memory observations that are too similar", "gt": ["dedup_sweep"], "kind": "semantic-hard"},
+    {"id": "Q07", "query": "walk a project tree and enumerate all functions and classes", "gt": ["collect_project_symbols"], "kind": "paraphrase"},
+    {"id": "Q08", "query": "scan an FTS5 index with BM25 ranking", "gt": ["observation_search"], "kind": "semantic"},
+    {"id": "Q09", "query": "save a new memory observation to the database", "gt": ["observation_save"], "kind": "paraphrase"},
+    {"id": "Q10", "query": "load the embedding model only once", "gt": ["_load_model"], "kind": "semantic"},
+    {"id": "Q11", "query": "turn a numpy array into L2 normalised float list", "gt": ["_normalize_l2"], "kind": "paraphrase"},
+    {"id": "Q12", "query": "detect which tests are impacted by a change", "gt": ["find_impacted_test_files"], "kind": "semantic"},
+    {"id": "Q13", "query": "find duplicates via AST hash", "gt": ["find_semantic_duplicates"], "kind": "semantic"},
+    {"id": "Q14", "query": "list every file that imports a given file", "gt": ["get_file_dependents"], "kind": "paraphrase"},
+    {"id": "Q15", "query": "extract the shortest path between two symbols in the call graph", "gt": ["get_call_chain"], "kind": "paraphrase"}
+  ]
+}

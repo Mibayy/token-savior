@@ -575,16 +575,30 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "search_codebase": {
         "description": (
-            "Regex search across indexed files (100 matches max). Skips generated/minified "
-            "(ignore_generated=false to include). Symbol lookup: find_symbol. "
-            "Content + enclosing symbol: search_in_symbols."
+            "Regex (default) or semantic search across indexed files. "
+            "Regex mode returns {file, line_number, content}. "
+            "Semantic mode (semantic=true) treats `pattern` as a natural-"
+            "language description and returns top-K matching symbols by "
+            "embedding similarity with score + signature + docstring + "
+            "file:line for disambiguation. "
+            "SAFETY — never call, modify, or delete a symbol found only "
+            "by semantic match without re-resolving the exact name via "
+            "find_symbol first. Semantic near-misses (e.g. 'delete' "
+            "matching a query about 'dedup') are plausible by design; "
+            "always cross-check. A `warning` item is prepended when "
+            "confidence is low. "
+            "First semantic call per project triggers a ~2min one-off "
+            "embedding reindex; subsequent calls are fast."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Regular expression pattern to search for.",
+                    "description": (
+                        "Regex pattern (regex mode) or natural-language "
+                        "description (semantic mode)."
+                    ),
                 },
                 "max_results": {
                     "type": "integer",
@@ -592,7 +606,16 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "ignore_generated": {
                     "type": "boolean",
-                    "description": "Skip generated/minified files (default true).",
+                    "description": "Skip generated/minified files (default true). Regex mode only.",
+                },
+                "semantic": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, interpret `pattern` as a description and "
+                        "rank symbols by embedding cosine similarity. "
+                        "Returns enriched hits with signature/docstring/"
+                        "score. Default false (regex)."
+                    ),
                 },
                 **_PROJECT_PARAM,
             },
