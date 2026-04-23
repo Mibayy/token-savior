@@ -15,6 +15,7 @@ from token_savior.json_annotator import annotate_json
 from token_savior.prisma_annotator import annotate_prisma
 from token_savior.models import AnnotatorProtocol, StructuralMetadata
 from token_savior.python_annotator import annotate_python
+from token_savior.ruby_annotator import annotate_ruby
 from token_savior.rust_annotator import annotate_rust
 from token_savior.text_annotator import annotate_text
 from token_savior.toml_annotator import annotate_toml
@@ -39,6 +40,7 @@ _EXTENSION_MAP: dict[str, str] = {
     ".js": "javascript",
     ".jsx": "javascript",
     ".go": "go",
+    ".rb": "ruby",
     ".rs": "rust",
     ".cs": "csharp",
     ".java": "java",
@@ -70,6 +72,7 @@ _ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "javascript": annotate_typescript,
     "go": annotate_go,
     "gradle": annotate_gradle,
+    "ruby": annotate_ruby,
     "rust": annotate_rust,
     "csharp": annotate_csharp,
     "java": annotate_java,
