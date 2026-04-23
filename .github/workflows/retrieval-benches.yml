@@ -1,0 +1,71 @@
+name: Retrieval benches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/token_savior/memory/**"
+      - "src/token_savior/library_api.py"
+      - "src/token_savior/query_api.py"
+      - "tests/benchmarks/code_retrieval/**"
+      - "tests/benchmarks/library_retrieval/**"
+      - "scripts/check_bench_gates.py"
+      - ".github/workflows/retrieval-benches.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/token_savior/memory/**"
+      - "src/token_savior/library_api.py"
+      - "src/token_savior/query_api.py"
+      - "tests/benchmarks/code_retrieval/**"
+      - "tests/benchmarks/library_retrieval/**"
+  workflow_dispatch:
+
+jobs:
+  benches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache fastembed model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-nomic-v1.5-Q
+
+      - name: Install
+        run: pip install -e ".[dev,memory-vector]"
+
+      - name: Run code_retrieval bench
+        run: |
+          python tests/benchmarks/code_retrieval/run_bench.py
+          # Newest result file becomes the gate input.
+          latest=$(ls -t tests/benchmarks/code_retrieval/results/*.json | head -1)
+          echo "CODE_RESULT=$latest" >> $GITHUB_ENV
+
+      - name: Gate code_retrieval
+        run: python scripts/check_bench_gates.py code "$CODE_RESULT"
+
+      - name: Run library_retrieval bench
+        run: |
+          python tests/benchmarks/library_retrieval/run_bench.py
+          latest=$(ls -t tests/benchmarks/library_retrieval/results/*.json | head -1)
+          echo "LIB_RESULT=$latest" >> $GITHUB_ENV
+
+      - name: Gate library_retrieval
+        run: python scripts/check_bench_gates.py library "$LIB_RESULT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: |
+            tests/benchmarks/code_retrieval/results/*.json
+            tests/benchmarks/code_retrieval/results/*.md
+            tests/benchmarks/library_retrieval/results/*.json
+            tests/benchmarks/library_retrieval/results/*.md
