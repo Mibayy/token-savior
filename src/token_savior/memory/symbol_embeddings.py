@@ -304,8 +304,10 @@ def search_symbols_semantic(
     docstring head, file:line, score.
 
     Warnings:
-      * ``"low_confidence"`` when top1 score < 0.75 or when top1-top2
-        delta < 0.02 (dense cluster, likely ambiguous).
+      * ``"low_confidence"`` when top1 score < 0.60 or when top1-top2
+        delta < 0.01 (dense cluster, likely ambiguous). Thresholds are
+        CODE-specific — tuned on tests/benchmarks/code_retrieval since
+        the memory-era 0.75 floor fired on 93% of code queries.
     """
     from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
@@ -355,11 +357,23 @@ def search_symbols_semantic(
             "score": round(cos_score, 4),
         })
 
+    # Low-confidence thresholds tuned for CODE symbols, not memory
+    # observations. tests/benchmarks/code_retrieval (30 queries, 1002
+    # symbols, Nomic-embed-text-v1.5-Q) shows correct-hit top1 scores
+    # range 0.59-0.78 vs wrong-hit top1 0.63-0.69 — the two distributions
+    # overlap, so the memory-era 0.75 absolute floor fired on 93% of
+    # queries and carried no signal. The tighter values below catch the
+    # genuine failure modes without drowning real results:
+    #   - top1 < 0.60 : retrieval is barely above noise floor
+    #   - gap  < 0.01 : top1 indistinguishable from top2 (ambiguous)
+    # Rate on the same bench with these values: ~20%.
+    _CODE_TOP1_FLOOR = 0.60
+    _CODE_GAP_MIN = 0.01
     warning: str | None = None
     if hits:
         top1 = hits[0]["score"]
         top2 = hits[1]["score"] if len(hits) > 1 else 0.0
-        if top1 < 0.75 or (top1 - top2) < 0.02:
+        if top1 < _CODE_TOP1_FLOOR or (top1 - top2) < _CODE_GAP_MIN:
             warning = (
                 f"low_confidence: top1={top1:.2f}, top2={top2:.2f}. "
                 "Consider refining the query or verifying via find_symbol."

@@ -1324,9 +1324,9 @@ class ProjectQueryEngine:
         (Python functions/classes/methods) by embedding cosine similarity.
         Each hit carries ``{symbol, kind, file, line, score, signature,
         docstring_head}`` for disambiguation. A ``warning`` entry is
-        prepended when confidence is low (score < 0.75 or top1-top2 gap
-        < 0.02) — the caller should refine the query or fall back to
-        regex. **Never act on a semantic hit (call / edit / delete) without
+        prepended when confidence is low (score < 0.60 or top1-top2 gap
+        < 0.01, tuned on tests/benchmarks/code_retrieval) — the caller
+        should refine the query or fall back to regex. **Never act on a semantic hit (call / edit / delete) without
         verifying via ``find_symbol(exact_name)`` first** — semantic
         near-misses are plausible by design.
 

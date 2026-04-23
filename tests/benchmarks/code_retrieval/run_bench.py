@@ -192,10 +192,14 @@ def run() -> dict:
             per_query_keyword.append(kw)
 
             # Combined per-query row for the side-by-side table.
+            sem_top1_score = res["hits"][0]["score"] if res.get("hits") else 0.0
+            sem_top2_score = res["hits"][1]["score"] if res.get("hits") and len(res["hits"]) > 1 else 0.0
             per_query_combined.append({
                 "id": q["id"], "kind": q["kind"], "query": q["query"],
                 "sem_rr": sem["rr"], "sem_r3": sem["recall_3"],
                 "sem_top1": sem_names[0] if sem_names else "",
+                "sem_top1_score": sem_top1_score,
+                "sem_top2_score": sem_top2_score,
                 "sem_ms": round(sem_ms, 1),
                 "sem_low_conf": sem["low_confidence"],
                 "kw_rr": kw["rr"], "kw_r3": kw["recall_3"],
