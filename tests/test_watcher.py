@@ -24,13 +24,19 @@ from token_savior.watcher import (
 
 
 @pytest.fixture(autouse=True)
-def _force_polling(monkeypatch):
-    """Tests run watchfiles in polling mode to avoid a Rust-backend
-    cleanup race that segfaults at interpreter exit on some CI runners
-    (observed on GitHub Actions ubuntu-latest, Python 3.11 + 3.12).
-    Production paths still default to inotify.
+def _watcher_test_env(monkeypatch):
+    """Watcher-test-specific environment.
+
+    - Force polling so the Rust notify backend isn't the active path,
+      even on local dev where inotify exists (the polling path is the
+      most-exercised fallback we ship).
+    - Re-enable the watcher: conftest.py globally sets
+      TOKEN_SAVIOR_WATCHER=off to protect the rest of the suite from
+      transitively loading the watchfiles extension; the watcher tests
+      need it on to exercise `resolve_mode()`, `start()`, etc.
     """
     monkeypatch.setenv("TS_WATCHER_FORCE_POLLING", "1")
+    monkeypatch.setenv("TOKEN_SAVIOR_WATCHER", "auto")
     yield
 
 
@@ -125,6 +131,17 @@ class TestStartBehaviour:
     @pytest.mark.skipif(
         not watcher_mod._WATCHFILES_AVAILABLE,
         reason="requires watchfiles installed",
+    )
+    @pytest.mark.skipif(
+        os.environ.get("CI", "").lower() == "true",
+        reason=(
+            "spawning the watcher thread triggers `from watchfiles "
+            "import watch` inside the thread, which loads a Rust "
+            "CPython extension whose destructor segfaults at "
+            "interpreter shutdown on GitHub Actions runners (3.11 "
+            "SIGABRT, 3.12 SIGSEGV). Real start() is covered by the "
+            "dev-machine run; CI validates logic via unit tests."
+        ),
     )
     def test_start_with_watchfiles_spawns_thread(self, tmp_path: Path):
         w = SlotWatcher(root=str(tmp_path), exclude_patterns=[])
