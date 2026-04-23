@@ -1,0 +1,27 @@
+{
+  "$comment": "Opinionated mcp_toolset for Anthropic API users of token-savior. Drop into the `tools` array of a Messages API call (beta: mcp-client-2025-11-20). The non-deferred entries are the 17 hot tools that cover 90%+ of typical coding sessions; everything else is loaded on-demand via the Anthropic Tool Search tool. Rationale: AUDIT.md Phase 3.6 and Phase 4 B1. Anthropic recommends keeping 3-5 frequently used tools non-deferred; we keep 17 because code navigation uses more than that in a single flow.",
+  "type": "mcp_toolset",
+  "mcp_server_name": "token-savior",
+  "default_config": {
+    "defer_loading": true
+  },
+  "configs": {
+    "switch_project":        { "defer_loading": false },
+    "list_projects":         { "defer_loading": false },
+    "reindex":               { "defer_loading": false },
+    "search_codebase":       { "defer_loading": false },
+    "list_files":            { "defer_loading": false },
+    "get_function_source":   { "defer_loading": false },
+    "get_class_source":      { "defer_loading": false },
+    "find_symbol":           { "defer_loading": false },
+    "get_full_context":      { "defer_loading": false },
+    "get_structure_summary": { "defer_loading": false },
+    "get_functions":         { "defer_loading": false },
+    "get_dependencies":      { "defer_loading": false },
+    "get_dependents":        { "defer_loading": false },
+    "get_file_dependents":   { "defer_loading": false },
+    "analyze_config":        { "defer_loading": false },
+    "replace_symbol_source": { "defer_loading": false },
+    "insert_near_symbol":    { "defer_loading": false }
+  }
+}
