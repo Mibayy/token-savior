@@ -276,7 +276,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     sweep = [int(x) for x in args.sweep_rrf.split(",") if x.strip()] if args.sweep_rrf else None
 
-    sys.path.insert(0, "/root/token-savior/src")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
     if args.model:
         import token_savior.memory.embeddings as emb
