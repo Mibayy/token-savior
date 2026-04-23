@@ -2072,8 +2072,10 @@ class ProjectQueryEngine:
           scratch.
         * ``method="embedding"`` (slower, requires Nomic stack):
           rank every pair of functions by cosine similarity of their
-          embedding; emit clusters above ``min_similarity``. Catches
-          rewrites that AST hash can't see (reordered branches,
+          embedding; emit clusters above ``min_similarity``. Each
+          cluster in the output carries a ``sim=min..mean`` tag so the
+          caller can triage tight clones vs loose conceptual matches.
+          Catches rewrites that AST hash can't see (reordered branches,
           different variable names) but introduces false positives
           around boilerplate — always cross-check via
           ``get_function_source`` before merging. Reuses the
@@ -2219,6 +2221,10 @@ class ProjectQueryEngine:
         threshold = float(min_similarity)
         pairs_checked = 0
         skipped_container = 0
+        # Record every above-threshold edge so we can expose per-cluster
+        # min/mean similarity in the output — safety contract #1 for the
+        # embedding duplicate path: "present pairs with score".
+        edges: list[tuple[int, int, float]] = []
         for i in range(len(symbols)):
             vi = symbols[i][3]
             key_i = symbols[i][1]
@@ -2234,15 +2240,33 @@ class ProjectQueryEngine:
                 pairs_checked += 1
                 if dot >= threshold:
                     _union(i, j)
+                    edges.append((i, j, dot))
 
-        # Materialise clusters of size >= 2.
-        clusters: dict[int, list[str]] = {}
+        # Materialise clusters of size >= 2, keyed by cluster root id.
+        clusters: dict[int, list[tuple[int, str]]] = {}
         for i, (_, key, _, _) in enumerate(symbols):
             root_id = _find(i)
-            clusters.setdefault(root_id, []).append(key)
-        groups = [
-            sorted(members) for members in clusters.values() if len(members) >= 2
-        ]
+            clusters.setdefault(root_id, []).append((i, key))
+        # Per-cluster edge similarities (internal edges only).
+        cluster_sims: dict[int, list[float]] = {}
+        for a, b, sim in edges:
+            ra = _find(a)
+            cluster_sims.setdefault(ra, []).append(sim)
+
+        # Group as (members sorted by key, min_sim, mean_sim).
+        groups: list[tuple[list[str], float, float]] = []
+        for root_id, members in clusters.items():
+            if len(members) < 2:
+                continue
+            keys = sorted(k for _, k in members)
+            sims = cluster_sims.get(root_id, [])
+            if sims:
+                smin = min(sims)
+                smean = sum(sims) / len(sims)
+            else:
+                smin = smean = threshold
+            groups.append((keys, smin, smean))
+
         if not groups:
             return (
                 f"Semantic duplicates (embedding, sim>={threshold:.2f}): "
@@ -2251,7 +2275,7 @@ class ProjectQueryEngine:
             )
 
         # Pairs first, then larger clusters, as in the AST path.
-        groups.sort(key=lambda g: (0 if len(g) == 2 else 1, -len(g)))
+        groups.sort(key=lambda g: (0 if len(g[0]) == 2 else 1, -len(g[0])))
         total = len(groups)
         groups = groups[:max_groups]
 
@@ -2263,12 +2287,19 @@ class ProjectQueryEngine:
             " Verify with get_function_source before merging or deleting.",
         ]
         cap = max(2, max_members_per_group) if max_members_per_group > 0 else 0
-        for members in groups:
+        for members, smin, smean in groups:
+            score_tag = f"sim={smin:.2f}..{smean:.2f}"
             if cap and len(members) > cap:
                 shown = ", ".join(members[:cap])
-                lines.append(f"  cluster({len(members)}): {shown}, +{len(members) - cap} more")
+                lines.append(
+                    f"  cluster({len(members)}) {score_tag}: "
+                    f"{shown}, +{len(members) - cap} more"
+                )
             else:
-                lines.append(f"  cluster({len(members)}): {', '.join(members)}")
+                lines.append(
+                    f"  cluster({len(members)}) {score_tag}: "
+                    f"{', '.join(members)}"
+                )
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

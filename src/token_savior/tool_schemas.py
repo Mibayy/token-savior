@@ -1485,8 +1485,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "renames, misses rewrites. method='embedding' clusters by "
             "cosine similarity over Nomic symbol embeddings — catches "
             "conceptual clones AST hash can't see, but introduces false "
-            "positives on boilerplate. Always verify via "
-            "get_function_source before merging or deleting."
+            "positives on boilerplate. Each embedding cluster is tagged "
+            "with 'sim=min..mean' so you can distinguish tight clones "
+            "from loose matches. Always verify via get_function_source "
+            "before merging or deleting — semantic matches can be "
+            "conceptual but not functional."
         ),
         "inputSchema": {
             "type": "object",

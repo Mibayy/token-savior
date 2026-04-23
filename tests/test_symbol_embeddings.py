@@ -188,6 +188,61 @@ def test_reindex_prunes_deleted_symbols(fixture_project: Path, tmp_path: Path):
 
 
 @_VECTOR_REQUIRED
+def test_find_semantic_duplicates_embedding_emits_per_cluster_scores(
+    tmp_path: Path,
+):
+    """Safety contract: every reported cluster must expose its own
+    similarity range so the caller can distinguish a tight 0.99 clone
+    from a loose 0.85 conceptual match. The shared threshold on line 1
+    is not enough — two clusters right above the threshold can differ
+    by 10 similarity points and the caller wouldn't know.
+    """
+    from token_savior import db_core, memory_db
+    from token_savior.project_indexer import ProjectIndexer
+    from token_savior.query_api import ProjectQueryEngine
+
+    # Fixture: two near-identical `slugify` functions in separate files.
+    _write(tmp_path, "pkg/__init__.py", "")
+    _write(tmp_path, "pkg/a.py", '''
+        """Helpers A."""
+
+        def slugify(text):
+            """Return a URL-safe version of text."""
+            return text.lower().replace(" ", "-")
+    ''')
+    _write(tmp_path, "pkg/b.py", '''
+        """Helpers B."""
+
+        def slugify(value):
+            """Produce a URL-friendly slug from value."""
+            return value.lower().replace(" ", "-")
+    ''')
+
+    db = tmp_path / "bench.db"
+    db_core.run_migrations(db)
+    memory_db.MEMORY_DB_PATH = str(db)
+    idx = ProjectIndexer(str(tmp_path)).index()
+    engine = ProjectQueryEngine(idx)
+
+    report = engine.find_semantic_duplicates(
+        method="embedding", min_similarity=0.80, max_groups=30,
+    )
+    cluster_lines = [
+        line for line in report.splitlines() if line.startswith("  cluster(")
+    ]
+    assert cluster_lines, f"expected at least one cluster, got:\n{report}"
+    for line in cluster_lines:
+        assert "sim=" in line, (
+            f"cluster line missing per-cluster score tag: {line!r}"
+        )
+        # Format: "  cluster(N) sim=0.XX..0.YY: member1, ..."
+        head, _, _ = line.partition(":")
+        assert "sim=" in head and ".." in head, (
+            f"score tag malformed (expected sim=min..mean): {line!r}"
+        )
+
+
+@_VECTOR_REQUIRED
 def test_find_semantic_duplicates_embedding_filters_class_method_pairs(
     fixture_project: Path, tmp_path: Path,
 ):
