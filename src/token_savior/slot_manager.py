@@ -59,9 +59,25 @@ class _ProjectSlot:
 
 
 def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
+    """Return True iff ``rel_path`` matches any include glob.
+
+    Python's ``fnmatch`` does NOT implement ``**`` as a recursive globstar —
+    it treats ``**`` as a single ``*`` that requires at least one path
+    separator. So ``fnmatch("foo.py", "**/*.py")`` is False, which means
+    a file created at the project root wouldn't match any default
+    ``**/*.ext`` pattern.
+
+    For ``**/`` -prefixed patterns we therefore also try the bare form
+    (pattern without the ``**/`` prefix) so root-level files match.
+    Seen in practice when the B3 file watcher detects a newly created
+    ``foo.py`` at project root — without this fallback the watcher
+    would drop the event silently.
+    """
     normalized = rel_path.replace(os.sep, "/")
     for pattern in patterns:
         if fnmatch.fnmatch(normalized, pattern):
+            return True
+        if pattern.startswith("**/") and fnmatch.fnmatch(normalized, pattern[3:]):
             return True
     return False
 
