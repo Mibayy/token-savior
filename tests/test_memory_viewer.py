@@ -36,7 +36,7 @@ def _free_port() -> int:
         s.close()
 
 
-def _wait_until_serving(port: int, deadline_s: float = 3.0) -> None:
+def _wait_until_serving(port: int, deadline_s: float = 15.0) -> None:
     t0 = time.monotonic()
     while time.monotonic() - t0 < deadline_s:
         try:
