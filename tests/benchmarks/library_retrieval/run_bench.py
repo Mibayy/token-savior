@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[2]
 QUERIES_PATH = HERE / "queries.json"
 RESULTS_DIR = HERE / "results"
 
@@ -62,7 +63,7 @@ def _agg(per_query: list[dict]) -> dict:
 
 
 def run() -> dict:
-    sys.path.insert(0, "/root/token-savior/src")
+    sys.path.insert(0, str(REPO_ROOT / "src"))
     from token_savior.library_api import (
         _cached_doc_embed, find_library_symbol_by_description,
     )
@@ -153,7 +154,7 @@ def _report(result: dict) -> str:
     lines = []
     lines.append("# Library retrieval bench")
     lines.append("")
-    lines.append(f"- Packages: json, pathlib, re (stdlib)")
+    lines.append("- Packages: json, pathlib, re (stdlib)")
     lines.append(f"- Queries: {result['num_queries']} handcrafted with ground truth")
     lines.append("")
     lines.append("## Cold vs warm (LRU cache)")
@@ -169,7 +170,6 @@ def _report(result: dict) -> str:
         f"{warm['p50_ms']} | {warm['p95_ms']} | {warm['low_confidence_rate']} |"
     )
     lines.append("")
-    base = cold["p50_ms"] or 1e-9
     speedup = cold["p50_ms"] / max(warm["p50_ms"], 1e-3)
     lines.append(
         f"Cache speedup (P50 cold/warm): {speedup:.1f}x "
@@ -229,7 +229,7 @@ def _report(result: dict) -> str:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, "/root/token-savior/src")
+    sys.path.insert(0, str(REPO_ROOT / "src"))
     result = run()
     md = _report(result)
     print()

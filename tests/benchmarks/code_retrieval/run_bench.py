@@ -27,8 +27,11 @@ import tempfile
 import time
 from pathlib import Path
 
-SRC = Path("/root/token-savior/src/token_savior")
 HERE = Path(__file__).resolve().parent
+# Resolve the repo root from this file's location so the bench works in
+# any checkout (CI, developer forks, etc.) without a hardcoded path.
+REPO_ROOT = HERE.parents[2]
+SRC = REPO_ROOT / "src" / "token_savior"
 QUERIES_PATH = HERE / "queries.json"
 RESULTS_DIR = HERE / "results"
 
@@ -135,7 +138,7 @@ def _load_corpus_for_keyword() -> list[dict]:
 
 
 def run() -> dict:
-    sys.path.insert(0, "/root/token-savior/src")
+    sys.path.insert(0, str(REPO_ROOT / "src"))
     from token_savior import db_core, memory_db
     from token_savior.memory.symbol_embeddings import (
         reindex_project_symbols, search_symbols_semantic,
