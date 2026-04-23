@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.8.3 — Migration docs aligned with empirical measurements (2026-04-23)
+
+Non-breaking docs patch. `docs/migration/v3.md` was written before the
+description rewrite of v2.8.1 shifted the manifest tokenization.
+Updated with empirical numbers (`full` ~16 000 t, `lean` ~11 700 t,
+`ultra` ~3 900 t) and the post-spike-1 `lean` tool count (61, not 58).
+
+Also adds the "Quick rollback" block at the top of the migration guide
+and clarifies why `memory_save` and the
+`discover_project_actions` / `run_project_action` pair are kept in
+`lean` despite being atypical relative to the pure call-volume cut.
+
+No code changes; docs only.
+
 ## v2.8.2 — Fix `_matches_include_patterns` on root-level files (2026-04-23)
 
 Non-breaking bug fix surfaced during v2.8.1 validation on hermes-agent
