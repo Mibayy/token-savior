@@ -23,6 +23,17 @@ from token_savior.watcher import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _force_polling(monkeypatch):
+    """Tests run watchfiles in polling mode to avoid a Rust-backend
+    cleanup race that segfaults at interpreter exit on some CI runners
+    (observed on GitHub Actions ubuntu-latest, Python 3.11 + 3.12).
+    Production paths still default to inotify.
+    """
+    monkeypatch.setenv("TS_WATCHER_FORCE_POLLING", "1")
+    yield
+
+
 # ── mode resolution ─────────────────────────────────────────────────────────
 
 

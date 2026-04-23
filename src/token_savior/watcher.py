@@ -179,7 +179,10 @@ class SlotWatcher:
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            # 3s gives the Rust notify backend time to drop inotify
+            # watches cleanly on stressed CI runners (1s was occasionally
+            # timing out and leaving a dangling thread).
+            self._thread.join(timeout=3.0)
 
     @property
     def ok(self) -> bool:
@@ -199,11 +202,19 @@ class SlotWatcher:
     def _run(self) -> None:
         try:
             flt = _PatternFilter(self.root_path, self._exclude_patterns)
+            # ``TS_WATCHER_FORCE_POLLING=1`` routes watchfiles through pure
+            # Python mtime polling instead of the Rust notify backend.
+            # Slower (~200 ms polling cycle vs real-time inotify) but
+            # avoids a Rust-backend cleanup race that segfaults at
+            # interpreter exit on some GitHub Actions runners. Tests
+            # opt-in; production paths stay on inotify.
+            force_polling = bool(os.environ.get("TS_WATCHER_FORCE_POLLING"))
             for changes in watch(
                 str(self.root_path),
                 watch_filter=flt,
                 stop_event=self._stop,
                 raise_interrupt=False,
+                force_polling=force_polling,
             ):
                 for change, path in changes:
                     try:
