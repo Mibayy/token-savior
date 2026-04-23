@@ -216,6 +216,16 @@ print(
     file=sys.stderr,
 )
 
+# v2.8 deprecation warning: announce the default flip landing in v3.0.
+# Suppressed when TOKEN_SAVIOR_PROFILE is set explicitly (user already made
+# a conscious choice) — including explicitly choosing `full`.
+if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
+    print(
+        "[token-savior] default profile will change from 'full' to 'lean' "
+        "in v3.0.0 — see docs/migration/v3.md",
+        file=sys.stderr,
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +259,13 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
             s._auto_save_tools.append(name)
 
     s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
+    # A5: persistent scoped-by-client counter for profile tuning across
+    # sessions. Silent on failure — telemetry must never break dispatch.
+    try:
+        from token_savior import telemetry
+        telemetry.record_tool_call(name)
+    except Exception:
+        pass
     record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
         s._prefetcher.record_call(name, record_symbol or "")
