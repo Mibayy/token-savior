@@ -585,8 +585,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "by semantic match without re-resolving the exact name via "
             "find_symbol first. Semantic near-misses (e.g. 'delete' "
             "matching a query about 'dedup') are plausible by design; "
-            "always cross-check. A `warning` item is prepended when "
-            "confidence is low. "
+            "always cross-check. No low-confidence warning is emitted: "
+            "top1 scores overlap too much between correct and wrong "
+            "retrievals on code to give a reliable signal (see "
+            "tests/benchmarks/code_retrieval). Treat every semantic hit "
+            "as a lead, not an answer. "
             "First semantic call per project triggers a ~2min one-off "
             "embedding reindex; subsequent calls are fast."
         ),

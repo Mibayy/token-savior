@@ -1323,10 +1323,13 @@ class ProjectQueryEngine:
         language description and returns the top-K matching symbols
         (Python functions/classes/methods) by embedding cosine similarity.
         Each hit carries ``{symbol, kind, file, line, score, signature,
-        docstring_head}`` for disambiguation. A ``warning`` entry is
-        prepended when confidence is low (score < 0.60 or top1-top2 gap
-        < 0.01, tuned on tests/benchmarks/code_retrieval) — the caller
-        should refine the query or fall back to regex. **Never act on a semantic hit (call / edit / delete) without
+        docstring_head}`` for disambiguation. No low-confidence warning
+        is emitted — tests/benchmarks/code_retrieval showed that top1
+        score distributions overlap too much between correct and wrong
+        retrievals for any absolute-score warning to be informative
+        (12% precision / 25% recall at best-tuned thresholds). Agents
+        should always verify a semantic hit via ``find_symbol`` before
+        any destructive operation, regardless of score. **Never act on a semantic hit (call / edit / delete) without
         verifying via ``find_symbol(exact_name)`` first** — semantic
         near-misses are plausible by design.
 
