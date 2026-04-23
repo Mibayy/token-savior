@@ -114,7 +114,11 @@ TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchem
 # `lean` = aggressively trimmed profile for agent sessions that don't need
 # the memory/reasoning/ML-stats machinery. Keeps the full surface of code
 # navigation, editing, git, checkpoints, tests, and config/docker analysis.
-# Cuts manifest from ~10 950 tokens (full 106 tools) to ~5 500 tokens.
+# Manifest math measured 2026-04-23:
+#   full (94 tools)  = 14 159 est. tokens
+#   lean (58 tools)  =  9 907 est. tokens  (-30 %, just under Claude Code's
+#                                             10k auto-defer threshold)
+#   ultra (17 + 1)   =  3 540 est. tokens  (-75 %, aggressive)
 _LEAN_EXCLUDES: set[str] = {
     # Memory engine (26 tools) — opt-in only
     "memory_save", "memory_search", "memory_get", "memory_index",
@@ -140,7 +144,7 @@ _LEAN_EXCLUDES: set[str] = {
 # `ultra` = minimal manifest with lazy tool discovery. Only 17 hot tools +
 # a single `ts_extended` proxy exposed. LLM reaches the rest via
 # ts_extended(mode="list" | "describe" | "call"). Cuts manifest from
-# ~10 950 tokens (full 106) to ~2 800 tokens. Tradeoff: invoking a hidden
+# ~14 159 tokens (full 94) to ~3 540 tokens. Tradeoff: invoking a hidden
 # tool costs an extra round trip unless the LLM already knows its name.
 _ULTRA_INCLUDES: set[str] = {
     "switch_project", "list_projects", "reindex",

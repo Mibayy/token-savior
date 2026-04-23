@@ -1,5 +1,53 @@
 # Changelog
 
+## v2.8.0-dev — Docs reconcile + listing caps + watcher (2026-04-23)
+
+Work in progress on the `main` branch ahead of v2.8 cut. Changes landed so far:
+
+- **Semantic code tools** : `search_codebase(semantic=True)`, `find_semantic_duplicates(method="embedding")`, `find_library_symbol_by_description` shipped (Nomic-embed-text-v1.5-Q, 768 d, fastembed). Safety contract: per-cluster `sim=min..mean` tags on embedding duplicates; no low-confidence warning (bench showed 0–12 % precision — absolute score doesn't discriminate correct vs wrong on code).
+- **Library tooling** : `get_library_symbol`, `list_library_symbols`, `get_db_schema`, per-project `.token-savior/hint.md` auto-injected at `switch_project`.
+- **Benchmarks** : `tests/benchmarks/code_retrieval` (30 queries, semantic +87 % MRR vs keyword), `tests/benchmarks/library_retrieval` (15 queries stdlib, MRR 0.84, Recall@10 1.00). CI gate via `scripts/check_bench_gates.py`.
+- **Perf** : LRU cache on library embed (P95 cold→warm : 2548 ms → 236 ms, 10×).
+- **Docs reconcile** : tool count aligned to actual 94 across README, `server.json`, `server.py` comments. Test count bumped 1318 → 1360. Earlier docs drift (README said 90, comments said 106) resolved.
+- **Listing caps** (A2, WIP) : `get_functions`, `get_classes`, `get_imports` default to 100-row limit with explicit truncation marker. Passing `max_results=0` restores unlimited behavior.
+
+## v2.7.1 — Description retightening after v2.7.0 regression signal (2026-04-21)
+
+- Reduce 5 heaviest tool descriptions by 47 % (1 525 → 811 chars) while preserving keyword signal (`BATCH`, `USE THIS instead`, `TERMINAL`, `ignore_generated`). Mean active_tokens delta on bench rerun: unchanged gains on heavy tasks, small regressions on single-tool tasks halved.
+- `search_symbols_semantic` / `find_library_symbol_by_description` thresholds tuned (0.75 → 0.60 floor, 0.02 → 0.01 gap) then warnings removed entirely after bench showed distributions overlap.
+- Tests : 1318 → 1360 passing after safety rework.
+
+## v2.7.0 — 14 bench-driven optimisations (2026-04-21)
+
+Sample haiku-ts v2.7 (12 tasks) — mean Δ active_tokens = **−13.2 %**. Winners: heavy-read −44 %, navigation −19.5 %, edit −13.9 %.
+
+**Navigation / lookup**
+- `find_symbol` returns `complete: true` + `scanned_files: N` (no follow-up exploration needed).
+- `_resolve_symbol_info` fallback normalised (snake/kebab/case-insensitive) via `normalized_symbol_index`.
+- `search_codebase` skips generated/minified files by default (`.generated.`, `.min.`, `.pb.`, `dist/`, `build/`, `.next/`, `node_modules/`, `.proto`).
+- New `search_in_symbols` : content search + enclosing function/class.
+- New `audit_file` : mega-batch dead_code + hotspots + semantic duplicates scoped to one file.
+
+**Context / edit**
+- `get_full_context` : new `brief=False` default (cap 12 deps, 4 000 chars).
+- `get_class_source` : auto-downgrade level 2 when > 300 lines.
+- `get_function_source` : prefix `[scaffold: stub]` via AST detection (`pass` / `Ellipsis` / docstring-only / `return None` / `raise NotImplementedError`).
+- `get_routes` : `stub: true` flag on empty handlers.
+
+**Analyse**
+- `get_backward_slice` : `max_symbol_lines=500` cap.
+- `find_hotspots` : T0-T3 tiers (actionability-ranked).
+- `detect_breaking_changes` : `BREAKING: [T0] (N)` format (substring-stable for regression tests).
+- `_graph_based_test_candidates` : transitive BFS on `reverse_import_graph`.
+- `get_community` : `max_members=50` cap.
+
+**Session**
+- `_hm_switch_project` : session stickiness (no re-index if slot already active).
+
+**Stats**
+- Tool count: 88 → 90 (+ `search_in_symbols`, `audit_file`).
+- Description total: 12 371 → 11 657 chars (−6 %).
+
 ## v2.6.0 — Memory Engine Phase 1+2 + tsbench 100% (2026-04-20)
 
 ### tsbench (90 paired tasks, Opus 4.7) — 180/180 (100.0%) vs 141/180 (78.3%)

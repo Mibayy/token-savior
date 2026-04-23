@@ -371,7 +371,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -384,7 +384,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -399,7 +399,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
                 "max_results": {
                     "type": "integer",
-                    "description": "0=unlimited.",
+                    "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count.",
                 },
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -435,7 +435,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "depth": {"type": "integer", "description": "Transitive BFS depth (default 1)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,

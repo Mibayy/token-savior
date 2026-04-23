@@ -870,8 +870,14 @@ class ProjectQueryEngine:
         file_funcs = create_file_query_functions(meta)
         return file_funcs["get_lines"](start, end)
 
-    def get_functions(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
-        """Functions in a file, or all functions across the project."""
+    def get_functions(self, file_path: str | None = None, max_results: int = 100) -> list[dict]:
+        """Functions in a file, or all functions across the project.
+
+        Default cap: 100 rows. A project-wide call on a ~2 500-function repo
+        without a cap returned 56 k tokens of JSON (AUDIT.md Phase 1).
+        Pass ``max_results=0`` to restore unlimited behavior, or pass a
+        ``file_path`` to scope the query.
+        """
         from token_savior.project_indexer import is_path_excluded_from_scans
 
         if file_path is not None:
@@ -898,12 +904,26 @@ class ProjectQueryEngine:
                             "file": path,
                         }
                     )
-        if max_results > 0:
+        total = len(result)
+        if max_results > 0 and total > max_results:
             result = result[:max_results]
+            result.append({
+                "_truncated": True,
+                "shown": max_results,
+                "total": total,
+                "hint": (
+                    f"showing first {max_results} of {total}. Pass "
+                    "max_results=0 for all, or file_path=<path> to scope."
+                ),
+            })
         return result
 
-    def get_classes(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
-        """Classes in a file or across the project."""
+    def get_classes(self, file_path: str | None = None, max_results: int = 100) -> list[dict]:
+        """Classes in a file or across the project.
+
+        Default cap: 100 rows. Pass ``max_results=0`` to restore unlimited,
+        or ``file_path=<path>`` to scope.
+        """
         from token_savior.project_indexer import is_path_excluded_from_scans
 
         if file_path is not None:
@@ -931,12 +951,25 @@ class ProjectQueryEngine:
                             "file": path,
                         }
                     )
-        if max_results > 0:
+        total = len(result)
+        if max_results > 0 and total > max_results:
             result = result[:max_results]
+            result.append({
+                "_truncated": True,
+                "shown": max_results,
+                "total": total,
+                "hint": (
+                    f"showing first {max_results} of {total}. Pass "
+                    "max_results=0 for all, or file_path=<path> to scope."
+                ),
+            })
         return result
 
-    def get_imports(self, file_path: str | None = None, max_results: int = 0) -> list[dict]:
+    def get_imports(self, file_path: str | None = None, max_results: int = 100) -> list[dict]:
         """Imports in a file or across the project.
+
+        Default cap: 100 rows. Pass ``max_results=0`` to restore unlimited,
+        or ``file_path=<path>`` to scope.
 
         When a file is resolved but genuinely has no imports, returns a
         single descriptive marker entry (``_empty: True``) instead of a
@@ -976,8 +1009,18 @@ class ProjectQueryEngine:
                     "file": None,
                     "message": "no imports found in the indexed project",
                 }]
-        if max_results > 0:
+        total = len(result)
+        if max_results > 0 and total > max_results:
             result = result[:max_results]
+            result.append({
+                "_truncated": True,
+                "shown": max_results,
+                "total": total,
+                "hint": (
+                    f"showing first {max_results} of {total}. Pass "
+                    "max_results=0 for all, or file_path=<path> to scope."
+                ),
+            })
         return result
 
     def get_function_source(
