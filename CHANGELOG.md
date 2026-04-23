@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.8.2 — Fix `_matches_include_patterns` on root-level files (2026-04-23)
+
+Non-breaking bug fix surfaced during v2.8.1 validation on hermes-agent
+(1704 files). A file created at project root (e.g. `foo.py`) was being
+silently filtered out of incremental updates because Python's
+`fnmatch` treats `**` as a single `*` (no globstar), so the default
+`**/*.py` include pattern doesn't match a bare `foo.py`. The watcher
+(B3) fires the add event correctly, but `maybe_update` then drops it
+before calling `reindex_file`.
+
+Fix: `_matches_include_patterns` in `slot_manager.py` now also tries
+each `**/`-prefixed pattern with the `**/` stripped. Root-level files
+matching the bare form now pass through.
+
+Bug pre-dates v2.8.0 — same filter was used by the git-detected
+incremental update path since forever. Only became visible after B3
+made "new file at root" a common scenario.
+
+1381 tests pass.
+
 ## v2.8.1 — Tool descriptions rewritten in USE WHEN / NOT WHEN format (2026-04-23)
 
 Non-breaking patch. All 94 tool descriptions rewritten with explicit
