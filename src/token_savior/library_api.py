@@ -27,6 +27,7 @@ This module intentionally degrades to partial results rather than raising.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import importlib.util
 import inspect
@@ -456,6 +457,26 @@ def get_library_symbol(
     }
 
 
+@functools.lru_cache(maxsize=4096)
+def _cached_doc_embed(embed_doc: str) -> tuple[float, ...] | None:
+    """Content-addressed cache over ``embed()`` for library symbol docs.
+
+    Library lookups are one-shot but frequently touch the same packages
+    across a session (pydantic, fastembed, next/react for TS projects).
+    The embed_doc string is deterministic in the symbol's name + sig +
+    doc_head, so same content → same embedding → cache hit. A changed
+    docstring or signature produces a different key and falls through
+    to a fresh ``embed()`` call.
+
+    Returns tuple instead of list so the LRU can hash the return value
+    safely; the cosine dot product at the call site works on any
+    iterable of floats.
+    """
+    from token_savior.memory.embeddings import embed
+    vec = embed(embed_doc)
+    return tuple(vec) if vec is not None else None
+
+
 def find_library_symbol_by_description(
     package: str,
     description: str,
@@ -471,15 +492,19 @@ def find_library_symbol_by_description(
     Short-lived, on-the-fly index: lists every export via
     ``list_library_symbols``, enriches each (Python path only — uses
     ``inspect`` for docstrings / signatures; TS stays on the raw
-    declared name + kind), embeds the pool sequentially, then cosine-
-    ranks against ``embed(description, as_query=True)``. Nothing is
-    persisted — library calls are one-shot lookups, a disk index would
-    be dead weight.
+    declared name + kind), embeds the pool via a process-level LRU
+    cache (``_cached_doc_embed``, maxsize=4096, content-addressed by
+    embed_doc), then cosine-ranks against ``embed(description,
+    as_query=True)``. Nothing is persisted to disk — library calls are
+    one-shot lookups so an on-disk index would be dead weight, but the
+    in-process cache collapses the ~500ms first-call cost to ~5ms on
+    subsequent calls touching the same package.
 
     SAFETY — the same caveats as ``search_codebase(semantic=True)``
     apply: the result is a ranked suggestion list, never a trusted
     single answer. Verify via ``get_library_symbol(package, exact_name)``
-    before acting on a hit.
+    before acting on a hit. No low-confidence warning is emitted (see
+    tests/benchmarks/library_retrieval for the empirical justification).
 
     Returns a dict shaped like::
 
@@ -488,7 +513,7 @@ def find_library_symbol_by_description(
              "name": str, "kind": str, "score": float,
              "doc_preview": str, "file": str|None, "line": int|None,
          }, ...],
-         "warning": "low_confidence: ..." | None}
+         "warning": None}
     """
     try:
         from token_savior.memory.embeddings import embed, is_available
@@ -512,7 +537,7 @@ def find_library_symbol_by_description(
     if qvec is None:
         return {"ok": False, "error": "query embedding failed"}
 
-    candidates: list[tuple[dict, list[float]]] = []
+    candidates: list[tuple[dict, tuple[float, ...]]] = []
     for item in items:
         name = item.get("name", "")
         kind = item.get("kind", "symbol")
@@ -534,7 +559,7 @@ def find_library_symbol_by_description(
             f"{sig}\n"
             f"{doc_head}"
         ).strip()
-        vec = embed(embed_doc)
+        vec = _cached_doc_embed(embed_doc)
         if vec is None:
             continue
         candidates.append((
@@ -546,7 +571,7 @@ def find_library_symbol_by_description(
             vec,
         ))
 
-    def _cos(a: list[float], b: list[float]) -> float:
+    def _cos(a, b) -> float:
         return sum(x * y for x, y in zip(a, b, strict=False))
 
     scored = sorted(
@@ -558,17 +583,14 @@ def find_library_symbol_by_description(
         cand["score"] = round(max(0.0, score), 4)
         hits.append(cand)
 
-    warning: str | None = None
-    if hits:
-        top1 = hits[0]["score"]
-        top2 = hits[1]["score"] if len(hits) > 1 else 0.0
-        if top1 < 0.75 or (top1 - top2) < 0.02:
-            warning = (
-                f"low_confidence: top1={top1:.2f}, top2={top2:.2f}. "
-                f"Verify the exact name via get_library_symbol "
-                f"before acting on any hit."
-            )
-
+    # No low-confidence warning. tests/benchmarks/library_retrieval (15
+    # queries on json/pathlib/re) showed 0/9 warning precision: the
+    # threshold fires on 60% of queries but 100% of them are actually
+    # correct retrievals (Recall@10 = 1.00 on the bench). Same failure
+    # mode as search_symbols_semantic — absolute cosine scores on short
+    # symbol docs don't discriminate correct vs wrong. The `warning`
+    # key stays in the shape as None for callers that do
+    # ``result.get("warning")``.
     return {
         "ok": True,
         "language": language,
@@ -576,7 +598,7 @@ def find_library_symbol_by_description(
         "description": description,
         "candidates_scanned": len(candidates),
         "hits": hits,
-        "warning": warning,
+        "warning": None,
     }
 
 

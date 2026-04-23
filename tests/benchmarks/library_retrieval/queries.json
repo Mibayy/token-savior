@@ -1,0 +1,20 @@
+{
+  "_about": "Handcrafted find-by-description queries over Python stdlib packages. Ground truth = bare symbol names exposed by the target package. Purpose: evaluate whether the 0.75/0.02 low-confidence threshold on find_library_symbol_by_description has actual signal on library lookups (as opposed to the code_retrieval bench which killed the same threshold on project-code lookup).",
+  "queries": [
+    {"id": "L01", "package": "json", "query": "serialize a python dict into a JSON string", "gt": ["dumps"]},
+    {"id": "L02", "package": "json", "query": "write a python object as JSON to a file handle", "gt": ["dump"]},
+    {"id": "L03", "package": "json", "query": "parse a JSON string back into python data", "gt": ["loads"]},
+    {"id": "L04", "package": "json", "query": "read JSON from a file-like object", "gt": ["load"]},
+    {"id": "L05", "package": "json", "query": "customise how non-standard python objects are encoded as JSON", "gt": ["JSONEncoder"]},
+    {"id": "L06", "package": "json", "query": "hook to turn parsed JSON objects into custom python classes", "gt": ["JSONDecoder"]},
+    {"id": "L07", "package": "pathlib", "query": "represent a filesystem path in an object-oriented way", "gt": ["Path", "PurePath"]},
+    {"id": "L08", "package": "pathlib", "query": "windows-specific path with drive letters and backslashes", "gt": ["WindowsPath", "PureWindowsPath"]},
+    {"id": "L09", "package": "pathlib", "query": "posix-style path with forward slashes", "gt": ["PosixPath", "PurePosixPath"]},
+    {"id": "re",  "package": "re", "query": "compile a regular expression pattern once for repeated use", "gt": ["compile"]},
+    {"id": "L11", "package": "re", "query": "check whether a pattern matches the start of a string", "gt": ["match"]},
+    {"id": "L12", "package": "re", "query": "find every occurrence of a pattern in a string", "gt": ["findall", "finditer"]},
+    {"id": "L13", "package": "re", "query": "replace every occurrence of a pattern with a replacement", "gt": ["sub", "subn"]},
+    {"id": "L14", "package": "re", "query": "escape a string so it can be used as a literal regex pattern", "gt": ["escape"]},
+    {"id": "L15", "package": "re", "query": "split a string on a pattern boundary", "gt": ["split"]}
+  ]
+}

@@ -979,8 +979,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "with scores. "
             "SAFETY — the same rule as search_codebase(semantic=True): "
             "re-resolve by exact name via get_library_symbol before "
-            "acting on a hit. A `warning` is set when confidence is low "
-            "(top1 < 0.75 or top1-top2 gap < 0.02)."
+            "acting on a hit. No low-confidence warning — absolute top1 "
+            "scores don't discriminate correct vs wrong on short symbol "
+            "docs (tests/benchmarks/library_retrieval)."
         ),
         "inputSchema": {
             "type": "object",
