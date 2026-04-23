@@ -116,12 +116,25 @@ TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchem
 # navigation, editing, git, checkpoints, tests, and config/docker analysis.
 # Manifest math measured 2026-04-23:
 #   full (94 tools)  = 14 159 est. tokens
-#   lean (58 tools)  =  9 907 est. tokens  (-30 %, just under Claude Code's
-#                                             10k auto-defer threshold)
-#   ultra (17 + 1)   =  3 540 est. tokens  (-75 %, aggressive)
+#   lean (61 tools)  =  10 507 est. tokens  (-26 %, narrowly above
+#                                              Claude Code's 10k
+#                                              auto-defer threshold —
+#                                              Spike 2 USE WHEN/NOT WHEN
+#                                              rewrite should bring it
+#                                              under on net)
+#   ultra (17 + 1)   =   3 540 est. tokens  (-75 %)
+#
+# `lean` post-spike-1 keeps 3 tools that the pure call-volume cut would
+# have dropped: `memory_save` (the user-facing "remember this across
+# sessions" contract — dropping silently breaks README's "nothing
+# forgotten" promise) and the atomic pair `discover_project_actions` +
+# `run_project_action` (5/3330 calls on VPS, but the workflow needs
+# both or none).
 _LEAN_EXCLUDES: set[str] = {
-    # Memory engine (26 tools) — opt-in only
-    "memory_save", "memory_search", "memory_get", "memory_index",
+    # Memory engine — opt-in only (memory_save kept; the user-facing
+    # "remember this" path must stay visible by default to honour the
+    # README's "nothing forgotten between sessions" promise)
+    "memory_search", "memory_get", "memory_index",
     "memory_delete", "memory_top", "memory_why", "memory_timeline",
     "memory_session_history", "memory_prompts", "memory_mode",
     "memory_archive", "memory_status", "memory_bus_push", "memory_bus_list",
@@ -129,16 +142,15 @@ _LEAN_EXCLUDES: set[str] = {
     "memory_doctor", "memory_vector_reindex", "memory_distill",
     "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
     "memory_from_bash", "memory_set_global",
-    # Reasoning (3) — memory-adjacent
+    # Reasoning — memory-adjacent, 0 calls in tsbench + VPS
     "reasoning_save", "reasoning_search", "reasoning_list",
-    # (stats fused into single get_stats tool — kept in lean since usage stats
-    # are useful; ML subsystem categories are opt-in via category=)
-    # Corpus / discover actions (4)
+    # Corpus — 0 calls in tsbench + VPS
     "corpus_build", "corpus_query",
-    "discover_project_actions", "run_project_action",
     # Niche analysis — edge cases, rare in practice
     "get_duplicate_classes", "get_call_predictions",
     "pack_context",
+    # (discover_project_actions + run_project_action kept atomically —
+    #  low volume but paired workflow would break if split.)
 }
 
 # `ultra` = minimal manifest with lazy tool discovery. Only 17 hot tools +

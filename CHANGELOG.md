@@ -1,15 +1,30 @@
 # Changelog
 
-## v2.8.0-dev — Docs reconcile + listing caps + watcher (2026-04-23)
+## v2.8.0 — Audit, watcher, telemetry, v3 prep (2026-04-23)
 
-Work in progress on the `main` branch ahead of v2.8 cut. Changes landed so far:
+Non-breaking release. Consolidates the strategic audit + B3 file watcher +
+A5 persistent call counter + B1a `mcp_toolset.example.json` + A1/A2 docs
+reconcile. Also announces the v3.0 default-profile flip via a one-line
+stderr warning at boot so users notice the change before it ships.
+
+Key content (full detail in the `v2.8.0-dev` working log below; this
+release crystallises that set):
 
 - **Semantic code tools** : `search_codebase(semantic=True)`, `find_semantic_duplicates(method="embedding")`, `find_library_symbol_by_description` shipped (Nomic-embed-text-v1.5-Q, 768 d, fastembed). Safety contract: per-cluster `sim=min..mean` tags on embedding duplicates; no low-confidence warning (bench showed 0–12 % precision — absolute score doesn't discriminate correct vs wrong on code).
 - **Library tooling** : `get_library_symbol`, `list_library_symbols`, `get_db_schema`, per-project `.token-savior/hint.md` auto-injected at `switch_project`.
 - **Benchmarks** : `tests/benchmarks/code_retrieval` (30 queries, semantic +87 % MRR vs keyword), `tests/benchmarks/library_retrieval` (15 queries stdlib, MRR 0.84, Recall@10 1.00). CI gate via `scripts/check_bench_gates.py`.
 - **Perf** : LRU cache on library embed (P95 cold→warm : 2548 ms → 236 ms, 10×).
 - **Docs reconcile** : tool count aligned to actual 94 across README, `server.json`, `server.py` comments. Test count bumped 1318 → 1360. Earlier docs drift (README said 90, comments said 106) resolved.
-- **Listing caps** (A2, WIP) : `get_functions`, `get_classes`, `get_imports` default to 100-row limit with explicit truncation marker. Passing `max_results=0` restores unlimited behavior.
+- **Listing caps** (A2) : `get_functions`, `get_classes`, `get_imports` default to 100-row limit with explicit truncation marker. Passing `max_results=0` restores unlimited behavior.
+- **B3 file watcher** (`src/token_savior/watcher.py`) : watchfiles-backed added/modified/deleted stream with mtime fallback. Flag `TOKEN_SAVIOR_WATCHER=on|off|auto` (default `auto`). Closes the 30 s live-editing window and the 2.1 ms/query mtime stat.
+- **A5 persistent telemetry** (`src/token_savior/telemetry.py`) : `$TOKEN_SAVIOR_STATS_DIR/tool-calls.json` counter scoped by `(tool_name, TOKEN_SAVIOR_CLIENT)`. Silent on failure, surfaced via `telemetry_health()`.
+- **B1a `mcp_toolset.example.json`** + `docs/migration/v3.md` : recommended Anthropic API config with 17 non-deferred tools; migration guide with Quick-rollback in 3 lines.
+- **v3 deprecation warning** : `[token-savior] default profile will change from 'full' to 'lean' in v3.0.0 — see docs/migration/v3.md` fires once at boot when `TOKEN_SAVIOR_PROFILE` is unset; silent otherwise.
+- **`_LEAN_EXCLUDES` spike-1 update** : `memory_save` and the atomic `discover_project_actions` / `run_project_action` pair kept in `lean` after measuring that dropping them would break (respectively) the user-facing "nothing forgotten" contract and a paired workflow. `lean` now = 61 tools / 10 507 est. tokens (narrowly above Claude Code's 10k auto-defer).
+- **AUDIT.md** at repo root — full strategic review (869 lines, Phases 0–4, sourced).
+- **GitHub issue #15** open for the `2>/dev/null` hook swallow (fix scheduled post-v2.8).
+
+Tests: 1360 → 1381 passing (+21 : watcher, telemetry, listing caps, bench gates).
 
 ## v2.7.1 — Description retightening after v2.7.0 regression signal (2026-04-21)
 
