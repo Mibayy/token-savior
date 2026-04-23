@@ -1,5 +1,176 @@
 # Changelog
 
+## v2.8.4 — Fail-loud on memory-hook errors (closes #15) (2026-04-23)
+
+Non-breaking. The 6 memory hooks (`hooks/memory-*.sh`) used to pipe
+every Python and `claude -p` sub-shell stderr through `2>/dev/null`,
+swallowing real failures (missing venv, broken migration, corrupt DB,
+typo in payload parser). A user updating token-savior and forgetting
+to run `memory_db.run_migrations()` would see memory injection silently
+die for weeks.
+
+Changes:
+
+- All 6 hooks gain an `ERR_LOG` variable pointing at
+  `${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log`.
+  Directory auto-created. Log self-rotates at 2 MB (truncates to last
+  1 MB) so it can't fill the disk.
+- `2>/dev/null` replaced with `2>>"$ERR_LOG"` on **32 of 33**
+  Python / `claude -p` sub-shell sites. Remaining site is a legitimate
+  `cat "$FLAG" 2>/dev/null || echo 0` first-run-missing fallback — kept.
+- Hooks still `exit 0` — a failing sub-shell cannot block Claude Code.
+
+Triage tip: after updating, `tail -f ~/.local/state/token-savior/hook-errors.log`
+surfaces import errors, missing migrations, or a broken interpreter
+path within seconds of the first hook firing.
+
+1381 tests pass.
+
+Closes [#15](https://github.com/Mibayy/token-savior/issues/15).
+
+## v2.8.3 — Migration docs aligned with empirical measurements (2026-04-23)
+
+Non-breaking docs patch. `docs/migration/v3.md` was written before the
+description rewrite of v2.8.1 shifted the manifest tokenization.
+Updated with empirical numbers (`full` ~16 000 t, `lean` ~11 700 t,
+`ultra` ~3 900 t) and the post-spike-1 `lean` tool count (61, not 58).
+
+Also adds the "Quick rollback" block at the top of the migration guide
+and clarifies why `memory_save` and the
+`discover_project_actions` / `run_project_action` pair are kept in
+`lean` despite being atypical relative to the pure call-volume cut.
+
+No code changes; docs only.
+
+## v2.8.2 — Fix `_matches_include_patterns` on root-level files (2026-04-23)
+
+Non-breaking bug fix surfaced during v2.8.1 validation on hermes-agent
+(1704 files). A file created at project root (e.g. `foo.py`) was being
+silently filtered out of incremental updates because Python's
+`fnmatch` treats `**` as a single `*` (no globstar), so the default
+`**/*.py` include pattern doesn't match a bare `foo.py`. The watcher
+(B3) fires the add event correctly, but `maybe_update` then drops it
+before calling `reindex_file`.
+
+Fix: `_matches_include_patterns` in `slot_manager.py` now also tries
+each `**/`-prefixed pattern with the `**/` stripped. Root-level files
+matching the bare form now pass through.
+
+Bug pre-dates v2.8.0 — same filter was used by the git-detected
+incremental update path since forever. Only became visible after B3
+made "new file at root" a common scenario.
+
+1381 tests pass.
+
+## v2.8.1 — Tool descriptions rewritten in USE WHEN / NOT WHEN format (2026-04-23)
+
+Non-breaking patch. All 94 tool descriptions rewritten with explicit
+USE WHEN / NOT WHEN clauses citing the nearest alternative tool when
+one exists. No API change, no behavioural change — purely a
+manifest-quality improvement aimed at tool-selection accuracy.
+
+Why: Anthropic's engineering notes that accuracy degrades past 30–50
+visible tools (see AUDIT.md Phase 3.6). Explicit routing hints in each
+description give the agent a denser signal than prose alone.
+
+What changed:
+
+- 94 descriptions re-written in a 2–4 line format:
+  - Line 1: verb + object (what the tool does).
+  - Line 2: `USE WHEN:` — intent-level trigger.
+  - Line 3: `NOT WHEN:` — alternative tool cited by name when applicable.
+  - Line 4 (optional): safety/behavior/pedagogy — NOT schema duplication.
+- Sweep `line-4 = schema duplication` removed from 15 descriptions
+  (params/enum/return shape that the JSON inputSchema already carries).
+  Saves 238 tokens with zero info loss.
+- Reciprocal citations verified: `get_dependencies` ↔ `get_dependents`
+  ↔ `get_change_impact` (trio, 6/6), library trio
+  `get_library_symbol` ↔ `list_library_symbols` ↔
+  `find_library_symbol_by_description` (6/6), plus 4 pairs.
+- Client-agnostic: no NOT WHEN cites a non-TS tool name (Read,
+  edit_file, etc.). Only `your client's file-read tool` generic.
+- Memory_* allégé: 28 of the 33 hors-lean tools use a 2-line
+  `<title>. USE WHEN:` form since agents in `full` don't need intra-
+  ecosystem disambiguation. 5 cite a lean alternative when confusion
+  with the `lean` default is plausible.
+
+Manifest measurements (empirical, tiktoken cl100k_base proxy):
+
+| Profile | Pre-rewrite | Post-rewrite | Δ       |
+|---------|-------------|--------------|---------|
+| full    | 14 245 t    | 15 986 t     | +12.2 % |
+| lean    | 10 507 t    | 11 663 t    | +11.0 % |
+| ultra   |  3 540 t    |  3 852 t     |  +8.8 % |
+
+In zone PR review (+5 – 15 %), within projection, well below the +15 %
+stop threshold. Net cost of the format is the price of discriminating
+tool selection — validated over tsbench + VPS telemetry data (Spike 1).
+
+1381 tests pass; ruff clean.
+
+## v2.8.0 — Audit, watcher, telemetry, v3 prep (2026-04-23)
+
+Non-breaking release. Consolidates the strategic audit + B3 file watcher +
+A5 persistent call counter + B1a `mcp_toolset.example.json` + A1/A2 docs
+reconcile. Also announces the v3.0 default-profile flip via a one-line
+stderr warning at boot so users notice the change before it ships.
+
+Key content (full detail in the `v2.8.0-dev` working log below; this
+release crystallises that set):
+
+- **Semantic code tools** : `search_codebase(semantic=True)`, `find_semantic_duplicates(method="embedding")`, `find_library_symbol_by_description` shipped (Nomic-embed-text-v1.5-Q, 768 d, fastembed). Safety contract: per-cluster `sim=min..mean` tags on embedding duplicates; no low-confidence warning (bench showed 0–12 % precision — absolute score doesn't discriminate correct vs wrong on code).
+- **Library tooling** : `get_library_symbol`, `list_library_symbols`, `get_db_schema`, per-project `.token-savior/hint.md` auto-injected at `switch_project`.
+- **Benchmarks** : `tests/benchmarks/code_retrieval` (30 queries, semantic +87 % MRR vs keyword), `tests/benchmarks/library_retrieval` (15 queries stdlib, MRR 0.84, Recall@10 1.00). CI gate via `scripts/check_bench_gates.py`.
+- **Perf** : LRU cache on library embed (P95 cold→warm : 2548 ms → 236 ms, 10×).
+- **Docs reconcile** : tool count aligned to actual 94 across README, `server.json`, `server.py` comments. Test count bumped 1318 → 1360. Earlier docs drift (README said 90, comments said 106) resolved.
+- **Listing caps** (A2) : `get_functions`, `get_classes`, `get_imports` default to 100-row limit with explicit truncation marker. Passing `max_results=0` restores unlimited behavior.
+- **B3 file watcher** (`src/token_savior/watcher.py`) : watchfiles-backed added/modified/deleted stream with mtime fallback. Flag `TOKEN_SAVIOR_WATCHER=on|off|auto` (default `auto`). Closes the 30 s live-editing window and the 2.1 ms/query mtime stat.
+- **A5 persistent telemetry** (`src/token_savior/telemetry.py`) : `$TOKEN_SAVIOR_STATS_DIR/tool-calls.json` counter scoped by `(tool_name, TOKEN_SAVIOR_CLIENT)`. Silent on failure, surfaced via `telemetry_health()`.
+- **B1a `mcp_toolset.example.json`** + `docs/migration/v3.md` : recommended Anthropic API config with 17 non-deferred tools; migration guide with Quick-rollback in 3 lines.
+- **v3 deprecation warning** : `[token-savior] default profile will change from 'full' to 'lean' in v3.0.0 — see docs/migration/v3.md` fires once at boot when `TOKEN_SAVIOR_PROFILE` is unset; silent otherwise.
+- **`_LEAN_EXCLUDES` spike-1 update** : `memory_save` and the atomic `discover_project_actions` / `run_project_action` pair kept in `lean` after measuring that dropping them would break (respectively) the user-facing "nothing forgotten" contract and a paired workflow. `lean` now = 61 tools / 10 507 est. tokens (narrowly above Claude Code's 10k auto-defer).
+- **AUDIT.md** at repo root — full strategic review (869 lines, Phases 0–4, sourced).
+- **GitHub issue #15** open for the `2>/dev/null` hook swallow (fix scheduled post-v2.8).
+
+Tests: 1360 → 1381 passing (+21 : watcher, telemetry, listing caps, bench gates).
+
+## v2.7.1 — Description retightening after v2.7.0 regression signal (2026-04-21)
+
+- Reduce 5 heaviest tool descriptions by 47 % (1 525 → 811 chars) while preserving keyword signal (`BATCH`, `USE THIS instead`, `TERMINAL`, `ignore_generated`). Mean active_tokens delta on bench rerun: unchanged gains on heavy tasks, small regressions on single-tool tasks halved.
+- `search_symbols_semantic` / `find_library_symbol_by_description` thresholds tuned (0.75 → 0.60 floor, 0.02 → 0.01 gap) then warnings removed entirely after bench showed distributions overlap.
+- Tests : 1318 → 1360 passing after safety rework.
+
+## v2.7.0 — 14 bench-driven optimisations (2026-04-21)
+
+Sample haiku-ts v2.7 (12 tasks) — mean Δ active_tokens = **−13.2 %**. Winners: heavy-read −44 %, navigation −19.5 %, edit −13.9 %.
+
+**Navigation / lookup**
+- `find_symbol` returns `complete: true` + `scanned_files: N` (no follow-up exploration needed).
+- `_resolve_symbol_info` fallback normalised (snake/kebab/case-insensitive) via `normalized_symbol_index`.
+- `search_codebase` skips generated/minified files by default (`.generated.`, `.min.`, `.pb.`, `dist/`, `build/`, `.next/`, `node_modules/`, `.proto`).
+- New `search_in_symbols` : content search + enclosing function/class.
+- New `audit_file` : mega-batch dead_code + hotspots + semantic duplicates scoped to one file.
+
+**Context / edit**
+- `get_full_context` : new `brief=False` default (cap 12 deps, 4 000 chars).
+- `get_class_source` : auto-downgrade level 2 when > 300 lines.
+- `get_function_source` : prefix `[scaffold: stub]` via AST detection (`pass` / `Ellipsis` / docstring-only / `return None` / `raise NotImplementedError`).
+- `get_routes` : `stub: true` flag on empty handlers.
+
+**Analyse**
+- `get_backward_slice` : `max_symbol_lines=500` cap.
+- `find_hotspots` : T0-T3 tiers (actionability-ranked).
+- `detect_breaking_changes` : `BREAKING: [T0] (N)` format (substring-stable for regression tests).
+- `_graph_based_test_candidates` : transitive BFS on `reverse_import_graph`.
+- `get_community` : `max_members=50` cap.
+
+**Session**
+- `_hm_switch_project` : session stickiness (no re-index if slot already active).
+
+**Stats**
+- Tool count: 88 → 90 (+ `search_in_symbols`, `audit_file`).
+- Description total: 12 371 → 11 657 chars (−6 %).
+
 ## v2.6.0 — Memory Engine Phase 1+2 + tsbench 100% (2026-04-20)
 
 ### tsbench (90 paired tasks, Opus 4.7) — 180/180 (100.0%) vs 141/180 (78.3%)

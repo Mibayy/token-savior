@@ -123,3 +123,57 @@ class TestPythonLookup:
         names = [i["name"] for i in result["items"]]
         assert "dumps" in names
         assert "dump" in names
+
+
+class TestEmbedCache:
+    """Verify _cached_doc_embed collapses repeat embeddings to cache hits.
+
+    The library lookup is advertised as <5ms on warm calls; this test
+    proves the cache actually fires rather than re-embedding each time.
+    """
+
+    def test_cache_hits_on_identical_doc(self):
+        import pytest
+        try:
+            from token_savior.memory.embeddings import is_available
+            from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+        except Exception:
+            pytest.skip("embedding stack not importable")
+        if not (VECTOR_SEARCH_AVAILABLE and is_available()):
+            pytest.skip("fastembed not installed")
+
+        from token_savior.library_api import _cached_doc_embed
+
+        _cached_doc_embed.cache_clear()
+        doc = "func sample_fn\ndef sample_fn(x: int) -> int\nReturn twice x."
+        v1 = _cached_doc_embed(doc)
+        stats1 = _cached_doc_embed.cache_info()
+        v2 = _cached_doc_embed(doc)
+        stats2 = _cached_doc_embed.cache_info()
+
+        assert v1 is not None
+        assert v1 == v2, "cached vector must be identical on re-call"
+        assert stats1.misses == 1 and stats1.hits == 0
+        assert stats2.misses == 1 and stats2.hits == 1, (
+            f"expected 1 hit on second call, got {stats2}"
+        )
+
+    def test_cache_differs_on_different_doc(self):
+        import pytest
+        try:
+            from token_savior.memory.embeddings import is_available
+            from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+        except Exception:
+            pytest.skip("embedding stack not importable")
+        if not (VECTOR_SEARCH_AVAILABLE and is_available()):
+            pytest.skip("fastembed not installed")
+
+        from token_savior.library_api import _cached_doc_embed
+
+        _cached_doc_embed.cache_clear()
+        a = _cached_doc_embed("func a\ndef a(): ...\nReturns the letter a.")
+        b = _cached_doc_embed("func b\ndef b(): ...\nReturns the letter b.")
+        stats = _cached_doc_embed.cache_info()
+        assert a is not None and b is not None
+        assert a != b, "different docs must produce different cached vectors"
+        assert stats.misses == 2 and stats.hits == 0

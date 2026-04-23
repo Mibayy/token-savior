@@ -17,6 +17,7 @@ from token_savior.cache_ops import CacheManager
 from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files
 from token_savior.project_indexer import ProjectIndexer, _rebuild_path_indexes
 from token_savior.query_api import create_project_query_functions
+from token_savior.watcher import SlotWatcher, resolve_mode as resolve_watcher_mode
 
 if TYPE_CHECKING:
     from token_savior.models import ProjectIndex
@@ -46,6 +47,10 @@ class _ProjectSlot:
     # Monotonic counter bumped on any index mutation (full build or incremental).
     # Used as invalidation key for session-level result caches.
     cache_gen: int = 0
+    # Optional file watcher (TOKEN_SAVIOR_WATCHER=on|auto). None when off,
+    # when the watchfiles dep is missing, or when the watcher failed to
+    # start. In those cases the legacy mtime phase of maybe_update runs.
+    watcher: Optional["SlotWatcher"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -54,9 +59,25 @@ class _ProjectSlot:
 
 
 def _matches_include_patterns(rel_path: str, patterns: list[str]) -> bool:
+    """Return True iff ``rel_path`` matches any include glob.
+
+    Python's ``fnmatch`` does NOT implement ``**`` as a recursive globstar —
+    it treats ``**`` as a single ``*`` that requires at least one path
+    separator. So ``fnmatch("foo.py", "**/*.py")`` is False, which means
+    a file created at the project root wouldn't match any default
+    ``**/*.ext`` pattern.
+
+    For ``**/`` -prefixed patterns we therefore also try the bare form
+    (pattern without the ``**/`` prefix) so root-level files match.
+    Seen in practice when the B3 file watcher detects a newly created
+    ``foo.py`` at project root — without this fallback the watcher
+    would drop the event silently.
+    """
     normalized = rel_path.replace(os.sep, "/")
     for pattern in patterns:
         if fnmatch.fnmatch(normalized, pattern):
+            return True
+        if pattern.startswith("**/") and fnmatch.fnmatch(normalized, pattern[3:]):
             return True
     return False
 
@@ -245,33 +266,113 @@ class SlotManager:
             f"{', '.join(os.path.basename(r) for r in self.projects)}"
         )
 
+    def _ensure_watcher(self, slot: _ProjectSlot) -> None:
+        """Lazy-start the file watcher for this slot on first update call.
+
+        Honors ``TOKEN_SAVIOR_WATCHER``:
+          - ``off`` : never start a watcher; stay on the legacy mtime path.
+          - ``on``  : must succeed — on failure, log and propagate (no
+                       fallback, the user explicitly asked for it).
+          - ``auto`` (default) : try to start; on failure, log and fall
+                       back to mtime. Subsequent calls don't retry.
+        """
+        if slot.watcher is not None:
+            return
+        mode = resolve_watcher_mode()
+        if mode == "off":
+            return
+        if slot.indexer is None:
+            return
+        exclude = list(getattr(slot.indexer, "exclude_patterns", []) or [])
+        w = SlotWatcher(root=slot.root, exclude_patterns=exclude)
+        started = w.start()
+        if started:
+            slot.watcher = w
+            return
+        if mode == "on":
+            # The user explicitly asked for the watcher — raise so the
+            # failure is not silently swept under the rug.
+            raise RuntimeError(
+                f"TOKEN_SAVIOR_WATCHER=on requested but watcher failed to "
+                f"start: {w.failure_reason}"
+            )
+        # mode == "auto": remember the failure so we don't retry every call,
+        # and let the mtime path carry the session.
+        slot.watcher = w  # ok is False, maybe_update will skip the watcher path
+
     def maybe_update(self, slot: _ProjectSlot) -> None:
-        """Incrementally update the slot index using mtime detection + periodic git check."""
+        """Incrementally update the slot index using mtime detection + periodic git check.
+
+        When a file watcher is active (``TOKEN_SAVIOR_WATCHER`` is ``on``
+        or ``auto`` and the thread is healthy), Phase 1 drains events
+        from the watcher instead of running mtime stats. The mtime path
+        stays as a fallback for ``off`` mode, unavailable ``watchfiles``
+        package, inotify overflow, or other runtime watcher failures.
+        """
         if slot.indexer is None or slot.indexer._project_index is None:
             return
+
+        self._ensure_watcher(slot)
 
         idx = slot.indexer._project_index
         now = time.time()
         _dirty = False
+        mtime_changed: list[str] = []
 
-        # -- Phase 1: mtime check (near-zero cost, every call) -------------
-        mtime_changed = self.check_mtime_changes(slot)
-        if mtime_changed:
-            for rel_path in mtime_changed:
+        # -- Phase 1: prefer watcher events, fall back to mtime scan -------
+        if slot.watcher is not None and slot.watcher.ok:
+            dirty, deleted = slot.watcher.drain()
+            # Filter to paths the indexer cares about, and apply the same
+            # exclude/include gates the indexer uses during its walk.
+            for rel_path in deleted:
+                if rel_path in idx.files:
+                    slot.indexer.remove_file(rel_path)
+                    _dirty = True
+            any_dirty = False
+            for rel_path in dirty:
                 abs_path = os.path.join(slot.root, rel_path)
                 if not os.path.isfile(abs_path):
                     continue
+                if slot.indexer._is_excluded(rel_path):
+                    continue
+                if not _matches_include_patterns(
+                    rel_path, slot.indexer.include_patterns
+                ):
+                    continue
                 slot.indexer.reindex_file(rel_path, skip_graph_rebuild=True)
+                any_dirty = True
+            if any_dirty or deleted:
+                slot.indexer.rebuild_graphs()
+                slot.cache_gen += 1
+                print(
+                    f"[token-savior] Watcher update: "
+                    f"{len(dirty)} changed, {len(deleted)} deleted "
+                    f"-- {slot.root}",
+                    file=sys.stderr,
+                )
+                _dirty = True
+                slot._last_update_check = now
+            # Record "already handled" for the git phase below so we
+            # don't reindex the same file twice.
+            mtime_changed = list(dirty)
+        else:
+            mtime_changed = self.check_mtime_changes(slot)
+            if mtime_changed:
+                for rel_path in mtime_changed:
+                    abs_path = os.path.join(slot.root, rel_path)
+                    if not os.path.isfile(abs_path):
+                        continue
+                    slot.indexer.reindex_file(rel_path, skip_graph_rebuild=True)
 
-            slot.indexer.rebuild_graphs()
-            slot.cache_gen += 1
-            print(
-                f"[token-savior] Mtime update: {len(mtime_changed)} file(s) -- {slot.root}",
-                file=sys.stderr,
-            )
-            _dirty = True
-            # Reset the git throttle so we don't double-detect these
-            slot._last_update_check = now
+                slot.indexer.rebuild_graphs()
+                slot.cache_gen += 1
+                print(
+                    f"[token-savior] Mtime update: {len(mtime_changed)} file(s) -- {slot.root}",
+                    file=sys.stderr,
+                )
+                _dirty = True
+                # Reset the git throttle so we don't double-detect these
+                slot._last_update_check = now
 
         # -- Phase 2: git check for new/deleted/branch changes (throttled) -
         if not slot.is_git:

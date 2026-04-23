@@ -114,10 +114,27 @@ TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchem
 # `lean` = aggressively trimmed profile for agent sessions that don't need
 # the memory/reasoning/ML-stats machinery. Keeps the full surface of code
 # navigation, editing, git, checkpoints, tests, and config/docker analysis.
-# Cuts manifest from ~10 950 tokens (full 106 tools) to ~5 500 tokens.
+# Manifest math measured 2026-04-23:
+#   full (94 tools)  = 14 159 est. tokens
+#   lean (61 tools)  =  10 507 est. tokens  (-26 %, narrowly above
+#                                              Claude Code's 10k
+#                                              auto-defer threshold —
+#                                              Spike 2 USE WHEN/NOT WHEN
+#                                              rewrite should bring it
+#                                              under on net)
+#   ultra (17 + 1)   =   3 540 est. tokens  (-75 %)
+#
+# `lean` post-spike-1 keeps 3 tools that the pure call-volume cut would
+# have dropped: `memory_save` (the user-facing "remember this across
+# sessions" contract — dropping silently breaks README's "nothing
+# forgotten" promise) and the atomic pair `discover_project_actions` +
+# `run_project_action` (5/3330 calls on VPS, but the workflow needs
+# both or none).
 _LEAN_EXCLUDES: set[str] = {
-    # Memory engine (26 tools) — opt-in only
-    "memory_save", "memory_search", "memory_get", "memory_index",
+    # Memory engine — opt-in only (memory_save kept; the user-facing
+    # "remember this" path must stay visible by default to honour the
+    # README's "nothing forgotten between sessions" promise)
+    "memory_search", "memory_get", "memory_index",
     "memory_delete", "memory_top", "memory_why", "memory_timeline",
     "memory_session_history", "memory_prompts", "memory_mode",
     "memory_archive", "memory_status", "memory_bus_push", "memory_bus_list",
@@ -125,22 +142,21 @@ _LEAN_EXCLUDES: set[str] = {
     "memory_doctor", "memory_vector_reindex", "memory_distill",
     "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
     "memory_from_bash", "memory_set_global",
-    # Reasoning (3) — memory-adjacent
+    # Reasoning — memory-adjacent, 0 calls in tsbench + VPS
     "reasoning_save", "reasoning_search", "reasoning_list",
-    # (stats fused into single get_stats tool — kept in lean since usage stats
-    # are useful; ML subsystem categories are opt-in via category=)
-    # Corpus / discover actions (4)
+    # Corpus — 0 calls in tsbench + VPS
     "corpus_build", "corpus_query",
-    "discover_project_actions", "run_project_action",
     # Niche analysis — edge cases, rare in practice
     "get_duplicate_classes", "get_call_predictions",
     "pack_context",
+    # (discover_project_actions + run_project_action kept atomically —
+    #  low volume but paired workflow would break if split.)
 }
 
 # `ultra` = minimal manifest with lazy tool discovery. Only 17 hot tools +
 # a single `ts_extended` proxy exposed. LLM reaches the rest via
 # ts_extended(mode="list" | "describe" | "call"). Cuts manifest from
-# ~10 950 tokens (full 106) to ~2 800 tokens. Tradeoff: invoking a hidden
+# ~14 159 tokens (full 94) to ~3 540 tokens. Tradeoff: invoking a hidden
 # tool costs an extra round trip unless the LLM already knows its name.
 _ULTRA_INCLUDES: set[str] = {
     "switch_project", "list_projects", "reindex",
@@ -212,6 +228,16 @@ print(
     file=sys.stderr,
 )
 
+# v2.8 deprecation warning: announce the default flip landing in v3.0.
+# Suppressed when TOKEN_SAVIOR_PROFILE is set explicitly (user already made
+# a conscious choice) — including explicitly choosing `full`.
+if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
+    print(
+        "[token-savior] default profile will change from 'full' to 'lean' "
+        "in v3.0.0 — see docs/migration/v3.md",
+        file=sys.stderr,
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +271,13 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
             s._auto_save_tools.append(name)
 
     s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
+    # A5: persistent scoped-by-client counter for profile tuning across
+    # sessions. Silent on failure — telemetry must never break dispatch.
+    try:
+        from token_savior import telemetry
+        telemetry.record_tool_call(name)
+    except Exception:
+        pass
     record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
     try:
         s._prefetcher.record_call(name, record_symbol or "")

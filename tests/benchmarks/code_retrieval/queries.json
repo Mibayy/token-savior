@@ -16,6 +16,21 @@
     {"id": "Q12", "query": "detect which tests are impacted by a change", "gt": ["find_impacted_test_files"], "kind": "semantic"},
     {"id": "Q13", "query": "find duplicates via AST hash", "gt": ["find_semantic_duplicates"], "kind": "semantic"},
     {"id": "Q14", "query": "list every file that imports a given file", "gt": ["get_file_dependents"], "kind": "paraphrase"},
-    {"id": "Q15", "query": "extract the shortest path between two symbols in the call graph", "gt": ["get_call_chain"], "kind": "paraphrase"}
+    {"id": "Q15", "query": "extract the shortest path between two symbols in the call graph", "gt": ["get_call_chain"], "kind": "paraphrase"},
+    {"id": "Q16", "query": "fusionner deux listes classees avec RRF", "gt": ["rrf_merge"], "kind": "paraphrase-fr"},
+    {"id": "Q17", "query": "encoder un morceau de texte en vecteur dense", "gt": ["embed"], "kind": "paraphrase-fr"},
+    {"id": "Q18", "query": "trouver les cycles d'import entre modules", "gt": ["find_import_cycles"], "kind": "paraphrase-fr"},
+    {"id": "Q19", "query": "recenser le code jamais appele dans le projet", "gt": ["find_dead_code"], "kind": "paraphrase-fr"},
+    {"id": "Q20", "query": "apply pending database migrations on startup", "gt": ["run_migrations"], "kind": "paraphrase"},
+    {"id": "Q21", "query": "sanitize a user query so the FTS5 parser does not crash", "gt": ["_fts5_safe_query"], "kind": "semantic"},
+    {"id": "Q22", "query": "compute the transitive dependents of a symbol after a change", "gt": ["get_change_impact"], "kind": "paraphrase"},
+    {"id": "Q23", "query": "reembed only the symbols whose source has changed", "gt": ["reindex_project_symbols"], "kind": "paraphrase"},
+    {"id": "Q24", "query": "flag API changes that break downstream callers", "gt": ["detect_breaking_changes"], "kind": "semantic"},
+    {"id": "Q25", "query": "rank functions by cyclomatic complexity and nesting depth", "gt": ["find_hotspots"], "kind": "paraphrase"},
+    {"id": "Q26", "query": "k-nearest-neighbour query over stored code symbol embeddings", "gt": ["search_symbols_semantic"], "kind": "semantic"},
+    {"id": "Q27", "query": "find functions that do the same thing written differently", "gt": ["find_semantic_duplicates"], "kind": "semantic"},
+    {"id": "Q28", "query": "find a library export by describing what it does in plain english", "gt": ["find_library_symbol_by_description"], "kind": "paraphrase"},
+    {"id": "Q29", "query": "L2-normalise a numpy vector to unit length", "gt": ["_normalize_l2"], "kind": "paraphrase"},
+    {"id": "Q30", "query": "collapse near-duplicate memory entries", "gt": ["dedup_sweep"], "kind": "semantic"}
   ]
 }

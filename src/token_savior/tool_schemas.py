@@ -29,11 +29,20 @@ _NAMES_PARAM = {
 TOOL_SCHEMAS: dict[str, dict] = {
     # ── Meta tools ────────────────────────────────────────────────────────
     "list_projects": {
-        "description": "List all registered workspace projects with their index status.",
+        "description": (
+        "List all registered workspace projects with index status.\n"
+        "USE WHEN: you need to pick a project name before switch_project.\n"
+        "NOT WHEN: you want the active project's overview — use get_project_summary."
+    ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     "switch_project": {
-        "description": "Switch the active project. Subsequent tool calls without explicit project target this project.",
+        "description": (
+        "Switch the active project.\n"
+        "USE WHEN: the user pivots to a different indexed codebase.\n"
+        "NOT WHEN: the project isn't registered yet — use set_project_root.\n"
+        "Subsequent tool calls without project= target the new active root."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -47,15 +56,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Git & diff ────────────────────────────────────────────────────────
     "get_git_status": {
-        "description": "Return a structured git status summary for the active project: branch, ahead/behind, staged, unstaged, and untracked files.",
+        "description": (
+        "Structured git status: branch, ahead/behind, staged, unstaged, untracked.\n"
+        "USE WHEN: pre-commit sanity check or diagnosing local repo state.\n"
+        "NOT WHEN: you need symbol-level changes, not file-level — use get_changed_symbols."
+    ),
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "get_changed_symbols": {
         "description": (
-            "Symbol-level summary of changes (worktree, or HEAD vs ref). "
-            "For PR/commit-message tasks prefer build_commit_summary which is tuned "
-            "to produce a compact narrative with stats, hotspots, and suggested type."
-        ),
+        "Symbol-level summary of worktree changes (or HEAD vs ref).\n"
+        "USE WHEN: reviewing which functions/classes moved in a diff.\n"
+        "NOT WHEN: commit-message tasks — use build_commit_summary; scoped to specific file paths — use summarize_patch_by_symbol."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -67,7 +80,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "summarize_patch_by_symbol": {
-        "description": "Symbol-level summary of changed files (compact review vs diff).",
+        "description": (
+        "Symbol-level summary of a specific set of changed files.\n"
+        "USE WHEN: reviewing a patch scoped to known file paths.\n"
+        "NOT WHEN: whole-worktree changes — use get_changed_symbols; commit message draft — use build_commit_summary."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -79,7 +96,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "build_commit_summary": {
-        "description": "Symbol-level commit/review summary (vs textual diffs).",
+        "description": (
+        "Compact commit/review narrative with stats, hotspots, suggested type.\n"
+        "USE WHEN: drafting a commit message or PR description.\n"
+        "NOT WHEN: you just need the diff symbol-level — use get_changed_symbols."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -94,15 +115,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     # ── Checkpoints (unified) ─────────────────────────────────────────────
     "checkpoint": {
         "description": (
-            "Unified checkpoint CRUD. Pass op to select:\n"
-            "  - create: snapshot a bounded set of files (requires file_paths)\n"
-            "  - list (default): list available checkpoints for active project\n"
-            "  - restore: revert files from a checkpoint (requires checkpoint_id)\n"
-            "  - delete: remove one checkpoint (requires checkpoint_id)\n"
-            "  - prune: keep only the newest N checkpoints (keep_last, default 10)\n"
-            "  - compare: symbol-level diff of a checkpoint vs current files "
-            "(requires checkpoint_id)"
-        ),
+        "Unified checkpoint CRUD. op = create | list (default) | restore | delete | prune | compare.\n"
+        "USE WHEN: snapshotting a bounded file set before risky edits, or diffing worktree vs a prior state.\n"
+        "NOT WHEN: you want git-based history — use git directly (checkpoints are separate from git)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -134,7 +150,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Structural edits ──────────────────────────────────────────────────
     "replace_symbol_source": {
-        "description": "Replace an indexed symbol's full source block directly, without sending a file-wide patch.",
+        "description": (
+        "Replace an indexed symbol's full source block directly.\n"
+        "USE WHEN: rewriting a function/method/class body in place.\n"
+        "NOT WHEN: adding code near an existing symbol — use insert_near_symbol.\n"
+        "Triggers inline reindex, no manual reindex needed."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -156,7 +177,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "insert_near_symbol": {
-        "description": "Insert content before/after an indexed symbol.",
+        "description": (
+        "Insert content before or after an indexed symbol.\n"
+        "USE WHEN: adding a new function/import/decorator adjacent to an existing one.\n"
+        "NOT WHEN: replacing a symbol's body — use replace_symbol_source.\n"
+        "Triggers inline reindex."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -170,7 +196,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "move_symbol": {
-        "description": "Move a symbol (function/class) to a different file. Updates imports in all call sites. Returns {from_file, to_file, symbol, updated_imports}.",
+        "description": (
+        "Move a symbol to a different file, updating imports in all call sites.\n"
+        "USE WHEN: relocating a function/class and want the import graph fixed automatically.\n"
+        "NOT WHEN: in-place body rewrite — use replace_symbol_source; adding a field to a class — use add_field_to_model."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -183,7 +213,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "add_field_to_model": {
-        "description": "Add a field to a model/class/interface. Supports .prisma, .py (dataclass/SQLAlchemy), .ts/.tsx (interface/type).",
+        "description": (
+        "Add a field to a model/class/interface. Supports .prisma, .py (dataclass, SQLAlchemy), .ts/.tsx.\n"
+        "USE WHEN: extending a data model with a new typed field.\n"
+        "NOT WHEN: adding arbitrary code near a symbol — use insert_near_symbol."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -198,11 +232,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "apply_refactoring": {
-        "description": "Unified refactoring: rename, move, add_field, or extract. "
-                       "Type 'rename': {symbol, new_name}. "
-                       "Type 'move': {symbol, target_file}. "
-                       "Type 'add_field': {model, field_name, field_type}. "
-                       "Type 'extract': {file_path, start_line, end_line, new_name}.",
+        "description": (
+        "Polymorphic refactoring: rename, move, add_field, extract.\n"
+        "USE WHEN: cross-file rename with import fixup; moving a symbol; adding a model field; extracting a block into a new function.\n"
+        "NOT WHEN: rewriting one function body in place — use replace_symbol_source."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -229,7 +263,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Tests & validation ────────────────────────────────────────────────
     "find_impacted_test_files": {
-        "description": "Infer a compact set of likely impacted pytest files from changed files or symbols.",
+        "description": (
+        "Infer pytest files likely impacted by changed files or symbols.\n"
+        "USE WHEN: narrowing which tests to run after an edit.\n"
+        "NOT WHEN: you want to actually run them — use run_impacted_tests (calls this internally)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -241,7 +279,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "run_impacted_tests": {
-        "description": "Run tests impacted by current changes.",
+        "description": (
+        "Run pytest on files impacted by the current worktree changes.\n"
+        "USE WHEN: quick regression check after an edit, scoped to impacted tests only.\n"
+        "NOT WHEN: you want the list only (no execution) — use find_impacted_test_files."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -257,7 +299,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "apply_symbol_change_and_validate": {
-        "description": "Replace symbol source, reindex, run tests.",
+        "description": (
+        "Replace symbol source, reindex, run impacted tests in one call.\n"
+        "USE WHEN: committing a symbol rewrite and wanting automatic test-gated safety.\n"
+        "NOT WHEN: pre-change static safety check only — use verify_edit (no execution)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -277,11 +323,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Project actions ───────────────────────────────────────────────────
     "discover_project_actions": {
-        "description": "Detect conventional project actions from build files (tests, lint, build, run) without executing them.",
+        "description": (
+        "Detect conventional project actions from build files (tests, lint, build, run) without executing.\n"
+        "USE WHEN: discovering what commands are available in an unfamiliar project.\n"
+        "NOT WHEN: you already know the action id and want to run it — use run_project_action."
+    ),
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "run_project_action": {
-        "description": "Run a discovered project action by id (bounded output/timeout).",
+        "description": (
+        "Run a discovered project action by id (bounded output, bounded timeout).\n"
+        "USE WHEN: executing a lint/test/build action returned by discover_project_actions.\n"
+        "NOT WHEN: you don't know the action id yet — use discover_project_actions first."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -296,11 +350,19 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Query tools ───────────────────────────────────────────────────────
     "get_project_summary": {
-        "description": "High-level overview of the project: file count, packages, top classes/functions.",
+        "description": (
+        "Project overview: file count, packages, top classes/functions, infra dirs.\n"
+        "USE WHEN: getting your bearings on an unfamiliar project at session start.\n"
+        "NOT WHEN: you need per-file structure — use get_structure_summary."
+    ),
         "inputSchema": {"type": "object", "properties": {**_PROJECT_PARAM}},
     },
     "list_files": {
-        "description": "List indexed files. Optional glob pattern to filter (e.g. '*.py', 'src/**/*.ts').",
+        "description": (
+        "List indexed files, optionally filtered by glob.\n"
+        "USE WHEN: confirming which files are in scope, or hunting a file by name pattern.\n"
+        "NOT WHEN: you know the file and want its structure — use get_structure_summary."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -317,7 +379,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_structure_summary": {
-        "description": "Structure summary for a file (functions, classes, imports, line counts) or the whole project if no file specified.",
+        "description": (
+        "Structure of one file (functions, classes, imports, line counts), or project-wide if file omitted.\n"
+        "USE WHEN: quick table-of-contents of a file before drilling in.\n"
+        "NOT WHEN: you want a cross-project overview — use get_project_summary."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -330,7 +396,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_function_source": {
-        "description": "Get a function/method source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Batch: pass `names` (max 10) instead of `name` to get multiple in one call.",
+        "description": (
+        "Fetch a function/method source body.\n"
+        "USE WHEN: you need to read the code of a specific named function.\n"
+        "NOT WHEN: you want function + callers + deps in one shot — use get_full_context."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -346,7 +416,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_class_source": {
-        "description": "Get a class source. `level`: 0 full, 1 sig+doc, 2 summary, 3 one-liner. Batch: pass `names` (max 10) instead of `name` to get multiple in one call.",
+        "description": (
+        "Fetch a class source body (including methods).\n"
+        "USE WHEN: you need to read a specific named class's definition.\n"
+        "NOT WHEN: you want class + callers + deps together — use get_full_context.\n"
+        "Auto-downgrades to level 2 past 300 lines."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -363,15 +438,15 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_functions": {
         "description": (
-            "List functions (name, lines, params, file). Preferred tool for "
-            "\"list all functions of file X\" (pass `file_path=...`) or a project-wide enumeration. "
-            "Trailing `_hints` entry suggests next tool calls (disable with hints=false)."
-        ),
+        "List functions in a file (file_path=...) or across the project.\n"
+        "USE WHEN: enumerating what's where — file-wide or project-wide inventory.\n"
+        "NOT WHEN: you know the function name — use find_symbol (cheaper, exact)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -379,12 +454,16 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_classes": {
-        "description": "List classes (name, lines, methods, bases, file). Trailing `_hints` entry suggests next tool calls (disable with hints=false).",
+        "description": (
+        "List classes (name, lines, methods, bases, file).\n"
+        "USE WHEN: file-wide or project-wide class inventory.\n"
+        "NOT WHEN: you know the class name — use find_symbol (cheaper, exact)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "hints": {"type": "boolean", "description": "Append a `_hints` entry with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -392,14 +471,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_imports": {
-        "description": "List imports (module, names, line).",
+        "description": (
+        "List imports (module, names, line).\n"
+        "USE WHEN: auditing what a file/project pulls in.\n"
+        "NOT WHEN: you want the reverse direction (who imports X) — use get_file_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Filter to file (omit=all)."},
                 "max_results": {
                     "type": "integer",
-                    "description": "0=unlimited.",
+                    "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count.",
                 },
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -407,7 +490,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "find_symbol": {
-        "description": "Locate a symbol (file, line, signature, preview). `level`: 0 full, 1 no source_preview, 2 minimal {name, file, line, type}. Batch: pass `names` (max 10) instead of `name`.",
+        "description": (
+        "Locate a symbol: file, line, signature, minimal preview.\n"
+        "USE WHEN: you know the name and need its location.\n"
+        "NOT WHEN: you also need source + deps — use get_full_context instead."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -427,15 +514,15 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_dependencies": {
         "description": (
-            "Symbols called/used by this symbol. Pass depth>1 to walk the call "
-            "chain transitively (BFS) — saves N round trips when tracing a chain "
-            "X→Y→Z→... in one shot. Each hop is tagged with `depth` and `from`."
-        ),
+        "Outgoing deps of a symbol: what X calls/uses (downstream).\n"
+        "USE WHEN: tracing a call chain X → Y → Z (depth > 1 walks it in one call).\n"
+        "NOT WHEN: incoming (who-calls-X) — use get_dependents; transitive blast radius — use get_change_impact."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
-                "max_results": {"type": "integer", "description": "0=unlimited."},
+                "max_results": {"type": "integer", "description": "Default 100. 0=unlimited. Truncated results carry a trailing `_truncated` marker with total count."},
                 "depth": {"type": "integer", "description": "Transitive BFS depth (default 1)."},
                 **_COMPRESS_PARAM,
                 **_PROJECT_PARAM,
@@ -444,7 +531,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_dependents": {
-        "description": "Symbols that reference this function/class.",
+        "description": (
+        "Incoming deps: who calls/uses X, direct references only.\n"
+        "USE WHEN: finding direct callers of a function/class (depth 1).\n"
+        "NOT WHEN: outgoing (what X calls) — use get_dependencies; transitive impact — use get_change_impact."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -458,7 +549,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_change_impact": {
-        "description": "Impact of changing a symbol: direct + transitive dependents with confidence/depth.",
+        "description": (
+        "Impact analysis: direct + transitive dependents of a symbol.\n"
+        "USE WHEN: estimating risk before a rename, delete, or refactor (depth ≥ 2).\n"
+        "NOT WHEN: depth 1 who-calls-X — use get_dependents; outgoing (what X calls) — use get_dependencies."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -473,9 +568,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_full_context": {
         "description": (
-            "Symbol: location + source + deps/dependents (depth=1) or + change_impact (depth=2). "
-            "BATCH: pass `names=[...]` (max 10) for 2+ symbols. `brief=true` for tighter deps."
-        ),
+        "Symbol bundle: location + source + deps/dependents (depth=1) or + change_impact (depth=2).\n"
+        "USE WHEN: first-read of an unfamiliar symbol, holistic understanding in one call.\n"
+        "NOT WHEN: just the body — use get_function_source / get_class_source; pre-edit safety with siblings + tests — use get_edit_context."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -498,7 +594,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_call_chain": {
-        "description": "Find the shortest dependency path between two symbols (BFS through the dependency graph).",
+        "description": (
+        "Shortest dependency path between two symbols (BFS through the dep graph).\n"
+        "USE WHEN: proving connectivity A → ... → B, or finding the chain that links them.\n"
+        "NOT WHEN: direct neighbors only — use get_dependencies / get_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -522,7 +622,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_edit_context": {
-        "description": "Symbol source + direct deps + callers + siblings + impacted tests in one call. Returns {symbol, source, location, dependencies, callers, siblings, impacted_tests}.",
+        "description": (
+        "Pre-edit bundle: source + direct deps + callers + same-file siblings + impacted tests.\n"
+        "USE WHEN: about to modify a symbol and want adjacent context upfront.\n"
+        "NOT WHEN: just understanding (no edit planned) — use get_full_context; file-wide audit — use audit_file."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -535,7 +639,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_file_dependencies": {
-        "description": "List files that this file imports from (file-level import graph).",
+        "description": (
+        "Files imported by this file (outgoing file-level import edges).\n"
+        "USE WHEN: \"what does module X depend on at file level\".\n"
+        "NOT WHEN: reverse direction (who imports X) — use get_file_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -554,9 +662,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_file_dependents": {
         "description": (
-            "Files that import from this file (reverse import graph). "
-            "USE THIS instead of search_codebase('import X') for 'who depends on this module'."
-        ),
+        "Files that import this file (incoming file-level import edges).\n"
+        "USE WHEN: \"who depends on module X\" — cheaper than search_codebase('import X').\n"
+        "NOT WHEN: outgoing (what X imports) — use get_file_dependencies."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -575,21 +684,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "search_codebase": {
         "description": (
-            "Regex (default) or semantic search across indexed files. "
-            "Regex mode returns {file, line_number, content}. "
-            "Semantic mode (semantic=true) treats `pattern` as a natural-"
-            "language description and returns top-K matching symbols by "
-            "embedding similarity with score + signature + docstring + "
-            "file:line for disambiguation. "
-            "SAFETY — never call, modify, or delete a symbol found only "
-            "by semantic match without re-resolving the exact name via "
-            "find_symbol first. Semantic near-misses (e.g. 'delete' "
-            "matching a query about 'dedup') are plausible by design; "
-            "always cross-check. A `warning` item is prepended when "
-            "confidence is low. "
-            "First semantic call per project triggers a ~2min one-off "
-            "embedding reindex; subsequent calls are fast."
-        ),
+        "Regex (default) or semantic (semantic=true) search across indexed files.\n"
+        "USE WHEN: regex for exact pattern/literal strings. Semantic for NL descriptions when you don't know the name.\n"
+        "NOT WHEN: you already know the symbol name — use find_symbol (cheaper).\n"
+        "SAFETY: semantic hits are leads, not answers; re-resolve via find_symbol before acting. First semantic call triggers ~2min reindex."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -624,11 +723,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "search_in_symbols": {
         "description": (
-            "Regex search that also returns the enclosing function/class for each "
-            "match. Use this instead of search_codebase when the next step is "
-            "probably 'read the containing symbol' — the `symbol` field in each "
-            "hit plugs directly into get_function_source / get_class_source."
-        ),
+        "Regex search that returns the enclosing function/class for each match, in addition to file:line.\n"
+        "USE WHEN: the next step is \"read the containing symbol\" — the `symbol` field plugs into get_function_source / get_class_source.\n"
+        "NOT WHEN: plain file-line hits are enough — use search_codebase (cheaper)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -647,7 +745,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Index management ──────────────────────────────────────────────────
     "reindex": {
-        "description": "Re-index the entire project. No-op if no tracked file mtimes changed (pass force=true to rebuild anyway). Edit tools (replace_symbol_source, insert_near_symbol, etc.) already reindex inline — only needed after external edits (Edit/Write/sed).",
+        "description": (
+        "Rebuild the project index.\n"
+        "USE WHEN: a file was edited outside TS tools (via your editor, sed, git pull) and you want the new state indexed.\n"
+        "NOT WHEN: you just used replace_symbol_source / insert_near_symbol — those reindex inline."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -661,10 +763,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "set_project_root": {
         "description": (
-            "Add a new project root to the workspace and switch to it. "
-            "Triggers a full reindex of the new root. "
-            "After calling this, all other tools operate on the new project by default."
-        ),
+        "Register a new project root and switch to it.\n"
+        "USE WHEN: the user opens a project that isn't in WORKSPACE_ROOTS yet.\n"
+        "NOT WHEN: the project is already registered — use switch_project.\n"
+        "Triggers a full reindex of the new root."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -678,7 +781,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Feature discovery ─────────────────────────────────────────────────
     "get_feature_files": {
-        "description": "Files matching a feature keyword + traced imports, classified by role.",
+        "description": (
+        "Files matching a feature keyword + traced imports, classified by role (core, test, config).\n"
+        "USE WHEN: locating all files touching a feature before diving in.\n"
+        "NOT WHEN: plain glob filtering — use list_files (cheaper)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -692,17 +799,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     # ── Stats (unified) ───────────────────────────────────────────────────
     "get_stats": {
         "description": (
-            "Unified stats dispatcher. Pass category to select which subsystem:\n"
-            "  - usage (default): session efficiency, tool calls, chars saved\n"
-            "  - session_budget: current session token budget consumption\n"
-            "  - tca: co-activation matrix (symbols tracked, top pairs)\n"
-            "  - dcp: differential context protocol chunk registry\n"
-            "  - linucb: injection model feature weights θ\n"
-            "  - warmstart: cross-session signature store\n"
-            "  - leiden: community detector (modularity Q, sizes)\n"
-            "  - speculation: speculative tool-tree execution stats\n"
-            "  - lattice: adaptive Beta-Binomial posteriors per (context, level)"
-        ),
+        "Unified stats dispatcher. category = usage (default) | session_budget | tca | dcp | linucb | warmstart | leiden | speculation | lattice.\n"
+        "USE WHEN: inspecting a specific subsystem's internal state.\n"
+        "NOT WHEN: overall project health check — use get_project_summary (code) or memory_doctor (memory, full profile).\n"
+        "usage = session efficiency & chars saved; others = per-subsystem diagnostics."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -728,7 +829,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Routes, Env, Components ───────────────────────────────────────────
     "get_routes": {
-        "description": "Detect all API routes and pages in a Next.js App Router project. Returns route path, file, HTTP methods, and type (api/page/layout).",
+        "description": (
+        "Detect API routes and pages in a Next.js App Router project: path, file, HTTP methods, type.\n"
+        "USE WHEN: mapping the HTTP surface of a Next.js project.\n"
+        "NOT WHEN: CLI/main entry points — use get_entry_points; non-Next frameworks aren't covered here."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -741,7 +846,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_env_usage": {
-        "description": "Cross-reference an environment variable across all code, .env files, and workflow configs. Shows where it's defined, read, and written.",
+        "description": (
+        "Cross-reference an env var across code, .env files, and workflow configs. Shows where it's defined, read, written.\n"
+        "USE WHEN: auditing an env var's lifecycle before renaming or removing it.\n"
+        "NOT WHEN: bulk orphan detection — use analyze_config(checks=['orphans'])."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -759,7 +868,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_components": {
-        "description": "Detect React components in .tsx/.jsx files. Identifies pages, layouts, and named components by convention (uppercase name or default export).",
+        "description": (
+        "Detect React components in .tsx/.jsx: pages, layouts, named (uppercase) and default exports.\n"
+        "USE WHEN: inventorying UI surface of a React/Next project.\n"
+        "NOT WHEN: generic class or function listing — use get_classes / get_functions."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -778,9 +891,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     # ── Analysis tools ────────────────────────────────────────────────────
     "analyze_config": {
         "description": (
-            "Audit config files (.env/.yaml/.toml/.json). Default = duplicates+secrets+orphans. "
-            "Use `checks=['orphans']` for targeted 'env vars defined but unread' (cheaper)."
-        ),
+        "Audit config files (.env/.yaml/.toml/.json): duplicates, secrets, orphans.\n"
+        "USE WHEN: pre-deploy sanity check, or after touching .env to catch orphaned vars.\n"
+        "NOT WHEN: you need raw file content — use your client's file-read tool.\n"
+        "checks=['orphans'] = cheapest single-check mode."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -798,11 +913,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_dead_code": {
         "description": (
-            "Project-wide audit of unreferenced functions/classes (zero callers, "
-            "excludes entry points: main, tests, route handlers). "
-            "NOT a listing tool — to list functions of a specific file use "
-            "`get_functions(file_path=...)`; to outline a file use `get_structure_summary`."
-        ),
+        "Project-wide audit of unreferenced functions/classes (zero callers, excludes entry points, tests, route handlers).\n"
+        "USE WHEN: pre-release cleanup or refactor scoping.\n"
+        "NOT WHEN: file-scoped audit — use audit_file (batches dead_code + hotspots + duplicates); just list a file's functions — use get_functions."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -816,12 +930,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_hotspots": {
         "description": (
-            "Rank functions by a chosen *kind* of hotspot.\n"
-            "  • complexity  — all languages: line count, branching, nesting, params (default min_score 0).\n"
-            "  • allocation  — Java only: object/collection/stream allocation, boxing, formatting (default min_score 1).\n"
-            "  • performance — Java only: blocking calls, locks, synchronized sections, mutable state (default min_score 1).\n"
-            "Replaces find_allocation_hotspots / find_performance_hotspots."
-        ),
+        "Rank functions by hotspot kind. complexity (all langs) | allocation (Java) | performance (Java).\n"
+        "USE WHEN: picking refactor targets across a project.\n"
+        "NOT WHEN: scoped to one file — use audit_file (batches dead_code + hotspots + duplicates).\n"
+        "T0-T3 tiers rank actionability. min_score default 0 for complexity, 1 for Java kinds."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -844,9 +957,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "detect_breaking_changes": {
         "description": (
-            "Breaking API changes vs a git ref: removed funcs/params, added required params, "
-            "signature changes. TERMINAL — output is complete; do NOT re-explore each item."
-        ),
+        "Breaking API changes vs a git ref: removed funcs/params, added required params, signature changes.\n"
+        "USE WHEN: pre-merge / pre-release gate to catch caller-breaking edits.\n"
+        "NOT WHEN: you want a plain symbol-level diff — use get_changed_symbols.\n"
+        "TERMINAL — output is complete; do not re-explore each item."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -860,9 +975,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_cross_project_deps": {
         "description": (
-            "Detect dependencies between indexed projects. "
-            "Shows which projects import packages from other indexed projects and shared external dependencies."
-        ),
+        "Dependencies between indexed projects: which project imports packages from other indexed projects.\n"
+        "USE WHEN: understanding reach across a multi-repo workspace.\n"
+        "NOT WHEN: within one project — use get_file_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -870,9 +986,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "analyze_docker": {
         "description": (
-            "Analyze Dockerfiles in the project: base images, stages, exposed ports, ENV/ARG vars, "
-            "and cross-reference with config files. Flags issues like 'latest' tags and missing env vars."
-        ),
+        "Audit Dockerfiles: base images, stages, exposed ports, ENV/ARG, cross-ref with config files.\n"
+        "USE WHEN: pre-deploy Docker review. Flags 'latest' tags and missing env vars.\n"
+        "NOT WHEN: non-Dockerfile config audit — use analyze_config."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -882,12 +999,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_db_schema": {
         "description": (
-            "Parse SQL migrations under the active project and return a condensed schema "
-            "snapshot: tables with columns (name, type, nullable, default), primary keys, "
-            "foreign keys, indexes, and RLS policies. Auto-detects common migration "
-            "directories (supabase/migrations, migrations, db/migrations, prisma/migrations). "
-            "Use instead of re-reading raw .sql files every time the agent writes a query."
-        ),
+        "Condensed SQL-migration snapshot: tables (cols, types, nullability, defaults), PKs, FKs, indexes, RLS policies.\n"
+        "USE WHEN: writing queries against a Supabase/Postgres-like schema — avoids re-reading raw .sql each time.\n"
+        "NOT WHEN: you need raw migration history — use your client's file-read tool.\n"
+        "Auto-detects supabase/migrations, migrations/, db/migrations/, prisma/migrations/."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -910,12 +1026,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_library_symbol": {
         "description": (
-            "Resolve a symbol inside an installed library (TypeScript .d.ts in node_modules, "
-            "or a Python module) and return signature + JSDoc/docstring + source location. "
-            "Prefer this over Context7/doc fetches for API signature lookups -- it reflects the "
-            "installed version exactly and costs ~100 tokens. For dotted paths, pass the full "
-            "chain (e.g. 'SupabaseAuthClient.signInWithOtp')."
-        ),
+        "Resolve a library symbol (npm .d.ts or Python module): signature, JSDoc/docstring, source location.\n"
+        "USE WHEN: checking the installed version's exact signature — beats Context7/doc fetches, ~100 tokens.\n"
+        "NOT WHEN: you don't know the exact name — use find_library_symbol_by_description (NL) or list_library_symbols (regex).\n"
+        "For dotted paths, pass the full chain (e.g. 'SupabaseAuthClient.signInWithOtp')."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -938,10 +1053,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "list_library_symbols": {
         "description": (
-            "List top-level exports of an installed library (npm .d.ts or Python module), "
-            "optionally filtered by regex. Use before get_library_symbol when you don't know "
-            "the exact exported name."
-        ),
+        "List top-level exports of an installed library (.d.ts or Python module), optionally regex-filtered.\n"
+        "USE WHEN: you know roughly what you want but not the exact name, and regex is enough.\n"
+        "NOT WHEN: NL description without regex — use find_library_symbol_by_description; exact name known — use get_library_symbol."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -968,17 +1083,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_library_symbol_by_description": {
         "description": (
-            "Rank a library's exports by embedding similarity to a "
-            "natural-language description. On-the-fly, no persistent "
-            "index — scans the package, embeds each export (Python gets "
-            "enriched with docstring + signature via inspect; TS uses "
-            "name + kind), cosine-ranks against the query. Returns top-K "
-            "with scores. "
-            "SAFETY — the same rule as search_codebase(semantic=True): "
-            "re-resolve by exact name via get_library_symbol before "
-            "acting on a hit. A `warning` is set when confidence is low "
-            "(top1 < 0.75 or top1-top2 gap < 0.02)."
-        ),
+        "Rank a package's exports by Nomic-embedding similarity to a NL description. On-the-fly, no persistent index.\n"
+        "USE WHEN: you don't know the exact name of a library export you need.\n"
+        "NOT WHEN: you know the name — use get_library_symbol (exact); regex-filtered enum is enough — use list_library_symbols.\n"
+        "SAFETY: re-resolve via get_library_symbol before acting. No low-confidence warning (scores don't discriminate on short docs)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1009,10 +1118,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "audit_file": {
         "description": (
-            "Mega-batch audit of a single file: dead_code + hotspots + semantic "
-            "duplicates in one call. Use when triaging or reviewing a specific "
-            "file instead of chaining three separate tool calls."
-        ),
+        "Mega-batch audit of a single file: dead_code + hotspots + semantic duplicates in one call.\n"
+        "USE WHEN: triaging or reviewing a specific file before touching it.\n"
+        "NOT WHEN: project-wide hotspot ranking — use find_hotspots."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1028,7 +1137,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_entry_points": {
-        "description": "Score functions by likelihood of being execution entry points (routes, handlers, main functions, exported APIs). Returns functions with score and reasons, sorted by likelihood desc.",
+        "description": (
+        "Score functions by likelihood of being execution entry points: routes, handlers, main, exported APIs.\n"
+        "USE WHEN: understanding a project's entry surface during onboarding.\n"
+        "NOT WHEN: HTTP routes specifically in Next.js — use get_routes; React UI — use get_components."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1042,14 +1155,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_related_symbols": {
         "description": (
-            "Unified related-symbols query. Choose *method*:\n"
-            "  • community  — Leiden community for `name` (or `list_all=true` to enumerate all).\n"
-            "  • rwr        — Random-walk-with-restart ranking centred on `name` (catches multi-hop).\n"
-            "  • cluster    — Greedy-modularity cluster for `name` (dependency graph).\n"
-            "  • coactive   — TCA co-activation (symbols often accessed together with `name`).\n"
-            "Replaces get_community / get_relevance_cluster / get_symbol_cluster / "
-            "get_coactive_symbols."
-        ),
+        "Related-symbols query. method = community | rwr | cluster | coactive.\n"
+        "USE WHEN: finding symbols adjacent to X via graph or access patterns (beyond direct deps).\n"
+        "NOT WHEN: direct deps only — use get_dependencies / get_dependents; call path A→B — use get_call_chain.\n"
+        "community=Leiden; rwr=random-walk-with-restart; cluster=greedy modularity; coactive=TCA co-access."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1099,7 +1209,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_duplicate_classes": {
-        "description": "Find Java classes duplicated across files (by FQN, or simple name).",
+        "description": (
+        "Find Java classes duplicated across files (by FQN or simple name).\n"
+        "USE WHEN: Java-specific class-level dedup scan.\n"
+        "NOT WHEN: generic function/class dedup across any language — use find_semantic_duplicates (AST or embedding)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1112,7 +1226,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── Memory Engine tools ───────────────────────────────────────────────
     "memory_save": {
-        "description": "Save an observation to memory.",
+        "description": (
+        "Persist a fact, guardrail, or note across sessions.\n"
+        "USE WHEN: the user says \"remember this\" or a finding is non-obvious from code.\n"
+        "NOT WHEN: auto-capture via PostToolUse hooks already covers it (bash, WebFetch).\n"
+        "Types: note, command, infra, guardrail, warning. Scope project_root by default."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1156,7 +1275,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_maintain": {
-        "description": "Maintenance: promote, relink, export, patterns.",
+        "description": (
+        "Maintenance rollup: promote, relink, export, extract patterns.\n"
+        "USE WHEN: periodic memory housekeeping (weekly or pre-distillation)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1171,7 +1293,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_top": {
-        "description": "Rank obs by score, access_count, or age.",
+        "description": (
+        "Rank observations by score, access_count, or age.\n"
+        "USE WHEN: auditing what's most-touched or oldest in the store."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1181,7 +1306,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_why": {
-        "description": "Explain why an obs matched (recency, type, symbol, FTS).",
+        "description": (
+        "Explain why a specific observation matched the last injection (recency, type, symbol, FTS).\n"
+        "USE WHEN: debugging why a memory did or didn't surface."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1192,11 +1320,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_doctor": {
-        "description": "Memory health report (orphans, near-dupes, incomplete, vector coverage).",
+        "description": (
+        "Memory health report: orphans, near-dupes, incomplete obs, vector coverage, hook wiring.\n"
+        "USE WHEN: diagnosing why auto-injection / recall is flaky or silent.\n"
+        "NOT WHEN: generic tool-usage stats — use get_stats."
+    ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     "memory_vector_reindex": {
-        "description": "Backfill obs_vectors for observations missing an embedding. No-op when sqlite-vec / sentence-transformers are unavailable.",
+        "description": (
+        "Backfill obs_vectors for observations missing an embedding. No-op if sqlite-vec/fastembed unavailable.\n"
+        "USE WHEN: after enabling the vector extra, or post-corruption recovery of the vec table."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1206,7 +1341,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_distill": {
-        "description": "MDL distillation: cluster similar obs into abstraction + deltas.",
+        "description": (
+        "MDL-based distillation: cluster similar obs into an abstraction + deltas.\n"
+        "USE WHEN: compressing N near-equivalent obs into one canonical + diffs."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1218,7 +1356,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_dedup_sweep": {
-        "description": "Backfill observations.content_hash (SHA256 of normalized content). Default backfills NULL hashes only; set recompute=true after a hash-formula change.",
+        "description": (
+        "Backfill observations.content_hash (SHA256 of normalized content). Default: only NULL hashes.\n"
+        "USE WHEN: after a hash-formula change (recompute=true) or one-off backfill of old obs."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1229,7 +1370,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_roi_gc": {
-        "description": "Archive obs with ROI below threshold.",
+        "description": (
+        "Archive observations whose ROI score falls below a threshold.\n"
+        "USE WHEN: periodic cleanup pass to prune low-utility memories."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1240,14 +1384,21 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_roi_stats": {
-        "description": "Token Economy ROI stats (net, by type).",
+        "description": (
+        "Token Economy ROI stats — net value by observation type.\n"
+        "USE WHEN: measuring which observation types pay for their token cost."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {**_PROJECT_PARAM},
         },
     },
     "memory_from_bash": {
-        "description": "Save a bash command as observation (type=command).",
+        "description": (
+        "Save a bash command as an observation (type=command, auto-extracted).\n"
+        "USE WHEN: manual capture of a shell command worth remembering.\n"
+        "NOT WHEN: generic fact/note capture — use memory_save (more flexible schema)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1260,7 +1411,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_set_global": {
-        "description": "Set observation global visibility.",
+        "description": (
+        "Set an observation's global visibility flag (is_global=True crosses all projects).\n"
+        "USE WHEN: promoting a project-scoped obs to cross-project (e.g. a VPS-wide convention)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1272,11 +1426,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_search": {
         "description": (
-            "[Layer 2/3 — Progressive Disclosure] "
-            "Estimated tokens: ~60 per result. Use before memory_get. "
-            "FTS5 search over observations (compact rows with snippets). "
-            "Also surfaces matching session_summaries rollups as a separate section."
-        ),
+        "Layer 2 FTS5 search over memory observations, compact rows with snippets (~60 tokens/result).\n"
+        "USE WHEN: finding prior memories relevant to the current task.\n"
+        "NOT WHEN: the user wants to persist a new fact — use memory_save (write path, lean default)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1290,9 +1443,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_session_history": {
         "description": (
-            "Last N structured session-end rollups (request / investigated / "
-            "learned / completed / next_steps / notes) for the current project."
-        ),
+        "Last N structured session-end rollups (request, investigated, learned, completed, next_steps, notes).\n"
+        "USE WHEN: catching up on what happened in recent sessions on this project."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1303,11 +1456,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_get": {
         "description": (
-            "[Layer 3/3 — Progressive Disclosure] "
-            "Estimated tokens: ~200 per result. Final layer — full content. "
-            "Get full details of observations by IDs. Accepts integers, digit strings, "
-            "or `ts://obs/{id}` citation URIs (as emitted by `memory_index`)."
-        ),
+        "Layer 3: full observation content by IDs (~200 tokens/result). Final progressive-disclosure layer.\n"
+        "USE WHEN: reading the full body of an observation surfaced by memory_search or memory_index."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1329,7 +1480,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_delete": {
-        "description": "Soft-delete an observation by ID (sets archived=1).",
+        "description": (
+        "Soft-delete an observation by ID (sets archived=1).\n"
+        "USE WHEN: removing a specific obs confirmed wrong or obsolete."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1344,11 +1498,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_index": {
         "description": (
-            "[Layer 1/3 — Progressive Disclosure] "
-            "Estimated tokens: ~15 per result. Use before memory_search. "
-            "Compact index of recent observations: ID, type, title, importance, date, "
-            "citation URI. Always start here when exploring memory."
-        ),
+        "Layer 1: compact index of recent observations — ID, type, title, importance, age, citation URI.\n"
+        "USE WHEN: cheapest memory exploration — always start here before drilling deeper."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1367,9 +1519,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_timeline": {
         "description": (
-            "Chronological context around an observation (Layer 2). "
-            "Shows observations before and after for temporal context."
-        ),
+        "Chronological context around an observation (before/after in time).\n"
+        "USE WHEN: reconstructing the temporal sequence that produced an obs."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1387,7 +1539,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_prompts": {
-        "description": "Save or search prompt history.",
+        "description": (
+        "Save or search prompt history (archival of notable user prompts).\n"
+        "USE WHEN: pinning the current prompt or retrieving a past one."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1402,7 +1557,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_mode": {
-        "description": "Get or set memory capture mode.",
+        "description": (
+        "Get or set the memory capture mode (code | review | debug | infra | silent).\n"
+        "USE WHEN: switching the session's capture aggressiveness."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1414,7 +1572,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "corpus_build": {
-        "description": "Build a thematic corpus from obs (filter type/tags/symbol).",
+        "description": (
+        "Build a thematic corpus from observations filtered by type / tags / symbol.\n"
+        "USE WHEN: assembling a focused knowledge slice for downstream Q&A."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1428,7 +1589,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_archive": {
-        "description": "Manage archived observations.",
+        "description": (
+        "Manage archived observations (list, undelete, purge).\n"
+        "USE WHEN: recovering a soft-deleted obs or cleaning dead archives."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1443,9 +1607,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_status": {
         "description": (
-            "Quick overview of the Memory Engine for the active project: active/archived "
-            "obs count, current mode, last session + end_type, last summary date, prompts archived."
-        ),
+        "Memory Engine snapshot: active/archived counts, mode, last session, summaries.\n"
+        "USE WHEN: quick state check of the memory store at session start."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1454,9 +1618,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     # ── Program slicing & context packing (Phase 2) ───────────────────────
     "verify_edit": {
         "description": (
-            "EditSafety certificate before applying a symbol replacement. "
-            "Static analysis only: signature, exceptions, side-effects, tests."
-        ),
+        "EditSafety certificate — static analysis before a symbol replacement: signature, exceptions, side-effects, test impact.\n"
+        "USE WHEN: gating a destructive edit with cheap static checks.\n"
+        "NOT WHEN: you want execution-level validation — use apply_symbol_change_and_validate."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1479,15 +1644,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_semantic_duplicates": {
         "description": (
-            "Find duplicate functions across the codebase. Two methods: "
-            "method='ast' (default, fast) groups by AST-normalised hash "
-            "(alpha-renaming, docstrings stripped) — catches copy-paste and "
-            "renames, misses rewrites. method='embedding' clusters by "
-            "cosine similarity over Nomic symbol embeddings — catches "
-            "conceptual clones AST hash can't see, but introduces false "
-            "positives on boilerplate. Always verify via "
-            "get_function_source before merging or deleting."
-        ),
+        "Find duplicate functions. method='ast' (fast, hash-based, catches copy-paste) or 'embedding' (Nomic cosine, catches conceptual clones, tagged sim=min..mean per cluster).\n"
+        "USE WHEN: scoping a dedup or consolidation pass across the project.\n"
+        "NOT WHEN: file-scoped audit — use audit_file (batches dead_code + hotspots + duplicates).\n"
+        "SAFETY: always verify via get_function_source before merging; embedding matches can be conceptual not functional."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1522,10 +1683,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_import_cycles": {
         "description": (
-            "Detect import cycles (strongly-connected components) in the "
-            "file-level import graph using Tarjan's algorithm. Returns sorted "
-            "list of cycles."
-        ),
+        "Detect import cycles (strongly-connected components) in the file-level import graph (Tarjan's).\n"
+        "USE WHEN: debugging a circular-import error or preparing a module reorg.\n"
+        "NOT WHEN: you want neighbors of one file — use get_file_dependencies / get_file_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1539,9 +1700,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_call_predictions": {
         "description": (
-            "Predict the next likely tool calls based on the persistent first-order "
-            "Markov model trained on this session and prior sessions."
-        ),
+        "Predict next-likely tool calls from a first-order Markov model trained on prior sessions.\n"
+        "USE WHEN: inspecting what the prefetcher thinks you'll do next."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1562,7 +1723,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "pack_context": {
-        "description": "Knapsack-packed context bundle for a query within token budget.",
+        "description": (
+        "Knapsack-packed context bundle for a query within a token budget.\n"
+        "USE WHEN: manual token-budget assembly for a complex handoff prompt.\n"
+        "NOT WHEN: standard symbol lookup with deps — use get_full_context."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1575,7 +1740,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "get_backward_slice": {
-        "description": "Minimal lines affecting `variable` at `line` in symbol `name`.",
+        "description": (
+        "Minimal lines affecting a variable at a given line inside a symbol.\n"
+        "USE WHEN: extracting the causal slice behind one value for debugging.\n"
+        "NOT WHEN: you want callers of the enclosing symbol — use get_dependents."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1590,9 +1759,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "corpus_query": {
         "description": (
-            "Format all observations of a corpus as markdown context + a question, "
-            "ready for Claude to answer with full context injected."
-        ),
+        "Format all observations of a named corpus as markdown context + a question, ready for answering.\n"
+        "USE WHEN: asking a question over a pre-built corpus (after corpus_build)."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1610,7 +1779,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_bus_push": {
-        "description": "Push a volatile obs to the inter-agent bus (tagged agent_id).",
+        "description": (
+        "Push a volatile observation to the inter-agent memory bus (tagged by agent_id).\n"
+        "USE WHEN: publishing a live note to peer agents without persisting to the main store."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1628,7 +1800,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "memory_bus_list": {
-        "description": "List recent live messages on the inter-agent memory bus, optionally filtered by agent_id.",
+        "description": (
+        "List recent live messages on the inter-agent memory bus, optionally filtered by agent_id.\n"
+        "USE WHEN: reading peer-agent signals during a multi-agent task."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1640,7 +1815,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "reasoning_save": {
-        "description": "Persist a reasoning trace (goal+steps+conclusion) for reuse.",
+        "description": (
+        "Persist a reasoning trace (goal + steps + conclusion) for later reuse.\n"
+        "USE WHEN: capturing a multi-step analysis you expect to repeat."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1657,9 +1835,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "reasoning_search": {
         "description": (
-            "Search stored reasoning chains by goal similarity (FTS5 + Jaccard). "
-            "Returns previous chains whose goal overlaps the query."
-        ),
+        "Search stored reasoning chains by goal similarity (FTS5 + Jaccard).\n"
+        "USE WHEN: checking if you've already reasoned about a similar goal in a prior session."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1675,7 +1853,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "reasoning_list": {
-        "description": "List stored reasoning chains sorted by access_count then recency.",
+        "description": (
+        "List stored reasoning chains by access_count then recency.\n"
+        "USE WHEN: enumerating all past reasoning — pick one before reasoning_search for targeted lookup."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1686,9 +1867,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_consistency": {
         "description": (
-            "Run Bayesian self-consistency check on symbol-linked observations "
-            "(updates validity α/β, flags stale_suspected and quarantine)."
-        ),
+        "Run Bayesian self-consistency check on symbol-linked obs (updates α/β; flags stale + quarantine).\n"
+        "USE WHEN: periodic sweep to flag obs that reference now-invalid symbols."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1709,9 +1890,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "memory_quarantine_list": {
         "description": (
-            "List observations currently quarantined by the consistency check "
-            "(Bayesian validity below 40%)."
-        ),
+        "List observations quarantined by the consistency check (Bayesian validity < 40 %).\n"
+        "USE WHEN: reviewing obs the consistency sweep flagged as suspect."
+    ),
         "inputSchema": {
             "type": "object",
             "properties": {

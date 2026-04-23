@@ -298,14 +298,23 @@ def search_symbols_semantic(
 ) -> dict[str, Any]:
     """k-NN over symbol_vectors for ``project_root``.
 
-    Returns ``{"status": str, "hits": [...], "warning": Optional[str]}``.
+    Returns ``{"status": str, "hits": [...], "warning": None}``. The
+    ``warning`` key is preserved in the shape for backwards compatibility
+    with callers that test ``result.get("warning")``, but is always
+    ``None`` on this path.
+
     Each hit carries the disambiguation metadata required by the safety
     contract (see docs/design-semantic-code-tools.md): signature,
     docstring head, file:line, score.
 
-    Warnings:
-      * ``"low_confidence"`` when top1 score < 0.75 or when top1-top2
-        delta < 0.02 (dense cluster, likely ambiguous).
+    No low-confidence warning is emitted. tests/benchmarks/code_retrieval
+    (30 queries, 1002 symbols) showed that on code symbols the top1
+    score and top1-top2 gap distributions overlap between correct and
+    wrong retrievals (correct top1 0.59-0.78, wrong top1 0.63-0.69),
+    giving the warning 12% precision and 25% recall at tuned thresholds.
+    A signal that noisy teaches the agent to ignore it. The safety
+    contract still holds via the read-only schema + ``find_symbol``
+    verification gate before any destructive operation on a hit.
     """
     from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
@@ -355,18 +364,10 @@ def search_symbols_semantic(
             "score": round(cos_score, 4),
         })
 
-    warning: str | None = None
-    if hits:
-        top1 = hits[0]["score"]
-        top2 = hits[1]["score"] if len(hits) > 1 else 0.0
-        if top1 < 0.75 or (top1 - top2) < 0.02:
-            warning = (
-                f"low_confidence: top1={top1:.2f}, top2={top2:.2f}. "
-                "Consider refining the query or verifying via find_symbol."
-            )
-
+    # No low-confidence warning on this path — see docstring. Kept in the
+    # return shape as None for callers that check ``.get("warning")``.
     return {
         "status": "ok",
         "hits": hits,
-        "warning": warning,
+        "warning": None,
     }

@@ -4,9 +4,20 @@
 #   - les tools Token Savior de lecture de code (par symbole/fichier)
 #   - les commandes Bash significatives (par keyword extrait de la commande)
 
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
 PAYLOAD=$(cat)
 
-TOOL=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null)
+TOOL=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>>"$ERR_LOG")
 
 # Strip the mcp__<server>__ prefix so we can match plain names.
 SHORT_TOOL="${TOOL##*__}"
@@ -175,7 +186,7 @@ for r in rows:
     ctx = f\" · {d['context']}\" if d.get('context') else ''
     glob = '🌐 ' if d.get('is_global') else ''
     print(f\"  #{d['id']}  [{d['type']}]  {glob}{d['title']}{ctx}  {age}\")
-" 2>/dev/null)
+" 2>>"$ERR_LOG")
 
 if [ -n "$RESULT" ]; then
     echo "$RESULT"

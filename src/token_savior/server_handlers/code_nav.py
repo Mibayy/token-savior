@@ -615,8 +615,10 @@ def _q_list_files(qfns, args: dict[str, Any]):
 
 
 def _q_get_functions(qfns, args: dict[str, Any]):
+    # Default 100 matches the query-api cap introduced to stop unbounded
+    # project-wide dumps (~56 k tokens on a 2.5 k-function repo, A2).
     result = qfns["get_functions"](
-        args.get("file_path"), max_results=args.get("max_results", 0)
+        args.get("file_path"), max_results=args.get("max_results", 100)
     )
     if args.get("hints", True) and isinstance(result, list) and result:
         if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
@@ -626,7 +628,7 @@ def _q_get_functions(qfns, args: dict[str, Any]):
 
 def _q_get_classes(qfns, args: dict[str, Any]):
     result = qfns["get_classes"](
-        args.get("file_path"), max_results=args.get("max_results", 0)
+        args.get("file_path"), max_results=args.get("max_results", 100)
     )
     if args.get("hints", True) and isinstance(result, list) and result:
         if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
@@ -644,7 +646,7 @@ QFN_HANDLERS: dict[str, object] = {
     "get_functions": _q_get_functions,
     "get_classes": _q_get_classes,
     "get_imports": lambda q, a: q["get_imports"](
-        a.get("file_path"), max_results=a.get("max_results", 0)
+        a.get("file_path"), max_results=a.get("max_results", 100)
     ),
     "find_symbol": _q_find_symbol,
     "get_dependencies": lambda q, a: q["get_dependencies"](

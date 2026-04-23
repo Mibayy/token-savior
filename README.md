@@ -8,8 +8,8 @@
 > **97% fewer tokens. Nothing forgotten between sessions.**
 
 [![Version](https://img.shields.io/badge/version-2.7.1-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.7.1)
-[![Tools](https://img.shields.io/badge/tools-90-green)]()
-[![Tests](https://img.shields.io/badge/tests-1318%2F1318-brightgreen)]()
+[![Tools](https://img.shields.io/badge/tools-94-green)]()
+[![Tests](https://img.shields.io/badge/tests-1360%2F1360-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(180%2F180)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()

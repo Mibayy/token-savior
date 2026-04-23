@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "2.7.1"
+version = "2.8.4"
 description = "Structural codebase MCP server with persistent memory engine — 97% token savings + cross-session recall for Claude Code"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -25,6 +25,8 @@ dependencies = [
     "PyYAML>=6.0",
     "tree-sitter>=0.25,<0.26",
     "tree-sitter-java>=0.23,<0.24",
+    "tree-sitter-ruby>=0.23,<0.24",
+    "watchfiles>=0.20",
 ]
 
 [project.optional-dependencies]
