@@ -3,6 +3,17 @@
 # - Auto-capture des commandes Bash significatives réussies
 # - Hint de capture pour les WebFetch (research)
 
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
 PAYLOAD=$(cat)
 
 /root/.local/token-savior-venv/bin/python3 -c "
@@ -85,7 +96,7 @@ elif tool in ('WebFetch', 'web_fetch'):
         f'💡 Research hint: memory_save type=\"research\" '
         f'title=\"{suggested}\" context=\"{url}\" content=\"[finding]\"'
     )
-" <<< "$PAYLOAD" 2>/dev/null &
+" <<< "$PAYLOAD" 2>>"$ERR_LOG" &
 
 # === ACTIVITY TRACKER (mode auto-detection) ===
 /root/.local/token-savior-venv/bin/python3 -c "
@@ -161,7 +172,7 @@ if suggested != tracker.get('suggested_mode') and current_source != 'manual':
     print(f'Auto-mode: {suggested} (detected from activity)', file=sys.stderr)
 
 tracker_path.write_text(json.dumps(tracker, indent=2))
-" <<< "$PAYLOAD" 2>/dev/null &
+" <<< "$PAYLOAD" 2>>"$ERR_LOG" &
 
 # === A3: LLM AUTO-EXTRACT (opt-in via TS_AUTO_EXTRACT=1) ===
 # Zero-cost when unset: the shell `if` short-circuits, Python is never spawned.
@@ -188,7 +199,7 @@ try:
     auto_extract.process_tool_use(tool_name, tool_input, out_str)
 except Exception as exc:
     print(f'[posttooluse:auto-extract] {exc}', file=sys.stderr)
-" <<< "$PAYLOAD" 2>/dev/null &
+" <<< "$PAYLOAD" 2>>"$ERR_LOG" &
 fi
 
 exit 0

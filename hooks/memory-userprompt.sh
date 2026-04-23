@@ -2,6 +2,17 @@
 # Memory Engine — UserPromptSubmit hook
 # - synchronous: inject top-3 relevant observations into context (stdout)
 # - background: strip private tags, trigger phrases, archive prompt
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
 PAYLOAD=$(cat)
 
 # --- P1: strip <private>…</private> BEFORE injection or any derived obs save
@@ -14,7 +25,7 @@ try:
     sys.stdout.write(json.dumps(p))
 except Exception:
     pass
-" 2>/dev/null)
+" 2>>"$ERR_LOG")
 if [ -n "$_REDACTED" ]; then
   PAYLOAD="$_REDACTED"
 fi
@@ -78,7 +89,7 @@ try:
         print(f\"  #{r['id']}  [{r['type']}]  {r['title']}{sym}\")
 except Exception:
     pass
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # --- Reasoning Trace injection (synchronous) -----------------------------
 /root/.local/token-savior-venv/bin/python3 -c "
@@ -103,7 +114,7 @@ try:
         print(hint)
 except Exception:
     pass
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # --- Session mode auto-detection (synchronous, write override file) ------
 /root/.local/token-savior-venv/bin/python3 -c "
@@ -132,7 +143,7 @@ try:
             break
 except Exception:
     pass
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # --- Background: archive + trigger phrases --------------------------------
 /root/.local/token-savior-venv/bin/python3 -c "
@@ -201,6 +212,6 @@ if project:
 
 if archive_enabled and project:
     memory_db.prompt_save(None, project, text)
-" 2>/dev/null &
+" 2>>"$ERR_LOG" &
 
 exit 0

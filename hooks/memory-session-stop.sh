@@ -5,6 +5,17 @@
 # Stop  → short 3-bullet summary, no Telegram, end_type=interrupted
 # End   → 2-section structured summary (changes + memory), Telegram push, end_type=completed
 
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
 HOOK_MODE="${1:-stop}"
 
 # Anti-recursion: `claude -p` triggers its own Stop hook.
@@ -29,7 +40,7 @@ try:
     memory_db._write_activity_tracker(t)
 except Exception:
     pass
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # TCA — flush session co-activations into the persistent tensor.
 "$PY" -c "
@@ -45,7 +56,7 @@ try:
         print(f'TCA: flushed {pairs} co-activation pairs.', file=sys.stderr)
 except Exception:
     pass
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # 1. Resolve active session + attached observations (fallback: claim orphans <2h).
 SESSION_JSON=$("$PY" -c "
@@ -88,7 +99,7 @@ else:
 db.close()
 obs = memory_db.observation_get_by_session(session_id)
 print(json.dumps({'session_id': session_id, 'project': project, 'obs': obs, 'created': created}))
-" 2>/dev/null)
+" 2>>"$ERR_LOG")
 
 if [ -z "$SESSION_JSON" ]; then
     exit 0
@@ -107,7 +118,7 @@ from token_savior import memory_db
 memory_db.session_end($SESSION_ID, end_type='$HOOK_MODE' == 'end' and 'completed' or 'interrupted')
 memory_db.clear_session_override()
 print(f'Session $SESSION_ID closed (no observations, mode=$HOOK_MODE).', file=sys.stderr)
-" 2>/dev/null
+" 2>>"$ERR_LOG"
     exit 0
 fi
 
@@ -137,7 +148,7 @@ print('\n'.join(lines) if lines else '(no symbol-linked obs)')
 # Also include git-changed files in the project (end mode only)
 GIT_CHANGES=""
 if [ "$HOOK_MODE" = "end" ] && [ -d "$PROJECT/.git" ]; then
-    GIT_CHANGES=$(cd "$PROJECT" && git diff --name-only HEAD 2>/dev/null | head -20)
+    GIT_CHANGES=$(cd "$PROJECT" && git diff --name-only HEAD 2>>"$ERR_LOG" | head -20)
 fi
 
 # Build the observations context
@@ -157,7 +168,7 @@ sys.path.insert(0, '/root/token-savior/src')
 from token_savior import memory_db
 m = memory_db.get_current_mode()
 print('1' if m.get('session_summary', True) else '0')
-" 2>/dev/null)
+" 2>>"$ERR_LOG")
 
 # 4. Generate summary via claude -p with mode-appropriate prompt
 if [ "$SUMMARY_ENABLED" = "1" ] && command -v claude &>/dev/null; then
@@ -184,7 +195,7 @@ Génère un summary structuré en 2 parties STRICTES :
 - bullet 3 (3 bullets max sur ce qui a été appris/décidé)
 
 Réponds UNIQUEMENT avec ces 2 sections, rien d'autre."
-        claude -p "$PROMPT" > "$TMP_OUT" 2>/dev/null
+        claude -p "$PROMPT" > "$TMP_OUT" 2>>"$ERR_LOG"
     else
         # Stop mode → short 3-bullet summary, no structured sections
         PROMPT="Session interrompue. Résume en 3 bullet points MAX ce qui a été fait avant l'interruption.
@@ -192,7 +203,7 @@ Réponds uniquement avec les bullets, rien d'autre.
 
 Observations :
 $(cat "$TMP_IN")"
-        claude -p "$PROMPT" > "$TMP_OUT" 2>/dev/null
+        claude -p "$PROMPT" > "$TMP_OUT" 2>>"$ERR_LOG"
     fi
 fi
 
@@ -240,7 +251,7 @@ try:
     memory_db.clear_session_override()
 except Exception:
     pass
-" < "$TMP_OUT" 2>/dev/null
+" < "$TMP_OUT" 2>>"$ERR_LOG"
 
 # Weekly self-consistency check (7-day interval)
 (
@@ -248,7 +259,7 @@ except Exception:
     mkdir -p "$(dirname "$CONS_FLAG")"
     NOW_CONS=$(date +%s)
     LAST_CONS=0
-    [ -f "$CONS_FLAG" ] && LAST_CONS=$(cat "$CONS_FLAG" 2>/dev/null || echo 0)
+    [ -f "$CONS_FLAG" ] && LAST_CONS=$(cat "$CONS_FLAG" 2>>"$ERR_LOG" || echo 0)
     AGE_CONS=$((NOW_CONS - LAST_CONS))
     if [ "$AGE_CONS" -ge 604800 ]; then
         "$PY" -c "
@@ -257,7 +268,7 @@ sys.path.insert(0, '/root/token-savior/src')
 from token_savior import memory_db
 res = memory_db.run_consistency_check(project_root='$PROJECT' or None, limit=200, dry_run=False)
 print(f'[consistency] checked={res[\"checked\"]} failed={res[\"failed\"]} quarantined={res[\"quarantined\"]} stale={res[\"stale_suspected\"]}', file=sys.stderr)
-" 2>/dev/null
+" 2>>"$ERR_LOG"
         echo "$NOW_CONS" > "$CONS_FLAG"
     fi
 ) &
@@ -318,7 +329,7 @@ try:
     db.close()
 except Exception as e:
     print(f'[warmstart] save failed: {e}', file=sys.stderr)
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # Compute tokens_saved_est for session (all modes)
 "$PY" -c "
@@ -335,7 +346,7 @@ tokens_saved = n * 200
 db.execute('UPDATE sessions SET tokens_saved_est=? WHERE id=?', [tokens_saved, sid])
 db.commit()
 db.close()
-" 2>/dev/null
+" 2>>"$ERR_LOG"
 
 # End-of-session: prompt pattern suggestions (end mode only)
 if [ "$HOOK_MODE" = "end" ]; then

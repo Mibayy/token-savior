@@ -3,6 +3,17 @@
 # Injects recent summaries + memory index before Claude Code compacts the conversation.
 # Goal: prevent loss of memory context when the conversation gets compacted.
 
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
 RESULT=$(/root/.local/token-savior-venv/bin/python3 -c "
 import sys, os
 sys.path.insert(0, '/root/token-savior/src')
@@ -61,7 +72,7 @@ if recent:
     for r in recent:
         day = r.get('day') or (r.get('created_at') or '')[:10]
         print(f\"  #{r['id']}  [{r['type']}]  {r['title']}  {day}\")
-" 2>/dev/null)
+" 2>>"$ERR_LOG")
 
 if [ -n "$RESULT" ]; then
     echo "$RESULT"

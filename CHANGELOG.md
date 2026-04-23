@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.8.4 — Fail-loud on memory-hook errors (closes #15) (2026-04-23)
+
+Non-breaking. The 6 memory hooks (`hooks/memory-*.sh`) used to pipe
+every Python and `claude -p` sub-shell stderr through `2>/dev/null`,
+swallowing real failures (missing venv, broken migration, corrupt DB,
+typo in payload parser). A user updating token-savior and forgetting
+to run `memory_db.run_migrations()` would see memory injection silently
+die for weeks.
+
+Changes:
+
+- All 6 hooks gain an `ERR_LOG` variable pointing at
+  `${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log`.
+  Directory auto-created. Log self-rotates at 2 MB (truncates to last
+  1 MB) so it can't fill the disk.
+- `2>/dev/null` replaced with `2>>"$ERR_LOG"` on **32 of 33**
+  Python / `claude -p` sub-shell sites. Remaining site is a legitimate
+  `cat "$FLAG" 2>/dev/null || echo 0` first-run-missing fallback — kept.
+- Hooks still `exit 0` — a failing sub-shell cannot block Claude Code.
+
+Triage tip: after updating, `tail -f ~/.local/state/token-savior/hook-errors.log`
+surfaces import errors, missing migrations, or a broken interpreter
+path within seconds of the first hook firing.
+
+1381 tests pass.
+
+Closes [#15](https://github.com/Mibayy/token-savior/issues/15).
+
 ## v2.8.3 — Migration docs aligned with empirical measurements (2026-04-23)
 
 Non-breaking docs patch. `docs/migration/v3.md` was written before the

@@ -6,12 +6,12 @@
     "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
-  "version": "2.8.3",
+  "version": "2.8.4",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "token-savior-recall",
-      "version": "2.8.3",
+      "version": "2.8.4",
       "transport": {
         "type": "stdio"
       },
