@@ -1,5 +1,51 @@
 # Changelog
 
+## v2.8.1 — Tool descriptions rewritten in USE WHEN / NOT WHEN format (2026-04-23)
+
+Non-breaking patch. All 94 tool descriptions rewritten with explicit
+USE WHEN / NOT WHEN clauses citing the nearest alternative tool when
+one exists. No API change, no behavioural change — purely a
+manifest-quality improvement aimed at tool-selection accuracy.
+
+Why: Anthropic's engineering notes that accuracy degrades past 30–50
+visible tools (see AUDIT.md Phase 3.6). Explicit routing hints in each
+description give the agent a denser signal than prose alone.
+
+What changed:
+
+- 94 descriptions re-written in a 2–4 line format:
+  - Line 1: verb + object (what the tool does).
+  - Line 2: `USE WHEN:` — intent-level trigger.
+  - Line 3: `NOT WHEN:` — alternative tool cited by name when applicable.
+  - Line 4 (optional): safety/behavior/pedagogy — NOT schema duplication.
+- Sweep `line-4 = schema duplication` removed from 15 descriptions
+  (params/enum/return shape that the JSON inputSchema already carries).
+  Saves 238 tokens with zero info loss.
+- Reciprocal citations verified: `get_dependencies` ↔ `get_dependents`
+  ↔ `get_change_impact` (trio, 6/6), library trio
+  `get_library_symbol` ↔ `list_library_symbols` ↔
+  `find_library_symbol_by_description` (6/6), plus 4 pairs.
+- Client-agnostic: no NOT WHEN cites a non-TS tool name (Read,
+  edit_file, etc.). Only `your client's file-read tool` generic.
+- Memory_* allégé: 28 of the 33 hors-lean tools use a 2-line
+  `<title>. USE WHEN:` form since agents in `full` don't need intra-
+  ecosystem disambiguation. 5 cite a lean alternative when confusion
+  with the `lean` default is plausible.
+
+Manifest measurements (empirical, tiktoken cl100k_base proxy):
+
+| Profile | Pre-rewrite | Post-rewrite | Δ       |
+|---------|-------------|--------------|---------|
+| full    | 14 245 t    | 15 986 t     | +12.2 % |
+| lean    | 10 507 t    | 11 663 t    | +11.0 % |
+| ultra   |  3 540 t    |  3 852 t     |  +8.8 % |
+
+In zone PR review (+5 – 15 %), within projection, well below the +15 %
+stop threshold. Net cost of the format is the price of discriminating
+tool selection — validated over tsbench + VPS telemetry data (Spike 1).
+
+1381 tests pass; ruff clean.
+
 ## v2.8.0 — Audit, watcher, telemetry, v3 prep (2026-04-23)
 
 Non-breaking release. Consolidates the strategic audit + B3 file watcher +
