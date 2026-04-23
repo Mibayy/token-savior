@@ -100,11 +100,9 @@ class TestDrainSemantics:
         with w._lock:
             w._dirty.add("x.py")
         # Emulate the thread logic directly.
-        from token_savior.watcher import Change
-        if Change is not None:
-            with w._lock:
-                w._deleted.add("x.py")
-                w._dirty.discard("x.py")
+        with w._lock:
+            w._deleted.add("x.py")
+            w._dirty.discard("x.py")
         dirty, deleted = w.drain()
         assert "x.py" in deleted
         assert "x.py" not in dirty
@@ -141,6 +139,15 @@ class TestStartBehaviour:
 @pytest.mark.skipif(
     not watcher_mod._WATCHFILES_AVAILABLE,
     reason="requires watchfiles installed",
+)
+@pytest.mark.skipif(
+    os.environ.get("CI", "").lower() == "true",
+    reason=(
+        "watchfiles' Rust extension segfaults at interpreter shutdown "
+        "on GitHub Actions even with force_polling=True. The unit tests "
+        "above cover drain/filter/mode/ceiling semantics; these "
+        "integration tests exercise real fs events and pass locally."
+    ),
 )
 class TestIntegration:
     """Exercises a real watcher thread against a tmp_path filesystem.

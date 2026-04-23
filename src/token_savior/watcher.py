@@ -23,6 +23,7 @@ before the thread starts failing silently mid-session.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import sys
@@ -32,17 +33,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-try:
-    from watchfiles import Change, DefaultFilter, watch  # type: ignore
-    _WATCHFILES_AVAILABLE = True
-except ImportError:
-    _WATCHFILES_AVAILABLE = False
-    Change = None  # type: ignore
-    DefaultFilter = object  # type: ignore
-
-    def watch(*_args, **_kwargs):  # type: ignore
-        raise RuntimeError("watchfiles not installed")
-
+# Lazy-probe watchfiles. Importing the package at module load pulls in a
+# Rust CPython extension (notify) whose destructor segfaults on Python
+# 3.12 at interpreter shutdown on GitHub Actions runners — even when no
+# watcher thread was ever started. Defer the real import to the thread
+# that actually needs it.
+_WATCHFILES_AVAILABLE = importlib.util.find_spec("watchfiles") is not None
 
 WatcherMode = str  # "auto" | "on" | "off"
 
@@ -75,37 +71,39 @@ def _inotify_ceiling() -> int | None:
         return None
 
 
-class _PatternFilter(DefaultFilter):  # type: ignore[misc]
-    """``watchfiles`` filter that reuses the indexer's exclude patterns.
+def _build_pattern_filter(root: Path, exclude_patterns: list[str]):
+    """Build a ``watchfiles``-compatible filter lazily.
 
-    ``DefaultFilter`` already handles ``.git``, ``__pycache__``,
-    ``node_modules``, ``.venv`` etc. We layer the project-specific glob
-    patterns on top so a watcher on a Next.js monorepo doesn't fire on
-    every ``.next/`` asset rewrite.
+    Subclassing ``DefaultFilter`` would require importing watchfiles at
+    module scope. We construct the class inside ``_run`` so the Rust
+    extension is only loaded in the watcher thread — not on every
+    import of ``token_savior.server``.
     """
+    from watchfiles import DefaultFilter  # type: ignore
 
-    def __init__(self, root: Path, exclude_patterns: list[str]) -> None:
-        super().__init__()
-        self._root = root
-        self._patterns: list[str] = list(exclude_patterns)
+    class _PatternFilter(DefaultFilter):
+        def __init__(self) -> None:
+            super().__init__()
+            self._root = root
+            self._patterns: list[str] = list(exclude_patterns)
 
-    def __call__(self, change: "Change", path: str) -> bool:  # type: ignore[override]
-        # DefaultFilter already filters most noise directories — respect
-        # its decision first.
-        try:
-            if not super().__call__(change, path):
+        def __call__(self, change, path: str) -> bool:  # type: ignore[override]
+            try:
+                if not super().__call__(change, path):
+                    return False
+            except Exception:
                 return False
-        except Exception:
-            return False
-        try:
-            rel = str(Path(path).relative_to(self._root))
-        except ValueError:
-            return False
-        import fnmatch
-        for pattern in self._patterns:
-            if fnmatch.fnmatch(rel, pattern):
+            try:
+                rel = str(Path(path).relative_to(self._root))
+            except ValueError:
                 return False
-        return True
+            import fnmatch
+            for pattern in self._patterns:
+                if fnmatch.fnmatch(rel, pattern):
+                    return False
+            return True
+
+    return _PatternFilter()
 
 
 class SlotWatcher:
@@ -201,7 +199,11 @@ class SlotWatcher:
 
     def _run(self) -> None:
         try:
-            flt = _PatternFilter(self.root_path, self._exclude_patterns)
+            # Lazy-import watchfiles inside the thread so importing
+            # token_savior.watcher does NOT load the Rust notify .so
+            # — see module docstring.
+            from watchfiles import watch  # type: ignore
+            flt = _build_pattern_filter(self.root_path, self._exclude_patterns)
             # ``TS_WATCHER_FORCE_POLLING=1`` routes watchfiles through pure
             # Python mtime polling instead of the Rust notify backend.
             # Slower (~200 ms polling cycle vs real-time inotify) but
@@ -216,12 +218,14 @@ class SlotWatcher:
                 raise_interrupt=False,
                 force_polling=force_polling,
             ):
+                # Import Change lazily too — same reason as ``watch``.
+                from watchfiles import Change  # type: ignore
                 for change, path in changes:
                     try:
                         rel = str(Path(path).relative_to(self.root_path))
                     except ValueError:
                         continue
-                    kind = _classify_change(change)
+                    kind = _classify_change(change, Change)
                     with self._lock:
                         if kind == "deleted":
                             self._deleted.add(rel)
@@ -263,7 +267,7 @@ class SlotWatcher:
         return d, x
 
 
-def _classify_change(change) -> str:
+def _classify_change(change, Change=None) -> str:
     """Map ``watchfiles.Change`` to a stable string the caller understands."""
     if Change is None:
         return "modified"
