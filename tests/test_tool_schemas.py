@@ -72,7 +72,13 @@ class TestToolSchemas:
         #   get_library_symbol, get_related_symbols, list_library_symbols,
         #   pack_context, summarize_patch_by_symbol — 0 prod calls in 30 d
         #   and no marginal value) = 86.
-        assert len(TOOL_SCHEMAS) == 86, f"Expected 86 tools, got {len(TOOL_SCHEMAS)}"
+        # -21 round-5 memory_admin fusion (memory_status / top / why / timeline /
+        #   session_history / prompts / mode / archive / bus_push / bus_list /
+        #   consistency / quarantine_list / maintain / doctor / vector_reindex /
+        #   distill / dedup_sweep / roi_gc / roi_stats / from_bash / set_global
+        #   collapsed into a single memory_admin(op=...) dispatcher) = 65.
+        # +1 memory_admin (the fusion itself) = 66.
+        assert len(TOOL_SCHEMAS) == 66, f"Expected 66 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

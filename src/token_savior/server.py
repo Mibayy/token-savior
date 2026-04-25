@@ -129,17 +129,12 @@ TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchem
 # `run_project_action` (5/3330 calls on VPS, but the workflow needs
 # both or none).
 _LEAN_EXCLUDES: set[str] = {
-    # Memory engine — opt-in only (memory_save kept; the user-facing
-    # "remember this" path must stay visible by default to honour the
-    # README's "nothing forgotten between sessions" promise)
+    # Memory engine — opt-in only. memory_save / memory_index / memory_search
+    # / memory_get / memory_delete are user-facing and stay visible.
+    # memory_admin is a new fusion (Round 5) replacing 21 admin tools that
+    # were previously listed here individually.
     "memory_search", "memory_get", "memory_index",
-    "memory_delete", "memory_top", "memory_why", "memory_timeline",
-    "memory_session_history", "memory_prompts", "memory_mode",
-    "memory_archive", "memory_status", "memory_bus_push", "memory_bus_list",
-    "memory_consistency", "memory_quarantine_list", "memory_maintain",
-    "memory_doctor", "memory_vector_reindex", "memory_distill",
-    "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
-    "memory_from_bash", "memory_set_global",
+    "memory_delete", "memory_admin",
     # Reasoning — memory-adjacent, 0 calls in tsbench + VPS
     "reasoning_save", "reasoning_search", "reasoning_list",
     # Corpus — 0 calls in tsbench + VPS
@@ -198,14 +193,8 @@ if _PROFILE != "full":
 # costs ~50-100 tokens whether it's used or not.
 if os.environ.get("TS_MEMORY_DISABLE") == "1":
     _MEMORY_GATED = {
-        "memory_save", "memory_archive", "memory_set_global", "memory_mode",
-        "memory_index", "memory_search", "memory_get", "memory_top",
-        "memory_status", "memory_session_history", "memory_timeline",
-        "memory_prompts", "memory_doctor", "memory_consistency",
-        "memory_quarantine_list", "memory_maintain", "memory_distill",
-        "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
-        "memory_vector_reindex", "memory_delete", "memory_why",
-        "memory_bus_push", "memory_bus_list", "memory_from_bash",
+        "memory_save", "memory_index", "memory_search", "memory_get",
+        "memory_delete", "memory_admin",
         "reasoning_save", "reasoning_search", "reasoning_list",
         "corpus_build", "corpus_query",
     }

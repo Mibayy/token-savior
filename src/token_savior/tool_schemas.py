@@ -863,141 +863,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["type", "title", "content"],
         },
     },
-    "memory_maintain": {
-        "description": (
-        'Maintenance rollup: promote, relink, export, extract patterns.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["promote", "relink", "export", "patterns"], "description": "Action"},
-                "dry_run": {"type": "boolean", "description": "Preview only"},
-                "output_dir": {"type": "string", "description": "Export dir"},
-                "window_days": {"type": "integer", "description": "Patterns window"},
-                "min_occurrences": {"type": "integer", "description": "Patterns threshold"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_top": {
-        "description": (
-        'Rank observations by score, access_count, or age.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Default 20."},
-                "sort_by": {"type": "string", "enum": ["score", "access_count", "age"]},
-            },
-        },
-    },
-    "memory_why": {
-        "description": (
-        'Explain why a specific observation matched the last injection (recency, type, symbol, FTS).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "query": {"type": "string", "description": "Optional FTS query."},
-            },
-            "required": ["id"],
-        },
-    },
-    "memory_doctor": {
-        "description": (
-        'Memory health report: orphans, near-dupes, incomplete obs, vector coverage, hook wiring.'   ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "memory_vector_reindex": {
-        "description": (
-        'Backfill obs_vectors for observations missing an embedding. No-op if sqlite-vec/fastembed unavailable.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Max obs to index this run (default 500)."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_distill": {
-        "description": (
-        'MDL-based distillation: cluster similar obs into an abstraction + deltas.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
-                "min_cluster_size": {"type": "integer", "description": "Default 3."},
-                "compression_required": {"type": "number", "description": "Default 0.2."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_dedup_sweep": {
-        "description": (
-        'Backfill observations.content_hash (SHA256 of normalized content). Default: only NULL hashes.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "recompute": {"type": "boolean", "description": "Rehash every row, not just NULL (default false)."},
-                "batch_size": {"type": "integer", "description": "Commit cadence (default 500)."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_roi_gc": {
-        "description": (
-        'Archive observations whose ROI score falls below a threshold.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
-                "threshold": {"type": "number", "description": "Default 0.0."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_roi_stats": {
-        "description": (
-        'Token Economy ROI stats — net value by observation type.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {**_PROJECT_PARAM},
-        },
-    },
-    "memory_from_bash": {
-        "description": (
-        'Save a bash command as an observation (type=command, auto-extracted).'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "command": {"type": "string"},
-                "type": {"type": "string", "enum": ["command", "infra", "config"]},
-                "context": {"type": "string"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["command"],
-        },
-    },
-    "memory_set_global": {
-        "description": (
-        "Set an observation's global visibility flag (is_global=True crosses all projects)."
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer", "description": "Observation ID"},
-                "is_global": {"type": "boolean", "description": "True=global, False=local"},
-            },
-            "required": ["id", "is_global"],
-        },
-    },
     "memory_search": {
         "description": (
         'Layer 2 FTS5 search over memory observations, compact rows with snippets (~60 tokens/result).'   ),
@@ -1010,18 +875,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["query"],
-        },
-    },
-    "memory_session_history": {
-        "description": (
-        'Last N structured session-end rollups (request, investigated, learned, completed, next_steps, notes).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Default 10."},
-                **_PROJECT_PARAM,
-            },
         },
     },
     "memory_get": {
@@ -1083,57 +936,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": [],
         },
     },
-    "memory_timeline": {
-        "description": (
-        'Chronological context around an observation (before/after in time).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "observation_id": {
-                    "type": "integer",
-                    "description": "Center observation ID.",
-                },
-                "window": {
-                    "type": "integer",
-                    "description": "Window in hours around the observation (default 24).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["observation_id"],
-        },
-    },
-    "memory_prompts": {
-        "description": (
-        'Save or search prompt history (archival of notable user prompts).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["save", "search"], "description": "save or search"},
-                "prompt_text": {"type": "string", "description": "Prompt to save"},
-                "prompt_number": {"type": "integer", "description": "Prompt ordinal"},
-                "query": {"type": "string", "description": "Search query"},
-                "limit": {"type": "integer", "description": "Max results"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_mode": {
-        "description": (
-        'Get or set the memory capture mode (code | review | debug | infra | silent).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["get", "set", "set_project"], "description": "Action"},
-                "mode": {"type": "string", "enum": ["code", "review", "debug", "silent"], "description": "Mode name"},
-                "project": {"type": "string", "description": "Project path"},
-            },
-            "required": ["action"],
-        },
-    },
     "corpus_build": {
         "description": (
         'Build a thematic corpus from observations filtered by type / tags / symbol.'
@@ -1148,31 +950,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["name"],
-        },
-    },
-    "memory_archive": {
-        "description": (
-        'Manage archived observations (list, undelete, purge).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["run", "list", "restore"], "description": "run=decay, list, restore"},
-                "id": {"type": "integer", "description": "ID for restore"},
-                "dry_run": {"type": "boolean", "description": "Preview only"},
-                "limit": {"type": "integer", "description": "List max entries"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_status": {
-        "description": (
-        'Memory Engine snapshot: active/archived counts, mode, last session, summaries.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
         },
     },
     # ── Program slicing & context packing (Phase 2) ───────────────────────
@@ -1246,40 +1023,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["name", "question"],
         },
     },
-    "memory_bus_push": {
-        "description": (
-        'Push a volatile observation to the inter-agent memory bus (tagged by agent_id).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "agent_id": {"type": "string"},
-                "title": {"type": "string"},
-                "content": {"type": "string"},
-                "type": {"type": "string", "description": "Default 'note'."},
-                "symbol": {"type": "string"},
-                "file_path": {"type": "string"},
-                "tags": {"type": "array", "items": {"type": "string"}},
-                "ttl_days": {"type": "integer", "description": "Default 1."},
-                **_PROJECT_PARAM,
-            },
-            "required": ["agent_id", "title", "content"],
-        },
-    },
-    "memory_bus_list": {
-        "description": (
-        'List recent live messages on the inter-agent memory bus, optionally filtered by agent_id.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "agent_id": {"type": "string", "description": "Filter by subagent id (optional)."},
-                "limit": {"type": "integer", "description": "Max rows (default 20)."},
-                "include_expired": {"type": "boolean", "description": "Show expired bus rows too."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
     "reasoning_save": {
         "description": (
         'Persist a reasoning trace (goal + steps + conclusion) for later reuse.'
@@ -1324,46 +1067,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "properties": {
                 "limit": {"type": "integer", "description": "Max rows (default 50)."},
                 **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_consistency": {
-        "description": (
-        'Run Bayesian self-consistency check on symbol-linked obs (updates α/β; flags stale + quarantine).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_root": {
-                    "type": "string",
-                    "description": "Project filter; omit to run across all projects.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max observations to check this pass (default 100).",
-                },
-                "dry_run": {
-                    "type": "boolean",
-                    "description": "Report what would change without persisting.",
-                },
-            },
-        },
-    },
-    "memory_quarantine_list": {
-        "description": (
-        'List observations quarantined by the consistency check (Bayesian validity < 40 %).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_root": {
-                    "type": "string",
-                    "description": "Filter by project; omit for all projects.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max rows to return (default 50).",
-                },
             },
         },
     },
@@ -1444,4 +1147,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "memory_admin": {
+        "description": "Single dispatch for all memory admin / maintenance ops (status, doctor, dedup_sweep, distill, roi_gc, consistency, vector_reindex, etc.).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["op"],
+            "properties": {
+                "op": {
+                    "type": "string",
+                    "enum": ["status", "top", "why", "timeline", "session_history", "prompts", "mode", "archive", "bus_push", "bus_list", "consistency", "quarantine_list", "maintain", "doctor", "vector_reindex", "distill", "dedup_sweep", "roi_gc", "roi_stats", "from_bash", "set_global"],
+                    "description": "Which memory-admin sub-operation to run.",
+                },
+                "project_root": {"type": "string", "description": "Filter by project (where applicable)."},
+                "limit": {"type": "integer", "description": "Pagination/limit (where applicable)."},
+                "dry_run": {"type": "boolean", "description": "Preview-only mode for sweeps/garbage collectors."},
+            },
+            "additionalProperties": True,
+        },
+    },
+
 }
