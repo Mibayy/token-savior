@@ -37,16 +37,12 @@ def test_full_profile_exposes_all_tools(monkeypatch):
     assert len(srv.TOOLS) == _TOTAL
 
 
-def test_unset_defaults_to_ultra(monkeypatch):
-    """Default flipped from 'full' to 'ultra' in v3 (Round 6 cleanup)."""
+def test_unset_defaults_to_full(monkeypatch):
+    """Default profile is 'full' (66 tools). Reverted from the brief Round-6
+    ultra-default experiment per user preference. ultra and lean remain
+    opt-in via TOKEN_SAVIOR_PROFILE."""
     srv = _reload_with_profile(monkeypatch, None)
-    # ultra exposes a curated 33-tool subset + the ts_extended proxy.
-    # The exact count depends on _ULTRA_INCLUDES; just verify it's
-    # significantly smaller than full and contains ts_extended.
-    names = {t.name for t in srv.TOOLS}
-    assert len(names) < _TOTAL
-    assert "ts_extended" in names
-    assert "find_symbol" in names  # canary: a hot tool stays visible
+    assert len(srv.TOOLS) == _TOTAL
 
 
 def test_core_profile_excludes_memory_and_meta(monkeypatch):
@@ -69,12 +65,9 @@ def test_nav_profile_is_subset_of_core(monkeypatch):
     assert nav_names == set(QFN_HANDLERS)
 
 
-def test_invalid_profile_falls_back_to_ultra(monkeypatch, capsys):
+def test_invalid_profile_falls_back_to_full(monkeypatch, capsys):
     srv = _reload_with_profile(monkeypatch, "bogus")
-    # Falls back to the new default (ultra) — see test_unset_defaults_to_ultra.
-    names = {t.name for t in srv.TOOLS}
-    assert len(names) < _TOTAL
-    assert "ts_extended" in names
+    assert len(srv.TOOLS) == _TOTAL
     err = capsys.readouterr().err
     assert "unknown profile 'bogus'" in err
 
