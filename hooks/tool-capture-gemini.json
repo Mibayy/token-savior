@@ -1,0 +1,17 @@
+{
+  "_comment": "Gemini CLI hook config for the tool_capture sandbox. Merge under existing 'hooks' key in ~/.gemini/settings.json. AfterTool fires post-execution; matcher is empty so it captures every tool above threshold.",
+  "hooks": {
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command|read_file|read_many_files|grep_search|search_file_content|web_fetch|mcp__plugin_token-savior",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 /root/token-savior/hooks/tool_capture_hook.py",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

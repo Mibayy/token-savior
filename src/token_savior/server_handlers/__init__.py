@@ -37,6 +37,7 @@ from token_savior.server_handlers.project_actions import (
 )
 from token_savior.server_handlers.stats import HANDLERS as _STATS_HANDLERS
 from token_savior.server_handlers.tests import HANDLERS as _TESTS_HANDLERS
+from token_savior.server_handlers.tool_capture import HANDLERS as _TOOL_CAPTURE_HANDLERS
 
 
 def _merge_disjoint(label: str, *parts: dict[str, Any]) -> dict[str, Any]:
@@ -58,6 +59,7 @@ META_HANDLERS: dict[str, Any] = _merge_disjoint(
     _STATS_HANDLERS,
     _MEMORY_ADMIN_HANDLERS,
     _PROJECT_HANDLERS,
+    _TOOL_CAPTURE_HANDLERS,
 )
 
 MEMORY_HANDLERS: dict[str, Any] = dict(_MEMORY_HANDLERS_RAW)
