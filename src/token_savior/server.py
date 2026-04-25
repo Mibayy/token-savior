@@ -21,9 +21,7 @@ graph pollution, no shared RAM between unrelated projects.
     "What does X call?"                -> get_dependencies(X)
     "Impact of changing X"             -> get_change_impact(X)
     "Orient me on X (source+callers)"  -> get_full_context(X)
-    "Find Y in code, want symbol ctx"  -> search_in_symbols(pattern=Y)
     "Raw regex grep"                   -> search_codebase(pattern=Y)
-    "Audit this file"                  -> audit_file(file_path=F)
     "Dead / unused code"               -> find_dead_code
     "Complexity hotspots"              -> find_hotspots (T0=most actionable)
     "Breaking API changes"             -> detect_breaking_changes (T0=breaking)
@@ -131,38 +129,19 @@ TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchem
 # `run_project_action` (5/3330 calls on VPS, but the workflow needs
 # both or none).
 _LEAN_EXCLUDES: set[str] = {
-    # Memory engine — opt-in only (memory_save kept; the user-facing
-    # "remember this" path must stay visible by default to honour the
-    # README's "nothing forgotten between sessions" promise)
+    # Memory engine — opt-in only. memory_save / memory_index / memory_search
+    # / memory_get / memory_delete are user-facing and stay visible.
+    # memory_admin is a new fusion (Round 5) replacing 21 admin tools that
+    # were previously listed here individually.
     "memory_search", "memory_get", "memory_index",
-    "memory_delete", "memory_top", "memory_why", "memory_timeline",
-    "memory_session_history", "memory_prompts", "memory_mode",
-    "memory_archive", "memory_status", "memory_bus_push", "memory_bus_list",
-    "memory_consistency", "memory_quarantine_list", "memory_maintain",
-    "memory_doctor", "memory_vector_reindex", "memory_distill",
-    "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
-    "memory_from_bash", "memory_set_global",
+    "memory_delete", "memory_admin",
     # Reasoning — memory-adjacent, 0 calls in tsbench + VPS
     "reasoning_save", "reasoning_search", "reasoning_list",
     # Corpus — 0 calls in tsbench + VPS
     "corpus_build", "corpus_query",
-    # Niche analysis — 0 calls in 30d production (handlers kept for
-    # backward compat; full profile re-exposes them).
-    "get_duplicate_classes", "get_call_predictions",
-    "get_backward_slice", "get_components", "get_related_symbols",
-    "search_in_symbols",  # subset of search_codebase
-    "summarize_patch_by_symbol",  # subset of get_changed_symbols
-    "find_cross_project_deps",
-    "pack_context",
-    # Composites that overlap with primitives — agents pick the
-    # primitives in 100 % of observed calls, never the composites.
-    "apply_refactoring",  # = rename / move / add_field / extract — already exposed
-    "apply_symbol_change_and_validate",  # = replace + run_impacted_tests
-    "audit_file",  # = find_dead_code + find_hotspots + find_semantic_duplicates
-    "verify_edit",  # static safety check, 0 production callers
-    # Library API — 3 tools, 0 calls in 30d.
-    "find_library_symbol_by_description",
-    "get_library_symbol", "list_library_symbols",
+    # search_in_symbols is a subset of search_codebase — kept registered
+    # for backwards compatibility but excluded from lean.
+    "search_in_symbols",
     # Tool capture — agent never invokes capture_put/purge directly
     # (hook handles that). capture_aggregate/list also rarely needed
     # interactively. capture_get + capture_search stay visible so the
@@ -214,14 +193,8 @@ if _PROFILE != "full":
 # costs ~50-100 tokens whether it's used or not.
 if os.environ.get("TS_MEMORY_DISABLE") == "1":
     _MEMORY_GATED = {
-        "memory_save", "memory_archive", "memory_set_global", "memory_mode",
-        "memory_index", "memory_search", "memory_get", "memory_top",
-        "memory_status", "memory_session_history", "memory_timeline",
-        "memory_prompts", "memory_doctor", "memory_consistency",
-        "memory_quarantine_list", "memory_maintain", "memory_distill",
-        "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
-        "memory_vector_reindex", "memory_delete", "memory_why",
-        "memory_bus_push", "memory_bus_list", "memory_from_bash",
+        "memory_save", "memory_index", "memory_search", "memory_get",
+        "memory_delete", "memory_admin",
         "reasoning_save", "reasoning_search", "reasoning_list",
         "corpus_build", "corpus_query",
     }

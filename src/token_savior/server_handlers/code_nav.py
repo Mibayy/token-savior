@@ -707,21 +707,10 @@ QFN_HANDLERS: dict[str, object] = {
     "get_env_usage": lambda q, a: q["get_env_usage"](
         a["var_name"], max_results=a.get("max_results", 0)
     ),
-    "get_components": lambda q, a: q["get_components"](
-        file_path=a.get("file_path"), max_results=a.get("max_results", 0)
-    ),
     "get_feature_files": lambda q, a: q["get_feature_files"](
         a["keyword"], max_results=a.get("max_results", 0)
     ),
     "get_entry_points": lambda q, a: q["get_entry_points"](max_results=a.get("max_results", 20)),
-    "get_backward_slice": lambda q, a: q["get_backward_slice"](
-        a["name"], a["variable"], a["line"], file_path=a.get("file_path")
-    ),
-    "pack_context": lambda q, a: q["pack_context"](
-        a["query"],
-        budget_tokens=a.get("budget_tokens", 4000),
-        max_symbols=a.get("max_symbols", 20),
-    ),
     "find_semantic_duplicates": lambda q, a: q["find_semantic_duplicates"](
         min_lines=a.get("min_lines", 2),
         max_groups=a.get("max_groups", 10),
@@ -730,10 +719,5 @@ QFN_HANDLERS: dict[str, object] = {
     ),
     "find_import_cycles": lambda q, a: q["find_import_cycles"](
         max_cycles=a.get("max_cycles", 20),
-    ),
-    "get_duplicate_classes": lambda q, a: q["get_duplicate_classes"](
-        a.get("name"),
-        max_results=a.get("max_results", 0),
-        simple_name_mode=a.get("simple_name_mode", False),
     ),
 }
