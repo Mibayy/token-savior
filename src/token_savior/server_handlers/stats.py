@@ -575,85 +575,6 @@ def _hm_get_lattice_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-def _hm_get_call_predictions(arguments: dict[str, Any]) -> list[types.TextContent]:
-    tool_name = arguments.get("tool_name", "")
-    symbol_name = arguments.get("symbol_name", "")
-    top_k = int(arguments.get("top_k", 5))
-    preds = state._prefetcher.predict_next(tool_name, symbol_name, top_k=top_k)
-    if not preds:
-        return [TextContent(
-            type="text",
-            text=f"No transitions recorded for state '{tool_name}:{symbol_name}' yet.",
-        )]
-    lines = [f"Markov predictions after {tool_name}({symbol_name}):"]
-    for st, prob in preds:
-        lines.append(f"  {prob*100:5.1f}%  {st}")
-    return [TextContent(type="text", text="\n".join(lines))]
-
-
-def _hm_get_related_symbols(arguments: dict[str, Any]) -> list[types.TextContent]:
-    """Unified dispatcher: community / rwr / cluster / coactive."""
-    method = (arguments.get("method") or "community").strip().lower()
-
-    if method == "coactive":
-        return _hm_get_coactive_symbols(arguments)
-
-    if method == "community":
-        sym = arguments.get("name") or arguments.get("symbol")
-        cname = arguments.get("community_name") or (
-            arguments.get("name") if arguments.get("list_all") else None
-        )
-        list_all = bool(arguments.get("list_all", False))
-        if list_all or (not sym and not cname):
-            return _hm_get_community({
-                "list_all": True,
-                "min_size": arguments.get("min_size", 2),
-                "max_results": arguments.get("max_results", 30),
-                "max_members_preview": arguments.get("max_members_preview", 8),
-            })
-        return _hm_get_community({"symbol": sym, "name": cname})
-
-    if method in ("rwr", "cluster"):
-        import json
-        from token_savior import server_state as st_mod
-        from token_savior.server_runtime import _prep
-
-        name = (arguments.get("name") or "").strip()
-        if not name:
-            return [TextContent(
-                type="text",
-                text=f"Error: 'name' required for method='{method}'.",
-            )]
-        slot, err = st_mod._slot_mgr.resolve(arguments.get("project"))
-        if err or slot is None:
-            return [TextContent(type="text", text=f"Error: {err or 'no slot'}")]
-        _prep(slot)
-        if slot.query_fns is None:
-            return [TextContent(
-                type="text",
-                text=f"Error: index not built for '{slot.root}'. Call reindex first.",
-            )]
-        qfns = slot.query_fns
-        if method == "cluster":
-            result = qfns["get_symbol_cluster"](
-                name, max_members=int(arguments.get("max_members", 30)),
-            )
-        else:
-            result = qfns["get_relevance_cluster"](
-                name,
-                budget=int(arguments.get("budget", 10)),
-                include_reverse=bool(arguments.get("include_reverse", True)),
-            )
-        if isinstance(result, str):
-            return [TextContent(type="text", text=result)]
-        return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
-
-    return [TextContent(
-        type="text",
-        text=f"Unknown method '{method}'. Valid: community, rwr, cluster, coactive.",
-    )]
-
-
 _STATS_CATEGORIES: dict[str, Any] = {
     "usage": _hm_get_usage_stats,
     "session_budget": _hm_get_session_budget,
@@ -681,6 +602,4 @@ def _hm_get_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 HANDLERS: dict[str, Any] = {
     "get_stats": _hm_get_stats,
-    "get_related_symbols": _hm_get_related_symbols,
-    "get_call_predictions": _hm_get_call_predictions,
 }

@@ -65,7 +65,14 @@ class TestToolSchemas:
         #   verbose tool outputs, response to mksglu/context-mode) = 100.
         # +1 edit_lines_in_symbol (symbol-scoped string-replace, captures the
         #   80%+ of native Edit calls landing on indexed code files) = 101.
-        assert len(TOOL_SCHEMAS) == 101, f"Expected 101 tools, got {len(TOOL_SCHEMAS)}"
+        # -15 round-3 dead-tool removal (apply_refactoring, apply_symbol_change_and_validate,
+        #   audit_file, verify_edit, find_cross_project_deps,
+        #   find_library_symbol_by_description, get_backward_slice,
+        #   get_call_predictions, get_components, get_duplicate_classes,
+        #   get_library_symbol, get_related_symbols, list_library_symbols,
+        #   pack_context, summarize_patch_by_symbol — 0 prod calls in 30 d
+        #   and no marginal value) = 86.
+        assert len(TOOL_SCHEMAS) == 86, f"Expected 86 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
