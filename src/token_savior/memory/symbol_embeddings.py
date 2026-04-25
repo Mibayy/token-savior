@@ -55,7 +55,7 @@ def _iter_symbols_in_file(py_path: Path, project_root: Path) -> Iterable[dict]:
         tree = ast.parse(source)
     except (OSError, SyntaxError):
         return
-    rel_path = str(py_path.relative_to(project_root))
+    rel_path = py_path.relative_to(project_root).as_posix()
 
     def _visit(node: ast.AST, prefix: str = "") -> Iterable[dict]:
         for child in ast.iter_child_nodes(node):
