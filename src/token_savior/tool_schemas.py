@@ -1907,4 +1907,102 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    # ── Tool Capture (sandbox of verbose tool outputs) ───────────────────
+    "capture_put": {
+        "description": (
+            "Persist a tool output (Bash, WebFetch, Playwright, gh api, MCP) outside context.\n"
+            "USE WHEN: a hook or an explicit caller wants to stash a >8KB output and only return a preview to the model.\n"
+            "NOT WHEN: the output is small enough (<2KB) that holding it in context costs nothing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["tool_name", "output"],
+            "properties": {
+                "tool_name": {"type": "string", "description": "Logical tool name (e.g. 'Bash', 'WebFetch', 'mcp__playwright__snapshot')."},
+                "output": {"type": "string", "description": "Full raw output to capture."},
+                "args_summary": {"type": "string", "description": "Short human description of the call (URL, command, query)."},
+                "session_id": {"type": "string", "description": "Optional session id to scope retrieval."},
+                "project_root": {"type": "string", "description": "Optional active project root."},
+                "meta": {"type": "object", "description": "Free-form metadata stored alongside the capture."},
+            },
+        },
+    },
+    "capture_search": {
+        "description": (
+            "BM25 search across captured tool outputs. Returns rows with id, snippet, bytes, age.\n"
+            "USE WHEN: the agent needs to find which capture holds a specific token (URL, error, identifier).\n"
+            "NOT WHEN: it already knows the capture id — use capture_get directly."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {"type": "string", "description": "FTS5 query (terms ANDed by default)."},
+                "limit": {"type": "integer", "description": "Max rows (default 20)."},
+                "session_id": {"type": "string"},
+                "project_root": {"type": "string"},
+                "tool_name": {"type": "string", "description": "Restrict to a single source tool."},
+            },
+        },
+    },
+    "capture_get": {
+        "description": (
+            "Fetch a captured output, optionally sliced (head/tail/all/preview/line:start-end).\n"
+            "USE WHEN: you need the actual content of a known capture id.\n"
+            "NOT WHEN: stats or counts are enough — use capture_aggregate (cheaper)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": {"type": "integer", "description": "Capture id (from search/list)."},
+                "range": {"type": "string", "description": "head | tail | all | preview | line:start-end (default preview)."},
+                "max_bytes": {"type": "integer", "description": "Cap returned content size."},
+            },
+        },
+    },
+    "capture_aggregate": {
+        "description": (
+            "Aggregate over a capture without dumping it: stats, count_lines, unique_lines, extract:<re>, count:<re>.\n"
+            "USE WHEN: you only need a count, distinct values, or summary stats — saves loading the full output."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": {"type": "integer"},
+                "transform": {"type": "string", "description": "stats (default) | count_lines | unique_lines | extract | count | extract:<regex> | count:<regex>"},
+                "pattern": {"type": "string", "description": "Regex when transform is 'extract' or 'count' without inline regex."},
+            },
+        },
+    },
+    "capture_list": {
+        "description": (
+            "List recent captures, newest first.\n"
+            "USE WHEN: you want to enumerate what's been sandboxed in this session."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "project_root": {"type": "string"},
+                "tool_name": {"type": "string"},
+                "limit": {"type": "integer", "description": "Max rows (default 50)."},
+            },
+        },
+    },
+    "capture_purge": {
+        "description": (
+            "Delete captures older than N seconds, or for a session/project.\n"
+            "USE WHEN: cleaning up after a session or trimming the capture store."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "older_than_sec": {"type": "integer", "description": "Delete captures older than this many seconds."},
+                "session_id": {"type": "string"},
+                "project_root": {"type": "string"},
+            },
+        },
+    },
 }

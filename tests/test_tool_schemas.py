@@ -61,7 +61,9 @@ class TestToolSchemas:
         # +1 get_library_symbol (.d.ts / Python stub lookup) = 92.
         # +1 list_library_symbols (package export list) = 93.
         # +1 find_library_symbol_by_description (feature 3 — semantic library lookup) = 94.
-        assert len(TOOL_SCHEMAS) == 94, f"Expected 94 tools, got {len(TOOL_SCHEMAS)}"
+        # +6 tool_capture (capture_put/search/get/aggregate/list/purge — sandbox of
+        #   verbose tool outputs, response to mksglu/context-mode) = 100.
+        assert len(TOOL_SCHEMAS) == 100, f"Expected 100 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
