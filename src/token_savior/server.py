@@ -146,9 +146,23 @@ _LEAN_EXCLUDES: set[str] = {
     "reasoning_save", "reasoning_search", "reasoning_list",
     # Corpus — 0 calls in tsbench + VPS
     "corpus_build", "corpus_query",
-    # Niche analysis — edge cases, rare in practice
+    # Niche analysis — 0 calls in 30d production (handlers kept for
+    # backward compat; full profile re-exposes them).
     "get_duplicate_classes", "get_call_predictions",
+    "get_backward_slice", "get_components", "get_related_symbols",
+    "search_in_symbols",  # subset of search_codebase
+    "summarize_patch_by_symbol",  # subset of get_changed_symbols
+    "find_cross_project_deps",
     "pack_context",
+    # Composites that overlap with primitives — agents pick the
+    # primitives in 100 % of observed calls, never the composites.
+    "apply_refactoring",  # = rename / move / add_field / extract — already exposed
+    "apply_symbol_change_and_validate",  # = replace + run_impacted_tests
+    "audit_file",  # = find_dead_code + find_hotspots + find_semantic_duplicates
+    "verify_edit",  # static safety check, 0 production callers
+    # Library API — 3 tools, 0 calls in 30d.
+    "find_library_symbol_by_description",
+    "get_library_symbol", "list_library_symbols",
     # Tool capture — agent never invokes capture_put/purge directly
     # (hook handles that). capture_aggregate/list also rarely needed
     # interactively. capture_get + capture_search stay visible so the

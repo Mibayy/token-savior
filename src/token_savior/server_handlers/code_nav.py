@@ -584,7 +584,23 @@ def _q_find_symbol(qfns, args: dict[str, Any]):
     batch = _batch_dispatch(qfns, args, _q_find_symbol)
     if batch is not None:
         return batch
-    name = args["name"]
+    name = args.get("name")
+    if not name:
+        # Common failure mode: agent forgot to pass any name. The MCP
+        # validator already raises a generic "Input validation error" but
+        # that doesn't tell the agent what to do next. Return a structured
+        # hint so the next call goes through.
+        return {
+            "error": "find_symbol requires either 'name=<str>' or 'names=[<str>, ...]'.",
+            "_hints": {
+                "single": "find_symbol(name='create_user')",
+                "batch": "find_symbol(names=['create_user', 'update_user', 'delete_user'])  # max 10",
+                "alternatives": [
+                    "search_codebase(pattern='...') if you only have keywords",
+                    "get_structure_summary(file_path='...') for a file's TOC",
+                ],
+            },
+        }
     result = qfns["find_symbol"](name, level=args.get("level", 0))
     if isinstance(result, dict) and "error" in result:
         result["_suggestion"] = (

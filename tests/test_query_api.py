@@ -1044,7 +1044,13 @@ class TestProjectQueryFunctions:
 
     def test_get_file_dependents_not_found(self):
         deps = self.funcs["get_file_dependents"]("nonexistent.py")
-        assert "Error" in deps[0]
+        # Error response is now a structured dict (was a bare string).
+        # Check the rich shape so the agent gets a useful "did you mean"
+        # plus a "run reindex" hint instead of a one-liner.
+        assert isinstance(deps[0], dict)
+        assert "error" in deps[0]
+        assert "nonexistent.py" in deps[0]["error"]
+        assert "hint" in deps[0]
 
     def test_search_codebase(self):
         results = self.funcs["search_codebase"]("class ")

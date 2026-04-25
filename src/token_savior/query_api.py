@@ -873,12 +873,15 @@ class ProjectQueryEngine:
     def get_functions(self, file_path: str | None = None, max_results: int = 100) -> list[dict]:
         """Functions in a file, or all functions across the project.
 
-        Default cap: 100 rows. A project-wide call on a ~2 500-function repo
-        without a cap returned 56 k tokens of JSON (AUDIT.md Phase 1).
-        Pass ``max_results=0`` to restore unlimited behavior, or pass a
-        ``file_path`` to scope the query.
+        Default cap: 100 rows. ``max_results=0`` restores "unlimited" but is
+        still bounded by the hard safety cap (1000 rows). Past observed
+        failure: project-wide call on a ~2 500-function repo returned a
+        180 k-char JSON that exceeded the MCP response token budget and
+        the agent saw an error instead of useful output.
         """
         from token_savior.project_indexer import is_path_excluded_from_scans
+
+        _HARD_FUNCTION_CAP = 1000  # always enforced regardless of max_results
 
         if file_path is not None:
             meta = _resolve_file(self.index, file_path)
@@ -905,26 +908,42 @@ class ProjectQueryEngine:
                         }
                     )
         total = len(result)
-        if max_results > 0 and total > max_results:
-            result = result[:max_results]
+        # Resolve effective cap: explicit max_results wins; max_results=0 still
+        # honors the hard safety cap so the response never overflows.
+        effective_cap = (
+            max_results if (0 < max_results < _HARD_FUNCTION_CAP)
+            else _HARD_FUNCTION_CAP
+        )
+        if total > effective_cap:
+            result = result[:effective_cap]
+            hint = (
+                f"showing first {effective_cap} of {total}. Pass "
+                "file_path=<path> to scope, or query specific names via "
+                "find_symbol(names=[...])."
+            )
+            if max_results == 0 or max_results >= _HARD_FUNCTION_CAP:
+                hint = (
+                    f"hard cap {_HARD_FUNCTION_CAP} hit ({total} total). "
+                    + hint
+                )
             result.append({
                 "_truncated": True,
-                "shown": max_results,
+                "shown": effective_cap,
                 "total": total,
-                "hint": (
-                    f"showing first {max_results} of {total}. Pass "
-                    "max_results=0 for all, or file_path=<path> to scope."
-                ),
+                "hint": hint,
             })
         return result
 
     def get_classes(self, file_path: str | None = None, max_results: int = 100) -> list[dict]:
         """Classes in a file or across the project.
 
-        Default cap: 100 rows. Pass ``max_results=0`` to restore unlimited,
-        or ``file_path=<path>`` to scope.
+        Default cap: 100 rows. ``max_results=0`` means "unlimited" but is
+        still bounded by a hard safety cap (1000 rows) — see get_functions
+        for the same pattern and rationale.
         """
         from token_savior.project_indexer import is_path_excluded_from_scans
+
+        _HARD_CLASS_CAP = 1000
 
         if file_path is not None:
             meta = _resolve_file(self.index, file_path)
@@ -952,16 +971,24 @@ class ProjectQueryEngine:
                         }
                     )
         total = len(result)
-        if max_results > 0 and total > max_results:
-            result = result[:max_results]
+        effective_cap = (
+            max_results if (0 < max_results < _HARD_CLASS_CAP)
+            else _HARD_CLASS_CAP
+        )
+        if total > effective_cap:
+            result = result[:effective_cap]
+            hint = (
+                f"showing first {effective_cap} of {total}. Pass "
+                "file_path=<path> to scope, or query specific names via "
+                "find_symbol(names=[...])."
+            )
+            if max_results == 0 or max_results >= _HARD_CLASS_CAP:
+                hint = f"hard cap {_HARD_CLASS_CAP} hit ({total} total). " + hint
             result.append({
                 "_truncated": True,
-                "shown": max_results,
+                "shown": effective_cap,
                 "total": total,
-                "hint": (
-                    f"showing first {max_results} of {total}. Pass "
-                    "max_results=0 for all, or file_path=<path> to scope."
-                ),
+                "hint": hint,
             })
         return result
 
@@ -1332,10 +1359,59 @@ class ProjectQueryEngine:
         return result
 
     def get_file_dependents(self, file_path: str, max_results: int = 0) -> list[str]:
-        """What files import from this file (from reverse_import_graph)."""
-        deps = self.index.reverse_import_graph.get(file_path)
+        """What files import from this file (from reverse_import_graph).
+
+        Tolerates the three common UX failures observed in production:
+        * absolute path passed when the index keys are project-relative
+        * Windows-style backslash separators
+        * the file exists in the index but has no inbound imports — return
+          an empty list with a ``_no_dependents`` marker instead of a hard
+          "not found" error so the agent doesn't think the tool broke.
+        """
+        # Normalize: project-relative + POSIX separators
+        normalized = file_path.replace("\\", "/")
+        if os.path.isabs(normalized):
+            # ProjectQueryEngine doesn't carry root_path; try common roots
+            # by stripping any registered project root prefix.
+            for known in self.index.files:
+                if normalized.endswith("/" + known):
+                    normalized = known
+                    break
+
+        deps = self.index.reverse_import_graph.get(normalized)
+        if deps is None and normalized != file_path:
+            deps = self.index.reverse_import_graph.get(file_path)
+
         if deps is None:
-            return [f"Error: '{file_path}' not found in reverse import graph"]
+            # File might be indexed but simply have no inbound imports
+            # (terminal modules, scripts, generated entrypoints).
+            file_indexed = (
+                normalized in self.index.files
+                or file_path in self.index.files
+            )
+            if file_indexed:
+                return [{
+                    "_no_dependents": True,
+                    "file": normalized,
+                    "hint": (
+                        "File is indexed but no other file imports it. "
+                        "This is normal for entrypoints, scripts, or "
+                        "leaf modules."
+                    ),
+                }]
+            # Suggest closest known file when path is wrong
+            import difflib
+            close = difflib.get_close_matches(
+                normalized, list(self.index.files.keys()), n=3, cutoff=0.6
+            )
+            suggestion = f" Did you mean: {', '.join(close)}?" if close else ""
+            return [{
+                "error": f"'{file_path}' not found in reverse import graph.{suggestion}",
+                "hint": (
+                    "If the file was added or moved recently, run reindex() "
+                    "first — the import graph is built at index time."
+                ),
+            }]
         result = sorted(deps)
         if max_results > 0:
             result = result[:max_results]

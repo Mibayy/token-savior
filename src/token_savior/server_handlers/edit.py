@@ -7,6 +7,7 @@ import os
 from token_savior.edit_ops import (
     add_field_to_model,
     apply_refactoring,
+    edit_lines_in_symbol,
     insert_near_symbol,
     move_symbol,
     replace_symbol_source,
@@ -37,6 +38,21 @@ def _h_insert_near_symbol(slot: _ProjectSlot, args: dict) -> object:
         args["content"],
         position=args.get("position", "after"),
         file_path=args.get("file_path"),
+    )
+    if result.get("ok"):
+        slot.indexer.reindex_file(result["file"])
+    return result
+
+
+def _h_edit_lines_in_symbol(slot: _ProjectSlot, args: dict) -> object:
+    _prep(slot)
+    result = edit_lines_in_symbol(
+        slot.indexer._project_index,
+        args["symbol_name"],
+        args["old_string"],
+        args["new_string"],
+        file_path=args.get("file_path"),
+        replace_all=bool(args.get("replace_all", False)),
     )
     if result.get("ok"):
         slot.indexer.reindex_file(result["file"])
@@ -143,6 +159,7 @@ def _h_apply_refactoring(slot: _ProjectSlot, args: dict) -> object:
 HANDLERS: dict[str, object] = {
     "replace_symbol_source": _h_replace_symbol_source,
     "insert_near_symbol": _h_insert_near_symbol,
+    "edit_lines_in_symbol": _h_edit_lines_in_symbol,
     "verify_edit": _h_verify_edit,
     "apply_symbol_change_and_validate": _h_apply_symbol_change_and_validate,
     "add_field_to_model": _h_add_field_to_model,
