@@ -67,19 +67,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "summarize_patch_by_symbol": {
-        "description": (
-        'Symbol-level summary of a specific set of changed files.' ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "changed_files": {"type": "array", "items": {"type": "string"}},
-                "max_files": {"type": "integer", "description": "Default 20."},
-                "max_symbols_per_file": {"type": "integer", "description": "Default 20."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
     "build_commit_summary": {
         "description": (
         'Compact commit/review narrative with stats, hotspots, suggested type.'   ),
@@ -213,33 +200,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["model", "field_name", "field_type"],
         },
     },
-    "apply_refactoring": {
-        "description": (
-        'Polymorphic refactoring: rename, move, add_field, extract.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": ["rename", "move", "add_field", "extract"],
-                    "description": "Refactoring operation type.",
-                },
-                "symbol": {"type": "string", "description": "Symbol name (rename/move)."},
-                "new_name": {"type": "string", "description": "New name (rename/extract)."},
-                "target_file": {"type": "string", "description": "Target file (move)."},
-                "create_if_missing": {"type": "boolean", "description": "Create target if missing (move, default true)."},
-                "model": {"type": "string", "description": "Model name (add_field)."},
-                "field_name": {"type": "string", "description": "Field name (add_field)."},
-                "field_type": {"type": "string", "description": "Field type (add_field)."},
-                "file_path": {"type": "string", "description": "File path (extract/add_field)."},
-                "after": {"type": "string", "description": "Insert after (add_field)."},
-                "start_line": {"type": "integer", "description": "Start line (extract)."},
-                "end_line": {"type": "integer", "description": "End line (extract)."},
-                **_PROJECT_PARAM,
-            },
-            "required": ["type"],
-        },
-    },
     # ── Tests & validation ────────────────────────────────────────────────
     "find_impacted_test_files": {
         "description": (
@@ -269,26 +229,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "compact": {"type": "boolean"},
                 **_PROJECT_PARAM,
             },
-        },
-    },
-    "apply_symbol_change_and_validate": {
-        "description": (
-        'Replace symbol source, reindex, run impacted tests in one call.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "symbol_name": {"type": "string"},
-                "new_source": {"type": "string"},
-                "file_path": {"type": "string"},
-                "rollback_on_failure": {"type": "boolean"},
-                "max_tests": {"type": "integer"},
-                "timeout_sec": {"type": "integer"},
-                "max_output_chars": {"type": "integer"},
-                "include_output": {"type": "boolean"},
-                "compact": {"type": "boolean"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
         },
     },
     # ── Project actions ───────────────────────────────────────────────────
@@ -756,24 +696,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["var_name"],
         },
     },
-    "get_components": {
-        "description": (
-        'Detect React components in .tsx/.jsx: pages, layouts, named (uppercase) and default exports.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file to scan (default: all .tsx/.jsx).",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max results (0 = all, default 0).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
     # ── Analysis tools ────────────────────────────────────────────────────
     "analyze_config": {
         "description": (
@@ -846,14 +768,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "find_cross_project_deps": {
-        "description": (
-        'Dependencies between indexed projects: which project imports packages from other indexed projects.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
     "analyze_docker": {
         "description": (
         'Audit Dockerfiles: base images, stages, exposed ports, ENV/ARG, cross-ref with config files.'   ),
@@ -888,106 +802,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "get_library_symbol": {
-        "description": (
-        'Resolve a library symbol (npm .d.ts or Python module): signature, JSDoc/docstring, source location.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "package": {
-                    "type": "string",
-                    "description": "npm package name (e.g. '@supabase/supabase-js') or Python module (e.g. 'pandas').",
-                },
-                "symbol_path": {
-                    "type": "string",
-                    "description": "Dotted symbol path inside the package (e.g. 'createClient', 'SupabaseAuthClient.signInWithOtp').",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Cap on .d.ts files scanned (default 200).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["package"],
-        },
-    },
-    "list_library_symbols": {
-        "description": (
-        'List top-level exports of an installed library (.d.ts or Python module), optionally regex-filtered.' ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "package": {
-                    "type": "string",
-                    "description": "npm package name or Python module.",
-                },
-                "pattern": {
-                    "type": "string",
-                    "description": "Case-insensitive regex filter on symbol names (optional).",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Cap on .d.ts files scanned (default 100).",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Cap on results (default 100).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["package"],
-        },
-    },
-    "find_library_symbol_by_description": {
-        "description": (
-        "Rank a package's exports by Nomic-embedding similarity to a NL description. On-the-fly, no persistent index."
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "package": {
-                    "type": "string",
-                    "description": "npm package name or Python module.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Natural-language description of what the symbol does.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Top-K hits to return (default 10).",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Cap on .d.ts files scanned (default 100).",
-                },
-                "candidate_pool": {
-                    "type": "integer",
-                    "description": "Max exports considered before ranking (default 200).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["package", "description"],
-        },
-    },
-    "audit_file": {
-        "description": (
-        'Mega-batch audit of a single file: dead_code + hotspots + semantic duplicates in one call.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "Relative path of the file to audit."},
-                "max_dead": {"type": "integer", "description": "Cap on dead-code scan (default 50)."},
-                "max_hotspots": {"type": "integer", "description": "Cap on hotspot scan (default 50)."},
-                "min_score": {"type": "number", "description": "Minimum complexity score (default 0)."},
-                "min_lines": {"type": "integer", "description": "Semantic-dup min length (default 6)."},
-                "max_dup_groups": {"type": "integer", "description": "Semantic-dup group cap (default 20)."},
-                **_PROJECT_PARAM,
-            },
-            "required": ["file_path"],
-        },
-    },
     "get_entry_points": {
         "description": (
         'Score functions by likelihood of being execution entry points: routes, handlers, main, exported APIs.' ),
@@ -998,71 +812,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "type": "integer",
                     "description": "Maximum number of entry points to return (default 20).",
                 },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "get_related_symbols": {
-        "description": (
-        'Related-symbols query. method = community | rwr | cluster | coactive.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "method": {
-                    "type": "string",
-                    "enum": ["community", "rwr", "cluster", "coactive"],
-                    "description": "Algorithm (default 'community').",
-                },
-                "name": {
-                    "type": "string",
-                    "description": "Seed symbol. Required for rwr/cluster/coactive; optional for community when list_all=true.",
-                },
-                "max_members": {
-                    "type": "integer",
-                    "description": "cluster: max members (default 30).",
-                },
-                "budget": {
-                    "type": "integer",
-                    "description": "rwr: top-K symbols (default 10).",
-                },
-                "include_reverse": {
-                    "type": "boolean",
-                    "description": "rwr: include reverse-dependency edges (default true).",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "coactive: max results (default 5).",
-                },
-                "community_name": {
-                    "type": "string",
-                    "description": "community: look up by community name instead of seed symbol.",
-                },
-                "list_all": {
-                    "type": "boolean",
-                    "description": "community: enumerate all communities (default false).",
-                },
-                "min_size": {
-                    "type": "integer",
-                    "description": "community+list_all: min members (default 2).",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "community+list_all: max communities (default 30).",
-                },
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "get_duplicate_classes": {
-        "description": (
-        'Find Java classes duplicated across files (by FQN or simple name).'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Filter class."},
-                "simple_name_mode": {"type": "boolean", "description": "Group by simple name."},
-                "max_results": {"type": "integer", "description": "0=all."},
                 **_PROJECT_PARAM,
             },
         },
@@ -1114,141 +863,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["type", "title", "content"],
         },
     },
-    "memory_maintain": {
-        "description": (
-        'Maintenance rollup: promote, relink, export, extract patterns.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["promote", "relink", "export", "patterns"], "description": "Action"},
-                "dry_run": {"type": "boolean", "description": "Preview only"},
-                "output_dir": {"type": "string", "description": "Export dir"},
-                "window_days": {"type": "integer", "description": "Patterns window"},
-                "min_occurrences": {"type": "integer", "description": "Patterns threshold"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_top": {
-        "description": (
-        'Rank observations by score, access_count, or age.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Default 20."},
-                "sort_by": {"type": "string", "enum": ["score", "access_count", "age"]},
-            },
-        },
-    },
-    "memory_why": {
-        "description": (
-        'Explain why a specific observation matched the last injection (recency, type, symbol, FTS).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "query": {"type": "string", "description": "Optional FTS query."},
-            },
-            "required": ["id"],
-        },
-    },
-    "memory_doctor": {
-        "description": (
-        'Memory health report: orphans, near-dupes, incomplete obs, vector coverage, hook wiring.'   ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    "memory_vector_reindex": {
-        "description": (
-        'Backfill obs_vectors for observations missing an embedding. No-op if sqlite-vec/fastembed unavailable.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Max obs to index this run (default 500)."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_distill": {
-        "description": (
-        'MDL-based distillation: cluster similar obs into an abstraction + deltas.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
-                "min_cluster_size": {"type": "integer", "description": "Default 3."},
-                "compression_required": {"type": "number", "description": "Default 0.2."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_dedup_sweep": {
-        "description": (
-        'Backfill observations.content_hash (SHA256 of normalized content). Default: only NULL hashes.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "recompute": {"type": "boolean", "description": "Rehash every row, not just NULL (default false)."},
-                "batch_size": {"type": "integer", "description": "Commit cadence (default 500)."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_roi_gc": {
-        "description": (
-        'Archive observations whose ROI score falls below a threshold.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean", "description": "Preview (default true)."},
-                "threshold": {"type": "number", "description": "Default 0.0."},
-                **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_roi_stats": {
-        "description": (
-        'Token Economy ROI stats — net value by observation type.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {**_PROJECT_PARAM},
-        },
-    },
-    "memory_from_bash": {
-        "description": (
-        'Save a bash command as an observation (type=command, auto-extracted).'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "command": {"type": "string"},
-                "type": {"type": "string", "enum": ["command", "infra", "config"]},
-                "context": {"type": "string"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["command"],
-        },
-    },
-    "memory_set_global": {
-        "description": (
-        "Set an observation's global visibility flag (is_global=True crosses all projects)."
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer", "description": "Observation ID"},
-                "is_global": {"type": "boolean", "description": "True=global, False=local"},
-            },
-            "required": ["id", "is_global"],
-        },
-    },
     "memory_search": {
         "description": (
         'Layer 2 FTS5 search over memory observations, compact rows with snippets (~60 tokens/result).'   ),
@@ -1261,18 +875,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["query"],
-        },
-    },
-    "memory_session_history": {
-        "description": (
-        'Last N structured session-end rollups (request, investigated, learned, completed, next_steps, notes).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Default 10."},
-                **_PROJECT_PARAM,
-            },
         },
     },
     "memory_get": {
@@ -1334,57 +936,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": [],
         },
     },
-    "memory_timeline": {
-        "description": (
-        'Chronological context around an observation (before/after in time).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "observation_id": {
-                    "type": "integer",
-                    "description": "Center observation ID.",
-                },
-                "window": {
-                    "type": "integer",
-                    "description": "Window in hours around the observation (default 24).",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["observation_id"],
-        },
-    },
-    "memory_prompts": {
-        "description": (
-        'Save or search prompt history (archival of notable user prompts).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["save", "search"], "description": "save or search"},
-                "prompt_text": {"type": "string", "description": "Prompt to save"},
-                "prompt_number": {"type": "integer", "description": "Prompt ordinal"},
-                "query": {"type": "string", "description": "Search query"},
-                "limit": {"type": "integer", "description": "Max results"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_mode": {
-        "description": (
-        'Get or set the memory capture mode (code | review | debug | infra | silent).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["get", "set", "set_project"], "description": "Action"},
-                "mode": {"type": "string", "enum": ["code", "review", "debug", "silent"], "description": "Mode name"},
-                "project": {"type": "string", "description": "Project path"},
-            },
-            "required": ["action"],
-        },
-    },
     "corpus_build": {
         "description": (
         'Build a thematic corpus from observations filtered by type / tags / symbol.'
@@ -1401,55 +952,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["name"],
         },
     },
-    "memory_archive": {
-        "description": (
-        'Manage archived observations (list, undelete, purge).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["run", "list", "restore"], "description": "run=decay, list, restore"},
-                "id": {"type": "integer", "description": "ID for restore"},
-                "dry_run": {"type": "boolean", "description": "Preview only"},
-                "limit": {"type": "integer", "description": "List max entries"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["action"],
-        },
-    },
-    "memory_status": {
-        "description": (
-        'Memory Engine snapshot: active/archived counts, mode, last session, summaries.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
     # ── Program slicing & context packing (Phase 2) ───────────────────────
-    "verify_edit": {
-        "description": (
-        'EditSafety certificate — static analysis before a symbol replacement: signature, exceptions, side-effects, test impact.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Symbol that would be replaced.",
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "Proposed replacement source.",
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Optional file path to disambiguate the symbol.",
-                },
-                **_PROJECT_PARAM,
-            },
-            "required": ["symbol_name", "new_source"],
-        },
-    },
     "find_semantic_duplicates": {
         "description": (
         "Find duplicate functions. method='ast' (fast, hash-based, catches copy-paste) or 'embedding' (Nomic cosine, catches conceptual clones, tagged sim=min..mean per cluster)."
@@ -1500,58 +1003,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
-    "get_call_predictions": {
-        "description": (
-        'Predict next-likely tool calls from a first-order Markov model trained on prior sessions.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "tool_name": {
-                    "type": "string",
-                    "description": "Current tool name (e.g. 'get_function_source').",
-                },
-                "symbol_name": {
-                    "type": "string",
-                    "description": "Optional current symbol focus (e.g. 'observation_save').",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Maximum number of predictions to return (default 5).",
-                },
-            },
-            "required": ["tool_name"],
-        },
-    },
-    "pack_context": {
-        "description": (
-        'Knapsack-packed context bundle for a query within a token budget.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "budget_tokens": {"type": "integer", "description": "Default 4000."},
-                "max_symbols": {"type": "integer", "description": "Default 20."},
-                **_PROJECT_PARAM,
-            },
-            "required": ["query"],
-        },
-    },
-    "get_backward_slice": {
-        "description": (
-        'Minimal lines affecting a variable at a given line inside a symbol.'   ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "variable": {"type": "string"},
-                "line": {"type": "integer", "description": "1-based."},
-                "file_path": {"type": "string"},
-                **_PROJECT_PARAM,
-            },
-            "required": ["name", "variable", "line"],
-        },
-    },
     "corpus_query": {
         "description": (
         'Format all observations of a named corpus as markdown context + a question, ready for answering.'
@@ -1570,40 +1021,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 **_PROJECT_PARAM,
             },
             "required": ["name", "question"],
-        },
-    },
-    "memory_bus_push": {
-        "description": (
-        'Push a volatile observation to the inter-agent memory bus (tagged by agent_id).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "agent_id": {"type": "string"},
-                "title": {"type": "string"},
-                "content": {"type": "string"},
-                "type": {"type": "string", "description": "Default 'note'."},
-                "symbol": {"type": "string"},
-                "file_path": {"type": "string"},
-                "tags": {"type": "array", "items": {"type": "string"}},
-                "ttl_days": {"type": "integer", "description": "Default 1."},
-                **_PROJECT_PARAM,
-            },
-            "required": ["agent_id", "title", "content"],
-        },
-    },
-    "memory_bus_list": {
-        "description": (
-        'List recent live messages on the inter-agent memory bus, optionally filtered by agent_id.'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "agent_id": {"type": "string", "description": "Filter by subagent id (optional)."},
-                "limit": {"type": "integer", "description": "Max rows (default 20)."},
-                "include_expired": {"type": "boolean", "description": "Show expired bus rows too."},
-                **_PROJECT_PARAM,
-            },
         },
     },
     "reasoning_save": {
@@ -1650,46 +1067,6 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "properties": {
                 "limit": {"type": "integer", "description": "Max rows (default 50)."},
                 **_PROJECT_PARAM,
-            },
-        },
-    },
-    "memory_consistency": {
-        "description": (
-        'Run Bayesian self-consistency check on symbol-linked obs (updates α/β; flags stale + quarantine).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_root": {
-                    "type": "string",
-                    "description": "Project filter; omit to run across all projects.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max observations to check this pass (default 100).",
-                },
-                "dry_run": {
-                    "type": "boolean",
-                    "description": "Report what would change without persisting.",
-                },
-            },
-        },
-    },
-    "memory_quarantine_list": {
-        "description": (
-        'List observations quarantined by the consistency check (Bayesian validity < 40 %).'
-    ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "project_root": {
-                    "type": "string",
-                    "description": "Filter by project; omit for all projects.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max rows to return (default 50).",
-                },
             },
         },
     },
@@ -1770,4 +1147,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "memory_admin": {
+        "description": "Single dispatch for all memory admin / maintenance ops (status, doctor, dedup_sweep, distill, roi_gc, consistency, vector_reindex, etc.).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["op"],
+            "properties": {
+                "op": {
+                    "type": "string",
+                    "enum": ["status", "top", "why", "timeline", "session_history", "prompts", "mode", "archive", "bus_push", "bus_list", "consistency", "quarantine_list", "maintain", "doctor", "vector_reindex", "distill", "dedup_sweep", "roi_gc", "roi_stats", "from_bash", "set_global"],
+                    "description": "Which memory-admin sub-operation to run.",
+                },
+                "project_root": {"type": "string", "description": "Filter by project (where applicable)."},
+                "limit": {"type": "integer", "description": "Pagination/limit (where applicable)."},
+                "dry_run": {"type": "boolean", "description": "Preview-only mode for sweeps/garbage collectors."},
+            },
+            "additionalProperties": True,
+        },
+    },
+
 }

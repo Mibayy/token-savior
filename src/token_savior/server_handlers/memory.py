@@ -1285,40 +1285,64 @@ def _hm_memory_quarantine_list(arguments: dict[str, Any]) -> list[types.TextCont
 # ---------------------------------------------------------------------------
 
 
+
+def _mh_memory_admin(args):
+    """Dispatch memory admin ops via a single fusion tool.
+
+    Rationale: 21 admin tools (doctor, dedup_sweep, distill, roi_gc,
+    consistency, vector_reindex, maintain, …) all 0-call in 30 d
+    production. They were lean-excluded but still inflated the full
+    profile manifest by ~1500 tokens. memory_admin folds them into a
+    single tool with an `op` enum; agents that need them can still
+    reach every one, the manifest carries one schema instead of 21.
+    """
+    op = (args.get("op") or "").strip()
+    payload = {k: v for k, v in args.items() if k != "op"}
+    routes = {
+        "status": _mh_memory_status,
+        "top": _mh_memory_top,
+        "why": _mh_memory_why,
+        "timeline": _mh_memory_timeline,
+        "session_history": _mh_memory_session_history,
+        "prompts": _mh_memory_prompts,
+        "mode": _mh_memory_mode,
+        "archive": _mh_memory_archive,
+        "bus_push": _mh_memory_bus_push,
+        "bus_list": _mh_memory_bus_list,
+        "consistency": _hm_memory_consistency,
+        "quarantine_list": _hm_memory_quarantine_list,
+        "maintain": _mh_memory_maintain,
+        "doctor": _mh_memory_doctor,
+        "vector_reindex": _mh_memory_vector_reindex,
+        "distill": _mh_memory_distill,
+        "dedup_sweep": _mh_memory_dedup_sweep,
+        "roi_gc": _mh_memory_roi_gc,
+        "roi_stats": _mh_memory_roi_stats,
+        "from_bash": _mh_memory_from_bash,
+        "set_global": _mh_memory_set_global,
+    }
+    handler = routes.get(op)
+    if handler is None:
+        return (
+            f"Unknown op '{op}'. Valid: {', '.join(sorted(routes))}."
+        )
+    return handler(payload)
+
+
 HANDLERS: dict[str, Any] = {
-    "memory_bus_push": _mh_memory_bus_push,
-    "memory_bus_list": _mh_memory_bus_list,
     "reasoning_save": _mh_reasoning_save,
     "reasoning_search": _mh_reasoning_search,
     "reasoning_list": _mh_reasoning_list,
     "memory_save": _mh_memory_save,
     "memory_search": _mh_memory_search,
-    "memory_session_history": _mh_memory_session_history,
     "memory_get": _mh_memory_get,
     "memory_delete": _mh_memory_delete,
     "memory_index": _mh_memory_index,
-    "memory_timeline": _mh_memory_timeline,
-    "memory_prompts": _mh_memory_prompts,
-    "memory_mode": _mh_memory_mode,
     "corpus_build": _mh_corpus_build,
     "corpus_query": _mh_corpus_query,
-    "memory_archive": _mh_memory_archive,
-    "memory_status": _mh_memory_status,
-    "memory_maintain": _mh_memory_maintain,
-    "memory_from_bash": _mh_memory_from_bash,
-    "memory_doctor": _mh_memory_doctor,
-    "memory_vector_reindex": _mh_memory_vector_reindex,
-    "memory_distill": _mh_memory_distill,
-    "memory_dedup_sweep": _mh_memory_dedup_sweep,
-    "memory_roi_gc": _mh_memory_roi_gc,
-    "memory_roi_stats": _mh_memory_roi_stats,
-    "memory_why": _mh_memory_why,
-    "memory_top": _mh_memory_top,
-    "memory_set_global": _mh_memory_set_global,
+    "memory_admin": _mh_memory_admin,
 }
 
 
 ADMIN_HANDLERS: dict[str, Any] = {
-    "memory_consistency": _hm_memory_consistency,
-    "memory_quarantine_list": _hm_memory_quarantine_list,
 }
