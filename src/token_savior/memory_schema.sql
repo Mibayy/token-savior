@@ -310,3 +310,45 @@ INSERT OR IGNORE INTO decay_config VALUES ('decision',      0.998, 0.3, 0.1);
 INSERT OR IGNORE INTO decay_config VALUES ('error_pattern', 0.997, 0.2, 0.15);
 INSERT OR IGNORE INTO decay_config VALUES ('reference',     0.995, 0.2, 0.1);
 INSERT OR IGNORE INTO decay_config VALUES ('project',       0.99,  0.1, 0.2);
+
+-- ────────────────────────────────────────────────────────────────────────
+-- Tool Capture — sandbox verbose tool outputs (Bash, WebFetch, Playwright,
+-- gh api, MCP calls) so they don't pollute the model's context window.
+-- The output_full column stays in SQLite + FTS5; only output_preview is
+-- exposed to the agent until it explicitly capture_search / capture_get.
+-- Inspired by mksglu/context-mode but reuses TS's existing FTS5 infra.
+-- ────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tool_captures (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT,
+    project_root      TEXT,
+    tool_name         TEXT NOT NULL,
+    args_hash         TEXT,
+    args_summary      TEXT,
+    output_full       TEXT NOT NULL,
+    output_preview    TEXT,
+    output_bytes      INTEGER NOT NULL,
+    output_lines      INTEGER NOT NULL DEFAULT 0,
+    created_at_epoch  INTEGER NOT NULL,
+    meta_json         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_captures_session ON tool_captures(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_captures_created ON tool_captures(created_at_epoch DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_captures_tool    ON tool_captures(tool_name);
+CREATE INDEX IF NOT EXISTS idx_tool_captures_project ON tool_captures(project_root);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS tool_captures_fts USING fts5(
+    output_full, args_summary, tool_name,
+    content='tool_captures', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS tool_captures_fts_ins AFTER INSERT ON tool_captures BEGIN
+    INSERT INTO tool_captures_fts(rowid, output_full, args_summary, tool_name)
+    VALUES (new.id, new.output_full, new.args_summary, new.tool_name);
+END;
+
+CREATE TRIGGER IF NOT EXISTS tool_captures_fts_del AFTER DELETE ON tool_captures BEGIN
+    INSERT INTO tool_captures_fts(tool_captures_fts, rowid, output_full, args_summary, tool_name)
+    VALUES ('delete', old.id, old.output_full, old.args_summary, old.tool_name);
+END;

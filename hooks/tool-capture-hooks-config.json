@@ -1,0 +1,17 @@
+{
+  "_comment": "Drop-in PostToolUse hook for the Token Savior tool_capture sandbox. Merge into ~/.claude/settings.json under the existing 'hooks' key. Threshold and matcher are tunable. Set TS_CAPTURE_DISABLED=1 to no-op without uninstalling.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|WebFetch|Read|Grep|mcp__playwright__.*|mcp__token-savior__search_codebase|mcp__token-savior__get_function_source|mcp__token-savior__get_class_source",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 /root/token-savior/hooks/tool_capture_hook.py",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

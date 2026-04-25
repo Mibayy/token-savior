@@ -1,0 +1,79 @@
+{
+  "scenarios": [
+    {
+      "scenario": "Playwright accessibility snapshot",
+      "raw_bytes": 57327,
+      "agent_bytes": 968,
+      "saving_pct": 98.3,
+      "captured": true
+    },
+    {
+      "scenario": "gh issue list (20 issues)",
+      "raw_bytes": 60397,
+      "agent_bytes": 968,
+      "saving_pct": 98.4,
+      "captured": true
+    },
+    {
+      "scenario": "nginx access.log tail",
+      "raw_bytes": 46056,
+      "agent_bytes": 968,
+      "saving_pct": 97.9,
+      "captured": true
+    },
+    {
+      "scenario": "npm install verbose",
+      "raw_bytes": 18352,
+      "agent_bytes": 968,
+      "saving_pct": 94.7,
+      "captured": true
+    },
+    {
+      "scenario": "pytest -v output",
+      "raw_bytes": 12274,
+      "agent_bytes": 968,
+      "saving_pct": 92.1,
+      "captured": true
+    },
+    {
+      "scenario": "Bash find . -name *.py",
+      "raw_bytes": 8149,
+      "agent_bytes": 967,
+      "saving_pct": 88.1,
+      "captured": true
+    },
+    {
+      "scenario": "WebFetch HTML page",
+      "raw_bytes": 14301,
+      "agent_bytes": 968,
+      "saving_pct": 93.2,
+      "captured": true
+    },
+    {
+      "scenario": "grep -r foo .",
+      "raw_bytes": 6115,
+      "agent_bytes": 966,
+      "saving_pct": 84.2,
+      "captured": true
+    },
+    {
+      "scenario": "Read large source file",
+      "raw_bytes": 5071,
+      "agent_bytes": 966,
+      "saving_pct": 81.0,
+      "captured": true
+    },
+    {
+      "scenario": "Bash short stdout",
+      "raw_bytes": 773,
+      "agent_bytes": 773,
+      "saving_pct": 0.0,
+      "captured": false
+    }
+  ],
+  "total_raw_bytes": 228815,
+  "total_agent_bytes": 9480,
+  "context_saving_pct": 95.9,
+  "search_ms": 5.92,
+  "get_ms": 5.29
+}

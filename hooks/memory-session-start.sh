@@ -214,6 +214,30 @@ if [ -n "$WARMSTART" ]; then
     echo "$WARMSTART"
 fi
 
+# Tool Capture status — show recent sandbox count if table populated
+CAPTURELINE=$(/root/.local/token-savior-venv/bin/python3 -c "
+import sys, os, time
+sys.path.insert(0, '/root/token-savior/src')
+try:
+    from token_savior import db_core
+    conn = db_core.get_db()
+    row = conn.execute('SELECT COUNT(*) FROM tool_captures').fetchone()
+    total = row[0] if row else 0
+    if total > 0:
+        cutoff = int(time.time()) - 3600
+        recent = conn.execute('SELECT COUNT(*) FROM tool_captures WHERE created_at_epoch > ?', (cutoff,)).fetchone()[0]
+        bytes_total = conn.execute('SELECT COALESCE(SUM(output_bytes), 0) FROM tool_captures').fetchone()[0]
+        kb = bytes_total // 1024
+        print(f'### 📦 Tool Capture: {total} captures sandboxed ({kb}KB) · {recent} in last hour. Use capture_search/get/aggregate to retrieve.')
+        print('')
+    conn.close()
+except Exception:
+    pass
+" 2>>"$ERR_LOG")
+if [ -n "$CAPTURELINE" ]; then
+    echo "$CAPTURELINE"
+fi
+
 # Statusline: [mem:N obs · mode:X]
 STATUSLINE=$(/root/.local/token-savior-venv/bin/python3 -c "
 import sys, os

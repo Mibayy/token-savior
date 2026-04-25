@@ -1,0 +1,17 @@
+{
+  "_comment": "Cursor hook config for the tool_capture sandbox. Drop in .cursor/settings.json (workspace) or ~/.cursor/settings.json (global). Cursor's tool API uses 'PostToolUse' analogous to Claude Code.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|WebFetch|Read|Grep|mcp__token-savior__search_codebase|mcp__token-savior__get_function_source",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 /root/token-savior/hooks/tool_capture_hook.py",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
