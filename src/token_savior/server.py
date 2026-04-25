@@ -203,13 +203,13 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
 }
 
-_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "ultra").lower()
+_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
 if _PROFILE not in _PROFILE_EXCLUDES:
     print(
-        f"[token-savior] unknown profile '{_PROFILE}', using ultra",
+        f"[token-savior] unknown profile '{_PROFILE}', using full",
         file=sys.stderr,
     )
-    _PROFILE = "ultra"
+    _PROFILE = "full"
 
 _HIDDEN_UNDER_ULTRA: set[str] = _PROFILE_EXCLUDES["ultra"]
 
@@ -267,16 +267,13 @@ print(
     file=sys.stderr,
 )
 
-# v3 default flip: ultra is now the default. The expanded ultra profile
-# (33 tools + ts_extended proxy) covers the production hot path while
-# keeping the manifest under 5 k tokens. Users who script against the
-# full surface (CI, batch tooling) can opt in via
-# TOKEN_SAVIOR_PROFILE=full or =lean.
-if "TOKEN_SAVIOR_PROFILE" not in os.environ:
+# Default stays at 'full' (66 tools, ~9k tokens). Token-conscious users
+# can opt down via TOKEN_SAVIOR_PROFILE=lean (51 tools), =ultra (33 hot
+# tools + ts_extended proxy, ~5k tokens), =core, or =nav.
+if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
     print(
-        "[token-savior] default profile is now 'ultra' (33 hot tools + "
-        "ts_extended proxy). Set TOKEN_SAVIOR_PROFILE=lean for the broader "
-        "lean surface, or =full for everything.",
+        "[token-savior] profile=full (66 tools). Set TOKEN_SAVIOR_PROFILE=lean "
+        "or =ultra to reduce manifest cost.",
         file=sys.stderr,
     )
 

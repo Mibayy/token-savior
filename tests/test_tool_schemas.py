@@ -81,17 +81,10 @@ class TestToolSchemas:
         assert len(TOOL_SCHEMAS) == 66, f"Expected 66 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
-        """Default profile is now 'ultra' which is a strict subset of TOOL_SCHEMAS,
-        plus the synthetic 'ts_extended' proxy. Verify the structural relation
-        rather than equality."""
         from token_savior.server import TOOLS
         server_names = {t.name for t in TOOLS}
         schema_names = set(TOOL_SCHEMAS.keys())
-        # All advertised tools must either be a real schema OR the synthetic
-        # ts_extended proxy that ultra adds at runtime.
-        assert server_names <= (schema_names | {"ts_extended"})
-        # ts_extended is mandatory under ultra — sanity check.
-        assert "ts_extended" in server_names
+        assert server_names == schema_names
 
 
 class TestV2HandlersRemoved:
