@@ -44,6 +44,93 @@ def replace_symbol_source(
     }
 
 
+def edit_lines_in_symbol(
+    index: ProjectIndex,
+    symbol_name: str,
+    old_string: str,
+    new_string: str,
+    file_path: str | None = None,
+    replace_all: bool = False,
+) -> dict:
+    """Exact string-replace inside an indexed symbol's body.
+
+    Adresses the most common pattern in real workflows: small in-place
+    edits (rename a variable, fix a typo, change a literal). Currently
+    the agent does Read+Edit for these because ``replace_symbol_source``
+    requires rewriting the whole symbol body. This wrapper lets the agent
+    stay symbol-scoped while editing line-level content.
+
+    The match is performed against the symbol's CURRENT source (resolved
+    via the index). If ``old_string`` is not found inside the symbol body
+    we return an error rather than touch unrelated lines elsewhere in the
+    file. If ``old_string`` appears more than once and ``replace_all`` is
+    False we error too — the agent has to disambiguate by extending the
+    context (same contract as the native Edit tool).
+    """
+    location = resolve_symbol_location(index, symbol_name, file_path=file_path)
+    if "error" in location:
+        return location
+
+    target_file = os.path.normpath(os.path.join(index.root_path, location["file"]))
+    if os.path.commonpath([target_file, os.path.normpath(index.root_path)]) != os.path.normpath(
+        index.root_path
+    ):
+        return {"error": f"Unsafe file path: {location['file']}"}
+
+    try:
+        with open(target_file, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError as exc:
+        return {"error": f"failed to read {target_file}: {exc}"}
+
+    lines = content.split("\n")
+    start = location["line"] - 1  # 1-indexed -> 0-indexed
+    end = location["end_line"]
+    body = "\n".join(lines[start:end])
+
+    occurrences = body.count(old_string)
+    if occurrences == 0:
+        return {
+            "error": (
+                f"old_string not found in body of '{location['name']}' "
+                f"({target_file}:{location['line']}-{location['end_line']})."
+            ),
+            "hint": (
+                "Check exact whitespace + indentation. The match is "
+                "scoped to this symbol only; edits elsewhere in the file "
+                "need a different symbol or insert_near_symbol."
+            ),
+        }
+    if occurrences > 1 and not replace_all:
+        return {
+            "error": (
+                f"old_string appears {occurrences}x in '{location['name']}'. "
+                "Pass replace_all=True or extend old_string to make it unique."
+            ),
+        }
+
+    new_body = body.replace(old_string, new_string) if replace_all else body.replace(old_string, new_string, 1)
+    new_lines = new_body.split("\n")
+    rewrite = lines[:start] + new_lines + lines[end:]
+    new_content = "\n".join(rewrite)
+
+    try:
+        with open(target_file, "w", encoding="utf-8") as fh:
+            fh.write(new_content)
+    except OSError as exc:
+        return {"error": f"failed to write {target_file}: {exc}"}
+
+    return {
+        "ok": True,
+        "operation": "edit_lines_in_symbol",
+        "symbol": location["name"],
+        "type": location["type"],
+        "file": location["file"],
+        "occurrences_replaced": occurrences if replace_all else 1,
+        "delta_lines": len(new_lines) - (end - start),
+    }
+
+
 def insert_near_symbol(
     index: ProjectIndex,
     symbol_name: str,

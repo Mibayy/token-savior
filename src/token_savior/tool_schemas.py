@@ -152,6 +152,21 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["symbol_name", "new_source"],
         },
     },
+    "edit_lines_in_symbol": {
+        "description": "Exact string-replace inside an indexed symbol's body (like Edit but symbol-scoped, no Read first needed).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol_name": {"type": "string", "description": "Function/method/class name to edit inside."},
+                "old_string": {"type": "string", "description": "Exact text to find inside the symbol body (must be unique within the symbol unless replace_all=true)."},
+                "new_string": {"type": "string", "description": "Replacement text."},
+                "file_path": {"type": "string", "description": "Optional file path to disambiguate symbols."},
+                "replace_all": {"type": "boolean", "description": "If true, replace every occurrence in the symbol body (default false)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["symbol_name", "old_string", "new_string"],
+        },
+    },
     "insert_near_symbol": {
         "description": (
         'Insert content before or after an indexed symbol.'
