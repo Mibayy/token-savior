@@ -149,6 +149,11 @@ _LEAN_EXCLUDES: set[str] = {
     # Niche analysis — edge cases, rare in practice
     "get_duplicate_classes", "get_call_predictions",
     "pack_context",
+    # Tool capture — agent never invokes capture_put/purge directly
+    # (hook handles that). capture_aggregate/list also rarely needed
+    # interactively. capture_get + capture_search stay visible so the
+    # agent can retrieve sandboxed outputs after compaction.
+    "capture_put", "capture_purge", "capture_aggregate", "capture_list",
     # (discover_project_actions + run_project_action kept atomically —
     #  low volume but paired workflow would break if split.)
 }
@@ -189,6 +194,24 @@ _HIDDEN_UNDER_ULTRA: set[str] = _PROFILE_EXCLUDES["ultra"]
 if _PROFILE != "full":
     _excluded = _PROFILE_EXCLUDES[_PROFILE]
     TOOLS = [t for t in TOOLS if t.name not in _excluded]
+
+# When memory is disabled at runtime (e.g. bench subprocess) hide the
+# remaining memory entrypoints from the manifest — every advertised tool
+# costs ~50-100 tokens whether it's used or not.
+if os.environ.get("TS_MEMORY_DISABLE") == "1":
+    _MEMORY_GATED = {
+        "memory_save", "memory_archive", "memory_set_global", "memory_mode",
+        "memory_index", "memory_search", "memory_get", "memory_top",
+        "memory_status", "memory_session_history", "memory_timeline",
+        "memory_prompts", "memory_doctor", "memory_consistency",
+        "memory_quarantine_list", "memory_maintain", "memory_distill",
+        "memory_dedup_sweep", "memory_roi_gc", "memory_roi_stats",
+        "memory_vector_reindex", "memory_delete", "memory_why",
+        "memory_bus_push", "memory_bus_list", "memory_from_bash",
+        "reasoning_save", "reasoning_search", "reasoning_list",
+        "corpus_build", "corpus_query",
+    }
+    TOOLS = [t for t in TOOLS if t.name not in _MEMORY_GATED]
 
 if _PROFILE == "ultra":
     _hidden_catalog = ", ".join(sorted(_HIDDEN_UNDER_ULTRA))

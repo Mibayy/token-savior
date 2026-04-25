@@ -1,6 +1,13 @@
 """Tests for the tree-sitter-based Ruby annotator."""
 
-from token_savior.ruby_annotator import annotate_ruby
+import pytest
+
+from token_savior.ruby_annotator import _RUBY_AVAILABLE, annotate_ruby
+
+pytestmark = pytest.mark.skipif(
+    not _RUBY_AVAILABLE,
+    reason="tree_sitter_ruby not installed (optional dep)",
+)
 
 
 SOURCE_BASIC = """\
