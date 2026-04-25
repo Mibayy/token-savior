@@ -260,7 +260,7 @@ def capture_aggregate(
 
     if transform == "stats":
         lines = text.splitlines()
-        words = sum(len(l.split()) for l in lines)
+        words = sum(len(line.split()) for line in lines)
         return {
             "id": cap_id,
             "uri": f"ts://capture/{cap_id}",

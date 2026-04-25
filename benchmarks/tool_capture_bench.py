@@ -16,7 +16,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from statistics import mean, median
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -110,7 +109,8 @@ def run() -> None:
     hits = tool_capture.capture_search("Playwright")
     dt_search = (time.perf_counter() - t0) * 1000
     t0 = time.perf_counter()
-    got = tool_capture.capture_get(hits[0]["id"], range_spec="head") if hits else None
+    if hits:
+        tool_capture.capture_get(hits[0]["id"], range_spec="head")
     dt_get = (time.perf_counter() - t0) * 1000
 
     print()

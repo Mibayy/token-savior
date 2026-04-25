@@ -1,11 +1,6 @@
 """Tests for the tool_capture module (sandbox of verbose tool outputs)."""
 from __future__ import annotations
 
-import os
-import sqlite3
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from token_savior import db_core
