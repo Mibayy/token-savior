@@ -285,7 +285,7 @@ class ProjectIndexer:
         total_classes = 0
 
         def _annotate_file(fpath: str) -> tuple[str, StructuralMetadata, float] | None:
-            rel_path = os.path.relpath(fpath, self.root_path)
+            rel_path = os.path.relpath(fpath, self.root_path).replace(os.sep, "/")
             try:
                 mtime = os.path.getmtime(fpath)
                 source = self._read_file(fpath)
@@ -393,7 +393,7 @@ class ProjectIndexer:
             if os.path.isabs(file_path)
             else os.path.join(self.root_path, file_path)
         )
-        rel_path = os.path.relpath(abs_path, self.root_path)
+        rel_path = os.path.relpath(abs_path, self.root_path).replace(os.sep, "/")
 
         idx = self._project_index
 
@@ -529,7 +529,7 @@ class ProjectIndexer:
             if os.path.isabs(file_path)
             else os.path.join(self.root_path, file_path)
         )
-        rel_path = os.path.relpath(abs_path, self.root_path)
+        rel_path = os.path.relpath(abs_path, self.root_path).replace(os.sep, "/")
 
         idx = self._project_index
         old_metadata = idx.files.get(rel_path)
