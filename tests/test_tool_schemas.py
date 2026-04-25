@@ -63,7 +63,9 @@ class TestToolSchemas:
         # +1 find_library_symbol_by_description (feature 3 — semantic library lookup) = 94.
         # +6 tool_capture (capture_put/search/get/aggregate/list/purge — sandbox of
         #   verbose tool outputs, response to mksglu/context-mode) = 100.
-        assert len(TOOL_SCHEMAS) == 100, f"Expected 100 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 edit_lines_in_symbol (symbol-scoped string-replace, captures the
+        #   80%+ of native Edit calls landing on indexed code files) = 101.
+        assert len(TOOL_SCHEMAS) == 101, f"Expected 101 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

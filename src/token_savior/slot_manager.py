@@ -244,9 +244,40 @@ class SlotManager:
             for root, slot in self.projects.items():
                 if os.path.basename(root) == project_hint:
                     return slot, ""
+            # Case-insensitive basename match (often the agent says
+            # "TSBench" or "Estalle" with different casing).
+            hint_lower = project_hint.lower()
+            for root, slot in self.projects.items():
+                if os.path.basename(root).lower() == hint_lower:
+                    return slot, ""
+            # Substring fuzzy match (one unique candidate only — bail if
+            # ambiguous so we don't silently switch to the wrong project).
+            substring_matches = [
+                (root, slot) for root, slot in self.projects.items()
+                if hint_lower in os.path.basename(root).lower()
+            ]
+            if len(substring_matches) == 1:
+                return substring_matches[0][1], ""
+            # Build a "did you mean?" suggestion based on edit distance.
+            import difflib
+            basenames = [os.path.basename(r) for r in self.projects]
+            close = difflib.get_close_matches(project_hint, basenames, n=3, cutoff=0.5)
+            suggestion = (
+                f" Did you mean: {', '.join(close)}?"
+                if close
+                else ""
+            )
+            ambiguous_note = ""
+            if len(substring_matches) > 1:
+                multi = [os.path.basename(r) for r, _ in substring_matches]
+                ambiguous_note = (
+                    f" Multiple substring matches: {', '.join(multi)} — "
+                    "be more specific."
+                )
             return None, (
-                f"Project '{project_hint}' not found. "
-                f"Known projects: {', '.join(os.path.basename(r) for r in self.projects)}"
+                f"Project '{project_hint}' not found.{suggestion}"
+                f"{ambiguous_note} "
+                f"Known projects: {', '.join(basenames)}"
             )
 
         if self.active_root and self.active_root in self.projects:
