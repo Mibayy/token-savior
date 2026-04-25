@@ -1,5 +1,15 @@
 #!/bin/bash
 # Memory Engine — SessionStart hook
+#
+# TS_HOOK_MINIMAL=1     -> emit only the Memory Index block (skip Continuity,
+#                          Tool Capture status, Warm start, statusline, decay).
+# TS_MEMORY_DISABLE=1   -> short-circuit entirely (no output at all). Used by
+#                          tsbench subprocesses where cross-project memory
+#                          would pollute task context.
+
+if [ "$TS_MEMORY_DISABLE" = "1" ]; then
+    exit 0
+fi
 
 # -- token-savior hook error log (see GitHub #15) ---------------------------
 # Re-routes stderr from Python / claude sub-shells so a broken import, a
@@ -163,6 +173,13 @@ if project:
         db.commit()
     db.close()
 " 2>>"$ERR_LOG"
+fi
+
+# TS_HOOK_MINIMAL=1 short-circuit — skip warm-start, capture status,
+# statusline, and weekly housekeeping subshell. Memory Index + Continuity
+# already emitted above are kept.
+if [ "$TS_HOOK_MINIMAL" = "1" ]; then
+    exit 0
 fi
 
 # Warm start: find similar historical sessions by signature and pre-warm PPM
