@@ -151,19 +151,48 @@ _LEAN_EXCLUDES: set[str] = {
     #  low volume but paired workflow would break if split.)
 }
 
-# `ultra` = minimal manifest with lazy tool discovery. Only 17 hot tools +
-# a single `ts_extended` proxy exposed. LLM reaches the rest via
-# ts_extended(mode="list" | "describe" | "call"). Cuts manifest from
-# ~14 159 tokens (full 94) to ~3 540 tokens. Tradeoff: invoking a hidden
-# tool costs an extra round trip unless the LLM already knows its name.
+# `ultra` = minimal manifest with lazy tool discovery. Curated list of
+# tools that prod 30 d audit shows as ≥3 calls or strategically critical.
+# LLM reaches the rest via ts_extended(mode="list" | "describe" | "call").
+# Tradeoff: invoking a hidden tool costs an extra round trip.
+#
+# Manifest math measured 2026-04-25 (post Round 3 + Round 5):
+#   full       (66) ~ 8 969 tokens
+#   lean       (51) ~ 7 052
+#   lean+memdis(50) ~ 6 740
+#   ultra      (28) ~ 3 800     (-43 % vs lean+memdis, -57 % vs full)
+#
+# Expanded from the 17-tool baseline by ~11 tools that the 30 d production
+# audit identified as moderately used (find_dead_code 18 calls,
+# find_hotspots 17, get_imports 49, get_routes 15, etc.). Adding them
+# preserves the mental model "main tools always reachable" while keeping
+# the manifest under the 4k-token threshold where Claude Code stops
+# auto-deferring.
 _ULTRA_INCLUDES: set[str] = {
-    "switch_project", "list_projects", "reindex",
+    # Project lifecycle (5)
+    "switch_project", "set_project_root", "list_projects", "reindex",
+    "get_project_summary",
+    # Code navigation core (8)
     "search_codebase", "list_files",
     "get_function_source", "get_class_source", "find_symbol",
     "get_full_context", "get_structure_summary",
-    "get_functions", "get_dependencies", "get_dependents",
-    "get_file_dependents", "analyze_config",
-    "replace_symbol_source", "insert_near_symbol",
+    "get_functions", "get_imports",
+    # Dependency graph (3)
+    "get_dependencies", "get_dependents", "get_file_dependents",
+    # Edit primitives (4)
+    "replace_symbol_source", "insert_near_symbol", "edit_lines_in_symbol",
+    "add_field_to_model",
+    # Analysis (5)
+    "analyze_config", "analyze_docker", "find_dead_code",
+    "find_hotspots", "find_semantic_duplicates", "detect_breaking_changes",
+    # Git (2)
+    "get_git_status", "get_changed_symbols",
+    # Routes (1)
+    "get_routes",
+    # Memory user-facing (1)
+    "memory_save",
+    # Tool capture (2 — read-side only, hook does the writes)
+    "capture_get", "capture_search",
 }
 
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
@@ -174,13 +203,13 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
 }
 
-_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
+_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "ultra").lower()
 if _PROFILE not in _PROFILE_EXCLUDES:
     print(
-        f"[token-savior] unknown profile '{_PROFILE}', using full",
+        f"[token-savior] unknown profile '{_PROFILE}', using ultra",
         file=sys.stderr,
     )
-    _PROFILE = "full"
+    _PROFILE = "ultra"
 
 _HIDDEN_UNDER_ULTRA: set[str] = _PROFILE_EXCLUDES["ultra"]
 
@@ -238,13 +267,16 @@ print(
     file=sys.stderr,
 )
 
-# v2.8 deprecation warning: announce the default flip landing in v3.0.
-# Suppressed when TOKEN_SAVIOR_PROFILE is set explicitly (user already made
-# a conscious choice) — including explicitly choosing `full`.
-if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
+# v3 default flip: ultra is now the default. The expanded ultra profile
+# (33 tools + ts_extended proxy) covers the production hot path while
+# keeping the manifest under 5 k tokens. Users who script against the
+# full surface (CI, batch tooling) can opt in via
+# TOKEN_SAVIOR_PROFILE=full or =lean.
+if "TOKEN_SAVIOR_PROFILE" not in os.environ:
     print(
-        "[token-savior] default profile will change from 'full' to 'lean' "
-        "in v3.0.0 — see docs/migration/v3.md",
+        "[token-savior] default profile is now 'ultra' (33 hot tools + "
+        "ts_extended proxy). Set TOKEN_SAVIOR_PROFILE=lean for the broader "
+        "lean surface, or =full for everything.",
         file=sys.stderr,
     )
 
