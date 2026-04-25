@@ -1,9 +1,17 @@
-"""Tree-sitter-based Ruby annotator."""
+"""Tree-sitter-based Ruby annotator (optional — graceful fallback if deps missing)."""
 
 from __future__ import annotations
 
-import tree_sitter_ruby
-from tree_sitter import Language, Node, Parser
+try:
+    import tree_sitter_ruby
+    from tree_sitter import Language, Node, Parser
+    _RUBY_AVAILABLE = True
+    _RUBY_LANGUAGE = Language(tree_sitter_ruby.language())
+except ImportError:
+    _RUBY_AVAILABLE = False
+    _RUBY_LANGUAGE = None
+    Node = object  # type: ignore[assignment, misc]
+    Parser = None  # type: ignore[assignment, misc]
 
 from token_savior.models import (
     ClassInfo,
@@ -13,8 +21,6 @@ from token_savior.models import (
     StructuralMetadata,
     build_line_char_offsets,
 )
-
-_RUBY_LANGUAGE = Language(tree_sitter_ruby.language())
 
 _VISIBILITY_KEYWORDS = frozenset({"private", "protected", "public"})
 
@@ -389,11 +395,27 @@ def _parse_top_level(
 
 
 def annotate_ruby(source: str, source_name: str = "<source>") -> StructuralMetadata:
-    """Parse Ruby source and extract structural metadata using tree-sitter."""
+    """Parse Ruby source and extract structural metadata using tree-sitter.
+
+    Falls back to a generic empty annotation when tree_sitter_ruby is not
+    installed (optional dep). The Ruby support requires
+    `pip install tree_sitter_ruby tree_sitter`.
+    """
     lines = source.split("\n")
     total_lines = len(lines)
     total_chars = len(source)
     line_offsets = build_line_char_offsets(lines)
+    if not _RUBY_AVAILABLE:
+        return StructuralMetadata(
+            source_name=source_name,
+            total_lines=total_lines,
+            total_chars=total_chars,
+            lines=lines,
+            line_char_offsets=line_offsets,
+            functions=[],
+            classes=[],
+            imports=[],
+        )
     source_bytes = source.encode("utf-8")
 
     parser = Parser(_RUBY_LANGUAGE)
