@@ -11,7 +11,7 @@
 [![Tools](https://img.shields.io/badge/tools-94-green)]()
 [![Tests](https://img.shields.io/badge/tests-1360%2F1360-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
-[![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(180%2F180)-brightgreen)](https://mibayy.github.io/token-savior/)
+[![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(192%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -22,19 +22,25 @@
 
 ---
 
-### Benchmark — 90 real coding tasks
+### Benchmark — 96 real coding tasks (tiny+v2 default)
 
 | | Plain Claude Code | With Token Savior |
 |---|---:|---:|
-| **Score** | 141 / 180 (78.3%) | **180 / 180 (100.0%)** |
-| **Active tokens** | 1.55 M | **804 k** (−48%) |
-| **Wall time** | 166 min | **35 min** (−79%) |
-| **Wins / Ties / Losses** | — | **25 / 65 / 0** |
+| **Score** | 141 / 180 (78.3%) | **192 / 192 (100.0%)** |
+| **Active tokens / task** | 17 221 | **3 929** (−77%) |
+| **Wall time / task** | 110.6 s | **26.6 s** (−76%) |
+| **Wins / Ties / Losses** | — | **25 / 65 / 0** (90 paired) |
 
 Perfect (100%) across all 11 categories: `audit`, `bug_fixing`,
-`code_generation`, `code_review`, `config_infra`, `documentation`,
-`explanation`, `git`, `navigation`, `refactoring`, `writing_tests`.
-Zero losses against plain Claude — every task is a win or a tie.
+`code_generation`, `code_review`, `config_infra`, `data_analysis`,
+`documentation`, `explanation`, `git`, `navigation`, `refactoring`,
+`writing_tests`. Zero losses against plain Claude — every task is a
+win or a tie.
+
+The default config — `TS_PROFILE=tiny_plus` (15 tools, ~2.5 KT manifest)
++ `TS_CAPTURE_DISABLED=1` + the v2 system prompt that bans `Agent`
+sub-agent delegation — reproduces 100% on Opus 4.7 with **−54% active
+tokens vs the legacy `lean` profile**.
 
 Also validated on Sonnet 4.6 (ts 170/180 = 94.4% vs base 156/180 = 86.7%).
 
@@ -70,8 +76,8 @@ contract keeps lookup cost bounded.
 | `get_change_impact("LLMClient")` | impossible | 16K chars (154 direct + 492 transitive) | new capability |
 | `get_backward_slice(var, line)` | 130 lines | 12 lines | **−92%** |
 | `memory_index` (Layer 1) | n/a | ~15 tokens/result | Layer 1 shortlist |
-| 60-task tsbench run | 1.43 M chars | 216 k chars | **−85%** |
-| tsbench score | 67/120 (56%) | **118/120 (98%)** | **+42 pts** |
+| 90-task tsbench (Opus base→ts) | 17.2 KT active/task | 3.9 KT active/task | **−77%** |
+| tsbench score (Opus, 96 tasks) | 141/180 (78.3%) | **192/192 (100.0%)** | **+22 pts** |
 
 Full benchmark methodology and per-task results: [tsbench](https://github.com/Mibayy/tsbench).
 
