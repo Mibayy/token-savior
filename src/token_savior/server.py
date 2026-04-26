@@ -144,10 +144,14 @@ _LEAN_EXCLUDES: set[str] = {
     # for backwards compatibility but excluded from lean.
     "search_in_symbols",
     # Tool capture — agent never invokes capture_put/purge directly
-    # (hook handles that). capture_aggregate/list also rarely needed
-    # interactively. capture_get + capture_search stay visible so the
-    # agent can retrieve sandboxed outputs after compaction.
+    # (hook handles that). capture_get + capture_search were initially
+    # kept visible for post-compaction retrieval, but tsbench-26/04 showed
+    # the agent invoking capture_get to re-fetch outputs > threshold,
+    # injecting 5-30 KB back into context (cache_creation +40k on TASK-039).
+    # The capture sandbox saves nothing if the agent re-pulls everything.
+    # All capture_* tools are now lean-excluded; opt-in via TS_CAPTURE_VISIBLE=1.
     "capture_put", "capture_purge", "capture_aggregate", "capture_list",
+    "capture_get", "capture_search",
     # (discover_project_actions + run_project_action kept atomically —
     #  low volume but paired workflow would break if split.)
 }
@@ -212,14 +216,21 @@ _TINY_INCLUDES: set[str] = {
     "ts_search",
 }
 
-# `tiny_plus` = tiny + 4 tools that bench 26/04 showed agents abandon when
-# missing (tasks asking dead-code, call-chain, config orphans, git status).
-# Manifest ~2 500 tokens (vs tiny ~1 500, lean ~6 800).
+# `tiny_plus` = tiny + 9 tools that bench 26/04 showed agents abandon when
+# missing or workaround poorly. Covers nav (entry points), audit (dead-code,
+# semantic duplicates), graph (call chain), config (analyze_config), git
+# (status + breaking changes), and edit primitives (replace_symbol_source,
+# add_field_to_model). Manifest ~2.5 KT (vs tiny ~1.1 KT, lean ~7 KT).
 _TINY_PLUS_INCLUDES: set[str] = _TINY_INCLUDES | {
     "find_dead_code",
+    "find_semantic_duplicates",
     "get_call_chain",
+    "get_entry_points",
     "analyze_config",
     "get_git_status",
+    "detect_breaking_changes",
+    "add_field_to_model",
+    "replace_symbol_source",
 }
 
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
