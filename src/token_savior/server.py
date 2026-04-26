@@ -61,6 +61,7 @@ from token_savior.server_handlers import (
 from token_savior.server_handlers.code_nav import (
     _q_get_edit_context,  # noqa: F401  -- re-export for tests/test_server.py
 )
+from token_savior.server_handlers.tool_search import ts_search as _ts_search_impl
 from token_savior.server_handlers.stats import (
     _format_duration,  # noqa: F401  -- re-export for tests/test_usage_stats.py
     _format_usage_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
@@ -195,12 +196,29 @@ _ULTRA_INCLUDES: set[str] = {
     "capture_get", "capture_search",
 }
 
+# `tiny` = thin manifest with deferred-loading router. Exposes only 5 hot
+# tools + ts_search. Other tools reachable via ts_search(query=...) which
+# returns top-K matched schemas (Nomic embeddings on tool descriptions).
+# Mirrors the Tool Attention paper (arxiv 2604.21816, -95% prefix on 120
+# tools). One extra round-trip per turn for non-hot tools, but breaks
+# even after ~3 cold-start agent turns. Manifest math 2026-04-26:
+#   tiny  ( 6 tools)  ~  1 500 tokens  (-78 % vs lean post-cleanup)
+_TINY_INCLUDES: set[str] = {
+    "switch_project",
+    "find_symbol",
+    "get_function_source",
+    "get_full_context",
+    "search_codebase",
+    "ts_search",
+}
+
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "full": set(),
     "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
     "nav":  set(_MEMORY_HANDLERS) | set(_META_HANDLERS) | set(_SLOT_HANDLERS),
     "lean": _LEAN_EXCLUDES,
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
+    "tiny": set(TOOL_SCHEMAS) - _TINY_INCLUDES,
 }
 
 _PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
@@ -228,6 +246,21 @@ if os.environ.get("TS_MEMORY_DISABLE") == "1":
         "corpus_build", "corpus_query",
     }
     TOOLS = [t for t in TOOLS if t.name not in _MEMORY_GATED]
+
+# When tool-capture sandboxing is disabled (TS_CAPTURE_DISABLED=1) the
+# capture_* tools always return empty payloads but the agent still
+# discovers them in the manifest and burns turns calling capture_search /
+# capture_get on stale or empty rows. Drop the read-side capture tools
+# from the manifest in that mode (the write-side ones — capture_put,
+# capture_purge — are already lean-excluded; only capture_get and
+# capture_search remain, and both become useless when nothing is captured).
+if os.environ.get("TS_CAPTURE_DISABLED") == "1":
+    _CAPTURE_GATED = {
+        "capture_get", "capture_search",
+        "capture_aggregate", "capture_list",
+        "capture_put", "capture_purge",
+    }
+    TOOLS = [t for t in TOOLS if t.name not in _CAPTURE_GATED]
 
 if _PROFILE == "ultra":
     _hidden_catalog = ", ".join(sorted(_HIDDEN_UNDER_ULTRA))
@@ -455,6 +488,25 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
     return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 
 
+def _handle_ts_search(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Defer-loading router: cosine-sim over Nomic tool description embeddings.
+
+    Restricts scoring to currently-visible tools (honors profile + env gates)
+    so a `tiny`-profile session sees `ts_search` reach back into the ~60
+    hidden tools but cannot suggest something that's been intentionally
+    excluded (e.g. capture_* under TS_CAPTURE_DISABLED=1).
+    """
+    import json as _json
+    visible = {t.name for t in TOOLS}
+    payload = _ts_search_impl(
+        arguments.get("query") or "",
+        top_k=arguments.get("top_k", 5),
+        include_schema=arguments.get("include_schema", True),
+        visible_tools=visible,
+    )
+    return [TextContent(type="text", text=_json.dumps(payload, indent=2))]
+
+
 def _handle_ts_extended(arguments: dict[str, Any]) -> list[types.TextContent]:
     """Proxy for tools hidden under the `ultra` profile.
 
@@ -507,6 +559,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
     try:
         if name == "ts_extended":
             return _handle_ts_extended(arguments)
+        if name == "ts_search":
+            return _handle_ts_search(arguments)
         return _dispatch_tool(name, arguments, record_symbol)
 
     except Exception as e:

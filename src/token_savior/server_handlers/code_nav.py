@@ -10,6 +10,7 @@ call_tool fan-out (after _META_HANDLERS, _MEMORY_HANDLERS, _SLOT_HANDLERS).
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import json
@@ -18,6 +19,13 @@ from token_savior import memory_db
 from token_savior import server_state as state
 
 _BATCH_MAX = 10
+
+# Set TS_NO_HINTS=1 to suppress all _hints / _suggestion blocks in tool
+# results. Cuts ~30-50 tokens per tool call at the cost of removing
+# next-step routing advice (the agent must rely on its system prompt).
+# Recommended for benchmark / cold-start workloads where the prompt
+# already encodes routing rules.
+_HINTS_DISABLED = os.environ.get("TS_NO_HINTS") == "1"
 
 
 def _resolve_batch_names(args: dict[str, Any]) -> list[str] | None:
@@ -556,6 +564,8 @@ def _compact_full_context(result: dict) -> dict:
 
 def _suggest_if_empty_search(result, pattern: str):
     if isinstance(result, list) and len(result) == 0:
+        if _HINTS_DISABLED:
+            return {"matches": []}
         return {
             "matches": [],
             "_suggestion": (
@@ -569,6 +579,8 @@ def _suggest_if_empty_search(result, pattern: str):
 
 def _suggest_if_empty_dependents(result, name: str):
     if isinstance(result, list) and len(result) == 0:
+        if _HINTS_DISABLED:
+            return {"dependents": []}
         return {
             "dependents": [],
             "_suggestion": (
@@ -603,12 +615,13 @@ def _q_find_symbol(qfns, args: dict[str, Any]):
         }
     result = qfns["find_symbol"](name, level=args.get("level", 0))
     if isinstance(result, dict) and "error" in result:
-        result["_suggestion"] = (
-            f"Symbol '{name}' not found. "
-            f"Try: search_codebase('{name}') for a text search, "
-            f"or get_functions() to list all functions."
-        )
-    elif args.get("hints", True) and isinstance(result, dict):
+        if not _HINTS_DISABLED:
+            result["_suggestion"] = (
+                f"Symbol '{name}' not found. "
+                f"Try: search_codebase('{name}') for a text search, "
+                f"or get_functions() to list all functions."
+            )
+    elif args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, dict):
         result["_hints"] = _hints_for_symbol(
             result.get("name") or name, result.get("type")
         )
@@ -619,6 +632,8 @@ def _q_list_files(qfns, args: dict[str, Any]):
     pattern = args.get("pattern")
     result = qfns["list_files"](pattern, max_results=args.get("max_results", 0))
     if isinstance(result, list) and len(result) == 0 and pattern:
+        if _HINTS_DISABLED:
+            return {"files": []}
         return {
             "files": [],
             "_suggestion": (
@@ -636,7 +651,7 @@ def _q_get_functions(qfns, args: dict[str, Any]):
     result = qfns["get_functions"](
         args.get("file_path"), max_results=args.get("max_results", 100)
     )
-    if args.get("hints", True) and isinstance(result, list) and result:
+    if args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, list) and result:
         if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
             result = result + [{"_hints": _LIST_HINTS}]
     return result
@@ -646,7 +661,7 @@ def _q_get_classes(qfns, args: dict[str, Any]):
     result = qfns["get_classes"](
         args.get("file_path"), max_results=args.get("max_results", 100)
     )
-    if args.get("hints", True) and isinstance(result, list) and result:
+    if args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, list) and result:
         if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
             result = result + [{"_hints": _LIST_HINTS}]
     return result
