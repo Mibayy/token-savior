@@ -29,13 +29,33 @@ Mirrors the [Tool Attention paper](https://arxiv.org/html/2604.21816v1)
 ### New profile: `tiny`
 
 ```
-TOKEN_SAVIOR_PROFILE=tiny → 6 tools advertised, ~1 067 tokens manifest
+TOKEN_SAVIOR_PROFILE=tiny → 6 tools advertised, ~1 090 tokens manifest
 ```
 
 Exposes only `switch_project`, `find_symbol`, `get_function_source`,
 `get_full_context`, `search_codebase`, `ts_search`. Other 60+ tools are
 reachable just-in-time via `ts_search`. Adds 1 round-trip per turn for
 non-hot tool usage but cuts the manifest cost ~85 % vs `lean`.
+
+### New profile: `tiny_plus`
+
+```
+TOKEN_SAVIOR_PROFILE=tiny_plus → 10 tools advertised, ~1 592 tokens manifest
+```
+
+`tiny` + 4 tools that the 26/04 bench showed agents abandon when missing
+(`find_dead_code`, `get_call_chain`, `analyze_config`, `get_git_status`).
+Closes the score gap of `tiny` (91.7 % → 97.2 % on tsbench-90) while
+keeping the manifest under 2 K tokens.
+
+Bench tsbench-90 with Opus 4.7 / Claude Code 2.1.119:
+
+| Profile     | Tools | Manifest | Score   | Active mean | Δ vs lean  |
+|-------------|------:|---------:|---------|------------:|-----------:|
+| `tiny`      |     6 |   1.1 KT | 91.7 %  |       3 805 | -57 % active, -8.3 pp score |
+| `tiny_plus` |    10 |   1.6 KT | 97.2 %  |       6 550 | -27 % active, -2.8 pp score |
+| `ultra`     |    33 |   4.6 KT | 98.3 %  |      10 260 | +15 % active, -1.7 pp score |
+| `lean`      |    52 |   7.1 KT | 99.4 %  |      11 302 |  baseline (current degraded) |
 
 ### `TS_CAPTURE_DISABLED=1` now gates the manifest too
 

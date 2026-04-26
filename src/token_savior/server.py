@@ -212,6 +212,16 @@ _TINY_INCLUDES: set[str] = {
     "ts_search",
 }
 
+# `tiny_plus` = tiny + 4 tools that bench 26/04 showed agents abandon when
+# missing (tasks asking dead-code, call-chain, config orphans, git status).
+# Manifest ~2 500 tokens (vs tiny ~1 500, lean ~6 800).
+_TINY_PLUS_INCLUDES: set[str] = _TINY_INCLUDES | {
+    "find_dead_code",
+    "get_call_chain",
+    "analyze_config",
+    "get_git_status",
+}
+
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "full": set(),
     "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
@@ -219,6 +229,7 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "lean": _LEAN_EXCLUDES,
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
     "tiny": set(TOOL_SCHEMAS) - _TINY_INCLUDES,
+    "tiny_plus": set(TOOL_SCHEMAS) - _TINY_PLUS_INCLUDES,
 }
 
 _PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
