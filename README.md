@@ -241,6 +241,6 @@ MIT — see [LICENSE](LICENSE).
 <div align="center">
 
 **Works with any MCP-compatible AI coding tool.**
-Claude Code · Cursor · Windsurf · Cline · Continue · any custom MCP client
+Claude Code · Cursor · Codex CLI · Antigravity · Cline · Continue · Windsurf · Aider · Gemini CLI · Copilot CLI · Zed · any custom MCP client
 
 </div>

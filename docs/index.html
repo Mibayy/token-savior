@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Token Savior — we gave Claude a map of your codebase</title>
-<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 90 tasks. 25 wins, 65 ties, 0 losses. 100.0% vs 78.3%.">
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. Same 90 tasks. 25 wins, 65 ties, 0 losses. 100.0% vs 78.3%. Works with Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP client.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
@@ -243,6 +243,21 @@ section{position:relative;z-index:1}
 .btn-ghost{background:transparent;color:var(--text);border-color:var(--border2)}
 .btn-ghost:hover{border-color:var(--text)}
 
+/* ═══ COMPAT STRIP ═══ */
+.compat{padding:80px 24px 40px;text-align:center}
+.compat .kicker{display:inline-block;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:18px}
+.compat .kicker i{color:var(--cyan);font-style:normal}
+.compat h2{font-family:'Instrument Serif',serif;font-size:clamp(1.8rem,3.6vw,2.6rem);font-weight:400;letter-spacing:-.02em;line-height:1.1;margin-bottom:14px}
+.compat h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.compat-sub{color:var(--text2);max-width:580px;margin:0 auto 36px;font-size:1rem;line-height:1.6}
+.compat-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:880px;margin:0 auto}
+.compat-chip{padding:11px 18px;border:1px solid var(--border2);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text);background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.005));letter-spacing:.01em;transition:all .2s}
+.compat-chip:hover{border-color:rgba(163,230,53,.55);color:var(--lime);transform:translateY(-1px)}
+.compat-chip .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime);margin-right:9px;vertical-align:middle}
+.compat-foot{margin-top:28px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);letter-spacing:.04em}
+.compat-foot a{color:var(--text2);border-bottom:1px solid var(--border2);transition:all .2s}
+.compat-foot a:hover{color:var(--lime);border-color:var(--lime)}
+
 footer{padding:50px 24px 40px;border-top:1px solid var(--border);text-align:center}
 footer .tag{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);letter-spacing:.05em}
 footer .tag a{color:var(--text2);transition:color .2s}
@@ -339,6 +354,7 @@ footer .tag a:hover{color:var(--text)}
     <a href="#scorecard">results</a>
     <a href="#graph">the graph</a>
     <a href="#replay">replay</a>
+    <a href="#compat">works with</a>
   </div>
   <a class="nav-cta" href="https://github.com/Mibayy/token-savior" target="_blank">github ↗</a>
 </nav>
@@ -613,11 +629,33 @@ footer .tag a:hover{color:var(--text)}
   </div>
 </section>
 
+<!-- ═══ COMPAT STRIP ═══ -->
+<section class="compat" id="compat">
+  <div class="kicker"><i>◆</i> &nbsp;works with your stack &nbsp;<i>◆</i></div>
+  <h2>One MCP server.<br><em>Every coding agent.</em></h2>
+  <p class="compat-sub">Token Savior speaks the standard Model Context Protocol. Drop it into any client, keep your tools, ship a sharper agent.</p>
+  <div class="compat-grid">
+    <span class="compat-chip"><span class="dot"></span>Claude Code</span>
+    <span class="compat-chip"><span class="dot"></span>Cursor</span>
+    <span class="compat-chip"><span class="dot"></span>Codex CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Antigravity</span>
+    <span class="compat-chip"><span class="dot"></span>Cline</span>
+    <span class="compat-chip"><span class="dot"></span>Continue</span>
+    <span class="compat-chip"><span class="dot"></span>Windsurf</span>
+    <span class="compat-chip"><span class="dot"></span>Aider</span>
+    <span class="compat-chip"><span class="dot"></span>Gemini CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Copilot CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Zed</span>
+    <span class="compat-chip" style="opacity:.7"><span class="dot" style="background:var(--text3);box-shadow:none"></span>any MCP client</span>
+  </div>
+  <div class="compat-foot">via the open <a href="https://modelcontextprotocol.io" target="_blank">Model Context Protocol</a> · drop-in hooks for <a href="https://github.com/Mibayy/token-savior/tree/main/hooks" target="_blank">Codex · Cursor · Gemini</a></div>
+</section>
+
 <!-- ═══ CTA ═══ -->
 <section class="cta">
   <div class="cta-wrap">
     <h2>Stop guessing.<br><em>Give your agent the map.</em></h2>
-    <p>Token Savior is an open MCP server. Point it at your repo, wire it into Claude Code, ship a better agent this afternoon.</p>
+    <p>Token Savior is an open MCP server. Point it at your repo, wire it into Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP-compatible client. Ship a better agent this afternoon.</p>
     <div class="cta-buttons">
       <a class="btn btn-primary" href="https://github.com/Mibayy/token-savior" target="_blank">get token savior ↗</a>
       <a class="btn btn-ghost" href="#replay">replay the benchmark</a>
@@ -626,7 +664,7 @@ footer .tag a:hover{color:var(--text)}
 </section>
 
 <footer>
-  <div class="tag">tsbench · 90 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · April 2026</div>
+  <div class="tag">tsbench · 90 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · re-verified 2026-04-25 · MCP-compatible</div>
 </footer>
 
 
