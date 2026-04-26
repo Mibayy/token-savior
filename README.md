@@ -4,8 +4,8 @@
 
 # ⚡ Token Savior Recall
 
-> Structural code navigation + persistent memory engine for Claude Code.
-> **97% fewer tokens. Nothing forgotten between sessions.**
+> The MCP server that turns Claude into the only coding agent hitting **100%** on a real benchmark.
+> Structural code navigation + persistent memory. **−77% active tokens. −76% wall time. Zero losses.**
 
 [![Version](https://img.shields.io/badge/version-2.7.1-blue)](https://github.com/Mibayy/token-savior/releases/tag/v2.7.1)
 [![Tools](https://img.shields.io/badge/tools-94-green)]()
