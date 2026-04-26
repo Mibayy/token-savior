@@ -202,11 +202,77 @@ keeping handlers live.
 
 | Profile | Advertised | ~Tokens | Use case |
 |---------|-----------:|--------:|----------|
-| `full` *(default)* | 106 | ~10 950 | All capabilities |
+| `full` *(default)* | 67  | ~8 770  | All capabilities |
 | `core`             | 54  | ~5 800  | Daily coding, no memory engine |
 | `nav`              | 28  | ~3 100  | Read-only exploration |
-| `lean`             | 59  | ~6 620  | Memory engine off — used in tsbench v2 |
-| `ultra`            | 17  | ~2 740  | Hot tools only + `ts_extended` meta-tool for lazy discovery |
+| `lean`             | 52  | ~6 940  | Memory engine off — used in tsbench v2 |
+| `ultra`            | 31  | ~4 250  | Hot tools + `ts_extended` meta-tool |
+| `tiny` *(new)*     |  6  | ~1 070  | Defer-loading via `ts_search` (Tool Attention pattern) |
+
+### Bench-mode env vars
+
+For benchmark / cold-start workloads where memory and capture sandboxing
+add no value, pair the profile with these env vars:
+
+```bash
+export TOKEN_SAVIOR_PROFILE=lean      # or 'tiny' for max trim
+export TS_MEMORY_DISABLE=1            # hide memory_* (-300 t)
+export TS_CAPTURE_DISABLED=1          # hide capture_*, skip PostToolUse hook
+export TS_HOOK_MINIMAL=1              # SessionStart emits Memory Index only
+export TS_NO_HINTS=1                  # drop _hints / _suggestion (~30-50 t/call)
+```
+
+Measured on tsbench (90 tasks, Claude Opus 4.7):
+
+| Configuration                                  | Active tokens / task | Score   |
+| ---------------------------------------------- | -------------------: | :-----: |
+| Plain agent (Read/Grep/Bash, no Token Savior)  |              17 221  | 78.3 %  |
+| `lean` profile (default since v2.9)            |               8 928  | 100.0 % |
+| `lean` + the 5 env vars above                  |              ~5 500  | 100.0 % |
+
+### Defer-loading via `ts_search`
+
+When the manifest budget is the bottleneck, the new `tiny` profile
+exposes only 6 tools (`switch_project`, `find_symbol`,
+`get_function_source`, `get_full_context`, `search_codebase`,
+`ts_search`). Other ~60 tools are reachable just-in-time via:
+
+```python
+ts_search(query="find dependents of update_user", top_k=5)
+# → {"matched_tools": [{"name": "get_dependents", "score": 0.68, ...}, ...]}
+```
+
+Embeddings (Nomic 768d) score every tool description against the query;
+top-K candidates come back with their full inputSchema so the next turn
+can call them directly. Mirrors the
+[Tool Attention paper](https://arxiv.org/html/2604.21816v1)
+(47.3k → 2.4k tokens / turn at 120 tools, −95 % prefix).
+
+### Anthropic API users — pair with native context management
+
+For long agent loops, combine Token Savior with Anthropic's native
+context primitives (Claude API ≥ 2025-09-19):
+
+```python
+client = anthropic.Anthropic(default_headers={
+    "anthropic-beta": "context-management-2025-06-27,clear-tool-uses-2025-09-19",
+})
+resp = client.messages.create(
+    model="claude-opus-4-7",
+    context_management={"edits": [{
+        "type": "clear_tool_uses_20250919",
+        "trigger": {"type": "input_tokens", "value": 30_000},
+        "keep": {"type": "tool_uses", "value": 4},
+        "exclude_tools": ["replace_symbol_source", "edit_lines_in_symbol"],
+    }]},
+    tools=[...],
+    messages=[...],
+)
+```
+
+Anthropic's
+[cookbook](https://platform.claude.com/cookbook/tool-use-context-engineering-context-engineering-tools)
+measures **−48 % peak context** with clearing alone on long agent loops.
 
 ---
 

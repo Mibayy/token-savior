@@ -1165,5 +1165,31 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "additionalProperties": True,
         },
     },
-
+    # ── Defer-loading router (lets thin manifests pull tool schemas just-in-time) ──
+    "ts_search": {
+        "description": (
+            "Find the top-K Token Savior tools most relevant to a natural-language "
+            "query via embedding cosine similarity. Use when the manifest is in 'tiny' "
+            "profile or you don't know which tool fits. Returns each candidate with "
+            "its full inputSchema so the next turn can call it directly."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language description of what you need (e.g. 'find dependents of update_user').",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many tool candidates to return (default 5, max 12).",
+                },
+                "include_schema": {
+                    "type": "boolean",
+                    "description": "If false, drop inputSchema from the response (smaller payload).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 }

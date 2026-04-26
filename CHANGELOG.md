@@ -1,5 +1,79 @@
 # Changelog
 
+## v2.9.0 — Defer-loading via ts_search + capture/hints gating (2026-04-26)
+
+Three additive optimizations targeting agent-side token cost. All changes
+are opt-in via env var or new profile; default behavior is unchanged.
+
+### `ts_search` defer-loading router (new tool)
+
+Embedding-based tool routing for thin manifests. The agent passes a
+natural-language query and gets the top-K Token Savior tools back —
+including each one's full `inputSchema`, ready for the next turn.
+
+```python
+ts_search(query="find dependents of update_user", top_k=5)
+# → {"matched_tools": [{"name": "get_dependents", "score": 0.68, ...}, ...]}
+```
+
+Implementation: cosine similarity over Nomic 768d embeddings of every
+TOOL_SCHEMAS entry, computed once and cached in process memory (~200 KB).
+Falls back to substring overlap if `VECTOR_SEARCH_AVAILABLE=False`. The
+candidate pool is restricted to currently-visible tools, so a `tiny`
+session can reach back into the ~60 hidden tools without breaking
+profile/env-var gating.
+
+Mirrors the [Tool Attention paper](https://arxiv.org/html/2604.21816v1)
+(47.3k → 2.4k tokens / turn at 120 tools, −95 % prefix).
+
+### New profile: `tiny`
+
+```
+TOKEN_SAVIOR_PROFILE=tiny → 6 tools advertised, ~1 067 tokens manifest
+```
+
+Exposes only `switch_project`, `find_symbol`, `get_function_source`,
+`get_full_context`, `search_codebase`, `ts_search`. Other 60+ tools are
+reachable just-in-time via `ts_search`. Adds 1 round-trip per turn for
+non-hot tool usage but cuts the manifest cost ~85 % vs `lean`.
+
+### `TS_CAPTURE_DISABLED=1` now gates the manifest too
+
+Previously the env var only short-circuited the PostToolUse hook. The
+agent still discovered `capture_get` / `capture_search` / `capture_*` in
+the manifest and burned turns calling them on an empty sandbox table.
+
+Now the server drops all 6 capture tools from `tools/list` when the env
+var is set. Measured impact: the regression from 11 070 → 15 915 active
+mean tokens observed on 2026-04-26 morning (TASK-039 alone went from
+9 913 → 56 479) is fully recovered.
+
+### `TS_NO_HINTS=1` suppresses `_hints` / `_suggestion` blocks
+
+Six injection sites in `code_nav.py` (all empty-result fallbacks plus
+the next-step routing hints attached to `find_symbol` / `get_functions`
+/ `get_classes`) become no-ops. Saves 30–50 tokens per tool result.
+On a 96-task tsbench run with avg 2.5 tool calls/task, that's ~7-12 KB
+cumulative cache_creation.
+
+### Empirical impact (tsbench, 90 tasks, Claude Opus 4.7)
+
+| Configuration                                          | Active mean | Score  |
+| ------------------------------------------------------ | ----------: | :----: |
+| Plain agent (Read/Grep/Bash, baseline)                 |     17 221  | 78.3 % |
+| `lean` profile (default since v2.9)                    |      8 928  | 100 %  |
+| `lean` + `TS_*_DISABLE` + `TS_NO_HINTS`                |     ~5 500  | 100 %  |
+| `tiny` + `TS_*_DISABLE` (defer-loading via ts_search)  |   *TBD*     | *TBD*  |
+
+### Internal
+
+- `src/token_savior/server_handlers/tool_search.py` (new, 140 lines)
+- `src/token_savior/server.py`: `ts_search` dispatch, `_TINY_INCLUDES`,
+  `_CAPTURE_GATED` filter
+- `src/token_savior/server_handlers/code_nav.py`: `_HINTS_DISABLED`
+  guard at 6 injection sites
+- `src/token_savior/tool_schemas.py`: `ts_search` schema entry
+
 ## v2.8.4 — Fail-loud on memory-hook errors (closes #15) (2026-04-23)
 
 Non-breaking. The 6 memory hooks (`hooks/memory-*.sh`) used to pipe
