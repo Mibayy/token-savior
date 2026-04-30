@@ -62,7 +62,10 @@ def test_nav_profile_is_subset_of_core(monkeypatch):
     srv_nav = _reload_with_profile(monkeypatch, "nav")
     nav_names = {t.name for t in srv_nav.TOOLS}
     assert nav_names < core_names
-    assert nav_names == set(QFN_HANDLERS)
+    # nav = QFN handlers + ts_search (the discovery tool sits outside the
+    # handler groups but is intentionally exposed in nav so a stripped
+    # session can still reach hidden tools).
+    assert nav_names == set(QFN_HANDLERS) | {"ts_search"}
 
 
 def test_invalid_profile_falls_back_to_full(monkeypatch, capsys):

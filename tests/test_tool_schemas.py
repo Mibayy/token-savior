@@ -78,7 +78,9 @@ class TestToolSchemas:
         #   distill / dedup_sweep / roi_gc / roi_stats / from_bash / set_global
         #   collapsed into a single memory_admin(op=...) dispatcher) = 65.
         # +1 memory_admin (the fusion itself) = 66.
-        assert len(TOOL_SCHEMAS) == 66, f"Expected 66 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 ts_search (v2.9 defer-loading discovery tool — exposed as a
+        #   schema entry so it appears in lean/nav manifests) = 67.
+        assert len(TOOL_SCHEMAS) == 67, f"Expected 67 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
