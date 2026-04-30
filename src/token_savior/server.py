@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import traceback
 from typing import Any
 
@@ -574,18 +575,45 @@ def _handle_ts_extended(arguments: dict[str, Any]) -> list[types.TextContent]:
     )]
 
 
+# Request lifecycle logging is opt-in via TOKEN_SAVIOR_TRACE=1.
+# Issue #27: gives operators (especially on Windows where MCP requests
+# can hang or abort) a way to see start / dispatch / complete events
+# without enabling the full debug logger.
+_TRACE_REQUESTS = os.environ.get("TOKEN_SAVIOR_TRACE", "").lower() in ("1", "true", "yes")
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+
+    start = time.monotonic() if _TRACE_REQUESTS else 0.0
+    if _TRACE_REQUESTS:
+        print(f"[token-savior] -> call {name}", file=sys.stderr, flush=True)
 
     record_symbol = _track_call(name, arguments)
     try:
         if name == "ts_extended":
-            return _handle_ts_extended(arguments)
-        if name == "ts_search":
-            return _handle_ts_search(arguments)
-        return _dispatch_tool(name, arguments, record_symbol)
+            result = _handle_ts_extended(arguments)
+        elif name == "ts_search":
+            result = _handle_ts_search(arguments)
+        else:
+            result = _dispatch_tool(name, arguments, record_symbol)
+        if _TRACE_REQUESTS:
+            elapsed_ms = (time.monotonic() - start) * 1000.0
+            print(
+                f"[token-savior] <- ok   {name} ({elapsed_ms:.0f}ms)",
+                file=sys.stderr,
+                flush=True,
+            )
+        return result
 
     except Exception as e:
+        if _TRACE_REQUESTS:
+            elapsed_ms = (time.monotonic() - start) * 1000.0
+            print(
+                f"[token-savior] <- err  {name} ({elapsed_ms:.0f}ms) {type(e).__name__}: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
         print(f"[token-savior] Error in {name}: {traceback.format_exc()}", file=sys.stderr)
         return [TextContent(type="text", text=f"Error: {e}")]
 
@@ -596,8 +624,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
 
 async def main():
+    if _TRACE_REQUESTS:
+        print("[token-savior] startup: running memory migrations", file=sys.stderr, flush=True)
     memory_db.run_migrations()
+    if _TRACE_REQUESTS:
+        print("[token-savior] startup: opening stdio transport", file=sys.stderr, flush=True)
     async with stdio_server() as (read_stream, write_stream):
+        if _TRACE_REQUESTS:
+            print("[token-savior] startup: server.run loop entered", file=sys.stderr, flush=True)
         await server.run(
             read_stream,
             write_stream,

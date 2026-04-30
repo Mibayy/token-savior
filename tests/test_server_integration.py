@@ -214,3 +214,52 @@ class TestSessionResultCache:
             assert s._src_hits == hits_before
         finally:
             _cleanup_slot(root)
+
+
+class TestRequestTracing:
+    """Coverage for issue #27: TOKEN_SAVIOR_TRACE=1 emits stderr lifecycle
+    events around every MCP tool call so users on platforms with timing-
+    sensitive transports (Windows stdio, slow bridges) can correlate hangs
+    with concrete request boundaries."""
+
+    def test_trace_disabled_by_default_emits_nothing(self, tmp_path, capsys, monkeypatch):
+        # Force a clean reload of the module-level _TRACE_REQUESTS flag.
+        monkeypatch.delenv("TOKEN_SAVIOR_TRACE", raising=False)
+        import importlib
+        from token_savior import server as srv
+
+        importlib.reload(srv)
+
+        root = _setup_project(tmp_path)
+        try:
+            _run(srv.call_tool("set_project_root", {"path": root}))
+            _run(srv.call_tool("find_symbol", {"name": "hello"}))
+        finally:
+            _cleanup_slot(root)
+
+        err = capsys.readouterr().err
+        assert "[token-savior] -> call" not in err
+        assert "[token-savior] <- ok" not in err
+
+    def test_trace_enabled_logs_start_and_complete(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setenv("TOKEN_SAVIOR_TRACE", "1")
+        import importlib
+        from token_savior import server as srv
+
+        importlib.reload(srv)
+
+        root = _setup_project(tmp_path)
+        try:
+            _run(srv.call_tool("set_project_root", {"path": root}))
+            _run(srv.call_tool("find_symbol", {"name": "hello"}))
+        finally:
+            _cleanup_slot(root)
+            # Reset module so other tests don't see TRACE behaviour.
+            monkeypatch.delenv("TOKEN_SAVIOR_TRACE", raising=False)
+            importlib.reload(srv)
+
+        err = capsys.readouterr().err
+        assert "[token-savior] -> call set_project_root" in err
+        assert "[token-savior] <- ok   set_project_root" in err
+        assert "[token-savior] -> call find_symbol" in err
+        assert "[token-savior] <- ok   find_symbol" in err
