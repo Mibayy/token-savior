@@ -292,7 +292,16 @@ class ProjectIndexer:
             except (OSError, UnicodeDecodeError) as e:
                 logger.warning("Skipping %s: %s", rel_path, e)
                 return None
-            metadata = annotate(source, source_name=rel_path)
+            try:
+                metadata = annotate(source, source_name=rel_path)
+            except Exception as e:
+                logger.warning(
+                    "Annotator failed on %s (%s: %s); skipping symbols for this file",
+                    rel_path,
+                    type(e).__name__,
+                    e,
+                )
+                return None
             fill_hashes(metadata, source.splitlines())
             return rel_path, metadata, mtime
 
@@ -427,7 +436,21 @@ class ProjectIndexer:
                 _rebuild_path_indexes(idx)
             return
 
-        metadata = annotate(source, source_name=rel_path)
+        try:
+            metadata = annotate(source, source_name=rel_path)
+        except Exception as e:
+            logger.warning(
+                "Annotator failed on %s (%s: %s); dropping from index",
+                rel_path,
+                type(e).__name__,
+                e,
+            )
+            if rel_path in idx.files:
+                del idx.files[rel_path]
+                idx.file_mtimes.pop(rel_path, None)
+                idx.total_files = len(idx.files)
+                _rebuild_path_indexes(idx)
+            return
         fill_hashes(metadata, source.splitlines())
 
         # Symbol-level diffing: count what actually changed vs the old hashes.

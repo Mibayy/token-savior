@@ -656,6 +656,112 @@ class TestGoProject:
         assert "App.Run" in idx.symbol_table
 
 
+@pytest.fixture
+def java_project(tmp_path):
+    """Create a small Java project for end-to-end indexer regression tests."""
+    root = tmp_path / "javaproject"
+    pkg = root / "src" / "main" / "java" / "com" / "example"
+    pkg.mkdir(parents=True)
+
+    (pkg / "Calculator.java").write_text(
+        textwrap.dedent("""\
+        package com.example;
+
+        import java.util.ArrayList;
+        import java.util.List;
+
+        /** A toy calculator. */
+        public class Calculator {
+            private final List<Integer> history = new ArrayList<>();
+
+            public int add(int a, int b) {
+                int result = a + b;
+                history.add(result);
+                return result;
+            }
+
+            public int sub(int a, int b) {
+                return a - b;
+            }
+        }
+        """)
+    )
+
+    (pkg / "Main.java").write_text(
+        textwrap.dedent("""\
+        package com.example;
+
+        public class Main {
+            public static void main(String[] args) {
+                Calculator c = new Calculator();
+                System.out.println(c.add(1, 2));
+            }
+        }
+        """)
+    )
+
+    return root
+
+
+class TestJavaProject:
+    """Regression coverage for issue #26: default Java indexing must work
+    end-to-end through the public ProjectIndexer entry point with no
+    explicit include_patterns override."""
+
+    def test_default_include_patterns_pick_up_java(self, java_project):
+        # No include_patterns override: must rely on the indexer defaults.
+        idx = ProjectIndexer(str(java_project)).index()
+        java_files = [f for f in idx.files if f.endswith(".java")]
+        assert len(java_files) == 2
+
+    def test_default_indexer_dispatches_java_to_annotator(self, java_project):
+        idx = ProjectIndexer(str(java_project)).index()
+        # If .java were not dispatched to annotate_java, both files would
+        # fall through to the generic line-only annotator and produce
+        # zero functions / zero classes.
+        assert idx.total_functions >= 3  # add, sub, main
+        assert idx.total_classes >= 2  # Calculator, Main
+
+    def test_java_symbols_in_global_table(self, java_project):
+        idx = ProjectIndexer(str(java_project)).index()
+        assert "Calculator" in idx.symbol_table
+        assert "Main" in idx.symbol_table
+        assert "Calculator.add" in idx.symbol_table
+        assert "Calculator.sub" in idx.symbol_table
+
+
+class TestAnnotatorResilience:
+    """Regression coverage for issue #26: a single broken annotator call
+    must not abort the whole index — only that file should be skipped."""
+
+    def test_annotator_failure_skips_file_but_continues_index(
+        self, tmp_path, monkeypatch
+    ):
+        # Lay out a project with one .py and one .java file.
+        (tmp_path / "ok.py").write_text("def good():\n    return 1\n")
+        (tmp_path / "boom.java").write_text("class Boom {}\n")
+
+        from token_savior import project_indexer as pi
+
+        real_annotate = pi.annotate
+
+        def flaky_annotate(text, source_name="<source>", file_type=None):
+            if source_name.endswith(".java"):
+                raise RuntimeError("synthetic annotator failure")
+            return real_annotate(text, source_name, file_type)
+
+        monkeypatch.setattr(pi, "annotate", flaky_annotate)
+
+        idx = ProjectIndexer(str(tmp_path)).index()
+
+        # The Python file is still indexed, the Java file is dropped silently.
+        py_files = [f for f in idx.files if f.endswith(".py")]
+        java_files = [f for f in idx.files if f.endswith(".java")]
+        assert len(py_files) == 1
+        assert len(java_files) == 0
+        assert "good" in idx.symbol_table
+
+
 class TestRustProject:
     def test_discovers_rust_files(self, rust_project):
         indexer = ProjectIndexer(
