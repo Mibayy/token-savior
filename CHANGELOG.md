@@ -1,5 +1,53 @@
 # Changelog
 
+## v3.0.0 — PyPI catch-up release (2026-04-30)
+
+First PyPI release since v2.6.0 (2026-04-20). Bundles every accumulated
+change from v2.7.0 through today onto the index. PyPI users on
+`pip install token-savior-recall` jumping from v2.6.0 will see:
+
+### Highlights since v2.6.0
+
+- **Bench-driven optimization passes (v2.7.0 / v2.7.1)** — 14
+  description/manifest tweaks; mean −13 % active tokens.
+- **Audit & telemetry (v2.8.0)** — `audit_file`, watcher, telemetry
+  groundwork.
+- **Stability (v2.8.1 → v2.8.4)** — USE WHEN / NOT WHEN tool
+  descriptions, root-level `_matches_include_patterns` fix,
+  fail-loud memory hooks.
+- **Defer-loading via `ts_search` + tiny / tiny_plus profiles
+  (v2.9.0)** — embedding-based tool routing for thin manifests
+  (~1.6 KT for `tiny_plus`, ~85 % manifest cost cut vs `lean`).
+- **`get_feature_files` + v3 ergonomics groundwork.**
+
+### New in v3.0.0 itself
+
+- **Issue #26 — Java indexing resilience.** `_annotate_file` and
+  `reindex_file` now wrap the dispatcher's `annotate(...)` call in
+  an explicit `Exception` handler so a single bad file (parse glitch,
+  encoding edge case, missing tree-sitter binding) is logged and
+  skipped instead of poisoning the whole index. Adds `TestJavaProject`
+  (default `include_patterns` end-to-end) and `TestAnnotatorResilience`
+  regression coverage.
+- **Issue #27 — MCP request lifecycle logging.** Opt-in
+  `TOKEN_SAVIOR_TRACE=1` emits `-> call <name>` /
+  `<- ok / err <name> (Nms)` on every `call_tool` invocation, plus
+  three startup checkpoints (migrations, stdio open, server.run loop
+  entered). Default behaviour unchanged. Helps localise the Windows
+  `AbortError` class of issues by giving operators concrete request
+  boundaries in stderr.
+- **Test-suite bookkeeping.** `test_tool_count` and
+  `test_nav_profile_is_subset_of_core` updated for the v2.9 `ts_search`
+  addition (66 → 67 tools, `ts_search` legitimately exposed under
+  `nav`).
+
+### Compatibility
+
+No deprecations or removals. Drop-in upgrade from any v2.x — including
+the v2.6.0 snapshot still on PyPI before this release.
+
+---
+
 ## v2.9.0 — Defer-loading via ts_search + capture/hints gating (2026-04-26)
 
 Three additive optimizations targeting agent-side token cost. All changes
