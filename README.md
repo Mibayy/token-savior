@@ -8,8 +8,8 @@
 > Structural code navigation + persistent memory. **−77% active tokens. −76% wall time. Zero losses.**
 
 [![Version](https://img.shields.io/badge/version-3.0.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v3.0.0)
-[![Tools](https://img.shields.io/badge/tools-94-green)]()
-[![Tests](https://img.shields.io/badge/tests-1360%2F1360-brightgreen)]()
+[![Tools](https://img.shields.io/badge/tools-67-green)]()
+[![Tests](https://img.shields.io/badge/tests-1451%2F1451-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(192%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
