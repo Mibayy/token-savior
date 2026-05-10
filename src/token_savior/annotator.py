@@ -9,6 +9,7 @@ from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
 from token_savior.gradle_annotator import annotate_gradle
 from token_savior.hcl_annotator import annotate_hcl
+from token_savior.html_annotator import annotate_html
 from token_savior.ini_annotator import annotate_ini
 from token_savior.java_annotator import annotate_java
 from token_savior.json_annotator import annotate_json
@@ -20,6 +21,7 @@ from token_savior.rust_annotator import annotate_rust
 from token_savior.text_annotator import annotate_text
 from token_savior.toml_annotator import annotate_toml
 from token_savior.typescript_annotator import annotate_typescript
+from token_savior.vue_annotator import annotate_vue
 from token_savior.xml_annotator import annotate_xml
 from token_savior.yaml_annotator import annotate_yaml
 
@@ -39,6 +41,9 @@ _EXTENSION_MAP: dict[str, str] = {
     ".tsx": "typescript",
     ".js": "javascript",
     ".jsx": "javascript",
+    ".html": "html",
+    ".htm": "html",
+    ".vue": "vue",
     ".go": "go",
     ".rb": "ruby",
     ".rs": "rust",
@@ -61,6 +66,20 @@ _EXTENSION_MAP: dict[str, str] = {
     ".tf": "hcl",
     ".conf": "conf",
     ".prisma": "prisma",
+    ".sql": "conf",
+    ".sh": "conf",
+    ".bash": "conf",
+    ".zsh": "conf",
+    ".ps1": "conf",
+    ".puml": "text",
+    ".plantuml": "text",
+    ".csproj": "xml",
+    ".fsproj": "xml",
+    ".vbproj": "xml",
+    ".sln": "text",
+    ".http": "conf",
+    ".rest": "conf",
+    ".g4": "text",
 }
 
 
@@ -70,8 +89,10 @@ _ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "text": annotate_text,
     "typescript": annotate_typescript,
     "javascript": annotate_typescript,
+    "vue": annotate_vue,
     "go": annotate_go,
     "gradle": annotate_gradle,
+    "html": annotate_html,
     "ruby": annotate_ruby,
     "rust": annotate_rust,
     "csharp": annotate_csharp,

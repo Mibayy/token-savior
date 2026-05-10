@@ -730,6 +730,60 @@ class TestJavaProject:
         assert "Calculator.sub" in idx.symbol_table
 
 
+class TestVueNuxtProject:
+    def test_default_indexer_picks_up_vue_files(self, tmp_path):
+        (tmp_path / "pages").mkdir()
+        (tmp_path / "components").mkdir()
+        (tmp_path / "pages" / "index.vue").write_text(
+            "<template><WidgetCard /></template>\n"
+            "<script setup lang=\"ts\">\n"
+            "import WidgetCard from '../components/WidgetCard.vue';\n"
+            "const loadPage = async () => {\n"
+            "  return true;\n"
+            "};\n"
+            "</script>\n"
+        )
+        (tmp_path / "components" / "WidgetCard.vue").write_text(
+            "<template><article /></template>\n"
+            "<script setup>\n"
+            "export function useWidget() {\n"
+            "  return 'widget';\n"
+            "}\n"
+            "</script>\n"
+        )
+
+        idx = ProjectIndexer(str(tmp_path)).index()
+
+        assert "pages/index.vue" in idx.files
+        assert "components/WidgetCard.vue" in idx.files
+        assert "loadPage" in idx.symbol_table
+        assert "useWidget" in idx.symbol_table
+        assert idx.import_graph["pages/index.vue"] == {"components/WidgetCard.vue"}
+
+
+class TestProjectArtifactCoverage:
+    def test_default_indexer_picks_up_common_project_artifacts(self, tmp_path):
+        files = {
+            "database/migrations/001_init.sql": "CREATE TABLE work_item (id uuid PRIMARY KEY);",
+            "scripts/setup.sh": "#!/usr/bin/env bash\nset -euo pipefail\n",
+            "scripts/setup-statusline.ps1": "Write-Host 'setup'\n",
+            "docs/system-overview.puml": "@startuml\nAlice -> Bob: hello\n@enduml\n",
+            "src/App/App.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n",
+            "src/App.sln": "Microsoft Visual Studio Solution File, Format Version 12.00\n",
+            "src/App/App.http": "GET http://localhost:5000/health\n",
+            "grammar/PlantUMLState.g4": "grammar PlantUMLState;\nstate: ID;\n",
+        }
+        for rel_path, content in files.items():
+            path = tmp_path / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+        idx = ProjectIndexer(str(tmp_path)).index()
+
+        for rel_path in files:
+            assert rel_path in idx.files
+
+
 class TestAnnotatorResilience:
     """Regression coverage for issue #26: a single broken annotator call
     must not abort the whole index — only that file should be skipped."""
