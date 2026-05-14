@@ -11,8 +11,8 @@ WINDOW_END="2026-05-06 12:00:00"
 OUT_DIR="/root/.claude/projects/-root/memory"
 OUT_FILE="$OUT_DIR/ts-latency-baseline-20260506.md"
 RAW_LOG="/tmp/ts-trace-window.log"
-TG_TOKEN="***REMOVED-SECRET***"
-TG_CHAT="1294356923"
+TG_TOKEN="${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN env var required}"
+TG_CHAT="${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID env var required}"
 
 # 1. Extract trace lines from journal
 journalctl --since "$WINDOW_START" --until "$WINDOW_END" --no-pager 2>/dev/null \
