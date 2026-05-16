@@ -18,7 +18,7 @@ Flow when enabled:
 Env:
     TS_AUTO_EXTRACT=1                       — master switch (required)
     TS_API_KEY=...                          — Anthropic API key (required)
-    TS_MODEL=claude-haiku-4-5-20251001      — override default model
+    TS_MODEL=claude-sonnet-4-6              — override default model
 
 Dedup is handled downstream by ``content_hash`` (P2); extracting the
 same obs twice collapses to a single row.
@@ -36,7 +36,7 @@ ENV_ENABLED = "TS_AUTO_EXTRACT"
 ENV_API_KEY = "TS_API_KEY"
 ENV_MODEL = "TS_MODEL"
 
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 MAX_OBS_PER_CALL = 3
 MAX_OUTPUT_CHARS = 2000
 VALID_TYPES = {

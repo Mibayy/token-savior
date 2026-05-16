@@ -375,7 +375,6 @@ footer .tag a:hover{color:var(--text)}
           <div class="cp-hint">Read · Grep · Bash</div>
         </div>
         <div class="cp-buttons">
-          <button class="cp-btn" data-side="left" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku 4.5</button>
           <button class="cp-btn" data-side="left" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
           <button class="cp-btn active" data-side="left" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
         </div>
@@ -387,7 +386,6 @@ footer .tag a:hover{color:var(--text)}
           <div class="cp-hint">+ 59 structural MCP tools</div>
         </div>
         <div class="cp-buttons">
-          <button class="cp-btn" data-side="right" data-model="haiku"  role="tab"><span class="cp-dot empty"></span>Haiku 4.5</button>
           <button class="cp-btn" data-side="right" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
           <button class="cp-btn active" data-side="right" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
         </div>
@@ -823,8 +821,8 @@ let leftModel = 'opus';
 let rightModel = 'opus';
 let TASKDATA = [];
 
-const MODEL_LABEL = { haiku:'Haiku 4.5', sonnet:'Sonnet 4.6', opus:'Opus 4.7' };
-const MODEL_LABEL_FULL = { haiku:'Claude Haiku 4.5', sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
+const MODEL_LABEL = { sonnet:'Sonnet 4.6', opus:'Opus 4.7' };
+const MODEL_LABEL_FULL = { sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
 const CATS = ['navigation','code_review','refactoring','audit','config_infra','bug_fixing','explanation','git','code_generation','writing_tests','documentation'];
 const CAT_LABEL = {
   navigation:'navigation', code_review:'code review', refactoring:'refactoring',
@@ -1779,7 +1777,7 @@ async function init(){
     return;
   }
   // default: most complete model for each side
-  const priority = ['opus','sonnet','haiku'];
+  const priority = ['opus','sonnet'];
   leftModel  = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>=90)) || priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>0)) || 'opus';
   rightModel = priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>=90))   || priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>0))   || 'opus';
 

@@ -33,22 +33,6 @@
       "run_letter": "B",
       "source_dir": "raw-sonnet-ts",
       "tasks_covered": 90
-    },
-    {
-      "id": "haiku-base",
-      "model": "claude-haiku-4-5-20251001",
-      "mode": "base",
-      "run_letter": "A",
-      "source_dir": "raw-haiku-base",
-      "tasks_covered": 90
-    },
-    {
-      "id": "haiku-ts",
-      "model": "claude-haiku-4-5-20251001",
-      "mode": "ts",
-      "run_letter": "B",
-      "source_dir": "raw-haiku-ts",
-      "tasks_covered": 90
     }
   ],
   "tasks": {
@@ -57,7 +41,7 @@
       "difficulty": "easy",
       "scoring": "exact_match",
       "slug": "find-function",
-      "prompt": "Dans ce projet, où est définie la fonction utilitaire `lonely_util` ? Donne-moi le fichier et la ligne.",
+      "prompt": "Dans ce projet, o\u00f9 est d\u00e9finie la fonction utilitaire `lonely_util` ? Donne-moi le fichier et la ligne.",
       "results": {
         "opus-base": {
           "active_tokens": 46748,
@@ -98,28 +82,6 @@
           "turns": 2,
           "tool_calls": 1,
           "wall_time_seconds": 15.57,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 61
-        },
-        "haiku-base": {
-          "active_tokens": 34442,
-          "total_tokens": 101082,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 12.18,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 915
-        },
-        "haiku-ts": {
-          "active_tokens": 13260,
-          "total_tokens": 90038,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 20.67,
           "score": 2,
           "max_score": 2,
           "error": null,
@@ -177,28 +139,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 3254
-        },
-        "haiku-base": {
-          "active_tokens": 11435,
-          "total_tokens": 68898,
-          "turns": 5,
-          "tool_calls": 2,
-          "wall_time_seconds": 12.66,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3303
-        },
-        "haiku-ts": {
-          "active_tokens": 15144,
-          "total_tokens": 137389,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 21.39,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 4026
         }
       }
     },
@@ -207,7 +147,7 @@
       "difficulty": "easy",
       "scoring": "exact_match",
       "slug": "find-schema-field",
-      "prompt": "Dans quelle table et quelle colonne est stocké le rôle d'un membre d'association ? Donne le fichier de schéma.",
+      "prompt": "Dans quelle table et quelle colonne est stock\u00e9 le r\u00f4le d'un membre d'association ? Donne le fichier de sch\u00e9ma.",
       "results": {
         "opus-base": {
           "active_tokens": 14582,
@@ -252,28 +192,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1581
-        },
-        "haiku-base": {
-          "active_tokens": 10316,
-          "total_tokens": 67795,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 12.69,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1223
-        },
-        "haiku-ts": {
-          "active_tokens": 15136,
-          "total_tokens": 137079,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 26.76,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3395
         }
       }
     },
@@ -327,28 +245,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 494
-        },
-        "haiku-base": {
-          "active_tokens": 11149,
-          "total_tokens": 102354,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 18.43,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 566
-        },
-        "haiku-ts": {
-          "active_tokens": 14719,
-          "total_tokens": 91486,
-          "turns": 5,
-          "tool_calls": 2,
-          "wall_time_seconds": 27.5,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1293
         }
       }
     },
@@ -357,7 +253,7 @@
       "difficulty": "easy",
       "scoring": "set_match_strict",
       "slug": "callers-exhaustive-1",
-      "prompt": "Donne-moi la liste complète et exhaustive des fichiers qui appellent la fonction `lonely_util`. Je veux tous les call sites, pas un échantillon.",
+      "prompt": "Donne-moi la liste compl\u00e8te et exhaustive des fichiers qui appellent la fonction `lonely_util`. Je veux tous les call sites, pas un \u00e9chantillon.",
       "results": {
         "opus-base": {
           "active_tokens": 14699,
@@ -398,28 +294,6 @@
           "turns": 3,
           "tool_calls": 1,
           "wall_time_seconds": 15.24,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 98
-        },
-        "haiku-base": {
-          "active_tokens": 19409,
-          "total_tokens": 101295,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 15.37,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 226
-        },
-        "haiku-ts": {
-          "active_tokens": 13890,
-          "total_tokens": 90676,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 21.15,
           "score": 2,
           "max_score": 2,
           "error": null,
@@ -477,28 +351,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 120
-        },
-        "haiku-base": {
-          "active_tokens": 19808,
-          "total_tokens": 77288,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 14.1,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 19235
-        },
-        "haiku-ts": {
-          "active_tokens": 13451,
-          "total_tokens": 90233,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 17.91,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 120
         }
       }
     },
@@ -552,28 +404,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 3327
-        },
-        "haiku-base": {
-          "active_tokens": 27800,
-          "total_tokens": 460418,
-          "turns": 25,
-          "tool_calls": 11,
-          "wall_time_seconds": 83.78,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 15483
-        },
-        "haiku-ts": {
-          "active_tokens": 15531,
-          "total_tokens": 92329,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 23.22,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3332
         }
       }
     },
@@ -582,7 +412,7 @@
       "difficulty": "medium",
       "scoring": "set_match_loose",
       "slug": "dead-code-audit",
-      "prompt": "Donne-moi 5 fonctions exportées qui ne sont jamais appelées nulle part dans le projet.",
+      "prompt": "Donne-moi 5 fonctions export\u00e9es qui ne sont jamais appel\u00e9es nulle part dans le projet.",
       "results": {
         "opus-base": {
           "active_tokens": 15817,
@@ -627,28 +457,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 372
-        },
-        "haiku-base": {
-          "active_tokens": 10858,
-          "total_tokens": 68329,
-          "turns": 19,
-          "tool_calls": 16,
-          "wall_time_seconds": 75.62,
-          "score": 0,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 18978
-        },
-        "haiku-ts": {
-          "active_tokens": 14650,
-          "total_tokens": 92462,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 20.28,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 372
         }
       }
     },
@@ -657,7 +465,7 @@
       "difficulty": "hard",
       "scoring": "set_match_strict",
       "slug": "cycle-detection",
-      "prompt": "Y a-t-il des dépendances circulaires (import cycles) dans ce projet ? Si oui, cite-les.",
+      "prompt": "Y a-t-il des d\u00e9pendances circulaires (import cycles) dans ce projet ? Si oui, cite-les.",
       "results": {
         "opus-base": {
           "active_tokens": 31692,
@@ -698,28 +506,6 @@
           "turns": 3,
           "tool_calls": 1,
           "wall_time_seconds": 12.87,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 140
-        },
-        "haiku-base": {
-          "active_tokens": 18533,
-          "total_tokens": 292111,
-          "turns": 17,
-          "tool_calls": 7,
-          "wall_time_seconds": 47.38,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 10577
-        },
-        "haiku-ts": {
-          "active_tokens": 13468,
-          "total_tokens": 90244,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 17.28,
           "score": 2,
           "max_score": 2,
           "error": null,
@@ -777,28 +563,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 6915
-        },
-        "haiku-base": {
-          "active_tokens": 34435,
-          "total_tokens": 216816,
-          "turns": 24,
-          "tool_calls": 17,
-          "wall_time_seconds": 32.92,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 46711
-        },
-        "haiku-ts": {
-          "active_tokens": 17232,
-          "total_tokens": 94018,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 34.04,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6944
         }
       }
     },
@@ -807,7 +571,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "rename-symbol",
-      "prompt": "Renomme la fonction `create_user` définie dans `apps/api/ambig/mod1.py` en `create_regular_user`, en mettant à jour tous ses call sites. Attention : une autre fonction du même nom existe dans `apps/api/ambig/mod2.py` — elle ne doit PAS être touchée.",
+      "prompt": "Renomme la fonction `create_user` d\u00e9finie dans `apps/api/ambig/mod1.py` en `create_regular_user`, en mettant \u00e0 jour tous ses call sites. Attention : une autre fonction du m\u00eame nom existe dans `apps/api/ambig/mod2.py` \u2014 elle ne doit PAS \u00eatre touch\u00e9e.",
       "results": {
         "opus-base": {
           "active_tokens": 18111,
@@ -852,28 +616,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 5064
-        },
-        "haiku-base": {
-          "active_tokens": 12841,
-          "total_tokens": 104750,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 24.21,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1548
-        },
-        "haiku-ts": {
-          "active_tokens": 15804,
-          "total_tokens": 184388,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 41.87,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 471
         }
       }
     },
@@ -882,7 +624,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "add-field",
-      "prompt": "Ajoute un champ optionnel `archivedAt: DateTime?` au modèle `Member` dans `packages/db/schema.prisma`, puis propage-le aux types TypeScript correspondants dans `apps/web/types/member.ts`.",
+      "prompt": "Ajoute un champ optionnel `archivedAt: DateTime?` au mod\u00e8le `Member` dans `packages/db/schema.prisma`, puis propage-le aux types TypeScript correspondants dans `apps/web/types/member.ts`.",
       "results": {
         "opus-base": {
           "active_tokens": 15244,
@@ -927,28 +669,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1141
-        },
-        "haiku-base": {
-          "active_tokens": 13670,
-          "total_tokens": 106345,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 25.98,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2960
-        },
-        "haiku-ts": {
-          "active_tokens": 46279,
-          "total_tokens": 91110,
-          "turns": 5,
-          "tool_calls": 2,
-          "wall_time_seconds": 19.45,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 406
         }
       }
     },
@@ -957,7 +677,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "extract-constant",
-      "prompt": "Plusieurs modules utilisent le nombre magique `20` comme taille de page par défaut. Extrais-le dans une constante `DEFAULT_PAGE_SIZE` centralisée et mets à jour tous les usages.",
+      "prompt": "Plusieurs modules utilisent le nombre magique `20` comme taille de page par d\u00e9faut. Extrais-le dans une constante `DEFAULT_PAGE_SIZE` centralis\u00e9e et mets \u00e0 jour tous les usages.",
       "results": {
         "opus-base": {
           "active_tokens": 24634,
@@ -1002,28 +722,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 32620
-        },
-        "haiku-base": {
-          "active_tokens": 21275,
-          "total_tokens": 235976,
-          "turns": 21,
-          "tool_calls": 12,
-          "wall_time_seconds": 34.2,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 20943
-        },
-        "haiku-ts": {
-          "active_tokens": 28162,
-          "total_tokens": 1006567,
-          "turns": 50,
-          "tool_calls": 27,
-          "wall_time_seconds": 99.26,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 9758
         }
       }
     },
@@ -1032,7 +730,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "move-module",
-      "prompt": "La fonction `slugify` dans `apps/api/utils/strings.py` devrait logiquement vivre dans `packages/utils/` pour pouvoir être réutilisée. Déplace-la là-bas et corrige tous les imports.",
+      "prompt": "La fonction `slugify` dans `apps/api/utils/strings.py` devrait logiquement vivre dans `packages/utils/` pour pouvoir \u00eatre r\u00e9utilis\u00e9e. D\u00e9place-la l\u00e0-bas et corrige tous les imports.",
       "results": {
         "opus-base": {
           "active_tokens": 15566,
@@ -1077,28 +775,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 8301
-        },
-        "haiku-base": {
-          "active_tokens": 19547,
-          "total_tokens": 439482,
-          "turns": 27,
-          "tool_calls": 13,
-          "wall_time_seconds": 56.51,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7214
-        },
-        "haiku-ts": {
-          "active_tokens": 17881,
-          "total_tokens": 236416,
-          "turns": 11,
-          "tool_calls": 4,
-          "wall_time_seconds": 37.46,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 768
         }
       }
     },
@@ -1152,28 +828,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 254
-        },
-        "haiku-base": {
-          "active_tokens": 22156,
-          "total_tokens": 124337,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 19.54,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22549
-        },
-        "haiku-ts": {
-          "active_tokens": 14066,
-          "total_tokens": 136185,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 24.97,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 254
         }
       }
     },
@@ -1182,7 +836,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "bug-pagination",
-      "prompt": "Un utilisateur signale que notre pagination retourne 11 résultats par page au lieu de 10. Où est le bug ?",
+      "prompt": "Un utilisateur signale que notre pagination retourne 11 r\u00e9sultats par page au lieu de 10. O\u00f9 est le bug ?",
       "results": {
         "opus-base": {
           "active_tokens": 20371,
@@ -1227,28 +881,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 11890
-        },
-        "haiku-base": {
-          "active_tokens": 30813,
-          "total_tokens": 365264,
-          "turns": 21,
-          "tool_calls": 11,
-          "wall_time_seconds": 46.81,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 31077
-        },
-        "haiku-ts": {
-          "active_tokens": 16068,
-          "total_tokens": 186879,
-          "turns": 10,
-          "tool_calls": 4,
-          "wall_time_seconds": 22.7,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1370
         }
       }
     },
@@ -1257,7 +889,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "bug-auth",
-      "prompt": "Un pentest a relevé que des mots de passe vides passent la validation d'authentification. Trouve le bug et explique-le.",
+      "prompt": "Un pentest a relev\u00e9 que des mots de passe vides passent la validation d'authentification. Trouve le bug et explique-le.",
       "results": {
         "opus-base": {
           "active_tokens": 15765,
@@ -1302,28 +934,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2737
-        },
-        "haiku-base": {
-          "active_tokens": 39144,
-          "total_tokens": 464273,
-          "turns": 24,
-          "tool_calls": 11,
-          "wall_time_seconds": 47.47,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 39369
-        },
-        "haiku-ts": {
-          "active_tokens": 58108,
-          "total_tokens": 415034,
-          "turns": 19,
-          "tool_calls": 7,
-          "wall_time_seconds": 52.11,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7269
         }
       }
     },
@@ -1332,7 +942,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "dup-detection",
-      "prompt": "Y a-t-il des fonctions sémantiquement dupliquées dans ce projet ? Si oui, cite les paires que tu trouves.",
+      "prompt": "Y a-t-il des fonctions s\u00e9mantiquement dupliqu\u00e9es dans ce projet ? Si oui, cite les paires que tu trouves.",
       "results": {
         "opus-base": {
           "active_tokens": 16677,
@@ -1377,28 +987,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 6864
-        },
-        "haiku-base": {
-          "active_tokens": 12743,
-          "total_tokens": 70223,
-          "turns": 36,
-          "tool_calls": 32,
-          "wall_time_seconds": 66.22,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 74178
-        },
-        "haiku-ts": {
-          "active_tokens": 18241,
-          "total_tokens": 96069,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 24.11,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6884
         }
       }
     },
@@ -1452,28 +1040,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 3794
-        },
-        "haiku-base": {
-          "active_tokens": 15185,
-          "total_tokens": 140802,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 34.49,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 772
-        },
-        "haiku-ts": {
-          "active_tokens": 24275,
-          "total_tokens": 241224,
-          "turns": 12,
-          "tool_calls": 4,
-          "wall_time_seconds": 52.72,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 778
         }
       }
     },
@@ -1482,7 +1048,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "bug-fix-discount-validation",
-      "prompt": "La fonction `apply_discount` dans `apps/api/services/billing.py` reçoit un `payload` qui contient (entre autres) une clé `discount_percent` (float). Aujourd'hui elle n'effectue aucune validation sur cette valeur — ce qui laisse passer des pourcentages négatifs ou supérieurs à 100.",
+      "prompt": "La fonction `apply_discount` dans `apps/api/services/billing.py` re\u00e7oit un `payload` qui contient (entre autres) une cl\u00e9 `discount_percent` (float). Aujourd'hui elle n'effectue aucune validation sur cette valeur \u2014 ce qui laisse passer des pourcentages n\u00e9gatifs ou sup\u00e9rieurs \u00e0 100.",
       "results": {
         "opus-base": {
           "active_tokens": 25605,
@@ -1527,28 +1093,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1862
-        },
-        "haiku-base": {
-          "active_tokens": 21573,
-          "total_tokens": 79219,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 19.56,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 17549,
-          "total_tokens": 188323,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 31.58,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1929
         }
       }
     },
@@ -1602,28 +1146,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 9553
-        },
-        "haiku-base": {
-          "active_tokens": 15256,
-          "total_tokens": 212787,
-          "turns": 15,
-          "tool_calls": 7,
-          "wall_time_seconds": 29.7,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 9684
-        },
-        "haiku-ts": {
-          "active_tokens": 17106,
-          "total_tokens": 142094,
-          "turns": 10,
-          "tool_calls": 6,
-          "wall_time_seconds": 21.65,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3143
         }
       }
     },
@@ -1632,7 +1154,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "module-overview",
-      "prompt": "Explique l'architecture du module `apps/api/services/billing.py` : quelles sont ses responsabilités, ses fonctions principales, et ses dépendances ?",
+      "prompt": "Explique l'architecture du module `apps/api/services/billing.py` : quelles sont ses responsabilit\u00e9s, ses fonctions principales, et ses d\u00e9pendances ?",
       "results": {
         "opus-base": {
           "active_tokens": 25983,
@@ -1677,28 +1199,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 5624
-        },
-        "haiku-base": {
-          "active_tokens": 21891,
-          "total_tokens": 79375,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 21.66,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 16861,
-          "total_tokens": 141815,
-          "turns": 7,
-          "tool_calls": 3,
-          "wall_time_seconds": 23.08,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3763
         }
       }
     },
@@ -1707,7 +1207,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "explain-billing-module",
-      "prompt": "Explique l'implémentation complète du module `apps/api/services/billing.py`. Liste les fonctions publiques principales (calculate_invoice, apply_discount, charge_customer, refund_payment, list_invoices, void_invoice) avec une phrase sur le rôle de chacune.",
+      "prompt": "Explique l'impl\u00e9mentation compl\u00e8te du module `apps/api/services/billing.py`. Liste les fonctions publiques principales (calculate_invoice, apply_discount, charge_customer, refund_payment, list_invoices, void_invoice) avec une phrase sur le r\u00f4le de chacune.",
       "results": {
         "opus-base": {
           "active_tokens": 26299,
@@ -1752,28 +1252,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 6740
-        },
-        "haiku-base": {
-          "active_tokens": 21448,
-          "total_tokens": 78962,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 16.53,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 21326,
-          "total_tokens": 147483,
-          "turns": 8,
-          "tool_calls": 3,
-          "wall_time_seconds": 26.76,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 11601
         }
       }
     },
@@ -1782,7 +1260,7 @@
       "difficulty": "medium",
       "scoring": "set_match_loose",
       "slug": "list-auth-public-functions",
-      "prompt": "Liste toutes les fonctions publiques (non-underscore) de `apps/api/services/auth.py` avec leur signature complète (nom + paramètres). Donne-moi la liste exhaustive, pas juste les premières.",
+      "prompt": "Liste toutes les fonctions publiques (non-underscore) de `apps/api/services/auth.py` avec leur signature compl\u00e8te (nom + param\u00e8tres). Donne-moi la liste exhaustive, pas juste les premi\u00e8res.",
       "results": {
         "opus-base": {
           "active_tokens": 25351,
@@ -1827,28 +1305,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1466
-        },
-        "haiku-base": {
-          "active_tokens": 20390,
-          "total_tokens": 77890,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 16.23,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 19235
-        },
-        "haiku-ts": {
-          "active_tokens": 15912,
-          "total_tokens": 93760,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 20.13,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1466
         }
       }
     },
@@ -1857,7 +1313,7 @@
       "difficulty": "medium",
       "scoring": "set_match_loose",
       "slug": "multi-param-functions",
-      "prompt": "Dans le dossier `apps/api/services/`, identifie les fonctions publiques (non-underscore, non-internal) qui acceptent plus d'un paramètre. Donne-moi leur nom et leur signature, file par file.",
+      "prompt": "Dans le dossier `apps/api/services/`, identifie les fonctions publiques (non-underscore, non-internal) qui acceptent plus d'un param\u00e8tre. Donne-moi leur nom et leur signature, file par file.",
       "results": {
         "opus-base": {
           "active_tokens": 21558,
@@ -1902,28 +1358,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 16293
-        },
-        "haiku-base": {
-          "active_tokens": 122407,
-          "total_tokens": 204065,
-          "turns": 19,
-          "tool_calls": 14,
-          "wall_time_seconds": 27.67,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 198320
-        },
-        "haiku-ts": {
-          "active_tokens": 27666,
-          "total_tokens": 201833,
-          "turns": 19,
-          "tool_calls": 13,
-          "wall_time_seconds": 30.37,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 18916
         }
       }
     },
@@ -1932,7 +1366,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "dispatch-webhook-chain",
-      "prompt": "Trace le call chain complet de la fonction `dispatch_webhook` dans `apps/api/services/webhooks.py` : toutes les fonctions qu'elle appelle directement ou indirectement, y compris les accès à la base de données.",
+      "prompt": "Trace le call chain complet de la fonction `dispatch_webhook` dans `apps/api/services/webhooks.py` : toutes les fonctions qu'elle appelle directement ou indirectement, y compris les acc\u00e8s \u00e0 la base de donn\u00e9es.",
       "results": {
         "opus-base": {
           "active_tokens": 25238,
@@ -1977,28 +1411,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2581
-        },
-        "haiku-base": {
-          "active_tokens": 20203,
-          "total_tokens": 77705,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 17.53,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 19592
-        },
-        "haiku-ts": {
-          "active_tokens": 17624,
-          "total_tokens": 142701,
-          "turns": 8,
-          "tool_calls": 3,
-          "wall_time_seconds": 23.81,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2107
         }
       }
     },
@@ -2007,7 +1419,7 @@
       "difficulty": "medium",
       "scoring": "set_match_loose",
       "slug": "auth-importers",
-      "prompt": "Quels fichiers Python du projet importent quelque chose depuis `apps.api.services.auth` ? Donne la liste complète des fichiers importateurs.",
+      "prompt": "Quels fichiers Python du projet importent quelque chose depuis `apps.api.services.auth` ? Donne la liste compl\u00e8te des fichiers importateurs.",
       "results": {
         "opus-base": {
           "active_tokens": 15470,
@@ -2052,28 +1464,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 49
-        },
-        "haiku-base": {
-          "active_tokens": 9916,
-          "total_tokens": 67397,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 11.35,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 57
-        },
-        "haiku-ts": {
-          "active_tokens": 14428,
-          "total_tokens": 92257,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 12.84,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 88
         }
       }
     },
@@ -2127,28 +1517,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 6261
-        },
-        "haiku-base": {
-          "active_tokens": 23644,
-          "total_tokens": 81145,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 25.15,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 19632,
-          "total_tokens": 144434,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 22.22,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6340
         }
       }
     },
@@ -2198,28 +1566,6 @@
           "turns": 3,
           "tool_calls": 1,
           "wall_time_seconds": 13.63,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 241
-        },
-        "haiku-base": {
-          "active_tokens": 14603,
-          "total_tokens": 142641,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 26.36,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7935
-        },
-        "haiku-ts": {
-          "active_tokens": 14457,
-          "total_tokens": 92305,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 12.21,
           "score": 2,
           "max_score": 2,
           "error": null,
@@ -2277,28 +1623,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1952
-        },
-        "haiku-base": {
-          "active_tokens": 12089,
-          "total_tokens": 137393,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 21.17,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1395
-        },
-        "haiku-ts": {
-          "active_tokens": 19088,
-          "total_tokens": 238249,
-          "turns": 12,
-          "tool_calls": 5,
-          "wall_time_seconds": 31.68,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2202
         }
       }
     },
@@ -2307,7 +1631,7 @@
       "difficulty": "medium",
       "scoring": "llm_judge",
       "slug": "explain-apply-discount-flow",
-      "prompt": "Explique en détail ce que fait la fonction `apply_discount` dans `apps/api/services/billing.py` : ses entrées, son effet de bord principal, ses dépendances externes (DB, logging, config), et les cas non couverts actuellement. Structure ta réponse : (1) signature + rôle, (2) effet de bord, (3) deps, (4) gaps de validation.",
+      "prompt": "Explique en d\u00e9tail ce que fait la fonction `apply_discount` dans `apps/api/services/billing.py` : ses entr\u00e9es, son effet de bord principal, ses d\u00e9pendances externes (DB, logging, config), et les cas non couverts actuellement. Structure ta r\u00e9ponse : (1) signature + r\u00f4le, (2) effet de bord, (3) deps, (4) gaps de validation.",
       "results": {
         "opus-base": {
           "active_tokens": 26147,
@@ -2352,28 +1676,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2436
-        },
-        "haiku-base": {
-          "active_tokens": 22496,
-          "total_tokens": 80038,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 23.67,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 17306,
-          "total_tokens": 188029,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 26.52,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2419
         }
       }
     },
@@ -2427,28 +1729,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1225
-        },
-        "haiku-base": {
-          "active_tokens": 15005,
-          "total_tokens": 143726,
-          "turns": 12,
-          "tool_calls": 6,
-          "wall_time_seconds": 22.77,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7585
-        },
-        "haiku-ts": {
-          "active_tokens": 17026,
-          "total_tokens": 140629,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 27.69,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1296
         }
       }
     },
@@ -2457,7 +1737,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "diff-summary",
-      "prompt": "Résume symbole par symbole tous les changements entre le tag `v1` et le tag `v2`. Je veux une bullet list courte.",
+      "prompt": "R\u00e9sume symbole par symbole tous les changements entre le tag `v1` et le tag `v2`. Je veux une bullet list courte.",
       "results": {
         "opus-base": {
           "active_tokens": 14588,
@@ -2502,28 +1782,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 10501
-        },
-        "haiku-base": {
-          "active_tokens": 14655,
-          "total_tokens": 106021,
-          "turns": 7,
-          "tool_calls": 3,
-          "wall_time_seconds": 32.48,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 10010
-        },
-        "haiku-ts": {
-          "active_tokens": 20104,
-          "total_tokens": 194501,
-          "turns": 10,
-          "tool_calls": 4,
-          "wall_time_seconds": 91.53,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 12401
         }
       }
     },
@@ -2532,7 +1790,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "pr-risk",
-      "prompt": "Parmi les changements entre v1 et v2, lesquels sont les plus risqués et méritent une review attentive avant merge ? Classe-les par criticité.",
+      "prompt": "Parmi les changements entre v1 et v2, lesquels sont les plus risqu\u00e9s et m\u00e9ritent une review attentive avant merge ? Classe-les par criticit\u00e9.",
       "results": {
         "opus-base": {
           "active_tokens": 15083,
@@ -2577,28 +1835,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 7877
-        },
-        "haiku-base": {
-          "active_tokens": 18335,
-          "total_tokens": 184182,
-          "turns": 16,
-          "tool_calls": 8,
-          "wall_time_seconds": 47.48,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7904
-        },
-        "haiku-ts": {
-          "active_tokens": 22092,
-          "total_tokens": 198036,
-          "turns": 10,
-          "tool_calls": 4,
-          "wall_time_seconds": 48.56,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 16509
         }
       }
     },
@@ -2652,28 +1888,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 6826
-        },
-        "haiku-base": {
-          "active_tokens": 15655,
-          "total_tokens": 107259,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 32.14,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 13784
-        },
-        "haiku-ts": {
-          "active_tokens": 24364,
-          "total_tokens": 195452,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 25.45,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 26146
         }
       }
     },
@@ -2682,7 +1896,7 @@
       "difficulty": "medium",
       "scoring": "set_match_loose",
       "slug": "orphan-env",
-      "prompt": "Liste les variables d'environnement déclarées dans les fichiers `.env.example` mais qui ne sont jamais lues dans le code.",
+      "prompt": "Liste les variables d'environnement d\u00e9clar\u00e9es dans les fichiers `.env.example` mais qui ne sont jamais lues dans le code.",
       "results": {
         "opus-base": {
           "active_tokens": 16901,
@@ -2727,28 +1941,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 11540
-        },
-        "haiku-base": {
-          "active_tokens": 11344,
-          "total_tokens": 102140,
-          "turns": 7,
-          "tool_calls": 2,
-          "wall_time_seconds": 17.72,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 825
-        },
-        "haiku-ts": {
-          "active_tokens": 14766,
-          "total_tokens": 92590,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 13.52,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1125
         }
       }
     },
@@ -2802,28 +1994,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 11540
-        },
-        "haiku-base": {
-          "active_tokens": 12717,
-          "total_tokens": 104132,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 54.2,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3423
-        },
-        "haiku-ts": {
-          "active_tokens": 19033,
-          "total_tokens": 240648,
-          "turns": 12,
-          "tool_calls": 4,
-          "wall_time_seconds": 103.93,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 5092
         }
       }
     },
@@ -2832,7 +2002,7 @@
       "difficulty": "easy",
       "scoring": "set_match_strict",
       "slug": "dockerfile-audit",
-      "prompt": "Review les Dockerfiles dans `infra/docker/`. Quels sont les problèmes que tu vois ?",
+      "prompt": "Review les Dockerfiles dans `infra/docker/`. Quels sont les probl\u00e8mes que tu vois ?",
       "results": {
         "opus-base": {
           "active_tokens": 16737,
@@ -2877,28 +2047,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 4499
-        },
-        "haiku-base": {
-          "active_tokens": 12036,
-          "total_tokens": 102820,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 20.08,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1612
-        },
-        "haiku-ts": {
-          "active_tokens": 16007,
-          "total_tokens": 186536,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 40.79,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 26624
         }
       }
     },
@@ -2907,7 +2055,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "infra-consistency",
-      "prompt": "Toutes les variables d'environnement référencées dans les manifests Kubernetes (`infra/k8s/`) sont-elles bien déclarées dans `config/.env.example` ?",
+      "prompt": "Toutes les variables d'environnement r\u00e9f\u00e9renc\u00e9es dans les manifests Kubernetes (`infra/k8s/`) sont-elles bien d\u00e9clar\u00e9es dans `config/.env.example` ?",
       "results": {
         "opus-base": {
           "active_tokens": 17273,
@@ -2952,28 +2100,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 54617
-        },
-        "haiku-base": {
-          "active_tokens": 12914,
-          "total_tokens": 138825,
-          "turns": 12,
-          "tool_calls": 6,
-          "wall_time_seconds": 36.5,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3203
-        },
-        "haiku-ts": {
-          "active_tokens": 17306,
-          "total_tokens": 140879,
-          "turns": 7,
-          "tool_calls": 2,
-          "wall_time_seconds": 20.63,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3489
         }
       }
     },
@@ -3027,28 +2153,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2986
-        },
-        "haiku-base": {
-          "active_tokens": 11929,
-          "total_tokens": 69415,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 19.66,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3506
-        },
-        "haiku-ts": {
-          "active_tokens": 16075,
-          "total_tokens": 93909,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 13.65,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3977
         }
       }
     },
@@ -3102,28 +2206,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 17348
-        },
-        "haiku-base": {
-          "active_tokens": 13245,
-          "total_tokens": 105797,
-          "turns": 8,
-          "tool_calls": 3,
-          "wall_time_seconds": 35.14,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1180
-        },
-        "haiku-ts": {
-          "active_tokens": 25097,
-          "total_tokens": 102933,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 40.77,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 17142
         }
       }
     },
@@ -3132,7 +2214,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-slugify",
-      "prompt": "Dans `packages/utils/`, écris une nouvelle fonction `slugify(text: str) -> str` qui transforme une string en slug URL-safe selon ces règles :",
+      "prompt": "Dans `packages/utils/`, \u00e9cris une nouvelle fonction `slugify(text: str) -> str` qui transforme une string en slug URL-safe selon ces r\u00e8gles :",
       "results": {
         "opus-base": {
           "active_tokens": 14306,
@@ -3177,28 +2259,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 805
-        },
-        "haiku-base": {
-          "active_tokens": 13449,
-          "total_tokens": 210140,
-          "turns": 13,
-          "tool_calls": 5,
-          "wall_time_seconds": 31.86,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2115
-        },
-        "haiku-ts": {
-          "active_tokens": 37623,
-          "total_tokens": 1096264,
-          "turns": 52,
-          "tool_calls": 20,
-          "wall_time_seconds": 115.99,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 10026
         }
       }
     },
@@ -3207,7 +2267,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-lru-cache",
-      "prompt": "Implémente une classe `LRUCache` en Python avec `get(key)`, `put(key, value)` et capacité max fixée à la construction. Utilise `collections.OrderedDict`. Les accès (get, put) doivent déplacer la clé en queue pour LRU. `get` retourne `None` si absent. Donne le code complet de la classe dans un fichier `packages/utils/lru.py`.",
+      "prompt": "Impl\u00e9mente une classe `LRUCache` en Python avec `get(key)`, `put(key, value)` et capacit\u00e9 max fix\u00e9e \u00e0 la construction. Utilise `collections.OrderedDict`. Les acc\u00e8s (get, put) doivent d\u00e9placer la cl\u00e9 en queue pour LRU. `get` retourne `None` si absent. Donne le code complet de la classe dans un fichier `packages/utils/lru.py`.",
       "results": {
         "opus-base": {
           "active_tokens": 14873,
@@ -3252,28 +2312,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 691
-        },
-        "haiku-base": {
-          "active_tokens": 13223,
-          "total_tokens": 105737,
-          "turns": 7,
-          "tool_calls": 2,
-          "wall_time_seconds": 28.24,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1096
-        },
-        "haiku-ts": {
-          "active_tokens": 20362,
-          "total_tokens": 146931,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 37.69,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 724
         }
       }
     },
@@ -3282,7 +2320,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-rate-limiter",
-      "prompt": "Implémente un rate limiter type **token bucket** en Python dans `packages/utils/rate_limiter.py`. Classe `TokenBucket(capacity: int, refill_rate: float)` avec méthode `consume(tokens: int = 1) -> bool` qui retourne True si assez de tokens. Le refill doit se faire lazy (calculé au moment de `consume`) via `time.monotonic()`. Donne le code complet.",
+      "prompt": "Impl\u00e9mente un rate limiter type **token bucket** en Python dans `packages/utils/rate_limiter.py`. Classe `TokenBucket(capacity: int, refill_rate: float)` avec m\u00e9thode `consume(tokens: int = 1) -> bool` qui retourne True si assez de tokens. Le refill doit se faire lazy (calcul\u00e9 au moment de `consume`) via `time.monotonic()`. Donne le code complet.",
       "results": {
         "opus-base": {
           "active_tokens": 15319,
@@ -3327,28 +2365,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 856
-        },
-        "haiku-base": {
-          "active_tokens": 13680,
-          "total_tokens": 106374,
-          "turns": 7,
-          "tool_calls": 2,
-          "wall_time_seconds": 26.39,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1060
-        },
-        "haiku-ts": {
-          "active_tokens": 26429,
-          "total_tokens": 569345,
-          "turns": 25,
-          "tool_calls": 10,
-          "wall_time_seconds": 141.42,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 5569
         }
       }
     },
@@ -3357,7 +2373,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-retry-backoff",
-      "prompt": "Implémente un décorateur Python `@retry(max_attempts=3, base_delay=0.5, exceptions=(Exception,))` dans `packages/utils/retry.py`. Il doit :",
+      "prompt": "Impl\u00e9mente un d\u00e9corateur Python `@retry(max_attempts=3, base_delay=0.5, exceptions=(Exception,))` dans `packages/utils/retry.py`. Il doit :",
       "results": {
         "opus-base": {
           "active_tokens": 20903,
@@ -3402,28 +2418,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1502
-        },
-        "haiku-base": {
-          "active_tokens": 14334,
-          "total_tokens": 71925,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 15.94,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7898
-        },
-        "haiku-ts": {
-          "active_tokens": 32596,
-          "total_tokens": 533434,
-          "turns": 25,
-          "tool_calls": 9,
-          "wall_time_seconds": 93.14,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 5574
         }
       }
     },
@@ -3432,7 +2426,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-csv-parser",
-      "prompt": "Implémente une fonction `parse_csv(text: str, *, has_header: bool = True) -> list[dict]` dans `packages/utils/csv_parse.py`. Elle doit utiliser le module `csv` stdlib (pas de dépendance externe). Si `has_header=True`, chaque ligne devient un dict avec les clés du header ; sinon chaque ligne est un dict `{'col_0': ..., 'col_1': ...}`. Gère correctement les valeurs quotées et les virgules dans les quotes.",
+      "prompt": "Impl\u00e9mente une fonction `parse_csv(text: str, *, has_header: bool = True) -> list[dict]` dans `packages/utils/csv_parse.py`. Elle doit utiliser le module `csv` stdlib (pas de d\u00e9pendance externe). Si `has_header=True`, chaque ligne devient un dict avec les cl\u00e9s du header ; sinon chaque ligne est un dict `{'col_0': ..., 'col_1': ...}`. G\u00e8re correctement les valeurs quot\u00e9es et les virgules dans les quotes.",
       "results": {
         "opus-base": {
           "active_tokens": 15665,
@@ -3477,28 +2471,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 365
-        },
-        "haiku-base": {
-          "active_tokens": 11346,
-          "total_tokens": 102922,
-          "turns": 8,
-          "tool_calls": 2,
-          "wall_time_seconds": 25.81,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 916
-        },
-        "haiku-ts": {
-          "active_tokens": 26893,
-          "total_tokens": 208057,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 74.13,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 366
         }
       }
     },
@@ -3507,7 +2479,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "code-gen-jwt-signer",
-      "prompt": "Implémente une mini fonction `sign_jwt(payload: dict, secret: str, exp_seconds: int = 3600) -> str` dans `packages/utils/jwt_sign.py`. Elle doit produire un JWT HS256 conforme **sans utiliser de lib PyJWT** — uniquement `hmac`, `hashlib`, `base64`, `json`, `time`. Format attendu : `<header_b64>.<payload_b64>.<sig_b64>` où les 3 segments sont du **base64url sans padding**. Le payload injecté doit contenir `exp = int(time.time()) + exp_seconds`.",
+      "prompt": "Impl\u00e9mente une mini fonction `sign_jwt(payload: dict, secret: str, exp_seconds: int = 3600) -> str` dans `packages/utils/jwt_sign.py`. Elle doit produire un JWT HS256 conforme **sans utiliser de lib PyJWT** \u2014 uniquement `hmac`, `hashlib`, `base64`, `json`, `time`. Format attendu : `<header_b64>.<payload_b64>.<sig_b64>` o\u00f9 les 3 segments sont du **base64url sans padding**. Le payload inject\u00e9 doit contenir `exp = int(time.time()) + exp_seconds`.",
       "results": {
         "opus-base": {
           "active_tokens": 17002,
@@ -3552,28 +2524,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1366
-        },
-        "haiku-base": {
-          "active_tokens": 11400,
-          "total_tokens": 68996,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 17.09,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1200
-        },
-        "haiku-ts": {
-          "active_tokens": 19156,
-          "total_tokens": 288079,
-          "turns": 14,
-          "tool_calls": 5,
-          "wall_time_seconds": 35.67,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1574
         }
       }
     },
@@ -3582,7 +2532,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "code-gen-pagination-helper",
-      "prompt": "Écris une fonction `paginate(items: list, page: int, per_page: int) -> dict` dans `packages/utils/paginate.py`. Retourne un dict `{\"items\": [...], \"page\": int, \"per_page\": int, \"total\": int, \"total_pages\": int, \"has_next\": bool, \"has_prev\": bool}`. `page` est 1-indexé. Gère les edge cases (page 0, page > total_pages, per_page ≤ 0 → lever `ValueError`).",
+      "prompt": "\u00c9cris une fonction `paginate(items: list, page: int, per_page: int) -> dict` dans `packages/utils/paginate.py`. Retourne un dict `{\"items\": [...], \"page\": int, \"per_page\": int, \"total\": int, \"total_pages\": int, \"has_next\": bool, \"has_prev\": bool}`. `page` est 1-index\u00e9. G\u00e8re les edge cases (page 0, page > total_pages, per_page \u2264 0 \u2192 lever `ValueError`).",
       "results": {
         "opus-base": {
           "active_tokens": 15374,
@@ -3627,28 +2577,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2349
-        },
-        "haiku-base": {
-          "active_tokens": 10741,
-          "total_tokens": 68315,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 13.31,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1227
-        },
-        "haiku-ts": {
-          "active_tokens": 22667,
-          "total_tokens": 344303,
-          "turns": 16,
-          "tool_calls": 6,
-          "wall_time_seconds": 52.84,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1201
         }
       }
     },
@@ -3657,7 +2585,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "code-gen-validator-email",
-      "prompt": "Implémente `is_valid_email(email: str) -> bool` dans `packages/utils/validate_email.py`. Validation pragmatique : une seule `@`, local-part ≥ 1 char avec `[a-zA-Z0-9._%+-]`, domain avec au moins un `.` et tld de 2-24 chars alphanum. Utilise `re.fullmatch`. Retourne False pour None ou str vide.",
+      "prompt": "Impl\u00e9mente `is_valid_email(email: str) -> bool` dans `packages/utils/validate_email.py`. Validation pragmatique : une seule `@`, local-part \u2265 1 char avec `[a-zA-Z0-9._%+-]`, domain avec au moins un `.` et tld de 2-24 chars alphanum. Utilise `re.fullmatch`. Retourne False pour None ou str vide.",
       "results": {
         "opus-base": {
           "active_tokens": 15351,
@@ -3702,28 +2630,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 940
-        },
-        "haiku-base": {
-          "active_tokens": 14448,
-          "total_tokens": 106120,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 29.89,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 763
-        },
-        "haiku-ts": {
-          "active_tokens": 27759,
-          "total_tokens": 206115,
-          "turns": 10,
-          "tool_calls": 4,
-          "wall_time_seconds": 72.29,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 421
         }
       }
     },
@@ -3732,7 +2638,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-debounce",
-      "prompt": "Implémente un décorateur `@debounce(wait: float)` dans `packages/utils/debounce.py`. Si la fonction décorée est rappelée avant `wait` secondes, le premier appel est annulé et un nouveau timer démarre. Utilise `threading.Timer`. Donne le code complet avec gestion thread-safe (lock).",
+      "prompt": "Impl\u00e9mente un d\u00e9corateur `@debounce(wait: float)` dans `packages/utils/debounce.py`. Si la fonction d\u00e9cor\u00e9e est rappel\u00e9e avant `wait` secondes, le premier appel est annul\u00e9 et un nouveau timer d\u00e9marre. Utilise `threading.Timer`. Donne le code complet avec gestion thread-safe (lock).",
       "results": {
         "opus-base": {
           "active_tokens": 13958,
@@ -3777,28 +2683,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1287
-        },
-        "haiku-base": {
-          "active_tokens": 10969,
-          "total_tokens": 68500,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 17.04,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1173
-        },
-        "haiku-ts": {
-          "active_tokens": 20641,
-          "total_tokens": 194862,
-          "turns": 11,
-          "tool_calls": 3,
-          "wall_time_seconds": 35.59,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 996
         }
       }
     },
@@ -3807,7 +2691,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-webhook-sender",
-      "prompt": "Implémente `send_webhook(url: str, payload: dict, *, secret: str, timeout: float = 5.0) -> dict` dans `packages/utils/webhook.py`. Utilise `requests` (import en haut). Le payload JSON doit être signé HMAC-SHA256 avec `secret`, signature envoyée dans header `X-Signature: sha256=<hex>`. Retourne `{\"status\": int, \"body\": str, \"error\": str | None}`. Capture les `requests.RequestException` → retourne status=0, error=str(e).",
+      "prompt": "Impl\u00e9mente `send_webhook(url: str, payload: dict, *, secret: str, timeout: float = 5.0) -> dict` dans `packages/utils/webhook.py`. Utilise `requests` (import en haut). Le payload JSON doit \u00eatre sign\u00e9 HMAC-SHA256 avec `secret`, signature envoy\u00e9e dans header `X-Signature: sha256=<hex>`. Retourne `{\"status\": int, \"body\": str, \"error\": str | None}`. Capture les `requests.RequestException` \u2192 retourne status=0, error=str(e).",
       "results": {
         "opus-base": {
           "active_tokens": 15956,
@@ -3852,28 +2736,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1150
-        },
-        "haiku-base": {
-          "active_tokens": 10774,
-          "total_tokens": 68357,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 13.18,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1059
-        },
-        "haiku-ts": {
-          "active_tokens": 16921,
-          "total_tokens": 234587,
-          "turns": 11,
-          "tool_calls": 4,
-          "wall_time_seconds": 23.48,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1122
         }
       }
     },
@@ -3882,7 +2744,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-password-hasher",
-      "prompt": "Implémente `hash_password(password: str) -> str` et `verify_password(password: str, hashed: str) -> bool` dans `packages/utils/password.py`. Utilise **PBKDF2-SHA256** via `hashlib.pbkdf2_hmac` avec 200000 iterations minimum, un salt aléatoire de 16 octets, encodage final `iterations$salt_hex$hash_hex`. `verify_password` utilise `hmac.compare_digest` pour constant-time.",
+      "prompt": "Impl\u00e9mente `hash_password(password: str) -> str` et `verify_password(password: str, hashed: str) -> bool` dans `packages/utils/password.py`. Utilise **PBKDF2-SHA256** via `hashlib.pbkdf2_hmac` avec 200000 iterations minimum, un salt al\u00e9atoire de 16 octets, encodage final `iterations$salt_hex$hash_hex`. `verify_password` utilise `hmac.compare_digest` pour constant-time.",
       "results": {
         "opus-base": {
           "active_tokens": 16738,
@@ -3927,28 +2789,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1249
-        },
-        "haiku-base": {
-          "active_tokens": 13137,
-          "total_tokens": 105195,
-          "turns": 7,
-          "tool_calls": 2,
-          "wall_time_seconds": 29.24,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1628
-        },
-        "haiku-ts": {
-          "active_tokens": 19690,
-          "total_tokens": 240724,
-          "turns": 15,
-          "tool_calls": 6,
-          "wall_time_seconds": 45.51,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1801
         }
       }
     },
@@ -3957,7 +2797,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-middleware-logger",
-      "prompt": "Implémente une middleware FastAPI `LoggingMiddleware` dans `apps/api/middleware/logging_mw.py` (nouveau fichier). Elle log méthode, path, status, duration_ms pour chaque requête. Utilise `starlette.middleware.base.BaseHTTPMiddleware`. Capture le status même en cas d'exception (log `status=500` puis re-raise).",
+      "prompt": "Impl\u00e9mente une middleware FastAPI `LoggingMiddleware` dans `apps/api/middleware/logging_mw.py` (nouveau fichier). Elle log m\u00e9thode, path, status, duration_ms pour chaque requ\u00eate. Utilise `starlette.middleware.base.BaseHTTPMiddleware`. Capture le status m\u00eame en cas d'exception (log `status=500` puis re-raise).",
       "results": {
         "opus-base": {
           "active_tokens": 16151,
@@ -4002,28 +2842,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2102
-        },
-        "haiku-base": {
-          "active_tokens": 12143,
-          "total_tokens": 138055,
-          "turns": 8,
-          "tool_calls": 3,
-          "wall_time_seconds": 25.15,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1575
-        },
-        "haiku-ts": {
-          "active_tokens": 18569,
-          "total_tokens": 285536,
-          "turns": 14,
-          "tool_calls": 5,
-          "wall_time_seconds": 35.0,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1246
         }
       }
     },
@@ -4032,7 +2850,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "code-gen-queue-consumer",
-      "prompt": "Implémente un worker consumer Redis Streams dans `apps/worker/stream_consumer.py`. Fonction `consume(redis_client, stream: str, group: str, consumer_name: str, handler: callable, *, block_ms: int = 5000)`. Elle doit : créer le consumer group si absent (`XGROUP CREATE` avec `MKSTREAM`), loop sur `XREADGROUP`, appeler `handler(msg_id, data)`, `XACK` en cas de succès, log + pas de XACK en cas d'exception (pour retry via PEL).",
+      "prompt": "Impl\u00e9mente un worker consumer Redis Streams dans `apps/worker/stream_consumer.py`. Fonction `consume(redis_client, stream: str, group: str, consumer_name: str, handler: callable, *, block_ms: int = 5000)`. Elle doit : cr\u00e9er le consumer group si absent (`XGROUP CREATE` avec `MKSTREAM`), loop sur `XREADGROUP`, appeler `handler(msg_id, data)`, `XACK` en cas de succ\u00e8s, log + pas de XACK en cas d'exception (pour retry via PEL).",
       "results": {
         "opus-base": {
           "active_tokens": 17463,
@@ -4077,28 +2895,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 3039
-        },
-        "haiku-base": {
-          "active_tokens": 12902,
-          "total_tokens": 207493,
-          "turns": 12,
-          "tool_calls": 5,
-          "wall_time_seconds": 23.45,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2413
-        },
-        "haiku-ts": {
-          "active_tokens": 32363,
-          "total_tokens": 482577,
-          "turns": 23,
-          "tool_calls": 8,
-          "wall_time_seconds": 266.87,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1732
         }
       }
     },
@@ -4107,7 +2903,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "code-gen-url-signer",
-      "prompt": "Implémente `sign_url(url: str, secret: str, expires_in: int = 3600) -> str` et `verify_signed_url(signed_url: str, secret: str) -> bool` dans `packages/utils/url_signer.py`. La signature = HMAC-SHA256 de `url + exp_timestamp`, ajoutée en query param `?sig=<hex>&exp=<int>`. `verify_signed_url` doit : (1) parser les params, (2) vérifier `exp > now()`, (3) recalculer et comparer la sig avec `hmac.compare_digest`.",
+      "prompt": "Impl\u00e9mente `sign_url(url: str, secret: str, expires_in: int = 3600) -> str` et `verify_signed_url(signed_url: str, secret: str) -> bool` dans `packages/utils/url_signer.py`. La signature = HMAC-SHA256 de `url + exp_timestamp`, ajout\u00e9e en query param `?sig=<hex>&exp=<int>`. `verify_signed_url` doit : (1) parser les params, (2) v\u00e9rifier `exp > now()`, (3) recalculer et comparer la sig avec `hmac.compare_digest`.",
       "results": {
         "opus-base": {
           "active_tokens": 15738,
@@ -4152,28 +2948,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2395
-        },
-        "haiku-base": {
-          "active_tokens": 11541,
-          "total_tokens": 69136,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 16.88,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1829
-        },
-        "haiku-ts": {
-          "active_tokens": 17537,
-          "total_tokens": 281720,
-          "turns": 14,
-          "tool_calls": 5,
-          "wall_time_seconds": 28.93,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1259
         }
       }
     },
@@ -4182,7 +2956,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "code-gen-circuit-breaker",
-      "prompt": "Implémente une classe `CircuitBreaker(failure_threshold: int = 5, reset_timeout: float = 30.0)` dans `packages/utils/circuit.py`. 3 états : CLOSED, OPEN, HALF_OPEN. Méthode `call(fn, *args, **kwargs)` :",
+      "prompt": "Impl\u00e9mente une classe `CircuitBreaker(failure_threshold: int = 5, reset_timeout: float = 30.0)` dans `packages/utils/circuit.py`. 3 \u00e9tats : CLOSED, OPEN, HALF_OPEN. M\u00e9thode `call(fn, *args, **kwargs)` :",
       "results": {
         "opus-base": {
           "active_tokens": 17114,
@@ -4227,28 +3001,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2024
-        },
-        "haiku-base": {
-          "active_tokens": 11366,
-          "total_tokens": 68978,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 15.42,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2238
-        },
-        "haiku-ts": {
-          "active_tokens": 21280,
-          "total_tokens": 241040,
-          "turns": 11,
-          "tool_calls": 4,
-          "wall_time_seconds": 35.42,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2350
         }
       }
     },
@@ -4257,7 +3009,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "code-gen-json-diff",
-      "prompt": "Implémente `json_diff(a: dict, b: dict) -> dict` dans `packages/utils/json_diff.py`. Le résultat contient 3 clés : `added` (dans b pas dans a), `removed` (dans a pas dans b), `changed` (présent dans les deux avec valeurs différentes, listé comme `{key: {\"before\": ..., \"after\": ...}}`). Supporte la récursion sur dicts imbriqués : si a[k] et b[k] sont tous deux dicts, diff récursif. Les paths imbriqués sont représentés par une clé dotted (ex `\"user.name\"`).",
+      "prompt": "Impl\u00e9mente `json_diff(a: dict, b: dict) -> dict` dans `packages/utils/json_diff.py`. Le r\u00e9sultat contient 3 cl\u00e9s : `added` (dans b pas dans a), `removed` (dans a pas dans b), `changed` (pr\u00e9sent dans les deux avec valeurs diff\u00e9rentes, list\u00e9 comme `{key: {\"before\": ..., \"after\": ...}}`). Supporte la r\u00e9cursion sur dicts imbriqu\u00e9s : si a[k] et b[k] sont tous deux dicts, diff r\u00e9cursif. Les paths imbriqu\u00e9s sont repr\u00e9sent\u00e9s par une cl\u00e9 dotted (ex `\"user.name\"`).",
       "results": {
         "opus-base": {
           "active_tokens": 16798,
@@ -4302,28 +3054,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1230
-        },
-        "haiku-base": {
-          "active_tokens": 21236,
-          "total_tokens": 153150,
-          "turns": 10,
-          "tool_calls": 3,
-          "wall_time_seconds": 48.66,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1418
-        },
-        "haiku-ts": {
-          "active_tokens": 17239,
-          "total_tokens": 188864,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 23.65,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2866
         }
       }
     },
@@ -4332,7 +3062,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-cli-parser",
-      "prompt": "Écris un CLI `scripts/cleanup_stale.py` avec `argparse` qui prend :",
+      "prompt": "\u00c9cris un CLI `scripts/cleanup_stale.py` avec `argparse` qui prend :",
       "results": {
         "opus-base": {
           "active_tokens": 14298,
@@ -4377,28 +3107,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 162
-        },
-        "haiku-base": {
-          "active_tokens": 13705,
-          "total_tokens": 105992,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 24.48,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1697
-        },
-        "haiku-ts": {
-          "active_tokens": 14430,
-          "total_tokens": 46531,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 10.35,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4407,7 +3115,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "code-gen-date-range-expander",
-      "prompt": "Implémente `expand_date_range(start: str, end: str, *, step: str = \"day\") -> list[str]` dans `packages/utils/date_range.py`. `start` et `end` au format ISO `YYYY-MM-DD`. `step` ∈ {\"day\", \"week\", \"month\"}. Retourne la liste des dates (format ISO string) depuis `start` jusqu'à `end` inclus. Utilise `datetime.date`, `timedelta` pour day/week, et `dateutil.relativedelta` pour month. Lève `ValueError` si end < start ou step invalide.",
+      "prompt": "Impl\u00e9mente `expand_date_range(start: str, end: str, *, step: str = \"day\") -> list[str]` dans `packages/utils/date_range.py`. `start` et `end` au format ISO `YYYY-MM-DD`. `step` \u2208 {\"day\", \"week\", \"month\"}. Retourne la liste des dates (format ISO string) depuis `start` jusqu'\u00e0 `end` inclus. Utilise `datetime.date`, `timedelta` pour day/week, et `dateutil.relativedelta` pour month. L\u00e8ve `ValueError` si end < start ou step invalide.",
       "results": {
         "opus-base": {
           "active_tokens": 16004,
@@ -4452,28 +3160,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1081
-        },
-        "haiku-base": {
-          "active_tokens": 12204,
-          "total_tokens": 69797,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 19.37,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1121
-        },
-        "haiku-ts": {
-          "active_tokens": 20569,
-          "total_tokens": 290285,
-          "turns": 14,
-          "tool_calls": 6,
-          "wall_time_seconds": 38.73,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1552
         }
       }
     },
@@ -4527,28 +3213,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 704
-        },
-        "haiku-base": {
-          "active_tokens": 11542,
-          "total_tokens": 69103,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 19.69,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1227
-        },
-        "haiku-ts": {
-          "active_tokens": 14867,
-          "total_tokens": 46968,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 15.67,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4557,7 +3221,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "bug-fix-null-deref",
-      "prompt": "Ce code lève une `AttributeError` en prod quand `user` n'existe pas en DB :",
+      "prompt": "Ce code l\u00e8ve une `AttributeError` en prod quand `user` n'existe pas en DB :",
       "results": {
         "opus-base": {
           "active_tokens": 14094,
@@ -4598,28 +3262,6 @@
           "turns": 2,
           "tool_calls": 0,
           "wall_time_seconds": 16.75,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 11231,
-          "total_tokens": 35387,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 25.38,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14652,
-          "total_tokens": 46753,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 14.09,
           "score": 2,
           "max_score": 2,
           "error": null,
@@ -4677,28 +3319,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10142,
-          "total_tokens": 34298,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 13.95,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14509,
-          "total_tokens": 46610,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 13.72,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4752,28 +3372,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10054,
-          "total_tokens": 34210,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 14.6,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 15042,
-          "total_tokens": 47143,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 19.1,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4782,7 +3380,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "bug-fix-wrong-regex",
-      "prompt": "Cette regex doit extraire les numéros de version sémantique `v1.2.3` depuis un texte, mais elle loupe les préversions `v1.2.3-beta.1` :",
+      "prompt": "Cette regex doit extraire les num\u00e9ros de version s\u00e9mantique `v1.2.3` depuis un texte, mais elle loupe les pr\u00e9versions `v1.2.3-beta.1` :",
       "results": {
         "opus-base": {
           "active_tokens": 14137,
@@ -4827,28 +3425,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10106,
-          "total_tokens": 34262,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 14.06,
-          "score": 0,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 15093,
-          "total_tokens": 47194,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 16.11,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4857,7 +3433,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "bug-fix-memory-leak",
-      "prompt": "Ce handler WebSocket fuit de la mémoire sur un déploiement long :",
+      "prompt": "Ce handler WebSocket fuit de la m\u00e9moire sur un d\u00e9ploiement long :",
       "results": {
         "opus-base": {
           "active_tokens": 14244,
@@ -4902,28 +3478,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10060,
-          "total_tokens": 34216,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 13.93,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14501,
-          "total_tokens": 46602,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 14.94,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -4932,7 +3486,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "bug-fix-timezone",
-      "prompt": "Ce code dit \"la commande a expiré\" même sur des timestamps qui ne devraient pas :",
+      "prompt": "Ce code dit \"la commande a expir\u00e9\" m\u00eame sur des timestamps qui ne devraient pas :",
       "results": {
         "opus-base": {
           "active_tokens": 14097,
@@ -4977,28 +3531,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 9857,
-          "total_tokens": 34013,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 12.75,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14284,
-          "total_tokens": 46385,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 11.2,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5007,7 +3539,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "bug-fix-rounding",
-      "prompt": "La facturation produit parfois des totaux à `0.01` près de la somme des lignes :",
+      "prompt": "La facturation produit parfois des totaux \u00e0 `0.01` pr\u00e8s de la somme des lignes :",
       "results": {
         "opus-base": {
           "active_tokens": 14597,
@@ -5052,28 +3584,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 345
-        },
-        "haiku-base": {
-          "active_tokens": 10028,
-          "total_tokens": 34184,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 13.3,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14739,
-          "total_tokens": 46840,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 15.14,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5082,7 +3592,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "refactor-extract-function",
-      "prompt": "La fonction `calculate_invoice` dans `apps/api/services/billing.py` contient un bloc de ~17 lignes de calcul qui calcule des valeurs intermédiaires (`x_0`..`x_17`) sans lien avec le vrai calcul de facture. Ce bloc est dupliqué dans d'autres fonctions du même fichier.",
+      "prompt": "La fonction `calculate_invoice` dans `apps/api/services/billing.py` contient un bloc de ~17 lignes de calcul qui calcule des valeurs interm\u00e9diaires (`x_0`..`x_17`) sans lien avec le vrai calcul de facture. Ce bloc est dupliqu\u00e9 dans d'autres fonctions du m\u00eame fichier.",
       "results": {
         "opus-base": {
           "active_tokens": 26322,
@@ -5127,28 +3637,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 3902
-        },
-        "haiku-base": {
-          "active_tokens": 22204,
-          "total_tokens": 79803,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 21.53,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22361
-        },
-        "haiku-ts": {
-          "active_tokens": 17695,
-          "total_tokens": 282055,
-          "turns": 13,
-          "tool_calls": 5,
-          "wall_time_seconds": 27.17,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2135
         }
       }
     },
@@ -5157,7 +3645,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "refactor-inline-variable",
-      "prompt": "Ce code a des variables intermédiaires inutiles :",
+      "prompt": "Ce code a des variables interm\u00e9diaires inutiles :",
       "results": {
         "opus-base": {
           "active_tokens": 14226,
@@ -5202,28 +3690,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10157,
-          "total_tokens": 34313,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 16.59,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14928,
-          "total_tokens": 47029,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 16.59,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5232,7 +3698,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "refactor-sync-to-async",
-      "prompt": "Cette fonction synchrone fait 3 HTTP calls séquentiels, lent :",
+      "prompt": "Cette fonction synchrone fait 3 HTTP calls s\u00e9quentiels, lent :",
       "results": {
         "opus-base": {
           "active_tokens": 14135,
@@ -5277,28 +3743,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10521,
-          "total_tokens": 34677,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 15.54,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 15033,
-          "total_tokens": 47134,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 16.82,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5307,7 +3751,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "refactor-split-god-class",
-      "prompt": "La classe `OrderManager` (imagine-la avec 30 méthodes) couvre 3 responsabilités : persistence DB, envoi d'emails, calcul de totaux. Propose un plan de refactor pour la splitter en 3 classes avec responsabilités séparées. Donne :",
+      "prompt": "La classe `OrderManager` (imagine-la avec 30 m\u00e9thodes) couvre 3 responsabilit\u00e9s : persistence DB, envoi d'emails, calcul de totaux. Propose un plan de refactor pour la splitter en 3 classes avec responsabilit\u00e9s s\u00e9par\u00e9es. Donne :",
       "results": {
         "opus-base": {
           "active_tokens": 14788,
@@ -5352,28 +3796,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 15800,
-          "total_tokens": 73398,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 32.52,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 42
-        },
-        "haiku-ts": {
-          "active_tokens": 15050,
-          "total_tokens": 47151,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 17.47,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5382,7 +3804,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "refactor-dedupe-similar",
-      "prompt": "Ces 3 fonctions répètent la même structure :",
+      "prompt": "Ces 3 fonctions r\u00e9p\u00e8tent la m\u00eame structure :",
       "results": {
         "opus-base": {
           "active_tokens": 14500,
@@ -5427,28 +3849,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1433
-        },
-        "haiku-base": {
-          "active_tokens": 10503,
-          "total_tokens": 34659,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 17.56,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 16992,
-          "total_tokens": 94963,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 24.44,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 741
         }
       }
     },
@@ -5457,7 +3857,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "refactor-replace-loop-comprehension",
-      "prompt": "Ce code peut être exprimé en comprehension :",
+      "prompt": "Ce code peut \u00eatre exprim\u00e9 en comprehension :",
       "results": {
         "opus-base": {
           "active_tokens": 14058,
@@ -5502,28 +3902,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 9903,
-          "total_tokens": 34059,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 12.34,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14636,
-          "total_tokens": 46737,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 12.76,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5532,7 +3910,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "write-tests-for-slugify",
-      "prompt": "Écris des tests pytest pour une fonction `slugify(text: str) -> str` qui doit :",
+      "prompt": "\u00c9cris des tests pytest pour une fonction `slugify(text: str) -> str` qui doit :",
       "results": {
         "opus-base": {
           "active_tokens": 14243,
@@ -5577,28 +3955,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 0
-        },
-        "haiku-base": {
-          "active_tokens": 10016,
-          "total_tokens": 34172,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 13.29,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 22325,
-          "total_tokens": 100283,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 41.17,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 52
         }
       }
     },
@@ -5607,7 +3963,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "write-tests-edge-cases",
-      "prompt": "La fonction `calculate_refund(order_total: float, returned_items_total: float, shipping: float = 0, *, refund_shipping: bool = False) -> float` doit retourner le montant à rembourser. Liste TOUS les edge cases à tester et écris le code pytest dans `tests/test_refund.py`. Au minimum :",
+      "prompt": "La fonction `calculate_refund(order_total: float, returned_items_total: float, shipping: float = 0, *, refund_shipping: bool = False) -> float` doit retourner le montant \u00e0 rembourser. Liste TOUS les edge cases \u00e0 tester et \u00e9cris le code pytest dans `tests/test_refund.py`. Au minimum :",
       "results": {
         "opus-base": {
           "active_tokens": 19643,
@@ -5652,28 +4008,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1360
-        },
-        "haiku-base": {
-          "active_tokens": 40393,
-          "total_tokens": 260124,
-          "turns": 17,
-          "tool_calls": 8,
-          "wall_time_seconds": 106.84,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 34487
-        },
-        "haiku-ts": {
-          "active_tokens": 16788,
-          "total_tokens": 48889,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 28.33,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -5682,7 +4016,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "write-tests-async-fn",
-      "prompt": "Écris des tests pytest pour une fonction asynchrone `async def fetch_user(user_id: int) -> dict | None` qui fait un HTTP GET via `httpx.AsyncClient`. Mock le client avec `respx` ou `pytest-httpx`. Couvre : succès 200, 404 → None, 500 → raises, timeout → raises `httpx.TimeoutException`. Place dans `tests/test_fetch_user.py`. Utilise `pytest-asyncio` (`@pytest.mark.asyncio`).",
+      "prompt": "\u00c9cris des tests pytest pour une fonction asynchrone `async def fetch_user(user_id: int) -> dict | None` qui fait un HTTP GET via `httpx.AsyncClient`. Mock le client avec `respx` ou `pytest-httpx`. Couvre : succ\u00e8s 200, 404 \u2192 None, 500 \u2192 raises, timeout \u2192 raises `httpx.TimeoutException`. Place dans `tests/test_fetch_user.py`. Utilise `pytest-asyncio` (`@pytest.mark.asyncio`).",
       "results": {
         "opus-base": {
           "active_tokens": 14513,
@@ -5727,28 +4061,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 219
-        },
-        "haiku-base": {
-          "active_tokens": 29193,
-          "total_tokens": 947889,
-          "turns": 50,
-          "tool_calls": 23,
-          "wall_time_seconds": 109.73,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 15134
-        },
-        "haiku-ts": {
-          "active_tokens": 17638,
-          "total_tokens": 236810,
-          "turns": 12,
-          "tool_calls": 4,
-          "wall_time_seconds": 38.3,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1281
         }
       }
     },
@@ -5757,7 +4069,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "write-tests-error-paths",
-      "prompt": "Pour la fonction `apply_discount(payload: dict, user_id: int = 0)` dans `apps/api/services/billing.py`, écris exclusivement des **tests d'error paths** dans `tests/test_apply_discount_errors.py`. Au minimum :",
+      "prompt": "Pour la fonction `apply_discount(payload: dict, user_id: int = 0)` dans `apps/api/services/billing.py`, \u00e9cris exclusivement des **tests d'error paths** dans `tests/test_apply_discount_errors.py`. Au minimum :",
       "results": {
         "opus-base": {
           "active_tokens": 0,
@@ -5802,28 +4114,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2957
-        },
-        "haiku-base": {
-          "active_tokens": 25953,
-          "total_tokens": 128579,
-          "turns": 12,
-          "tool_calls": 6,
-          "wall_time_seconds": 20.36,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 31724
-        },
-        "haiku-ts": {
-          "active_tokens": 21113,
-          "total_tokens": 387726,
-          "turns": 17,
-          "tool_calls": 7,
-          "wall_time_seconds": 37.2,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6508
         }
       }
     },
@@ -5832,7 +4122,7 @@
       "difficulty": "hard",
       "scoring": "contains_all",
       "slug": "write-tests-integration",
-      "prompt": "Écris un test d'intégration pytest pour le endpoint `POST /api/orders` (FastAPI). Utilise `TestClient`. Scénario bout-en-bout :",
+      "prompt": "\u00c9cris un test d'int\u00e9gration pytest pour le endpoint `POST /api/orders` (FastAPI). Utilise `TestClient`. Sc\u00e9nario bout-en-bout :",
       "results": {
         "opus-base": {
           "active_tokens": 14751,
@@ -5877,28 +4167,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 8370
-        },
-        "haiku-base": {
-          "active_tokens": 30950,
-          "total_tokens": 702228,
-          "turns": 38,
-          "tool_calls": 17,
-          "wall_time_seconds": 77.76,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 11082
-        },
-        "haiku-ts": {
-          "active_tokens": 23502,
-          "total_tokens": 349154,
-          "turns": 18,
-          "tool_calls": 9,
-          "wall_time_seconds": 48.19,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6791
         }
       }
     },
@@ -5907,7 +4175,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "write-tests-parametrize",
-      "prompt": "Prends la fonction `is_valid_email(email: str) -> bool`. Écris un test paramétrisé avec `pytest.mark.parametrize` qui couvre **au moins 12 cas** : 6 valides, 6 invalides. Chaque paramétrisation doit avoir un `id=` lisible (via `pytest.param(..., id=\"xxx\")` ou `ids=[...]`). Place dans `tests/test_email_validation.py`.",
+      "prompt": "Prends la fonction `is_valid_email(email: str) -> bool`. \u00c9cris un test param\u00e9tris\u00e9 avec `pytest.mark.parametrize` qui couvre **au moins 12 cas** : 6 valides, 6 invalides. Chaque param\u00e9trisation doit avoir un `id=` lisible (via `pytest.param(..., id=\"xxx\")` ou `ids=[...]`). Place dans `tests/test_email_validation.py`.",
       "results": {
         "opus-base": {
           "active_tokens": 0,
@@ -5952,28 +4220,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2714
-        },
-        "haiku-base": {
-          "active_tokens": 14659,
-          "total_tokens": 210888,
-          "turns": 13,
-          "tool_calls": 5,
-          "wall_time_seconds": 38.44,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 3264
-        },
-        "haiku-ts": {
-          "active_tokens": 22702,
-          "total_tokens": 436254,
-          "turns": 22,
-          "tool_calls": 8,
-          "wall_time_seconds": 57.84,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 2063
         }
       }
     },
@@ -5982,7 +4228,7 @@
       "difficulty": "medium",
       "scoring": "contains_all",
       "slug": "write-tests-mock-dependency",
-      "prompt": "Pour la fonction `send_welcome_email(user_id: int)` qui dépend de `db.get_user(user_id)` et `mailer.send(to, subject, body)`, écris 3 tests avec `pytest-mock` (`mocker`) :",
+      "prompt": "Pour la fonction `send_welcome_email(user_id: int)` qui d\u00e9pend de `db.get_user(user_id)` et `mailer.send(to, subject, body)`, \u00e9cris 3 tests avec `pytest-mock` (`mocker`) :",
       "results": {
         "opus-base": {
           "active_tokens": 14347,
@@ -6027,28 +4273,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 208
-        },
-        "haiku-base": {
-          "active_tokens": 10598,
-          "total_tokens": 34754,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 15.67,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
-        },
-        "haiku-ts": {
-          "active_tokens": 14635,
-          "total_tokens": 46736,
-          "turns": 2,
-          "tool_calls": 0,
-          "wall_time_seconds": 12.96,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 0
         }
       }
     },
@@ -6057,7 +4281,7 @@
       "difficulty": "medium",
       "scoring": "llm_judge",
       "slug": "explain-auth-middleware",
-      "prompt": "Explique le fonctionnement de la fonction/middleware d'auth dans `apps/api/services/auth.py`. Structure ta réponse :",
+      "prompt": "Explique le fonctionnement de la fonction/middleware d'auth dans `apps/api/services/auth.py`. Structure ta r\u00e9ponse :",
       "results": {
         "opus-base": {
           "active_tokens": 26134,
@@ -6102,28 +4326,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 10118
-        },
-        "haiku-base": {
-          "active_tokens": 21443,
-          "total_tokens": 79005,
-          "turns": 5,
-          "tool_calls": 1,
-          "wall_time_seconds": 22.25,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 19235
-        },
-        "haiku-ts": {
-          "active_tokens": 19992,
-          "total_tokens": 241616,
-          "turns": 14,
-          "tool_calls": 6,
-          "wall_time_seconds": 39.22,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 5889
         }
       }
     },
@@ -6132,7 +4334,7 @@
       "difficulty": "hard",
       "scoring": "llm_judge",
       "slug": "explain-data-flow",
-      "prompt": "Trace le flow complet d'une requête POST `/api/orders` depuis la réception HTTP jusqu'à la persistence DB et l'éventuel émission d'événement async. Structure :",
+      "prompt": "Trace le flow complet d'une requ\u00eate POST `/api/orders` depuis la r\u00e9ception HTTP jusqu'\u00e0 la persistence DB et l'\u00e9ventuel \u00e9mission d'\u00e9v\u00e9nement async. Structure :",
       "results": {
         "opus-base": {
           "active_tokens": 15155,
@@ -6177,28 +4379,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 14152
-        },
-        "haiku-base": {
-          "active_tokens": 15966,
-          "total_tokens": 179871,
-          "turns": 15,
-          "tool_calls": 6,
-          "wall_time_seconds": 52.69,
-          "score": 0,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 4913
-        },
-        "haiku-ts": {
-          "active_tokens": 24419,
-          "total_tokens": 398621,
-          "turns": 18,
-          "tool_calls": 7,
-          "wall_time_seconds": 45.54,
-          "score": 0,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 15082
         }
       }
     },
@@ -6207,7 +4387,7 @@
       "difficulty": "hard",
       "scoring": "llm_judge",
       "slug": "explain-error-propagation",
-      "prompt": "Dans ce projet, comment les erreurs sont-elles propagées depuis la DB (ex: `NotFoundError`, `ValidationError`) jusqu'au client HTTP ? Réponds :",
+      "prompt": "Dans ce projet, comment les erreurs sont-elles propag\u00e9es depuis la DB (ex: `NotFoundError`, `ValidationError`) jusqu'au client HTTP ? R\u00e9ponds :",
       "results": {
         "opus-base": {
           "active_tokens": 37897,
@@ -6252,28 +4432,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 8138
-        },
-        "haiku-base": {
-          "active_tokens": 22909,
-          "total_tokens": 516641,
-          "turns": 37,
-          "tool_calls": 22,
-          "wall_time_seconds": 96.36,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 18212
-        },
-        "haiku-ts": {
-          "active_tokens": 19961,
-          "total_tokens": 242250,
-          "turns": 17,
-          "tool_calls": 10,
-          "wall_time_seconds": 31.54,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6744
         }
       }
     },
@@ -6282,7 +4440,7 @@
       "difficulty": "hard",
       "scoring": "llm_judge",
       "slug": "security-review-auth",
-      "prompt": "Effectue une security review du module d'auth dans `apps/api/services/auth.py` et `apps/api/services/complex_auth.py`. Liste les vulnérabilités potentielles (OWASP-style). Pour chaque vulnérabilité :",
+      "prompt": "Effectue une security review du module d'auth dans `apps/api/services/auth.py` et `apps/api/services/complex_auth.py`. Liste les vuln\u00e9rabilit\u00e9s potentielles (OWASP-style). Pour chaque vuln\u00e9rabilit\u00e9 :",
       "results": {
         "opus-base": {
           "active_tokens": 0,
@@ -6327,28 +4485,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 11742
-        },
-        "haiku-base": {
-          "active_tokens": 23772,
-          "total_tokens": 149217,
-          "turns": 12,
-          "tool_calls": 5,
-          "wall_time_seconds": 35.04,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 20798
-        },
-        "haiku-ts": {
-          "active_tokens": 39833,
-          "total_tokens": 880060,
-          "turns": 48,
-          "tool_calls": 16,
-          "wall_time_seconds": 124.37,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 20647
         }
       }
     },
@@ -6357,7 +4493,7 @@
       "difficulty": "easy",
       "scoring": "llm_judge",
       "slug": "write-docstring-function",
-      "prompt": "Écris une docstring Google-style complète pour la fonction `apply_discount(payload: dict, user_id: int = 0)` de `apps/api/services/billing.py`. La docstring doit contenir : description, Args (avec types), Returns, Raises, Example. Ne modifie PAS le code, uniquement donne la docstring à insérer sous la signature.",
+      "prompt": "\u00c9cris une docstring Google-style compl\u00e8te pour la fonction `apply_discount(payload: dict, user_id: int = 0)` de `apps/api/services/billing.py`. La docstring doit contenir : description, Args (avec types), Returns, Raises, Example. Ne modifie PAS le code, uniquement donne la docstring \u00e0 ins\u00e9rer sous la signature.",
       "results": {
         "opus-base": {
           "active_tokens": 15559,
@@ -6402,28 +4538,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 1648
-        },
-        "haiku-base": {
-          "active_tokens": 21608,
-          "total_tokens": 79144,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 15.68,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22341
-        },
-        "haiku-ts": {
-          "active_tokens": 16331,
-          "total_tokens": 186342,
-          "turns": 9,
-          "tool_calls": 3,
-          "wall_time_seconds": 18.29,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 1929
         }
       }
     },
@@ -6432,7 +4546,7 @@
       "difficulty": "medium",
       "scoring": "llm_judge",
       "slug": "write-module-readme",
-      "prompt": "Rédige un README.md pour le module `packages/utils/` de ce projet. Il doit contenir :",
+      "prompt": "R\u00e9dige un README.md pour le module `packages/utils/` de ce projet. Il doit contenir :",
       "results": {
         "opus-base": {
           "active_tokens": 0,
@@ -6477,28 +4591,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 2199
-        },
-        "haiku-base": {
-          "active_tokens": 16260,
-          "total_tokens": 107938,
-          "turns": 9,
-          "tool_calls": 4,
-          "wall_time_seconds": 20.1,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 10579
-        },
-        "haiku-ts": {
-          "active_tokens": 20128,
-          "total_tokens": 286503,
-          "turns": 13,
-          "tool_calls": 5,
-          "wall_time_seconds": 33.5,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 7533
         }
       }
     },
@@ -6507,7 +4599,7 @@
       "difficulty": "medium",
       "scoring": "llm_judge",
       "slug": "write-api-reference",
-      "prompt": "Liste et documente les endpoints HTTP du module `apps/api/callers/` (ou équivalent). Pour chaque endpoint : méthode, path, description courte, request body (si applicable), réponse success, erreurs possibles. Format markdown, tableau ou liste. Limite-toi aux 5 endpoints les plus \"business\" (pas les health checks).",
+      "prompt": "Liste et documente les endpoints HTTP du module `apps/api/callers/` (ou \u00e9quivalent). Pour chaque endpoint : m\u00e9thode, path, description courte, request body (si applicable), r\u00e9ponse success, erreurs possibles. Format markdown, tableau ou liste. Limite-toi aux 5 endpoints les plus \"business\" (pas les health checks).",
       "results": {
         "opus-base": {
           "active_tokens": 24766,
@@ -6552,28 +4644,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 18541
-        },
-        "haiku-base": {
-          "active_tokens": 29727,
-          "total_tokens": 192983,
-          "turns": 17,
-          "tool_calls": 10,
-          "wall_time_seconds": 97.94,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 33253
-        },
-        "haiku-ts": {
-          "active_tokens": 19935,
-          "total_tokens": 242305,
-          "turns": 13,
-          "tool_calls": 6,
-          "wall_time_seconds": 31.57,
-          "score": 1,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 6809
         }
       }
     },
@@ -6627,28 +4697,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 868
-        },
-        "haiku-base": {
-          "active_tokens": 22091,
-          "total_tokens": 79673,
-          "turns": 4,
-          "tool_calls": 1,
-          "wall_time_seconds": 22.96,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 22341
-        },
-        "haiku-ts": {
-          "active_tokens": 16073,
-          "total_tokens": 140219,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 33.47,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 772
         }
       }
     },
@@ -6657,7 +4705,7 @@
       "difficulty": "easy",
       "scoring": "contains_all",
       "slug": "write-commit-message",
-      "prompt": "Examine les changements non-commités dans ce repo (`git status` + `git diff`) et rédige un commit message conforme au format **Conventional Commits** :",
+      "prompt": "Examine les changements non-commit\u00e9s dans ce repo (`git status` + `git diff`) et r\u00e9dige un commit message conforme au format **Conventional Commits** :",
       "results": {
         "opus-base": {
           "active_tokens": 22566,
@@ -6702,28 +4750,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 9390
-        },
-        "haiku-base": {
-          "active_tokens": 22845,
-          "total_tokens": 115121,
-          "turns": 8,
-          "tool_calls": 3,
-          "wall_time_seconds": 39.18,
-          "score": 0,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 11650
-        },
-        "haiku-ts": {
-          "active_tokens": 21460,
-          "total_tokens": 99617,
-          "turns": 6,
-          "tool_calls": 2,
-          "wall_time_seconds": 33.2,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 13801
         }
       }
     },
@@ -6732,7 +4758,7 @@
       "difficulty": "medium",
       "scoring": "llm_judge",
       "slug": "write-pr-description",
-      "prompt": "Examine les changements non-commités ou entre la branche actuelle et `main` (selon ce qui est le plus pertinent). Rédige une description de Pull Request complète en markdown avec les sections :",
+      "prompt": "Examine les changements non-commit\u00e9s ou entre la branche actuelle et `main` (selon ce qui est le plus pertinent). R\u00e9dige une description de Pull Request compl\u00e8te en markdown avec les sections :",
       "results": {
         "opus-base": {
           "active_tokens": 0,
@@ -6777,28 +4803,6 @@
           "max_score": 2,
           "error": null,
           "context_chars": 10703
-        },
-        "haiku-base": {
-          "active_tokens": 20637,
-          "total_tokens": 151786,
-          "turns": 11,
-          "tool_calls": 5,
-          "wall_time_seconds": 45.37,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 9883
-        },
-        "haiku-ts": {
-          "active_tokens": 29422,
-          "total_tokens": 408610,
-          "turns": 18,
-          "tool_calls": 7,
-          "wall_time_seconds": 110.74,
-          "score": 2,
-          "max_score": 2,
-          "error": null,
-          "context_chars": 21602
         }
       }
     }
@@ -7251,230 +5255,6 @@
           "pct": 100.0
         }
       }
-    },
-    "haiku-base": {
-      "n_tasks": 90,
-      "active_tokens_total": 1623036,
-      "active_tokens_mean": 18033.7,
-      "turns_total": 867,
-      "score_total": 152,
-      "score_max_total": 180,
-      "score_pct": 84.4,
-      "wall_time_total": 2750.1,
-      "context_chars_total": 1063834,
-      "by_category": {
-        "navigation": {
-          "n": 7,
-          "score": 14,
-          "max": 14,
-          "chars": 40951,
-          "active": 134359,
-          "wall": 169.2,
-          "pct": 100.0
-        },
-        "audit": {
-          "n": 3,
-          "score": 4,
-          "max": 6,
-          "chars": 76266,
-          "active": 63826,
-          "wall": 155.9,
-          "pct": 66.7
-        },
-        "refactoring": {
-          "n": 11,
-          "score": 16,
-          "max": 22,
-          "chars": 77617,
-          "active": 168577,
-          "wall": 276.5,
-          "pct": 72.7
-        },
-        "bug_fixing": {
-          "n": 13,
-          "score": 19,
-          "max": 26,
-          "chars": 168984,
-          "active": 202478,
-          "wall": 342.2,
-          "pct": 73.1
-        },
-        "explanation": {
-          "n": 14,
-          "score": 24,
-          "max": 28,
-          "chars": 388022,
-          "active": 364661,
-          "wall": 408.3,
-          "pct": 85.7
-        },
-        "code_review": {
-          "n": 5,
-          "score": 8,
-          "max": 10,
-          "chars": 60081,
-          "active": 87422,
-          "wall": 169.9,
-          "pct": 80.0
-        },
-        "config_infra": {
-          "n": 4,
-          "score": 7,
-          "max": 8,
-          "chars": 9063,
-          "active": 49011,
-          "wall": 128.5,
-          "pct": 87.5
-        },
-        "git": {
-          "n": 4,
-          "score": 6,
-          "max": 8,
-          "chars": 26219,
-          "active": 68656,
-          "wall": 139.3,
-          "pct": 75.0
-        },
-        "code_generation": {
-          "n": 18,
-          "score": 34,
-          "max": 36,
-          "chars": 32426,
-          "active": 232598,
-          "wall": 421.4,
-          "pct": 94.4
-        },
-        "writing_tests": {
-          "n": 7,
-          "score": 13,
-          "max": 14,
-          "chars": 95691,
-          "active": 161762,
-          "wall": 382.1,
-          "pct": 92.9
-        },
-        "documentation": {
-          "n": 4,
-          "score": 7,
-          "max": 8,
-          "chars": 88514,
-          "active": 89686,
-          "wall": 156.7,
-          "pct": 87.5
-        }
-      }
-    },
-    "haiku-ts": {
-      "n_tasks": 90,
-      "active_tokens_total": 1787192,
-      "active_tokens_mean": 19857.7,
-      "turns_total": 911,
-      "score_total": 174,
-      "score_max_total": 180,
-      "score_pct": 96.7,
-      "wall_time_total": 3481.6,
-      "context_chars_total": 376513,
-      "by_category": {
-        "navigation": {
-          "n": 7,
-          "score": 14,
-          "max": 14,
-          "chars": 12325,
-          "active": 101131,
-          "wall": 158.6,
-          "pct": 100.0
-        },
-        "audit": {
-          "n": 3,
-          "score": 6,
-          "max": 6,
-          "chars": 7456,
-          "active": 45350,
-          "wall": 71.6,
-          "pct": 100.0
-        },
-        "refactoring": {
-          "n": 11,
-          "score": 22,
-          "max": 22,
-          "chars": 14533,
-          "active": 216526,
-          "wall": 338.3,
-          "pct": 100.0
-        },
-        "bug_fixing": {
-          "n": 13,
-          "score": 25,
-          "max": 26,
-          "chars": 18230,
-          "active": 251928,
-          "wall": 303.2,
-          "pct": 96.2
-        },
-        "explanation": {
-          "n": 14,
-          "score": 24,
-          "max": 28,
-          "chars": 80001,
-          "active": 265778,
-          "wall": 367.6,
-          "pct": 85.7
-        },
-        "code_review": {
-          "n": 5,
-          "score": 10,
-          "max": 10,
-          "chars": 76999,
-          "active": 123419,
-          "wall": 317.6,
-          "pct": 100.0
-        },
-        "config_infra": {
-          "n": 4,
-          "score": 8,
-          "max": 8,
-          "chars": 36330,
-          "active": 67112,
-          "wall": 178.9,
-          "pct": 100.0
-        },
-        "git": {
-          "n": 4,
-          "score": 8,
-          "max": 8,
-          "chars": 56522,
-          "active": 92054,
-          "wall": 198.4,
-          "pct": 100.0
-        },
-        "code_generation": {
-          "n": 18,
-          "score": 36,
-          "max": 36,
-          "chars": 40379,
-          "active": 412724,
-          "wall": 1166.7,
-          "pct": 100.0
-        },
-        "writing_tests": {
-          "n": 7,
-          "score": 14,
-          "max": 14,
-          "chars": 16695,
-          "active": 138703,
-          "wall": 264.0,
-          "pct": 100.0
-        },
-        "documentation": {
-          "n": 4,
-          "score": 7,
-          "max": 8,
-          "chars": 17043,
-          "active": 72467,
-          "wall": 116.8,
-          "pct": 87.5
-        }
-      }
     }
   },
   "pairs": {
@@ -7525,30 +5305,6 @@
       "wins_ts": 18,
       "ties": 72,
       "wins_base": 0
-    },
-    "haiku": {
-      "base": "haiku-base",
-      "ts": "haiku-ts",
-      "n_paired": 90,
-      "reduction_active_pct": -10.1,
-      "reduction_wall_pct": -26.6,
-      "reduction_chars_pct": 64.6,
-      "accuracy_base_pct": 84.4,
-      "accuracy_ts_pct": 96.7,
-      "accuracy_delta_pp": 12.2,
-      "active_tokens_base": 1623036,
-      "active_tokens_ts": 1787192,
-      "wall_seconds_base": 2750.1,
-      "wall_seconds_ts": 3481.6,
-      "context_chars_base": 1063834,
-      "context_chars_ts": 376513,
-      "score_base": 152,
-      "score_ts": 174,
-      "score_max": 180,
-      "delta_score": 22,
-      "wins_ts": 21,
-      "ties": 68,
-      "wins_base": 1
     }
   }
 }
