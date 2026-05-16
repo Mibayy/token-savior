@@ -211,3 +211,110 @@ def test_ts_execute_disabled_via_env():
     importlib.reload(srv)
     names = {t.name for t in srv.TOOLS}
     assert "ts_execute" not in names
+
+
+# --- Warm worker pool tests --------------------------------------------------
+
+
+@pytest.fixture
+def fresh_pool():
+    """Force a brand-new worker pool for the test and tear it down after."""
+    import os as _os
+    import signal as _signal
+    import token_savior.code_mode.sandbox as sb
+
+    def _reset_sync():
+        # Kill any stranded child without touching asyncio streams (those may
+        # be bound to a now-closed loop from a previous test).
+        pool = sb._POOL
+        if pool is not None and pool.proc is not None:
+            try:
+                _os.kill(pool.proc.pid, _signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        sb._POOL = None
+
+    _reset_sync()
+    yield sb
+    _reset_sync()
+
+
+def test_pool_reuse(fresh_pool):
+    """Sequential ts_execute calls reuse the same Node worker process."""
+    sb = fresh_pool
+
+    async def go():
+        results = []
+        for _ in range(5):
+            results.append(
+                await sb.run_script_async(
+                    "return 1 + 1;",
+                    allowed_tools=[],
+                    dispatch=lambda t, a: None,
+                    timeout_ms=5000,
+                )
+            )
+        return results
+
+    results = asyncio.run(go())
+    assert all(r["value"] == 2 for r in results), results
+    assert all(r["error"] is None for r in results), results
+    # Singleton spawned exactly once across 5 execs.
+    assert sb._POOL is not None
+    assert sb._POOL.spawn_count == 1, sb._POOL.spawn_count
+
+
+def test_pool_recovers_from_timeout(fresh_pool):
+    """A timed-out script kills the worker; the next call respawns and works."""
+    sb = fresh_pool
+
+    async def go():
+        slow = await sb.run_script_async(
+            "await new Promise(r => setTimeout(r, 5000)); return 'never';",
+            allowed_tools=[],
+            dispatch=lambda t, a: None,
+            timeout_ms=200,
+        )
+        normal = await sb.run_script_async(
+            "return 7 * 6;",
+            allowed_tools=[],
+            dispatch=lambda t, a: None,
+            timeout_ms=5000,
+        )
+        return slow, normal
+
+    slow, normal = asyncio.run(go())
+    assert slow["error"] is not None
+    assert "timeout" in slow["error"]["message"].lower()
+    assert normal["value"] == 42
+    assert normal["error"] is None
+    # 1 initial spawn + 1 respawn after timeout-kill.
+    assert sb._POOL is not None
+    assert sb._POOL.spawn_count == 2, sb._POOL.spawn_count
+
+
+def test_pool_isolates_globals(fresh_pool):
+    """Script #1 mutates globalThis; script #2 must not see the change."""
+    sb = fresh_pool
+
+    async def go():
+        first = await sb.run_script_async(
+            "globalThis.__leak__ = 'set-by-1'; return globalThis.__leak__;",
+            allowed_tools=[],
+            dispatch=lambda t, a: None,
+            timeout_ms=5000,
+        )
+        second = await sb.run_script_async(
+            "return typeof globalThis.__leak__;",
+            allowed_tools=[],
+            dispatch=lambda t, a: None,
+            timeout_ms=5000,
+        )
+        return first, second
+
+    first, second = asyncio.run(go())
+    assert first["value"] == "set-by-1", first
+    assert second["value"] == "undefined", second
+    # Same worker handled both — isolation comes from vm.createContext, not respawn.
+    assert sb._POOL is not None
+    assert sb._POOL.spawn_count == 1, sb._POOL.spawn_count
