@@ -54,19 +54,44 @@ def session_end(
     ``learned``, ``completed``, ``next_steps``, ``notes``) is non-empty, a
     row is inserted into ``session_summaries`` so memory_search / the
     history tool can surface past sessions.
+
+    Empty-session guard: if the session has zero events, no summary, no
+    rollup, and lifetime < 2s, DELETE the row instead of marking it
+    completed. This plugs the leak where SessionStop hooks fire on
+    benchmark / smoke-test reruns and bloat the sessions table.
     """
     now = _now_iso()
     epoch = _now_epoch()
     try:
         with memory_db.db_session() as conn:
+            rollup_fields = (request, investigated, learned, completed, next_steps, notes)
+            has_rollup = any(f and f.strip() for f in rollup_fields)
+            has_summary = bool(summary and summary.strip())
+            has_symbols = bool(symbols_changed)
+            has_files = bool(files_changed)
+
+            # Empty-session guard: drop noise rows instead of persisting them.
+            if not (has_rollup or has_summary or has_symbols or has_files):
+                row = conn.execute(
+                    "SELECT events_count, created_at_epoch FROM sessions WHERE id=?",
+                    (session_id,),
+                ).fetchone()
+                if row is not None:
+                    ev = row["events_count"] if hasattr(row, "keys") else row[0]
+                    created = row["created_at_epoch"] if hasattr(row, "keys") else row[1]
+                    lifetime = epoch - (created or epoch)
+                    if (ev or 0) == 0 and lifetime < 2:
+                        conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+                        conn.commit()
+                        return
+
             conn.execute(
                 "UPDATE sessions SET status='completed', end_type=?, completed_at=?, completed_at_epoch=?, "
                 "summary=?, symbols_changed=?, files_changed=? WHERE id=?",
                 (end_type, now, epoch, summary, _json_dumps(symbols_changed), _json_dumps(files_changed), session_id),
             )
 
-            rollup_fields = (request, investigated, learned, completed, next_steps, notes)
-            if any(f and f.strip() for f in rollup_fields):
+            if has_rollup:
                 row = conn.execute(
                     "SELECT project_root FROM sessions WHERE id=?", (session_id,)
                 ).fetchone()

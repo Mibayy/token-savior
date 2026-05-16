@@ -585,11 +585,15 @@ _TRACE_REQUESTS = os.environ.get("TOKEN_SAVIOR_TRACE", "").lower() in ("1", "tru
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
 
-    start = time.monotonic() if _TRACE_REQUESTS else 0.0
+    # Latency instrumentation: always record, regardless of TOKEN_SAVIOR_TRACE.
+    # Wall-clock cost measured at <1ms per call (see tests/test_latency.py).
+    _lat_start = time.monotonic()
     if _TRACE_REQUESTS:
         print(f"[token-savior] -> call {name}", file=sys.stderr, flush=True)
 
     record_symbol = _track_call(name, arguments)
+    _lat_status = "ok"
+    _lat_err: str | None = None
     try:
         if name == "ts_extended":
             result = _handle_ts_extended(arguments)
@@ -598,7 +602,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         else:
             result = _dispatch_tool(name, arguments, record_symbol)
         if _TRACE_REQUESTS:
-            elapsed_ms = (time.monotonic() - start) * 1000.0
+            elapsed_ms = (time.monotonic() - _lat_start) * 1000.0
             print(
                 f"[token-savior] <- ok   {name} ({elapsed_ms:.0f}ms)",
                 file=sys.stderr,
@@ -607,8 +611,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         return result
 
     except Exception as e:
+        _lat_status = "err"
+        _lat_err = type(e).__name__
         if _TRACE_REQUESTS:
-            elapsed_ms = (time.monotonic() - start) * 1000.0
+            elapsed_ms = (time.monotonic() - _lat_start) * 1000.0
             print(
                 f"[token-savior] <- err  {name} ({elapsed_ms:.0f}ms) {type(e).__name__}: {e}",
                 file=sys.stderr,
@@ -616,6 +622,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             )
         print(f"[token-savior] Error in {name}: {traceback.format_exc()}", file=sys.stderr)
         return [TextContent(type="text", text=f"Error: {e}")]
+
+    finally:
+        # Fire-and-forget persistence. The latency module is silent on
+        # every failure, but guard the import + active-project lookup too.
+        try:
+            from token_savior import latency as _latency
+            _elapsed_ms = int((time.monotonic() - _lat_start) * 1000.0)
+            try:
+                _root = s._slot_mgr.active_root
+                _project = os.path.basename(_root) if _root else None
+            except Exception:
+                _project = None
+            _latency.record(name, _project, _elapsed_ms, _lat_status, _lat_err)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

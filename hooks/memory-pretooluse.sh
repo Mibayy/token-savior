@@ -38,12 +38,12 @@ else
     exit 0
 fi
 
-RESULT=$(/root/.local/token-savior-venv/bin/python3 -c "
+RESULT=$(echo "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 -c "
 import sys, json, re
 sys.path.insert(0, '/root/token-savior/src')
 from token_savior import memory_db
 
-payload = json.loads('''$PAYLOAD''')
+payload = json.loads(sys.stdin.read())
 args = payload.get('tool_input', {})
 mode = '$MODE'
 
