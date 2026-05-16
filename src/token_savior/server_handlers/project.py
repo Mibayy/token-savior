@@ -84,7 +84,20 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
     new_root = os.path.abspath(arguments["path"])
     if not os.path.isdir(new_root):
         return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
-    if new_root not in state._slot_mgr.projects:
+    already_registered = new_root in state._slot_mgr.projects
+    if already_registered and not bool(arguments.get("force")):
+        # Audit 17/05: 32% of calls to this tool target already-registered
+        # projects, paying a full reindex for no reason. Redirect to a cheap
+        # active-root switch unless the caller explicitly forces a rebuild.
+        state._slot_mgr.active_root = new_root
+        return [TextContent(
+            type="text",
+            text=(
+                f"Already registered '{new_root}'; switched active project without "
+                "reindex. Pass force=true to rebuild the index."
+            ),
+        )]
+    if not already_registered:
         state._slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
     state._slot_mgr.active_root = new_root
     slot = state._slot_mgr.projects[new_root]

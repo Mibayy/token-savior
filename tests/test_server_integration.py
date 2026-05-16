@@ -76,6 +76,30 @@ class TestFullFlow:
         finally:
             _cleanup_slot(root)
 
+    def test_set_project_root_idempotent_no_reindex(self, tmp_path):
+        """Re-calling set_project_root on a known project must NOT trigger reindex."""
+        root = _setup_project(tmp_path)
+        try:
+            first = _run(call_tool("set_project_root", {"path": root}))
+            assert "Added and indexed" in _text(first)
+
+            second = _run(call_tool("set_project_root", {"path": root}))
+            text = _text(second)
+            assert "Already registered" in text
+            assert "without reindex" in text
+        finally:
+            _cleanup_slot(root)
+
+    def test_set_project_root_force_rebuilds(self, tmp_path):
+        """force=true on a known project goes through the full reindex path."""
+        root = _setup_project(tmp_path)
+        try:
+            _run(call_tool("set_project_root", {"path": root}))
+            forced = _run(call_tool("set_project_root", {"path": root, "force": True}))
+            assert "Added and indexed" in _text(forced)
+        finally:
+            _cleanup_slot(root)
+
 
 # ---------------------------------------------------------------------------
 # Test 2: Incremental update -- modify a file, find the new symbol

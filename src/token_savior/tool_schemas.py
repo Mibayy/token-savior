@@ -607,7 +607,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "set_project_root": {
         "description": (
-        'Register a new project root and switch to it.'
+        'Register a new project root and switch to it. If the path is already '
+        'registered, this becomes a cheap active-root switch (no reindex) '
+        'unless force=true is set.'
     ),
         "inputSchema": {
             "type": "object",
@@ -615,6 +617,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "path": {
                     "type": "string",
                     "description": "Absolute path to the project root directory.",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Rebuild the index even if the project is already registered.",
                 },
             },
             "required": ["path"],

@@ -11,6 +11,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 _ISOLATED_STATS_DIR = Path(tempfile.mkdtemp(prefix="ts-test-stats-"))
 os.environ["TOKEN_SAVIOR_STATS_DIR"] = str(_ISOLATED_STATS_DIR)
 
@@ -26,3 +28,24 @@ os.environ["TOKEN_SAVIOR_STATS_DIR"] = str(_ISOLATED_STATS_DIR)
 # SIGSEGV) — even when no watcher thread ever ran. Keeping the import
 # deferred by default means 99 % of the suite never loads the .so.
 os.environ.setdefault("TOKEN_SAVIOR_WATCHER", "off")
+
+
+# Redirect latency.py's tool_latency table to an isolated SQLite file so
+# pytest never writes telemetry into the developer's prod memory.db. This
+# is what was polluting the memory_viewer FTS tests in full-suite runs.
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_latency_db():
+    """Point token_savior.latency at a per-session temp DB."""
+    from token_savior import latency
+    temp_db = _ISOLATED_STATS_DIR / "tool_latency.db"
+    original_open = latency._open_conn
+
+    def patched_open(db_path=None):
+        return original_open(db_path or temp_db)
+
+    latency._open_conn = patched_open
+    latency.reset_for_tests()
+    yield
+    latency.reset_for_tests()

@@ -64,7 +64,14 @@ def _load_model() -> Any | None:
         )
         return None
     try:
-        _model = TextEmbedding(model_name=_MODEL_NAME)
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.filterwarnings(
+                "ignore",
+                message=r".*has been updated on HuggingFace.*",
+                category=UserWarning,
+            )
+            _model = TextEmbedding(model_name=_MODEL_NAME)
     except Exception as exc:
         _emit_warning_once(
             "[token-savior:memory] failed to load %s (%s); embedding disabled.",

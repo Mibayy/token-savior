@@ -214,6 +214,7 @@ keeping handlers live.
 | `lean`             | 52  | ~6 940  | Memory engine off — used in tsbench v2 |
 | `ultra`            | 31  | ~4 250  | Hot tools + `ts_extended` meta-tool |
 | `tiny` *(new)*     |  6  | ~1 070  | Defer-loading via `ts_search` (Tool Attention pattern) |
+| `code_mode` *(v3.2)* |  4  | ~1 500  | Multi-tool chains in one `ts_execute` JS sandbox |
 
 ### Bench-mode env vars
 
@@ -253,6 +254,36 @@ top-K candidates come back with their full inputSchema so the next turn
 can call them directly. Mirrors the
 [Tool Attention paper](https://arxiv.org/html/2604.21816v1)
 (47.3k → 2.4k tokens / turn at 120 tools, −95 % prefix).
+
+### Code Mode — collapse multi-tool chains into one JS sandbox
+
+`TOKEN_SAVIOR_PROFILE=code_mode` exposes just 4 tools (`ts_execute`,
+`ts_search`, `switch_project`, `list_projects`) and lets the model write
+a JS body that calls 34 internal Token Savior tools through a typed
+facade. Replaces the standard `find_symbol → get_function_source →
+get_dependents` 3-round-trip chain with a single tool call.
+
+```python
+# Step 1: discover signatures on demand
+ts_search(query="locate symbol and find callers", format="ts")
+# → matched_tools: [
+#     {"name":"find_symbol", "signature":"find_symbol: (args?: { name?: string; ... }) => Promise<unknown>"},
+#     {"name":"get_dependents", "signature":"get_dependents: (args: { name: string; ... }) => Promise<unknown>"},
+#   ]
+
+# Step 2: chain them in one round-trip
+ts_execute(script="""
+  const sym = await tools.find_symbol({ name: "process_payment" });
+  const callers = await tools.get_dependents({ name: sym.symbol });
+  return { sym, callers };
+""")
+# → {"value": {...}, "logs": [...], "tool_calls": 2, "duration_ms": 52}
+```
+
+Adapted from [Cloudflare's Code Mode for MCP](https://blog.cloudflare.com/code-mode-mcp/).
+Sandbox is a Node subprocess with stdio IPC. Each script runs in an
+isolated context, ~50 ms cold spawn, configurable timeout. Disable
+entirely with `TS_CODE_MODE_DISABLE=1`.
 
 ### Anthropic API users — pair with native context management
 
