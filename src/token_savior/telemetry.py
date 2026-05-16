@@ -177,6 +177,28 @@ def telemetry_health() -> dict:
         }
 
 
+def aggregate_counts() -> dict[str, int]:
+    """Sum tool-call counters across all clients.
+
+    Used by the `auto` profile to size the hot-tools layer from real
+    historical usage. Returns ``{tool_name: total_count}``. Never raises.
+    """
+    global _state
+    with _lock:
+        if _state is None:
+            _state = _load()
+        counts = _state.get("counts", {}) or {}
+    aggregate: dict[str, int] = {}
+    for bucket in counts.values():
+        if not isinstance(bucket, dict):
+            continue
+        for tool, n in bucket.items():
+            if not isinstance(tool, str) or not isinstance(n, int):
+                continue
+            aggregate[tool] = aggregate.get(tool, 0) + n
+    return aggregate
+
+
 def reset_for_tests() -> None:
     """Only for tests: clear in-process cache so _load() re-runs."""
     global _state, _last_error

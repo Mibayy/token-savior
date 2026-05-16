@@ -7,9 +7,9 @@
 > The MCP server that turns Claude into the only coding agent hitting **100%** on a real benchmark.
 > Structural code navigation + persistent memory. **−77% active tokens. −76% wall time. Zero losses.**
 
-[![Version](https://img.shields.io/badge/version-3.3.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v3.3.0)
+[![Version](https://img.shields.io/badge/version-3.4.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v3.4.0)
 [![Tools](https://img.shields.io/badge/tools-68-green)]()
-[![Tests](https://img.shields.io/badge/tests-1469%2F1469-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1476%2F1476-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(192%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()
@@ -208,13 +208,10 @@ keeping handlers live.
 
 | Profile | Advertised | ~Tokens | Use case |
 |---------|-----------:|--------:|----------|
-| `full` *(default)* | 67  | ~8 770  | All capabilities |
-| `core`             | 54  | ~5 800  | Daily coding, no memory engine |
-| `nav`              | 28  | ~3 100  | Read-only exploration |
-| `lean`             | 52  | ~6 940  | Memory engine off — used in tsbench v2 |
-| `ultra`            | 31  | ~4 250  | Hot tools + `ts_extended` meta-tool |
-| `tiny` *(new)*     |  6  | ~1 070  | Defer-loading via `ts_search` (Tool Attention pattern) |
-| `code_mode` *(v3.2)* |  4  | ~1 500  | Multi-tool chains in one `ts_execute` JS sandbox |
+| `auto` *(v3.4 — recommended)* | 15-18 | ~2 500 | Adaptive manifest sized from your real telemetry |
+| `full` *(current default)* | 68 | ~8 770 | All capabilities, debug, power users |
+| `code_mode` *(v3.2)* | 4 | ~1 500 | Multi-tool chains in one `ts_execute` JS sandbox |
+| ~~`core`, `nav`, `lean`, `ultra`, `tiny`, `tiny_plus`~~ | — | — | **Deprecated in v3.4, removed in v4.0** — use `auto` |
 
 ### Bench-mode env vars
 

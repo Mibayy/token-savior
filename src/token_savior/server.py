@@ -245,8 +245,56 @@ _CODE_MODE_INCLUDES: set[str] = {
     "list_projects",
 }
 
+# `auto` = adaptive profile built from telemetry. Three layers:
+#   1. Hot core: top-K from persistent tool_call_counts (LinUCB feature
+#      vector falls back to raw counts when the model is under-trained).
+#   2. Always-on essentials: switch_project, list_projects, get_git_status.
+#   3. Discovery: ts_search (defer-loading) + ts_execute (Code Mode bridge).
+# Total manifest ~2-3 KT, converges to the user's actual usage after a
+# handful of sessions. Defaults to TINY_PLUS_INCLUDES on cold start
+# (no telemetry yet) to avoid a bad first-session experience.
+_AUTO_HOT_K = int(os.environ.get("TS_AUTO_HOT_K", "10"))
+_AUTO_ESSENTIALS: set[str] = {
+    "switch_project",
+    "list_projects",
+    "get_git_status",
+    "ts_search",
+    "ts_execute",
+}
+
+
+def _auto_includes() -> set[str]:
+    """Compute the auto-profile tool set from telemetry.
+
+    Pure function so callers (tests, debug commands) can introspect what
+    the runtime will expose without re-importing the server module.
+    """
+    try:
+        from token_savior import telemetry as _t
+        counts = _t.aggregate_counts()
+    except Exception:
+        counts = {}
+    # Filter out tools that aren't in TOOL_SCHEMAS (renamed/removed in
+    # earlier versions but still in old telemetry files).
+    eligible = {t: n for t, n in counts.items() if t in TOOL_SCHEMAS}
+    if not eligible:
+        # Cold start: borrow tiny_plus as the warm baseline.
+        return set(_AUTO_ESSENTIALS) | set(_TINY_PLUS_INCLUDES)
+    # Top-K by call count, excluding tools already in essentials.
+    ranked = sorted(eligible.items(), key=lambda kv: -kv[1])
+    hot: list[str] = []
+    for name, _n in ranked:
+        if name in _AUTO_ESSENTIALS:
+            continue
+        hot.append(name)
+        if len(hot) >= _AUTO_HOT_K:
+            break
+    return set(_AUTO_ESSENTIALS) | set(hot)
+
+
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "full": set(),
+    "auto": set(TOOL_SCHEMAS) - _auto_includes(),
     "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
     "nav":  set(_MEMORY_HANDLERS) | set(_META_HANDLERS) | set(_SLOT_HANDLERS) | {"ts_execute"},
     "lean": _LEAN_EXCLUDES,
@@ -256,6 +304,10 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "code_mode": set(TOOL_SCHEMAS) - _CODE_MODE_INCLUDES,
 }
 
+# Profiles slated for removal in 4.0.0 — superseded by the single adaptive
+# `auto` profile that uses real telemetry instead of hand-tuned subsets.
+_DEPRECATED_PROFILES: set[str] = {"core", "nav", "lean", "ultra", "tiny", "tiny_plus"}
+
 _PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
 if _PROFILE not in _PROFILE_EXCLUDES:
     print(
@@ -263,6 +315,15 @@ if _PROFILE not in _PROFILE_EXCLUDES:
         file=sys.stderr,
     )
     _PROFILE = "full"
+
+if _PROFILE in _DEPRECATED_PROFILES:
+    print(
+        f"[token-savior] DEPRECATED: profile '{_PROFILE}' is deprecated and "
+        f"will be removed in v4.0.0. Use TOKEN_SAVIOR_PROFILE=auto for an "
+        f"adaptive manifest sized from your actual usage, or "
+        f"TOKEN_SAVIOR_PROFILE=full to keep every tool advertised.",
+        file=sys.stderr,
+    )
 
 _HIDDEN_UNDER_ULTRA: set[str] = _PROFILE_EXCLUDES["ultra"]
 
