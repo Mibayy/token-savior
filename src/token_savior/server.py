@@ -237,7 +237,7 @@ _TINY_PLUS_INCLUDES: set[str] = _TINY_INCLUDES | {
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "full": set(),
     "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
-    "nav":  set(_MEMORY_HANDLERS) | set(_META_HANDLERS) | set(_SLOT_HANDLERS),
+    "nav":  set(_MEMORY_HANDLERS) | set(_META_HANDLERS) | set(_SLOT_HANDLERS) | {"ts_execute"},
     "lean": _LEAN_EXCLUDES,
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
     "tiny": set(TOOL_SCHEMAS) - _TINY_INCLUDES,
@@ -317,6 +317,12 @@ if _PROFILE == "ultra":
             "required": ["mode"],
         },
     ))
+
+# Code Mode (ts_execute) is built from TOOL_SCHEMAS like every other tool;
+# the only special handling is the env-gated removal below for sandboxed
+# deployments that don't want a Node subprocess available.
+if os.environ.get("TS_CODE_MODE_DISABLE") == "1":
+    TOOLS = [t for t in TOOLS if t.name != "ts_execute"]
 
 print(
     f"[token-savior] profile={_PROFILE} tools={len(TOOLS)}/{len(TOOL_SCHEMAS)}",
@@ -575,6 +581,43 @@ def _handle_ts_extended(arguments: dict[str, Any]) -> list[types.TextContent]:
     )]
 
 
+async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Run a user JS script in a Node sandbox.
+
+    Each `tools.<name>(args)` call from the script is dispatched back through
+    `_dispatch_tool` and JSON-serialized for the JS side. The script's return
+    value becomes the tool result.
+    """
+    import json as _json
+    from token_savior.code_mode import ALLOWED_TOOLS, run_script_async
+
+    script = arguments.get("script") or ""
+    if not script.strip():
+        return [TextContent(type="text", text="Error: 'script' is required and non-empty")]
+    timeout_ms = int(arguments.get("timeout_ms") or 30000)
+
+    def _dispatch_from_sandbox(tool_name: str, tool_args: dict) -> Any:
+        """Bridge: take a JS-side tool call, run Python dispatch, return JS-friendly value."""
+        record_symbol = _track_call(tool_name, tool_args)
+        result = _dispatch_tool(tool_name, tool_args, record_symbol)
+        text = "".join(part.text for part in result if hasattr(part, "text"))
+        stripped = text.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                return _json.loads(stripped)
+            except _json.JSONDecodeError:
+                pass
+        return text
+
+    outcome = await run_script_async(
+        script=script,
+        allowed_tools=ALLOWED_TOOLS,
+        dispatch=_dispatch_from_sandbox,
+        timeout_ms=timeout_ms,
+    )
+    return [TextContent(type="text", text=_json.dumps(outcome, indent=2, default=str))]
+
+
 # Request lifecycle logging is opt-in via TOKEN_SAVIOR_TRACE=1.
 # Issue #27: gives operators (especially on Windows where MCP requests
 # can hang or abort) a way to see start / dispatch / complete events
@@ -599,6 +642,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             result = _handle_ts_extended(arguments)
         elif name == "ts_search":
             result = _handle_ts_search(arguments)
+        elif name == "ts_execute":
+            result = await _handle_ts_execute(arguments)
         else:
             result = _dispatch_tool(name, arguments, record_symbol)
         if _TRACE_REQUESTS:

@@ -1166,6 +1166,29 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     # ── Defer-loading router (lets thin manifests pull tool schemas just-in-time) ──
+    "ts_execute": {
+        "description": (
+            "Run a JS script in a Node sandbox with a typed facade. The script body "
+            "executes as `async () => { <body> }`; use `await tools.<name>(args)` to "
+            "call any allowed tool (find_symbol, get_function_source, get_dependents, "
+            "search_codebase, replace_symbol_source, etc.). Return the final value. "
+            "Collapses find->read->deps chains into one round-trip."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "JS function body. Use `await tools.foo(args)` then `return value`.",
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Max script wall-clock in ms (default 30000).",
+                },
+            },
+            "required": ["script"],
+        },
+    },
     "ts_search": {
         "description": (
             "Find the top-K Token Savior tools most relevant to a natural-language "

@@ -80,7 +80,9 @@ class TestToolSchemas:
         # +1 memory_admin (the fusion itself) = 66.
         # +1 ts_search (v2.9 defer-loading discovery tool — exposed as a
         #   schema entry so it appears in lean/nav manifests) = 67.
-        assert len(TOOL_SCHEMAS) == 67, f"Expected 67 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 ts_execute (v3.1 Code Mode — JS-sandboxed multi-tool chain
+        #   collapsed into one round-trip; whitelisted via ALLOWED_TOOLS) = 68.
+        assert len(TOOL_SCHEMAS) == 68, f"Expected 68 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
