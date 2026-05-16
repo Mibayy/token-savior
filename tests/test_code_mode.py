@@ -5,7 +5,6 @@ import asyncio
 import json
 import os
 import textwrap
-from pathlib import Path
 
 import pytest
 
@@ -49,7 +48,6 @@ def test_facade_is_cached():
 
 def test_code_mode_profile_exposes_minimal_manifest(monkeypatch):
     """profile=code_mode exposes exactly {ts_execute, ts_search, switch_project, list_projects}."""
-    import importlib
     import sys
     monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "code_mode")
     if "token_savior.server" in sys.modules:
