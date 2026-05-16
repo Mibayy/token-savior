@@ -272,6 +272,7 @@ def _get_old_file_content(root_path: str, ref: str, file_path: str) -> str | Non
             ["git", "show", f"{ref}:{file_path}"],
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=15,
         )

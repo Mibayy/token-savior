@@ -34,6 +34,7 @@ def check_symbol_staleness(project_root: str, symbol: str, obs_created_epoch: in
             ["git", "log", "-1", "--format=%ct", "-S", symbol, "--", "."],
             cwd=project_root,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=3,
         )

@@ -173,6 +173,7 @@ def run_impacted_tests(
             command,
             cwd=index.root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=timeout_sec,
         )

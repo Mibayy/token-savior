@@ -41,6 +41,7 @@ def is_git_repo(root_path: str) -> bool:
             ["git", "rev-parse", "--is-inside-work-tree"],
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=10,
         )
@@ -56,6 +57,7 @@ def get_head_commit(root_path: str) -> str | None:
             ["git", "rev-parse", "HEAD"],
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=10,
         )
@@ -73,6 +75,7 @@ def get_git_status(root_path: str) -> dict:
             ["git", "status", "--porcelain=1", "--branch"],
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=10,
         )
@@ -128,6 +131,7 @@ def get_changed_files(root_path: str, since_ref: str | None) -> GitChangeSet:
             ["git", "ls-files", "--others", "--exclude-standard"],
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=10,
         )
@@ -165,6 +169,7 @@ def _parse_diff_output(
             cmd,
             cwd=root_path,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             timeout=10,
         )

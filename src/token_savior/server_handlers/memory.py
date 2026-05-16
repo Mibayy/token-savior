@@ -356,7 +356,7 @@ def _mh_memory_export_md(args: dict[str, Any]) -> str:
     try:
         proc = subprocess.run(
             ["/root/.local/token-savior-venv/bin/python3", script, "--output-dir", out_dir],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=60,
         )
         out = (proc.stdout or "").strip()
         err = (proc.stderr or "").strip()
