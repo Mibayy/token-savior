@@ -7,9 +7,9 @@
 > The MCP server that turns Claude into the only coding agent hitting **100%** on a real benchmark.
 > Structural code navigation + persistent memory. **−77% active tokens. −76% wall time. Zero losses.**
 
-[![Version](https://img.shields.io/badge/version-3.1.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v3.1.0)
+[![Version](https://img.shields.io/badge/version-3.2.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v3.2.0)
 [![Tools](https://img.shields.io/badge/tools-68-green)]()
-[![Tests](https://img.shields.io/badge/tests-1459%2F1459-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1464%2F1464-brightgreen)]()
 [![Savings](https://img.shields.io/badge/token%20savings-97%25-cyan)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-100%25%20(192%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Vector](https://img.shields.io/badge/vector%20search-enabled-purple)]()

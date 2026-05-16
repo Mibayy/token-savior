@@ -1193,8 +1193,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": (
             "Find the top-K Token Savior tools most relevant to a natural-language "
             "query via embedding cosine similarity. Use when the manifest is in 'tiny' "
-            "profile or you don't know which tool fits. Returns each candidate with "
-            "its full inputSchema so the next turn can call it directly."
+            "or 'code_mode' profile or you don't know which tool fits. Returns each "
+            "candidate with its full inputSchema (format='schema') or a one-line "
+            "TypeScript signature (format='ts') suitable for ts_execute scripts."
         ),
         "inputSchema": {
             "type": "object",
@@ -1210,6 +1211,11 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "include_schema": {
                     "type": "boolean",
                     "description": "If false, drop inputSchema from the response (smaller payload).",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["schema", "ts"],
+                    "description": "'schema' (default) returns JSONSchema; 'ts' returns a TypeScript signature for Code Mode scripts. Auto-set to 'ts' when profile=code_mode.",
                 },
             },
             "required": ["query"],

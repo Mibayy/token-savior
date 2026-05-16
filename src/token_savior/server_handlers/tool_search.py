@@ -98,6 +98,7 @@ def ts_search(
     *,
     include_schema: bool = True,
     visible_tools: set[str] | None = None,
+    format: str = "schema",
 ) -> dict[str, Any]:
     """Return the top-K Token Savior tools most relevant to the query.
 
@@ -110,6 +111,9 @@ def ts_search(
         visible_tools: Optional whitelist (tool names). When set, scoring
             is restricted to that subset — used by server.py to honor the
             current TOKEN_SAVIOR_PROFILE / TS_*_DISABLE filters.
+        format: 'schema' (default) returns inputSchema JSON; 'ts' returns
+            a one-line TypeScript signature suitable for Code Mode scripts.
+            The 'ts' form is roughly half the tokens of 'schema'.
 
     Returns:
         {
@@ -159,6 +163,10 @@ def ts_search(
     scored.sort(key=lambda t: -t[1])
     top = scored[:top_k]
 
+    use_ts = (format or "schema").lower() == "ts"
+    if use_ts:
+        from token_savior.code_mode.facade import build_tool_signature
+
     matched = []
     for name, score in top:
         schema = TOOL_SCHEMAS[name]
@@ -167,7 +175,9 @@ def ts_search(
             "score": round(score, 3),
             "description": schema.get("description"),
         }
-        if include_schema:
+        if use_ts:
+            entry["signature"] = build_tool_signature(name, schema).strip().rstrip(";")
+        elif include_schema:
             entry["inputSchema"] = schema.get("inputSchema")
         matched.append(entry)
 

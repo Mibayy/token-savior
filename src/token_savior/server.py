@@ -234,6 +234,17 @@ _TINY_PLUS_INCLUDES: set[str] = _TINY_INCLUDES | {
     "replace_symbol_source",
 }
 
+# `code_mode` = single-shot multi-tool execution via ts_execute. Manifest
+# is 4 tools (~1.5 KT) plus a per-call typed TS facade returned by
+# ts_search. Model discovers tool signatures on demand; scripts run in
+# one round-trip instead of N. Mirrors the Cloudflare Code Mode pattern.
+_CODE_MODE_INCLUDES: set[str] = {
+    "ts_execute",
+    "ts_search",
+    "switch_project",
+    "list_projects",
+}
+
 _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "full": set(),
     "core": set(_MEMORY_HANDLERS) | set(_META_HANDLERS),
@@ -242,6 +253,7 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "ultra": set(TOOL_SCHEMAS) - _ULTRA_INCLUDES,
     "tiny": set(TOOL_SCHEMAS) - _TINY_INCLUDES,
     "tiny_plus": set(TOOL_SCHEMAS) - _TINY_PLUS_INCLUDES,
+    "code_mode": set(TOOL_SCHEMAS) - _CODE_MODE_INCLUDES,
 }
 
 _PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
@@ -527,11 +539,15 @@ def _handle_ts_search(arguments: dict[str, Any]) -> list[types.TextContent]:
     """
     import json as _json
     visible = {t.name for t in TOOLS}
+    fmt = arguments.get("format")
+    if fmt is None and _PROFILE == "code_mode":
+        fmt = "ts"
     payload = _ts_search_impl(
         arguments.get("query") or "",
         top_k=arguments.get("top_k", 5),
         include_schema=arguments.get("include_schema", True),
         visible_tools=visible,
+        format=fmt or "schema",
     )
     return [TextContent(type="text", text=_json.dumps(payload, indent=2))]
 

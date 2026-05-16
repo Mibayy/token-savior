@@ -17,7 +17,68 @@ def test_facade_dts_is_valid_typescript():
     assert "export interface Tools" in dts
     assert "find_symbol" in dts
     assert "get_function_source" in dts
-    assert dts.count(": (args?:") >= 20  # all allowed tools
+    assert "Promise<unknown>" in dts
+
+
+def test_facade_signature_types_from_inputschema():
+    """Generated TS signatures must reflect the actual inputSchema (types, required, enums)."""
+    from token_savior.code_mode.facade import build_tool_signature
+    from token_savior.tool_schemas import TOOL_SCHEMAS
+
+    sig = build_tool_signature("find_symbol", TOOL_SCHEMAS["find_symbol"])
+    assert "find_symbol:" in sig
+    assert "name?: string" in sig
+    assert "names?: Array<string>" in sig
+    assert "level?: number" in sig
+
+    sig = build_tool_signature("get_dependencies", TOOL_SCHEMAS["get_dependencies"])
+    assert "name: string" in sig  # required
+    assert "args:" in sig and "args?:" not in sig  # has required field
+
+    sig = build_tool_signature("get_full_context", TOOL_SCHEMAS["get_full_context"])
+    assert '"compact"' in sig and '"full"' in sig  # enum as union
+
+
+def test_facade_is_cached():
+    """get_cached_facade() must memoize."""
+    from token_savior.code_mode import get_cached_facade
+    a = get_cached_facade()
+    b = get_cached_facade()
+    assert a is b
+
+
+def test_code_mode_profile_exposes_minimal_manifest(monkeypatch):
+    """profile=code_mode exposes exactly {ts_execute, ts_search, switch_project, list_projects}."""
+    import importlib
+    import sys
+    monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "code_mode")
+    if "token_savior.server" in sys.modules:
+        del sys.modules["token_savior.server"]
+    import token_savior.server as srv
+    names = {t.name for t in srv.TOOLS}
+    assert names == {"ts_execute", "ts_search", "switch_project", "list_projects"}, names
+
+
+def test_ts_search_returns_ts_signatures_when_format_ts():
+    """ts_search(format='ts') returns 'signature' entries, not 'inputSchema'."""
+    from token_savior.server_handlers.tool_search import ts_search
+
+    payload = ts_search("find a symbol", top_k=3, format="ts")
+    assert payload["matched_tools"], "expected non-empty matched_tools"
+    for entry in payload["matched_tools"]:
+        assert "signature" in entry
+        assert "inputSchema" not in entry
+        assert "Promise<unknown>" in entry["signature"]
+
+
+def test_ts_search_default_format_remains_schema():
+    """Default format must keep the legacy JSONSchema behaviour."""
+    from token_savior.server_handlers.tool_search import ts_search
+
+    payload = ts_search("find a symbol", top_k=3)
+    for entry in payload["matched_tools"]:
+        assert "inputSchema" in entry
+        assert "signature" not in entry
 
 
 def test_ts_execute_arithmetic():
