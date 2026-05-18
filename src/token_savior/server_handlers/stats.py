@@ -12,8 +12,8 @@ import os
 import time
 from typing import Any
 
-from mcp.types import TextContent
-import mcp.types as types
+from token_savior._compat import TextContent
+from token_savior._compat import types
 
 from token_savior import memory_db
 from token_savior import server_state as state

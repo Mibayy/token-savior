@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from mcp.types import TextContent
-import mcp.types as types
+from token_savior._compat import TextContent
+from token_savior._compat import types
 
 from token_savior import server_state as state
 from token_savior.server_runtime import _recompute_leiden

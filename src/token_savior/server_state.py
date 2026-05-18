@@ -13,8 +13,6 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp.server import Server
-
 from token_savior.leiden_communities import LeidenCommunities
 from token_savior.linucb_injector import LinUCBInjector
 from token_savior.markov_prefetcher import PPMPrefetcher
@@ -23,10 +21,34 @@ from token_savior.slot_manager import SlotManager
 from token_savior.tca_engine import TCAEngine
 
 # ---------------------------------------------------------------------------
-# MCP server instance
+# MCP server instance -- LAZY.
+# `from mcp.server import Server` charge ~1.24s du SDK MCP. server_state etant
+# importe par presque tout TS, ce cout etait paye a chaque import (CLI, scripts,
+# tests, daemon cold-start). On expose une fabrique lazy `get_server()` qui
+# instantie au premier appel. Les decorateurs @server.X sont appliques dans
+# `token_savior.server.run()`, pas en module-load. Voir server.py::run.
 # ---------------------------------------------------------------------------
 
-server: Server = Server("token-savior-recall")
+_server_singleton = None
+
+
+def get_server():
+    """Lazy MCP Server() singleton. Triggers `import mcp.server` on first call."""
+    global _server_singleton
+    if _server_singleton is None:
+        from mcp.server import Server  # lazy : ~1.24s SDK MCP load
+        _server_singleton = Server("token-savior-recall")
+    return _server_singleton
+
+
+# Backward-compat alias. Many call sites do `from token_savior.server_state
+# import server` then access `server.run(...)`. We expose `server` as a
+# property-like attribute via __getattr__ on the module so that the first
+# real access (e.g. `server.run`) instantiates the Server. Python 3.7+.
+def __getattr__(name):
+    if name == "server":
+        return get_server()
+    raise AttributeError(f"module 'token_savior.server_state' has no attribute {name!r}")
 
 # ---------------------------------------------------------------------------
 # Persistent cache versioning

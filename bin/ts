@@ -361,7 +361,9 @@ def main():
 
     # Daemon
     d = sub.add_parser("daemon", help="Gestion du daemon")
-    d.add_argument("action", choices=["start", "stop", "status", "restart"])
+    d.add_argument("action", choices=["start", "stop", "status", "restart", "warm"])
+    d.add_argument("path", nargs="?", default=None,
+                   help="Pour warm : chemin projet a precharger (defaut: actif)")
 
     # Project
     s = sub.add_parser("use", help="Selectionner le projet actif")
@@ -424,9 +426,33 @@ def main():
             _daemon_stop()
             time.sleep(0.2)
             msg = _daemon_start()
-        else:  # status
+        elif args.action == "status":
             st = _daemon_status()
             _print(json.dumps(st), args.text)
+            return
+        elif args.action == "warm":
+            # Precharge l'index symbolique pour un projet :
+            #   1. switch_project (fait que ce projet est actif)
+            #   2. get_project_summary (declenche le reindex si necessaire)
+            # Cible : daemon prêt à servir get/search/ctx sans premier call lent.
+            path = args.path or _read_active_project()
+            if not path:
+                _error("warm: argument <path> requis (ou faire ts use d'abord)")
+                return
+            if not _daemon_running():
+                msg = _daemon_start()
+                _print(msg, args.text)
+                if not _daemon_running():
+                    _error("warm: impossible de demarrer le daemon")
+                    return
+            t0 = time.time()
+            try:
+                _call("switch_project", {"name": path}, verbose, prefer_daemon=True)
+                _call("get_project_summary", {}, verbose, prefer_daemon=True)
+                elapsed_ms = int((time.time() - t0) * 1000)
+                _print(f"daemon warmed for {path} (took {elapsed_ms}ms)", args.text)
+            except Exception as e:
+                _error(f"warm: {type(e).__name__}: {e}")
             return
         _print(msg, args.text)
         return

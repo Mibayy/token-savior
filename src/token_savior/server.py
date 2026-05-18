@@ -47,12 +47,14 @@ import time
 import traceback
 from typing import Any
 
-# MCP imports : stdio_server est uniquement utilise pour demarrer le serveur
-# (fonction `run` en bas du fichier). On le rend lazy pour permettre aux clients
-# CLI / scripts qui importent `_dispatch_tool` directement de demarrer sans
-# payer 800ms d import MCP runtime. Voir `def run` ci-dessous.
-from mcp.types import Tool, TextContent
-import mcp.types as types
+# MCP imports : tous deferred a `run()`. Le import `mcp.types` declenche
+# `import mcp` qui charge tout le SDK (uvicorn, sse_starlette, fastmcp) ~800ms
+# cold start. Inacceptable pour la CLI fork-mode et les scripts qui importent
+# `_dispatch_tool`. On utilise les shims locaux (token_savior._compat) :
+# `TextContent` / `Tool` / `types` duck-type. Le serveur MCP convertit aux
+# vrais types `mcp.types.*` UNIQUEMENT a la frontiere protocole (list_tools,
+# call_tool), une fois par appel, sans pollution du cold-start des handlers.
+from token_savior._compat import TextContent, Tool, types  # type: ignore
 
 from token_savior import memory_db
 from token_savior import server_state as s
@@ -81,7 +83,11 @@ from token_savior.server_runtime import (
     _warm_cache_async,
     compress_symbol_output,
 )
-from token_savior.server_state import server
+# `from token_savior.server_state import server` declenchait
+# __getattr__('server') qui faisait lazy import de mcp.server (1.24s SDK).
+# On retire l import au top et on accede a `s.server` UNIQUEMENT dans run()
+# qui est le seul site de l acces. Les decorateurs sont appliques en runtime
+# dans run() egalement.
 from token_savior.slot_manager import _ProjectSlot  # noqa: F401  -- re-export for tests/test_usage_stats.py
 
 # Called once at module import so slots exist before any tool call.
@@ -102,6 +108,8 @@ except Exception as _viewer_exc:  # pragma: no cover — defensive
 
 from token_savior.tool_schemas import TOOL_SCHEMAS  # noqa: E402
 
+# TOOLS = liste de ToolDef (shim local). Le serveur MCP convertit en
+# mcp.types.Tool a la frontiere protocole, dans list_tools().
 TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchema"])
          for name, s in TOOL_SCHEMAS.items()]
 
@@ -422,9 +430,14 @@ if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
 # ---------------------------------------------------------------------------
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return TOOLS
+async def list_tools() -> list:
+    """MCP list_tools handler. Decorateur applique dans `run()` lazily."""
+    # Convertit nos ToolDef locaux en mcp.types.Tool a la frontiere protocole.
+    from mcp.types import Tool as McpTool
+    return [
+        McpTool(name=t.name, description=t.description, inputSchema=t.inputSchema)
+        for t in TOOLS
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -705,8 +718,7 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
 _TRACE_REQUESTS = os.environ.get("TOKEN_SAVIOR_TRACE", "").lower() in ("1", "true", "yes")
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> list:
 
     # Latency instrumentation: always record, regardless of TOKEN_SAVIOR_TRACE.
     # Wall-clock cost measured at <1ms per call (see tests/test_latency.py).
@@ -775,7 +787,14 @@ async def main():
     memory_db.run_migrations()
     if _TRACE_REQUESTS:
         print("[token-savior] startup: opening stdio transport", file=sys.stderr, flush=True)
-    from mcp.server.stdio import stdio_server  # lazy import
+    # Lazy : Server() instancie ici, applique les decorateurs sur nos
+    # handlers list_tools/call_tool, puis demarre. Tout le mcp.* import
+    # est confine a ce point d entree -- les clients CLI (qui importent
+    # _dispatch_tool depuis le module) ne payent jamais ce cout.
+    from mcp.server.stdio import stdio_server
+    server = s.get_server()
+    server.list_tools()(list_tools)
+    server.call_tool()(call_tool)
     async with stdio_server() as (read_stream, write_stream):
         if _TRACE_REQUESTS:
             print("[token-savior] startup: server.run loop entered", file=sys.stderr, flush=True)

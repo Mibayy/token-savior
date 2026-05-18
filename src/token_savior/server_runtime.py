@@ -16,8 +16,8 @@ import threading
 import time
 from typing import Any
 
-import mcp.types as types
-from mcp.types import TextContent
+from token_savior._compat import types
+from token_savior._compat import TextContent
 
 from token_savior import memory_db
 from token_savior import server_state as s

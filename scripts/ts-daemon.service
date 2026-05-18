@@ -1,0 +1,28 @@
+[Unit]
+Description=Token Savior daemon (Unix socket dispatcher)
+Documentation=https://github.com/Mibayy/token-savior
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/ts _daemon-serve
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Charge le manifest TS au demarrage. Indique au daemon les workspaces
+# auto-decouverts. Override possible via ts use <path> qui pousse un
+# switch_project au daemon en runtime.
+Environment=WORKSPACE_ROOTS=/root/improvence,/root/projects/tsbench,/root/estalle,/root/token-savior
+Environment=TS_NO_HINTS=1
+Environment=TS_CAPTURE_DISABLED=1
+Environment=TS_MEMORY_DISABLE=1
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
