@@ -3,7 +3,11 @@
 # Injecte l'historique mémoire pour :
 #   - les tools Token Savior de lecture de code (par symbole/fichier)
 #   - les commandes Bash significatives (par keyword extrait de la commande)
-
+#
+# TS_MEMORY_DISABLE=1 -> short-circuit (tsbench / clean ctx workloads).
+if [ "$TS_MEMORY_DISABLE" = "1" ]; then
+    exit 0
+fi
 
 # -- token-savior hook error log (see GitHub #15) ---------------------------
 # Re-routes stderr from Python / claude sub-shells so a broken import, a

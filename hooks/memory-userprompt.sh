@@ -2,6 +2,11 @@
 # Memory Engine — UserPromptSubmit hook
 # - synchronous: inject top-3 relevant observations into context (stdout)
 # - background: strip private tags, trigger phrases, archive prompt
+#
+# TS_MEMORY_DISABLE=1 -> short-circuit (tsbench / clean ctx workloads).
+if [ "$TS_MEMORY_DISABLE" = "1" ]; then
+    exit 0
+fi
 
 # -- token-savior hook error log (see GitHub #15) ---------------------------
 # Re-routes stderr from Python / claude sub-shells so a broken import, a

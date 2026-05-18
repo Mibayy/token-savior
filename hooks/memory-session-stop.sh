@@ -4,7 +4,11 @@
 #          | "end"  (clean SessionEnd)
 # Stop  → short 3-bullet summary, no Telegram, end_type=interrupted
 # End   → 2-section structured summary (changes + memory), Telegram push, end_type=completed
-
+#
+# TS_MEMORY_DISABLE=1 -> short-circuit (tsbench / clean ctx workloads).
+if [ "$TS_MEMORY_DISABLE" = "1" ]; then
+    exit 0
+fi
 
 # -- token-savior hook error log (see GitHub #15) ---------------------------
 # Re-routes stderr from Python / claude sub-shells so a broken import, a
