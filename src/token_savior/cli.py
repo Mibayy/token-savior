@@ -32,7 +32,6 @@ Usage commun :
 from __future__ import annotations
 import argparse
 import contextlib
-import io
 import json
 import os
 import socket
@@ -474,7 +473,6 @@ def main():
         _write_active_project(args.path)
         # Si daemon up : pousse switch_project
         if prefer_daemon and _daemon_running():
-            project_name = Path(args.path).name
             try:
                 _call("switch_project", {"name": args.path}, verbose, prefer_daemon=True)
             except Exception:
