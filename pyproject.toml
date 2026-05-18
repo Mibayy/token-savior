@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "3.4.0"
-description = "Structural codebase MCP server with persistent memory engine — 97% token savings + cross-session recall for Claude Code"
+version = "3.5.0"
+description = "Drop-in CLI (and MCP server) for AI coding agents. Structural codebase navigation + persistent memory engine — 97% token savings."
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}
@@ -36,6 +36,7 @@ benchmark = ["aiohttp>=3.9"]
 memory-vector = ["sqlite-vec>=0.1", "fastembed>=0.4", "onnxruntime>=1.16"]
 
 [project.scripts]
+ts = "token_savior.cli:main"
 token-savior = "token_savior.server:main_sync"
 token-savior-dashboard = "token_savior.dashboard:main"
 token-savior-bench = "benchmarks.run_benchmarks:main"
