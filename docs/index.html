@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Token Savior — we gave Claude a map of your codebase</title>
-<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. 96 tasks (90 paired). 25 wins, 65 ties, 0 losses. 97.9% vs 78.3% — and −80% active tokens via the new `ts` CLI (drop-in for any agent, no MCP overhead). Works with Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP client.">
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. 96 tasks (90 paired). 25 wins, 65 ties, 0 losses. 97.9% vs 78.3% — and −80% active tokens via the new `optimized` profile (single env var, no tuning). Works with Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP client.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
@@ -361,9 +361,9 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">96 tasks · Claude Opus 4.7 · v3.0 CLI · 97.9%</span></div>
+  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">96 tasks · Claude Opus 4.7 · v4.0 · 97.9%</span></div>
   <h1>The only MCP server<br>that turns Claude into<br><em>a perfect coder.</em></h1>
-  <p class="hero-sub"><strong>v3.0 — CLI release.</strong> Drop the MCP overhead. Token Savior is now a single binary <code>ts</code>, drop-in for any AI coding agent. 97.9% accuracy on 96 real coding tasks. Plain Claude scores 78.3%. Active tokens drop 80% (3 395 vs 17 221). Wall time drops 83%. Same brain, no MCP.</p>
+  <p class="hero-sub"><strong>v4.0 release.</strong> Drop the MCP overhead. Token Savior is now a single binary <code>ts</code>, drop-in for any AI coding agent. 97.9% accuracy on 96 real coding tasks. Plain Claude scores 78.3%. Active tokens drop 80% (3 395 vs 17 221). Wall time drops 83%. Same brain, no MCP.</p>
   <div class="pending-banner" id="pendingBanner"></div>
 
   <div class="picker-shell">
@@ -1455,7 +1455,7 @@ function renderHero(pair){
   const leftLbl = MODEL_LABEL_FULL[leftModel], rightLbl = MODEL_LABEL_FULL[rightModel];
   const same = leftModel === rightModel;
   heroEyebrow.textContent = same
-    ? `96 tasks · ${leftLbl} · v3.0 CLI · 97.9%`
+    ? `96 tasks · ${leftLbl} · v4.0 · 97.9%`
     : `96 tasks · ${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
   if(!pair || !pair.n_paired){
     hActive.textContent = '—'; hWall.textContent = '—'; hAcc.textContent = '—'; hWTL.textContent = '—';
