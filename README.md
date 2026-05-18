@@ -128,24 +128,18 @@ structural codebase server that gave the project its name.
 
 ## Install
 
+### pip (recommended — installs the `ts` CLI)
+
+```bash
+pip install token-savior-recall
+ts --help
+```
+
 ### uvx (no venv, no clone)
 
 ```bash
-uvx token-savior-recall
-```
-
-### pip
-
-```bash
-pip install "token-savior-recall[mcp]"
-# Optional hybrid vector search:
-pip install "token-savior-recall[mcp,memory-vector]"
-```
-
-### Claude Code one-liner
-
-```bash
-claude mcp add token-savior -- /path/to/venv/bin/token-savior
+uvx --from token-savior-recall ts use /path/to/project
+uvx --from token-savior-recall ts get my_function
 ```
 
 ### Development
@@ -158,7 +152,19 @@ python3 -m venv .venv
 pytest tests/ -q
 ```
 
-### Configure
+---
+
+## Legacy : MCP server setup
+
+If you prefer the original MCP integration (e.g. for Claude Code users who already
+have an mcp-config), it still works. Costs ~15k extra tokens / task vs the CLI mode
+due to Claude Code system reminders + MCP manifest, but the dispatcher backend is
+identical.
+
+```bash
+pip install "token-savior-recall[mcp]"
+claude mcp add token-savior -- /path/to/venv/bin/token-savior
+```
 
 ```json
 {
@@ -167,7 +173,10 @@ pytest tests/ -q
       "command": "/path/to/venv/bin/token-savior",
       "env": {
         "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2",
-        "TOKEN_SAVIOR_CLIENT": "claude-code"
+        "TOKEN_SAVIOR_CLIENT": "claude-code",
+        "TS_PROFILE": "tiny_plus",
+        "TS_THIN_SCHEMAS": "1",
+        "TS_CAPTURE_DISABLED": "1"
       }
     }
   }
@@ -176,8 +185,9 @@ pytest tests/ -q
 
 Optional env: `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (critical-observation
 feed), `TS_VIEWER_PORT` (web viewer), `TS_AUTO_EXTRACT=1` + `TS_API_KEY`
-(LLM auto-extraction), `TOKEN_SAVIOR_PROFILE` (`full` / `core` / `nav` / `lean` /
-`ultra` — filters advertised tool set to shrink the per-turn MCP manifest).
+(LLM auto-extraction), `TOKEN_SAVIOR_PROFILE` (`full` / `lean` /
+`ultra` / `code_mode` — filters advertised tool set to shrink the
+per-turn MCP manifest).
 
 ---
 
