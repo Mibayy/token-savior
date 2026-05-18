@@ -108,9 +108,39 @@ except Exception as _viewer_exc:  # pragma: no cover — defensive
 
 from token_savior.tool_schemas import TOOL_SCHEMAS  # noqa: E402
 
+
+def _thin_input_schema(schema: dict) -> dict:
+    """Retire les `description` des sub-properties de l inputSchema.
+
+    Sur le profile tiny_plus, mesure : 9915 chars -> 5563 chars (-44%, -1209
+    tokens) sur le manifest. La description top-level du tool reste, ce qui
+    suffit dans 95% des cas pour que le model invoque correctement -- les
+    sub-prop descriptions sont du bruit JSON-Schema verbose.
+
+    Opt-in via TS_THIN_SCHEMAS=1. Recommande sur les profiles bench et les
+    setups Claude Code OAuth (compte Max) ou chaque token de manifest est
+    re-cache a chaque turn.
+    """
+    import copy
+    s = copy.deepcopy(schema)
+    props = s.get("properties", {})
+    for pdef in props.values():
+        pdef.pop("description", None)
+        if isinstance(pdef.get("items"), dict):
+            pdef["items"].pop("description", None)
+    return s
+
+
+_THIN_SCHEMAS = os.environ.get("TS_THIN_SCHEMAS") == "1"
+
+
+def _schema_for(s: dict) -> dict:
+    return _thin_input_schema(s["inputSchema"]) if _THIN_SCHEMAS else s["inputSchema"]
+
+
 # TOOLS = liste de ToolDef (shim local). Le serveur MCP convertit en
 # mcp.types.Tool a la frontiere protocole, dans list_tools().
-TOOLS = [Tool(name=name, description=s["description"], inputSchema=s["inputSchema"])
+TOOLS = [Tool(name=name, description=s["description"], inputSchema=_schema_for(s))
          for name, s in TOOL_SCHEMAS.items()]
 
 

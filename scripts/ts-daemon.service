@@ -19,6 +19,7 @@ Environment=WORKSPACE_ROOTS=/root/improvence,/root/projects/tsbench,/root/estall
 Environment=TS_NO_HINTS=1
 Environment=TS_CAPTURE_DISABLED=1
 Environment=TS_MEMORY_DISABLE=1
+Environment=TS_THIN_SCHEMAS=1
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 StandardOutput=journal
