@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+ts -- Token Savior CLI (hors MCP)
+
+Pourquoi : MCP attache impose ~15k tokens cache_creation par task structural.
+Cette CLI expose les memes handlers TS via un binaire shell appele par le
+tool `Bash` natif de l agent. Pas de manifest MCP, pas de tools attaches.
+
+Sortie : JSON sur stdout par defaut, --text pour brut. Tous les logs du
+moteur partent en stderr (silencieux sauf si --verbose).
+
+Usage :
+  ts use <project>                 # set active project (persist a ~/.config/ts/active)
+  ts get <symbol>                  # source d un symbole (auto func/class)
+  ts search '<regex>' [--limit N] [--semantic]
+  ts ctx <symbol> [--depth 1|2]    # source + callers + deps
+  ts structure <file>
+  ts files [--glob '<pattern>']
+  ts find-dead-code
+  ts breaking <git-ref>
+  ts git-status
+  ts replace <symbol>              # nouveau source via stdin
+  ts move <symbol> <new-file>
+  ts add-field <model> <name> <type>
+  ts projects                      # lister les projets enregistres
+"""
+from __future__ import annotations
+import argparse
+import contextlib
+import io
+import json
+import os
+import sys
+from pathlib import Path
+
+# Persistance active project
+_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ts"
+_ACTIVE_FILE = _CONFIG_DIR / "active"
+
+# Defaults qui reduisent la verbosite des handlers
+os.environ.setdefault("TS_NO_HINTS", "1")
+os.environ.setdefault("TS_CAPTURE_DISABLED", "1")
+
+
+def _read_active_project() -> str | None:
+    if _ACTIVE_FILE.exists():
+        return _ACTIVE_FILE.read_text().strip() or None
+    return None
+
+
+def _write_active_project(path: str) -> None:
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    _ACTIVE_FILE.write_text(path.strip() + "\n")
+
+
+def _silence_imports(verbose: bool):
+    """Redirige stdout vers stderr pendant les imports lourds, sauf si verbose."""
+    if verbose:
+        return contextlib.nullcontext()
+    return contextlib.redirect_stdout(sys.stderr)
+
+
+def _import_dispatcher(verbose: bool):
+    with _silence_imports(verbose):
+        from token_savior.server import _dispatch_tool  # type: ignore
+    return _dispatch_tool
+
+
+def _call(tool: str, args: dict, verbose: bool) -> str:
+    dispatcher = _import_dispatcher(verbose)
+    # Couper les hints au niveau de l'arg si supporté par le handler
+    args.setdefault("hints", False)
+    # Silence les prints du handler aussi
+    out_buf = io.StringIO() if not verbose else sys.stderr
+    if not verbose:
+        with contextlib.redirect_stdout(sys.stderr):
+            result = dispatcher(tool, args, "")
+    else:
+        result = dispatcher(tool, args, "")
+    parts = []
+    for r in result:
+        text = getattr(r, "text", None)
+        if text is not None:
+            parts.append(text)
+        else:
+            parts.append(str(r))
+    return "\n".join(parts)
+
+
+def _ensure_project(verbose: bool):
+    """Si WORKSPACE_ROOTS pas set et un projet actif est en config, le set."""
+    if os.environ.get("WORKSPACE_ROOTS"):
+        return
+    active = _read_active_project()
+    if active:
+        os.environ["WORKSPACE_ROOTS"] = active
+
+
+def _print(out: str, as_text: bool):
+    if as_text:
+        print(out)
+        return
+    out = out.strip()
+    try:
+        embedded = json.loads(out)
+        payload = {"ok": True, "result": embedded}
+    except (json.JSONDecodeError, ValueError):
+        payload = {"ok": True, "result": out}
+    json.dump(payload, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+
+
+def _error(msg: str, code: int = 1):
+    json.dump({"ok": False, "error": msg}, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(code)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="ts", description="Token Savior CLI")
+    p.add_argument("--text", action="store_true", help="Sortie brute au lieu de JSON")
+    p.add_argument("--verbose", "-v", action="store_true", help="Afficher les logs moteur")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    # Project
+    s = sub.add_parser("use", help="Selectionner le projet actif (persiste)")
+    s.add_argument("path", help="Chemin absolu du projet")
+
+    sub.add_parser("projects", help="Lister les projets")
+
+    # Read
+    s = sub.add_parser("get", help="Source d'une fonction/classe (auto)")
+    s.add_argument("name")
+    s.add_argument("--max-lines", type=int, default=0)
+
+    s = sub.add_parser("search", help="Regex search dans le code")
+    s.add_argument("pattern")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--semantic", action="store_true")
+
+    s = sub.add_parser("ctx", help="get_full_context : source + deps + callers")
+    s.add_argument("name")
+    s.add_argument("--depth", type=int, default=1)
+
+    s = sub.add_parser("structure", help="Structure d'un fichier")
+    s.add_argument("file")
+
+    s = sub.add_parser("files", help="Lister les fichiers")
+    s.add_argument("--glob", default=None)
+
+    # Audit
+    sub.add_parser("find-dead-code", help="Tools/fonctions jamais appelees")
+    s = sub.add_parser("breaking", help="Breaking changes vs git ref")
+    s.add_argument("ref", default="HEAD~1", nargs="?")
+
+    # Git
+    sub.add_parser("git-status", help="Git status structure")
+
+    # Edit
+    s = sub.add_parser("replace", help="Remplacer le source d un symbole (stdin = nouveau code)")
+    s.add_argument("name")
+
+    s = sub.add_parser("move", help="Deplacer un symbole vers un autre fichier")
+    s.add_argument("name")
+    s.add_argument("dest_file")
+
+    s = sub.add_parser("add-field", help="Ajouter un champ a un modele")
+    s.add_argument("model")
+    s.add_argument("field_name")
+    s.add_argument("field_type")
+
+    args = p.parse_args()
+    verbose = args.verbose
+
+    # `use` ne necessite pas de dispatcher
+    if args.cmd == "use":
+        if not os.path.isabs(args.path):
+            _error(f"Path must be absolute: {args.path}")
+        if not os.path.isdir(args.path):
+            _error(f"Not a directory: {args.path}")
+        _write_active_project(args.path)
+        _print(f"Active project set to: {args.path}", args.text)
+        return
+
+    _ensure_project(verbose)
+
+    try:
+        if args.cmd == "projects":
+            out = _call("list_projects", {}, verbose)
+        elif args.cmd == "get":
+            cargs = {"name": args.name}
+            if args.max_lines:
+                cargs["max_lines"] = args.max_lines
+            try:
+                out = _call("get_function_source", cargs, verbose)
+                if not out or out.startswith("Error") or "not found" in out.lower():
+                    out = _call("get_class_source", cargs, verbose)
+            except Exception:
+                out = _call("get_class_source", cargs, verbose)
+        elif args.cmd == "search":
+            cargs = {"pattern": args.pattern, "max_results": args.limit}
+            if args.semantic:
+                cargs["semantic"] = True
+            out = _call("search_codebase", cargs, verbose)
+        elif args.cmd == "ctx":
+            out = _call("get_full_context", {"name": args.name, "depth": args.depth}, verbose)
+        elif args.cmd == "structure":
+            out = _call("get_structure_summary", {"file_path": args.file}, verbose)
+        elif args.cmd == "files":
+            cargs = {}
+            if args.glob:
+                cargs["pattern"] = args.glob
+            out = _call("list_files", cargs, verbose)
+        elif args.cmd == "find-dead-code":
+            out = _call("find_dead_code", {}, verbose)
+        elif args.cmd == "breaking":
+            out = _call("detect_breaking_changes", {"ref": args.ref}, verbose)
+        elif args.cmd == "git-status":
+            out = _call("get_git_status", {}, verbose)
+        elif args.cmd == "replace":
+            new_source = sys.stdin.read()
+            out = _call(
+                "replace_symbol_source",
+                {"symbol_name": args.name, "new_source": new_source},
+                verbose,
+            )
+        elif args.cmd == "move":
+            out = _call(
+                "move_symbol",
+                {"symbol_name": args.name, "destination_file": args.dest_file},
+                verbose,
+            )
+        elif args.cmd == "add-field":
+            out = _call(
+                "add_field_to_model",
+                {
+                    "model": args.model,
+                    "field_name": args.field_name,
+                    "field_type": args.field_type,
+                },
+                verbose,
+            )
+        else:
+            _error(f"Unknown command: {args.cmd}")
+            return
+
+        _print(out, args.text)
+    except Exception as e:
+        _error(f"{type(e).__name__}: {e}")
+
+
+if __name__ == "__main__":
+    main()

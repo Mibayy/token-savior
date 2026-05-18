@@ -47,7 +47,10 @@ import time
 import traceback
 from typing import Any
 
-from mcp.server.stdio import stdio_server
+# MCP imports : stdio_server est uniquement utilise pour demarrer le serveur
+# (fonction `run` en bas du fichier). On le rend lazy pour permettre aux clients
+# CLI / scripts qui importent `_dispatch_tool` directement de demarrer sans
+# payer 800ms d import MCP runtime. Voir `def run` ci-dessous.
 from mcp.types import Tool, TextContent
 import mcp.types as types
 
@@ -772,6 +775,7 @@ async def main():
     memory_db.run_migrations()
     if _TRACE_REQUESTS:
         print("[token-savior] startup: opening stdio transport", file=sys.stderr, flush=True)
+    from mcp.server.stdio import stdio_server  # lazy import
     async with stdio_server() as (read_stream, write_stream):
         if _TRACE_REQUESTS:
             print("[token-savior] startup: server.run loop entered", file=sys.stderr, flush=True)

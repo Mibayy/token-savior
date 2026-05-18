@@ -281,7 +281,7 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
             memory_db.record_lattice_feedback(ctx_type, chosen_level, success)
         except Exception:
             pass
-    if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
+    if not _HINTS_DISABLED and args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
             result += f"\n\n{_stop_hint()}"
         else:
@@ -363,7 +363,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
                 )
     except Exception:
         pass
-    if args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
+    if not _HINTS_DISABLED and args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
             result += f"\n\n{_stop_hint()}"
         else:
