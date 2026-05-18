@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "3.5.0"
-description = "Drop-in CLI (and MCP server) for AI coding agents. Structural codebase navigation + persistent memory engine — 97% token savings."
+version = "4.0.0"
+description = "Optimized MCP server for AI coding agents. Structural codebase navigation + persistent memory engine — 97.9% accuracy at −80% tokens on tsbench."
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}

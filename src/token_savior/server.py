@@ -131,7 +131,13 @@ def _thin_input_schema(schema: dict) -> dict:
     return s
 
 
-_THIN_SCHEMAS = os.environ.get("TS_THIN_SCHEMAS") == "1"
+_PROFILE_RAW = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
+# `optimized` profile (v4.0+) implies thin schemas automatically — sinon
+# user doit le set explicitement.
+_THIN_SCHEMAS = (
+    os.environ.get("TS_THIN_SCHEMAS") == "1"
+    or _PROFILE_RAW == "optimized"
+)
 
 
 def _schema_for(s: dict) -> dict:
@@ -343,6 +349,11 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     "tiny": set(TOOL_SCHEMAS) - _TINY_INCLUDES,
     "tiny_plus": set(TOOL_SCHEMAS) - _TINY_PLUS_INCLUDES,
     "code_mode": set(TOOL_SCHEMAS) - _CODE_MODE_INCLUDES,
+    # `optimized` (v4.0+) — alias officiel pour le Pareto-optimum
+    # `tiny_plus` couple a TS_THIN_SCHEMAS=1 + TS_CAPTURE_DISABLED=1
+    # + TS_MEMORY_DISABLE=1. Reproduit 97.9% @ 3 395 tokens/task sur tsbench.
+    # Les autres profiles restent dispo pour compat retro.
+    "optimized": set(TOOL_SCHEMAS) - _TINY_PLUS_INCLUDES,
 }
 
 # Profiles slated for removal in 4.0.0 — superseded by the single adaptive
