@@ -2,18 +2,24 @@
 """
 ts -- Token Savior CLI (hors MCP)
 
-Pourquoi : MCP attache impose ~15k tokens cache_creation par task structural.
-Cette CLI expose les memes handlers TS via un binaire shell appele par le
-tool `Bash` natif de l agent. Pas de manifest MCP, pas de tools attaches.
+Strategie cold-start :
+- Mode fork (default fallback) : 1.5s cold start par call (charge mcp.types
+  + token_savior.server). Acceptable pour usage one-shot/script.
+- Mode daemon : un process persistent ecoute sur /tmp/ts.sock. Cold start
+  paye 1.5s UNE fois. Chaque call CLI < 10ms via socket. Recommande pour
+  usage interactif / agentique.
 
-Sortie : JSON sur stdout par defaut, --text pour brut. Tous les logs du
-moteur partent en stderr (silencieux sauf si --verbose).
+Lifecycle daemon :
+  ts daemon start    # demarre en background
+  ts daemon status   # affiche etat (running, uptime, calls)
+  ts daemon stop     # tue le daemon
+  ts daemon restart  # stop + start
 
-Usage :
-  ts use <project>                 # set active project (persist a ~/.config/ts/active)
-  ts get <symbol>                  # source d un symbole (auto func/class)
-  ts search '<regex>' [--limit N] [--semantic]
-  ts ctx <symbol> [--depth 1|2]    # source + callers + deps
+Usage commun :
+  ts use <project_path>            # set active project (persist + push au daemon)
+  ts get <symbol>                  # source d'un symbole
+  ts search '<regex>' [--limit N]
+  ts ctx <symbol> [--depth 1|2]
   ts structure <file>
   ts files [--glob '<pattern>']
   ts find-dead-code
@@ -22,7 +28,7 @@ Usage :
   ts replace <symbol>              # nouveau source via stdin
   ts move <symbol> <new-file>
   ts add-field <model> <name> <type>
-  ts projects                      # lister les projets enregistres
+  ts projects
 """
 from __future__ import annotations
 import argparse
@@ -30,18 +36,28 @@ import contextlib
 import io
 import json
 import os
+import socket
+import struct
+import subprocess
 import sys
+import time
 from pathlib import Path
 
-# Persistance active project
+# ---------- paths ----------
+_HERE = Path(__file__).resolve().parent
+_TS_ROOT = _HERE.parent
 _CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ts"
 _ACTIVE_FILE = _CONFIG_DIR / "active"
+_SOCK_PATH = os.environ.get("TS_SOCK", "/tmp/ts.sock")
+_PID_FILE = _CONFIG_DIR / "daemon.pid"
 
-# Defaults qui reduisent la verbosite des handlers
+# Defaults reduce noise
 os.environ.setdefault("TS_NO_HINTS", "1")
 os.environ.setdefault("TS_CAPTURE_DISABLED", "1")
+os.environ.setdefault("TS_MEMORY_DISABLE", "1")
 
 
+# ---------- project state ----------
 def _read_active_project() -> str | None:
     if _ACTIVE_FILE.exists():
         return _ACTIVE_FILE.read_text().strip() or None
@@ -53,42 +69,8 @@ def _write_active_project(path: str) -> None:
     _ACTIVE_FILE.write_text(path.strip() + "\n")
 
 
-def _silence_imports(verbose: bool):
-    """Redirige stdout vers stderr pendant les imports lourds, sauf si verbose."""
-    if verbose:
-        return contextlib.nullcontext()
-    return contextlib.redirect_stdout(sys.stderr)
-
-
-def _import_dispatcher(verbose: bool):
-    with _silence_imports(verbose):
-        from token_savior.server import _dispatch_tool  # type: ignore
-    return _dispatch_tool
-
-
-def _call(tool: str, args: dict, verbose: bool) -> str:
-    dispatcher = _import_dispatcher(verbose)
-    # Couper les hints au niveau de l'arg si supporté par le handler
-    args.setdefault("hints", False)
-    # Silence les prints du handler aussi
-    out_buf = io.StringIO() if not verbose else sys.stderr
-    if not verbose:
-        with contextlib.redirect_stdout(sys.stderr):
-            result = dispatcher(tool, args, "")
-    else:
-        result = dispatcher(tool, args, "")
-    parts = []
-    for r in result:
-        text = getattr(r, "text", None)
-        if text is not None:
-            parts.append(text)
-        else:
-            parts.append(str(r))
-    return "\n".join(parts)
-
-
-def _ensure_project(verbose: bool):
-    """Si WORKSPACE_ROOTS pas set et un projet actif est en config, le set."""
+def _ensure_workspace_env(verbose: bool):
+    """For fork-mode dispatcher : surface active project via WORKSPACE_ROOTS."""
     if os.environ.get("WORKSPACE_ROOTS"):
         return
     active = _read_active_project()
@@ -96,11 +78,259 @@ def _ensure_project(verbose: bool):
         os.environ["WORKSPACE_ROOTS"] = active
 
 
+# ---------- wire protocol (daemon <-> CLI) ----------
+def _send_frame(sock: socket.socket, obj) -> None:
+    data = json.dumps(obj).encode("utf-8")
+    sock.sendall(struct.pack(">I", len(data)) + data)
+
+
+def _recv_frame(sock: socket.socket, timeout: float = 60.0):
+    sock.settimeout(timeout)
+    hdr = b""
+    while len(hdr) < 4:
+        chunk = sock.recv(4 - len(hdr))
+        if not chunk:
+            return None
+        hdr += chunk
+    (length,) = struct.unpack(">I", hdr)
+    buf = b""
+    while len(buf) < length:
+        chunk = sock.recv(min(65536, length - len(buf)))
+        if not chunk:
+            return None
+        buf += chunk
+    return json.loads(buf.decode("utf-8"))
+
+
+# ---------- daemon command ----------
+def _daemon_running() -> bool:
+    if not os.path.exists(_SOCK_PATH):
+        return False
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.2)
+        s.connect(_SOCK_PATH)
+        _send_frame(s, {"cmd": "ping"})
+        resp = _recv_frame(s, timeout=0.5)
+        s.close()
+        return bool(resp and resp.get("ok"))
+    except Exception:
+        return False
+
+
+def _try_daemon_call(tool: str, args: dict, timeout: float = 60.0):
+    """Return (text, used_daemon: bool). text=None if daemon path failed."""
+    if not os.path.exists(_SOCK_PATH):
+        return None, False
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect(_SOCK_PATH)
+        _send_frame(s, {"cmd": "call", "tool": tool, "args": args})
+        resp = _recv_frame(s, timeout=timeout)
+        s.close()
+        if resp is None:
+            return None, False
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("error", "daemon error"))
+        return resp.get("text", ""), True
+    except (socket.error, OSError):
+        return None, False
+
+
+def _daemon_start() -> str:
+    if _daemon_running():
+        return "daemon already running"
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if os.path.exists(_SOCK_PATH):
+        os.remove(_SOCK_PATH)
+    log = _CONFIG_DIR / "daemon.log"
+    # spawn detached daemon. env propage WORKSPACE_ROOTS si actif.
+    env = os.environ.copy()
+    active = _read_active_project()
+    if active and not env.get("WORKSPACE_ROOTS"):
+        env["WORKSPACE_ROOTS"] = active
+    proc = subprocess.Popen(
+        [sys.executable, str(_HERE / "ts"), "_daemon-serve"],
+        stdout=open(log, "ab"),
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        env=env,
+        start_new_session=True,
+    )
+    # wait up to 3s for socket to come up
+    for _ in range(60):
+        if _daemon_running():
+            _PID_FILE.write_text(str(proc.pid))
+            return f"daemon started (pid {proc.pid})"
+        time.sleep(0.05)
+    return f"daemon failed to come up (check {log})"
+
+
+def _daemon_stop() -> str:
+    if not _daemon_running():
+        return "daemon not running"
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect(_SOCK_PATH)
+        _send_frame(s, {"cmd": "shutdown"})
+        _recv_frame(s, timeout=2.0)
+        s.close()
+    except Exception:
+        pass
+    # cleanup
+    if os.path.exists(_SOCK_PATH):
+        try:
+            os.remove(_SOCK_PATH)
+        except OSError:
+            pass
+    if _PID_FILE.exists():
+        try:
+            _PID_FILE.unlink()
+        except OSError:
+            pass
+    return "daemon stopped"
+
+
+def _daemon_status() -> dict:
+    running = _daemon_running()
+    pid = None
+    if _PID_FILE.exists():
+        try:
+            pid = int(_PID_FILE.read_text().strip())
+        except Exception:
+            pass
+    if running:
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(1.0)
+            s.connect(_SOCK_PATH)
+            _send_frame(s, {"cmd": "status"})
+            resp = _recv_frame(s, timeout=1.0) or {}
+            s.close()
+            return {"running": True, "pid": pid, **resp.get("status", {})}
+        except Exception:
+            return {"running": True, "pid": pid}
+    return {"running": False}
+
+
+def _daemon_serve() -> None:
+    """Internal command — runs the server loop. Not for direct use."""
+    # Charger le dispatcher UNE fois (cout 1.5s)
+    sys.path.insert(0, str(_TS_ROOT / "src"))
+    with contextlib.redirect_stdout(sys.stderr):
+        from token_savior.server import _dispatch_tool  # type: ignore
+
+    started = time.time()
+    calls = 0
+
+    if os.path.exists(_SOCK_PATH):
+        os.remove(_SOCK_PATH)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(_SOCK_PATH)
+    os.chmod(_SOCK_PATH, 0o600)
+    srv.listen(8)
+
+    print(f"[ts-daemon] listening on {_SOCK_PATH}", file=sys.stderr, flush=True)
+
+    while True:
+        try:
+            conn, _ = srv.accept()
+        except KeyboardInterrupt:
+            break
+        try:
+            req = _recv_frame(conn, timeout=5.0)
+            if not req:
+                conn.close()
+                continue
+            cmd = req.get("cmd")
+            if cmd == "ping":
+                _send_frame(conn, {"ok": True})
+            elif cmd == "status":
+                _send_frame(conn, {"ok": True, "status": {
+                    "uptime_s": int(time.time() - started),
+                    "calls": calls,
+                }})
+            elif cmd == "shutdown":
+                _send_frame(conn, {"ok": True})
+                conn.close()
+                break
+            elif cmd == "call":
+                try:
+                    with contextlib.redirect_stdout(sys.stderr):
+                        result = _dispatch_tool(req["tool"], req.get("args", {}), "")
+                    parts = []
+                    for r in result:
+                        t = getattr(r, "text", None)
+                        parts.append(t if t is not None else str(r))
+                    _send_frame(conn, {"ok": True, "text": "\n".join(parts)})
+                    calls += 1
+                except Exception as e:
+                    _send_frame(conn, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            else:
+                _send_frame(conn, {"ok": False, "error": f"unknown cmd: {cmd}"})
+        except Exception as e:
+            try:
+                _send_frame(conn, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if os.path.exists(_SOCK_PATH):
+        os.remove(_SOCK_PATH)
+
+
+# ---------- fork-mode dispatcher (fallback) ----------
+def _silence_imports(verbose: bool):
+    if verbose:
+        return contextlib.nullcontext()
+    return contextlib.redirect_stdout(sys.stderr)
+
+
+def _import_dispatcher(verbose: bool):
+    sys.path.insert(0, str(_TS_ROOT / "src"))
+    with _silence_imports(verbose):
+        from token_savior.server import _dispatch_tool  # type: ignore
+    return _dispatch_tool
+
+
+def _fork_call(tool: str, args: dict, verbose: bool) -> str:
+    _ensure_workspace_env(verbose)
+    dispatcher = _import_dispatcher(verbose)
+    args.setdefault("hints", False)
+    if verbose:
+        result = dispatcher(tool, args, "")
+    else:
+        with contextlib.redirect_stdout(sys.stderr):
+            result = dispatcher(tool, args, "")
+    parts = []
+    for r in result:
+        text = getattr(r, "text", None)
+        parts.append(text if text is not None else str(r))
+    return "\n".join(parts)
+
+
+# ---------- unified call ----------
+def _call(tool: str, args: dict, verbose: bool, prefer_daemon: bool = True) -> str:
+    args.setdefault("hints", False)
+    if prefer_daemon:
+        text, used = _try_daemon_call(tool, args)
+        if used:
+            return text
+    return _fork_call(tool, args, verbose)
+
+
+# ---------- print ----------
 def _print(out: str, as_text: bool):
     if as_text:
         print(out)
         return
-    out = out.strip()
+    out = (out or "").strip()
     try:
         embedded = json.loads(out)
         payload = {"ok": True, "result": embedded}
@@ -116,15 +346,26 @@ def _error(msg: str, code: int = 1):
     sys.exit(code)
 
 
+# ---------- main ----------
 def main():
+    # Hidden subcommand : _daemon-serve (utilise par ts daemon start)
+    if len(sys.argv) == 2 and sys.argv[1] == "_daemon-serve":
+        _daemon_serve()
+        return
+
     p = argparse.ArgumentParser(prog="ts", description="Token Savior CLI")
     p.add_argument("--text", action="store_true", help="Sortie brute au lieu de JSON")
     p.add_argument("--verbose", "-v", action="store_true", help="Afficher les logs moteur")
+    p.add_argument("--no-daemon", action="store_true", help="Force fork mode (skip daemon)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    # Daemon
+    d = sub.add_parser("daemon", help="Gestion du daemon")
+    d.add_argument("action", choices=["start", "stop", "status", "restart"])
+
     # Project
-    s = sub.add_parser("use", help="Selectionner le projet actif (persiste)")
-    s.add_argument("path", help="Chemin absolu du projet")
+    s = sub.add_parser("use", help="Selectionner le projet actif")
+    s.add_argument("path")
 
     sub.add_parser("projects", help="Lister les projets")
 
@@ -157,10 +398,10 @@ def main():
     sub.add_parser("git-status", help="Git status structure")
 
     # Edit
-    s = sub.add_parser("replace", help="Remplacer le source d un symbole (stdin = nouveau code)")
+    s = sub.add_parser("replace", help="Remplacer source d'un symbole (stdin)")
     s.add_argument("name")
 
-    s = sub.add_parser("move", help="Deplacer un symbole vers un autre fichier")
+    s = sub.add_parser("move", help="Deplacer un symbole vers un fichier")
     s.add_argument("name")
     s.add_argument("dest_file")
 
@@ -171,6 +412,24 @@ def main():
 
     args = p.parse_args()
     verbose = args.verbose
+    prefer_daemon = not args.no_daemon
+
+    # Daemon management
+    if args.cmd == "daemon":
+        if args.action == "start":
+            msg = _daemon_start()
+        elif args.action == "stop":
+            msg = _daemon_stop()
+        elif args.action == "restart":
+            _daemon_stop()
+            time.sleep(0.2)
+            msg = _daemon_start()
+        else:  # status
+            st = _daemon_status()
+            _print(json.dumps(st), args.text)
+            return
+        _print(msg, args.text)
+        return
 
     # `use` ne necessite pas de dispatcher
     if args.cmd == "use":
@@ -179,67 +438,60 @@ def main():
         if not os.path.isdir(args.path):
             _error(f"Not a directory: {args.path}")
         _write_active_project(args.path)
+        # Si daemon up : pousse switch_project
+        if prefer_daemon and _daemon_running():
+            project_name = Path(args.path).name
+            try:
+                _call("switch_project", {"name": args.path}, verbose, prefer_daemon=True)
+            except Exception:
+                pass
         _print(f"Active project set to: {args.path}", args.text)
         return
 
-    _ensure_project(verbose)
-
     try:
         if args.cmd == "projects":
-            out = _call("list_projects", {}, verbose)
+            out = _call("list_projects", {}, verbose, prefer_daemon)
         elif args.cmd == "get":
             cargs = {"name": args.name}
             if args.max_lines:
                 cargs["max_lines"] = args.max_lines
             try:
-                out = _call("get_function_source", cargs, verbose)
+                out = _call("get_function_source", cargs, verbose, prefer_daemon)
                 if not out or out.startswith("Error") or "not found" in out.lower():
-                    out = _call("get_class_source", cargs, verbose)
+                    out = _call("get_class_source", cargs, verbose, prefer_daemon)
             except Exception:
-                out = _call("get_class_source", cargs, verbose)
+                out = _call("get_class_source", cargs, verbose, prefer_daemon)
         elif args.cmd == "search":
             cargs = {"pattern": args.pattern, "max_results": args.limit}
             if args.semantic:
                 cargs["semantic"] = True
-            out = _call("search_codebase", cargs, verbose)
+            out = _call("search_codebase", cargs, verbose, prefer_daemon)
         elif args.cmd == "ctx":
-            out = _call("get_full_context", {"name": args.name, "depth": args.depth}, verbose)
+            out = _call("get_full_context", {"name": args.name, "depth": args.depth}, verbose, prefer_daemon)
         elif args.cmd == "structure":
-            out = _call("get_structure_summary", {"file_path": args.file}, verbose)
+            out = _call("get_structure_summary", {"file_path": args.file}, verbose, prefer_daemon)
         elif args.cmd == "files":
             cargs = {}
             if args.glob:
                 cargs["pattern"] = args.glob
-            out = _call("list_files", cargs, verbose)
+            out = _call("list_files", cargs, verbose, prefer_daemon)
         elif args.cmd == "find-dead-code":
-            out = _call("find_dead_code", {}, verbose)
+            out = _call("find_dead_code", {}, verbose, prefer_daemon)
         elif args.cmd == "breaking":
-            out = _call("detect_breaking_changes", {"ref": args.ref}, verbose)
+            out = _call("detect_breaking_changes", {"ref": args.ref}, verbose, prefer_daemon)
         elif args.cmd == "git-status":
-            out = _call("get_git_status", {}, verbose)
+            out = _call("get_git_status", {}, verbose, prefer_daemon)
         elif args.cmd == "replace":
             new_source = sys.stdin.read()
-            out = _call(
-                "replace_symbol_source",
-                {"symbol_name": args.name, "new_source": new_source},
-                verbose,
-            )
+            out = _call("replace_symbol_source", {"symbol_name": args.name, "new_source": new_source}, verbose, prefer_daemon)
         elif args.cmd == "move":
-            out = _call(
-                "move_symbol",
-                {"symbol_name": args.name, "destination_file": args.dest_file},
-                verbose,
-            )
+            out = _call("move_symbol", {"symbol_name": args.name, "destination_file": args.dest_file}, verbose, prefer_daemon)
         elif args.cmd == "add-field":
-            out = _call(
-                "add_field_to_model",
-                {
-                    "model": args.model,
-                    "field_name": args.field_name,
-                    "field_type": args.field_type,
-                },
-                verbose,
-            )
+            out = _call("add_field_to_model", {
+                "model": args.model,
+                "field_name": args.field_name,
+                "field_type": args.field_type,
+            }, verbose, prefer_daemon)
         else:
             _error(f"Unknown command: {args.cmd}")
             return
