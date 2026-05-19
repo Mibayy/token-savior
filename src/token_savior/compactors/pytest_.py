@@ -11,7 +11,20 @@ _SUMMARY_RE = re.compile(r"^=+\s+(\d+ passed|\d+ failed|\d+ error|\d+ skipped|sh
 
 
 class PytestCompactor(Compactor):
-    _CMD_RE = re.compile(r"^\s*(python\s+-m\s+)?pytest\b")
+    # Match the bare `pytest` invocation as well as common wrappers:
+    #   - `pytest ...`
+    #   - `python -m pytest ...` / `python3 -m pytest ...` / `python3.12 -m pytest`
+    #   - `/path/to/venv/bin/python3 -m pytest ...`
+    #   - `uv run pytest ...` / `poetry run pytest ...` / `hatch run pytest ...`
+    _CMD_RE = re.compile(
+        r"^\s*"
+        r"("
+        r"(?:\S*/)?python[0-9.]*\s+-m\s+"           # optional path + python(3) -m
+        r"|"
+        r"(?:uv|poetry|hatch|pdm|rye)\s+run\s+"     # task runners
+        r")?"
+        r"pytest\b"
+    )
 
     def matches(self, command: str) -> bool:
         return bool(self._CMD_RE.search(command))
