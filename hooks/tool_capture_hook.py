@@ -32,6 +32,13 @@ Env vars:
                                  instructing the agent to ignore the raw inline output
                                  and use capture_get on the URI instead. Useful in
                                  tight context budgets.
+  TS_BASH_COMPACT             -- set to "1" to run Bash output through the
+                                 ``token_savior.compactors`` registry BEFORE the
+                                 sandbox decision. If a compactor matches and the
+                                 result is smaller than the original (and under the
+                                 capture threshold), the compact text is emitted
+                                 inline via additionalContext and the sandbox is
+                                 skipped. Off by default for backward compat.
 """
 from __future__ import annotations
 
@@ -80,6 +87,42 @@ def main() -> None:
             content = json.dumps(content, default=str)
         except Exception:
             content = str(content)
+
+    # Optional Bash compaction: try to render a token-efficient version of the
+    # output BEFORE the sandbox path. If a known compactor matches we emit the
+    # compact text inline and skip the sandbox entirely.
+    if (
+        tool_name == "Bash"
+        and os.environ.get("TS_BASH_COMPACT") == "1"
+        and content
+    ):
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+            from token_savior.compactors import compact as _compact
+            tool_input = event.get("tool_input") or {}
+            command = (tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+            stderr = response.get("stderr") if isinstance(response, dict) else ""
+            stderr = stderr if isinstance(stderr, str) else ""
+            result = _compact(command, content, stderr)
+        except Exception as exc:
+            sys.stderr.write(f"[ts-capture-hook] compact failed: {exc}\n")
+            result = None
+        if result is not None and result.compact_bytes < result.original_bytes:
+            note = (
+                f"[token-savior:compact] {command.split()[0] if command else 'bash'} "
+                f"output {result.original_bytes}B -> {result.compact_bytes}B "
+                f"({result.savings_pct:.0f}% saved). Compact rendering:\n"
+                f"{result.text}"
+            )
+            print(json.dumps({
+                "continue": True,
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": note,
+                },
+            }))
+            return
+
     if len(content) < THRESHOLD:
         _empty_pass()
         return
