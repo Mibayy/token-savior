@@ -26,6 +26,20 @@ from .pytest_ import PytestCompactor
 from .tsc import TscCompactor
 from .vitest import VitestCompactor
 
+# F1b — cloud/package compactors (v4.2.0)
+from .aws import (
+    AwsDynamoDbScanCompactor,
+    AwsEc2DescribeInstancesCompactor,
+    AwsIamListRolesCompactor,
+    AwsLambdaListFunctionsCompactor,
+    AwsLogsGetLogEventsCompactor,
+    AwsS3LsCompactor,
+    AwsStsIdentityCompactor,
+)
+from .curl import CurlCompactor
+from .kubectl import KubectlGetCompactor, KubectlLogsCompactor
+from .pkg_list import NpmListCompactor, PipListCompactor
+
 # Order matters: more-specific patterns first so `gh run view` does not
 # fall through to a hypothetical generic `gh` matcher.
 registry: list[Compactor] = [
@@ -43,11 +57,27 @@ registry: list[Compactor] = [
     TscCompactor(),
     DockerPsCompactor(),
     DockerLogsCompactor(),
-    # F1a — test/lint compactors (appended end-of-list for clean merge)
+    # test/lint compactors (v4.2.0)
     JestCompactor(),
     VitestCompactor(),
     EslintCompactor(),
     BiomeCompactor(),
+    # AWS — most-specific subcommands first
+    AwsStsIdentityCompactor(),
+    AwsEc2DescribeInstancesCompactor(),
+    AwsLambdaListFunctionsCompactor(),
+    AwsLogsGetLogEventsCompactor(),
+    AwsIamListRolesCompactor(),
+    AwsDynamoDbScanCompactor(),
+    AwsS3LsCompactor(),
+    # kubectl
+    KubectlGetCompactor(),
+    KubectlLogsCompactor(),
+    # package managers
+    NpmListCompactor(),
+    PipListCompactor(),
+    # curl
+    CurlCompactor(),
 ]
 
 
