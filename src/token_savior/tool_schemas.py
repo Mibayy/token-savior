@@ -644,9 +644,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
     "ts_discover": {
         "description": (
             "Scan Claude Code transcripts for missed Token Savior opportunities "
-            "(native-call chains that should have been a single TS call). "
-            "Returns a ranked Markdown table by default; pass format='json' for "
-            "machine output. Read-only, PII-safe."
+            "(native-call chains that should have been a single TS call) and/or "
+            "report TS-vs-native adoption ratios. Scans ALL transcript projects "
+            "by default; pass project=<substring> to filter. format='table' "
+            "(default) or 'json' returns ranked Findings; format='adoption' or "
+            "'adoption_json' returns the TS adoption summary with trend + worst "
+            "sessions. Read-only, PII-safe."
         ),
         "inputSchema": {
             "type": "object",
@@ -657,16 +660,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 "project": {
                     "type": "string",
-                    "description": "Restrict to sanitized project dirs whose name contains this substring (e.g. '-root').",
+                    "description": (
+                        "Filter to sanitized project dirs whose name contains this substring "
+                        "(e.g. '-root'). Omit to scan ALL transcript projects under "
+                        "~/.claude/projects/."
+                    ),
                 },
                 "format": {
                     "type": "string",
-                    "enum": ["table", "json"],
-                    "description": "Output format (default 'table').",
+                    "enum": ["table", "json", "adoption", "adoption_json"],
+                    "description": (
+                        "Output format. 'table' (default) / 'json' = ranked missed-opportunity "
+                        "Findings. 'adoption' / 'adoption_json' = TS vs native adoption summary."
+                    ),
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Cap the number of findings returned (default unlimited).",
+                    "description": "Cap the number of findings returned (table/json only; default unlimited).",
                 },
             },
         },

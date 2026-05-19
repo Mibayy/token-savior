@@ -419,3 +419,295 @@ class TestSchemaRegistered:
         schema = TOOL_SCHEMAS["ts_discover"]
         assert "since_days" in schema["inputSchema"]["properties"]
         assert "format" in schema["inputSchema"]["properties"]
+
+    def test_schema_exposes_adoption_formats(self):
+        from token_savior.tool_schemas import TOOL_SCHEMAS
+
+        fmt = TOOL_SCHEMAS["ts_discover"]["inputSchema"]["properties"]["format"]
+        assert set(fmt["enum"]) == {"table", "json", "adoption", "adoption_json"}
+
+    def test_schema_project_doc_reflects_all_default(self):
+        from token_savior.tool_schemas import TOOL_SCHEMAS
+
+        desc = TOOL_SCHEMAS["ts_discover"]["inputSchema"]["properties"]["project"][
+            "description"
+        ].lower()
+        # No more "active project default" wording; advertise "all" semantics.
+        assert "all" in desc
+        assert "active project" not in desc
+
+
+# ---------------------------------------------------------------------------
+# F4 cross-project + adoption mode
+# ---------------------------------------------------------------------------
+
+
+def _session_event(
+    ts: str,
+    tool_name: str,
+    tool_input: dict,
+    session_id: str = "test-session-1",
+    cwd: str = "/root/test-project",
+) -> dict:
+    return {
+        "type": "assistant",
+        "timestamp": ts,
+        "sessionId": session_id,
+        "cwd": cwd,
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": tool_name,
+                    "input": tool_input,
+                }
+            ],
+        },
+    }
+
+
+class TestCrossProjectScan:
+    def test_scans_all_project_dirs_when_project_is_none(self, tmp_path):
+        # Two distinct project dirs, each producing the same chain pattern.
+        _write_session(
+            tmp_path,
+            "-root-alpha",
+            "sA",
+            [
+                _session_event("2026-05-19T12:00:00Z", "Read", {"file_path": "/root/p/a.py"}),
+                _session_event("2026-05-19T12:00:05Z", "Grep", {"pattern": "foo"}),
+                _session_event("2026-05-19T12:00:10Z", "Read", {"file_path": "/root/p/b.py"}),
+            ],
+        )
+        _write_session(
+            tmp_path,
+            "-root-beta",
+            "sB",
+            [
+                _session_event("2026-05-19T13:00:00Z", "Read", {"file_path": "/root/p/c.py"}),
+                _session_event("2026-05-19T13:00:05Z", "Grep", {"pattern": "bar"}),
+                _session_event("2026-05-19T13:00:10Z", "Read", {"file_path": "/root/p/d.py"}),
+            ],
+        )
+
+        out = discover(since_days=365, project=None, root=tmp_path)
+        patterns = {f.pattern: f for f in out}
+        assert "read_grep_read_chain" in patterns
+        rgrr = patterns["read_grep_read_chain"]
+        # One chain per project, aggregated.
+        assert rgrr.count == 2
+        # top_projects must include BOTH project dirs.
+        assert set(rgrr.top_projects.keys()) == {"-root-alpha", "-root-beta"}
+        assert rgrr.top_projects["-root-alpha"] == 1
+        assert rgrr.top_projects["-root-beta"] == 1
+
+    def test_top_projects_counts_hits_per_project(self, tmp_path):
+        # Project alpha gets 2 chains, beta gets 1.
+        _write_session(
+            tmp_path,
+            "-root-alpha",
+            "sA1",
+            [
+                _session_event("2026-05-19T12:00:00Z", "Read", {"file_path": "/root/p/a.py"}),
+                _session_event("2026-05-19T12:00:05Z", "Grep", {"pattern": "foo"}),
+                _session_event("2026-05-19T12:00:10Z", "Read", {"file_path": "/root/p/b.py"}),
+            ],
+        )
+        _write_session(
+            tmp_path,
+            "-root-alpha",
+            "sA2",
+            [
+                _session_event("2026-05-19T14:00:00Z", "Read", {"file_path": "/root/p/x.py"}),
+                _session_event("2026-05-19T14:00:05Z", "Grep", {"pattern": "x"}),
+                _session_event("2026-05-19T14:00:10Z", "Read", {"file_path": "/root/p/y.py"}),
+            ],
+        )
+        _write_session(
+            tmp_path,
+            "-root-beta",
+            "sB1",
+            [
+                _session_event("2026-05-19T15:00:00Z", "Read", {"file_path": "/root/p/m.py"}),
+                _session_event("2026-05-19T15:00:05Z", "Grep", {"pattern": "m"}),
+                _session_event("2026-05-19T15:00:10Z", "Read", {"file_path": "/root/p/n.py"}),
+            ],
+        )
+
+        out = discover(since_days=365, project=None, root=tmp_path)
+        rgrr = next(f for f in out if f.pattern == "read_grep_read_chain")
+        assert rgrr.count == 3
+        assert rgrr.top_projects["-root-alpha"] == 2
+        assert rgrr.top_projects["-root-beta"] == 1
+
+    def test_substring_filter_still_works(self, tmp_path):
+        _write_session(
+            tmp_path,
+            "-root-alpha",
+            "sA",
+            [
+                _session_event("2026-05-19T12:00:00Z", "Read", {"file_path": "/root/p/a.py"}),
+                _session_event("2026-05-19T12:00:05Z", "Grep", {"pattern": "foo"}),
+                _session_event("2026-05-19T12:00:10Z", "Read", {"file_path": "/root/p/b.py"}),
+            ],
+        )
+        _write_session(
+            tmp_path,
+            "-root-beta",
+            "sB",
+            [
+                _session_event("2026-05-19T13:00:00Z", "Read", {"file_path": "/root/p/c.py"}),
+                _session_event("2026-05-19T13:00:05Z", "Grep", {"pattern": "bar"}),
+                _session_event("2026-05-19T13:00:10Z", "Read", {"file_path": "/root/p/d.py"}),
+            ],
+        )
+
+        out = discover(since_days=365, project="alpha", root=tmp_path)
+        rgrr = next(f for f in out if f.pattern == "read_grep_read_chain")
+        assert rgrr.count == 1
+        assert "-root-alpha" in rgrr.top_projects
+        assert "-root-beta" not in rgrr.top_projects
+
+
+class TestComputeAdoption:
+    def test_ratios_on_synthetic_session(self):
+        from token_savior.discover.patterns import compute_adoption
+
+        evs = [
+            _ev(0, "Read", {"file_path": "/a.py"}, session="s1"),
+            _ev(1, "Grep", {"pattern": "x"}, session="s1"),
+            _ev(2, "mcp__token-savior__find_symbol", {"name": "foo"}, session="s1"),
+            _ev(3, "mcp__token-savior__get_function_source", {"name": "foo"}, session="s1"),
+        ]
+        report = compute_adoption({"s1": evs})
+        assert report.total_ts == 2
+        assert report.total_native == 2
+        assert report.total_relevant == 4
+        assert abs(report.ts_ratio - 0.5) < 1e-9
+        assert abs(report.native_ratio - 0.5) < 1e-9
+        assert len(report.sessions) == 1
+        assert report.sessions[0].session_id == "s1"
+
+    def test_other_calls_excluded_from_ratio(self):
+        from token_savior.discover.patterns import compute_adoption
+
+        evs = [
+            _ev(0, "Read", {"file_path": "/a.py"}, session="s1"),
+            _ev(1, "TodoWrite", {"todos": []}, session="s1"),
+            _ev(2, "mcp__some-other-server__do_thing", {}, session="s1"),
+        ]
+        report = compute_adoption({"s1": evs})
+        # Only Read counts toward TS vs native; the other two are 'other'.
+        assert report.total_ts == 0
+        assert report.total_native == 1
+        assert report.total_other == 2
+        assert report.ts_ratio == 0.0
+
+    def test_trend_split_first_vs_second_half(self):
+        from token_savior.discover.patterns import compute_adoption
+
+        # First-half: 2 native, 0 TS. Second-half: 0 native, 2 TS.
+        # Median of [0,1,2,3] is index 2 (timestamp 2), so events with ts<2
+        # land in the first half and ts>=2 in the second half.
+        evs = [
+            _ev(0, "Read", {"file_path": "/a.py"}, session="s1"),
+            _ev(1, "Grep", {"pattern": "x"}, session="s1"),
+            _ev(2, "mcp__token-savior__find_symbol", {"name": "f"}, session="s1"),
+            _ev(3, "mcp__token-savior__get_function_source", {"name": "f"}, session="s1"),
+        ]
+        report = compute_adoption({"s1": evs})
+        # First half should be native-heavy, second half TS-heavy → positive trend.
+        assert report.trend_delta > 0.5
+
+    def test_worst_sessions_ordered_by_ratio(self):
+        from token_savior.discover.patterns import compute_adoption
+
+        # s1: 100% native (worst). s2: 50/50. s3: 100% TS.
+        sessions = {
+            "s1": [
+                _ev(0, "Read", {"file_path": "/a.py"}, session="s1"),
+                _ev(1, "Grep", {"pattern": "x"}, session="s1"),
+            ],
+            "s2": [
+                _ev(0, "Read", {"file_path": "/b.py"}, session="s2"),
+                _ev(1, "mcp__token-savior__find_symbol", {"name": "g"}, session="s2"),
+            ],
+            "s3": [
+                _ev(0, "mcp__token-savior__find_symbol", {"name": "h"}, session="s3"),
+                _ev(1, "mcp__token-savior__get_function_source", {"name": "h"}, session="s3"),
+            ],
+        }
+        report = compute_adoption(sessions)
+        worst = report.worst_sessions(2)
+        assert worst[0].session_id == "s1"
+        assert worst[1].session_id == "s2"
+
+
+class TestAdoptionHandler:
+    def _setup_fixture(self, tmp_path, monkeypatch):
+        # Mixed session: 1 TS call + 2 native calls.
+        _write_session(
+            tmp_path,
+            "-root-x",
+            "s1",
+            [
+                _session_event("2026-05-19T12:00:00Z", "Read", {"file_path": "/root/p/a.py"}),
+                _session_event("2026-05-19T12:00:05Z", "Grep", {"pattern": "foo"}),
+                _session_event(
+                    "2026-05-19T12:00:10Z",
+                    "mcp__token-savior__find_symbol",
+                    {"name": "foo"},
+                ),
+            ],
+        )
+        from token_savior.discover import transcript_scanner as ts_mod
+        from token_savior import discover as discover_pkg
+
+        monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
+        monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)
+
+    def test_adoption_table(self, tmp_path, monkeypatch):
+        self._setup_fixture(tmp_path, monkeypatch)
+        from token_savior.server_handlers import META_HANDLERS
+
+        result = META_HANDLERS["ts_discover"](
+            {"since_days": 365, "format": "adoption"}
+        )
+        assert len(result) == 1
+        text = result[0].text
+        assert "Token Savior adoption" in text or "adoption" in text.lower()
+        assert "TS" in text
+        assert "native" in text.lower()
+
+    def test_adoption_json(self, tmp_path, monkeypatch):
+        self._setup_fixture(tmp_path, monkeypatch)
+        from token_savior.server_handlers import META_HANDLERS
+
+        result = META_HANDLERS["ts_discover"](
+            {"since_days": 365, "format": "adoption_json"}
+        )
+        assert len(result) == 1
+        payload = json.loads(result[0].text)
+        assert "adoption" in payload
+        adoption = payload["adoption"]
+        assert adoption["total_ts"] == 1
+        assert adoption["total_native"] == 2
+        # 1 TS / 3 relevant = 0.3333
+        assert abs(adoption["ts_ratio"] - 1 / 3) < 1e-3
+
+    def test_backward_compat_empty_arguments(self, tmp_path, monkeypatch):
+        # Existing callers passing {} (no format, no project) must still work.
+        from token_savior.discover import transcript_scanner as ts_mod
+        from token_savior import discover as discover_pkg
+
+        monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
+        monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)
+
+        from token_savior.server_handlers import META_HANDLERS
+
+        result = META_HANDLERS["ts_discover"]({})
+        assert len(result) == 1
+        # Empty transcript root → "no findings" string from _fmt_table.
+        assert isinstance(result[0].text, str)
