@@ -59,6 +59,7 @@ def compact(command: str, stdout: str, stderr: str = "") -> CompactResult | None
                 original_bytes=original_bytes,
                 compact_bytes=compact_bytes,
                 savings_pct=savings,
+                original_text=original,
             )
     return None
 
