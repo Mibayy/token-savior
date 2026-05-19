@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.3.1 — Fix `ts init` after vanilla PyPI install (2026-05-19)
+
+Hotfix. v4.3.0 was broken for users installing from PyPI:
+
+- The bundled hook JSON configs (`hooks/*.json`) had hard-coded paths
+  pointing to `/root/token-savior/hooks/...` (the dev machine layout).
+- The `hooks/` directory was not included in the wheel at all.
+
+Both fixed:
+
+- `pyproject.toml` -- new `[tool.hatch.build.targets.wheel.force-include]`
+  rule packages `hooks/` inside the wheel at `token_savior/hooks/`.
+- `hooks/*.json` -- hard-coded paths replaced with the `{{TS_HOOKS_DIR}}`
+  placeholder.
+- `cli_init/__init__.py` -- on load, substitutes the placeholder with the
+  actual install path resolved either from the installed package
+  (`site-packages/token_savior/hooks/`) or, in editable installs, from
+  the repo root. So `ts init --agent claude` now produces correct paths
+  for every install method.
+
+Users on v4.3.0 should `pip install --upgrade token-savior-recall` and
+re-run `ts init`.
+
 ## v4.3.0 — Bench-driven coverage push (2026-05-19)
 
 Real-world bench against 7 days of Louis's transcripts (1130 Bash outputs)

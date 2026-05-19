@@ -4,7 +4,7 @@
     "tool_complete": [
       {
         "matcher": "shell|read_file|web_search|mcp__token-savior__.*",
-        "command": "/usr/bin/python3 /root/token-savior/hooks/tool_capture_hook.py",
+        "command": "/usr/bin/python3 {{TS_HOOKS_DIR}}/tool_capture_hook.py",
         "timeout_ms": 5000
       }
     ]

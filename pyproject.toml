@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "4.3.0"
+version = "4.3.1"
 description = "Optimized MCP server for AI coding agents. Structural codebase navigation + persistent memory engine — 97.9% accuracy at −80% tokens on tsbench."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -47,6 +47,12 @@ Repository = "https://github.com/Mibayy/token-savior"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/token_savior"]
+
+# Include the hooks/ directory inside the wheel under token_savior/hooks/ so
+# `ts init` can locate the bundled JSON configs and shell scripts after a
+# vanilla `pip install token-savior-recall` (no editable / source checkout).
+[tool.hatch.build.targets.wheel.force-include]
+"hooks" = "token_savior/hooks"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/token-savior/hooks/memory-session-start.sh",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-start.sh",
             "timeout": 3000
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/token-savior/hooks/memory-session-stop.sh",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh",
             "timeout": 5000
           }
         ]

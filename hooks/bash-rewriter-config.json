@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 /root/token-savior/hooks/bash_rewriter_hook.py",
+            "command": "/usr/bin/python3 {{TS_HOOKS_DIR}}/bash_rewriter_hook.py",
             "timeout": 2000
           }
         ]

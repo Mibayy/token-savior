@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 /root/token-savior/hooks/tool_capture_hook.py",
+            "command": "/usr/bin/python3 {{TS_HOOKS_DIR}}/tool_capture_hook.py",
             "timeout": 5000
           }
         ]

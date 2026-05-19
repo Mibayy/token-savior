@@ -22,9 +22,21 @@ from .agent_paths import SUPPORTED_AGENTS, hook_config_paths, settings_path
 from .merger import added_entries, format_diff, merge_hook_config
 
 
-# Resolve the Token Savior repo root (where /hooks/ lives).
-# cli_init/__init__.py -> token_savior/ -> src/ -> repo root
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# Resolve the directory whose ``hooks/`` subdir holds the bundled configs.
+# Two layouts to support:
+#   1. PyPI install -- hooks shipped inside the wheel at
+#      ``site-packages/token_savior/hooks/`` via the
+#      ``[tool.hatch.build.targets.wheel.force-include]`` rule in pyproject.
+#   2. Source checkout (editable install) -- hooks live at the repo root
+#      ``/<repo>/hooks/``; ``Path(__file__).parents[3]`` resolves to the
+#      repo root (cli_init/__init__.py -> token_savior/ -> src/ -> repo).
+# We pick layout 1 when ``token_savior/hooks/`` exists next to the package,
+# otherwise fall back to layout 2.
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+if (_PACKAGE_ROOT / "hooks").is_dir():
+    _REPO_ROOT = _PACKAGE_ROOT
+else:
+    _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 # --------------------------------------------------------------------------- #
@@ -80,6 +92,9 @@ def _write_settings(path: Path, data: dict) -> None:
 
 
 def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
+    """Load shipped hook JSON configs and substitute the {{TS_HOOKS_DIR}}
+    placeholder with the actual install path of this Token Savior copy."""
+    hooks_dir = str((ts_root / "hooks").resolve())
     bundles: list[dict] = []
     missing: list[Path] = []
     for p in hook_config_paths(agent, ts_root):
@@ -87,7 +102,8 @@ def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
             missing.append(p)
             continue
         try:
-            bundles.append(json.loads(p.read_text(encoding="utf-8")))
+            raw = p.read_text(encoding="utf-8").replace("{{TS_HOOKS_DIR}}", hooks_dir)
+            bundles.append(json.loads(raw))
         except (OSError, json.JSONDecodeError) as e:
             raise RuntimeError(f"cannot load bundled hook config {p}: {e}") from e
     if not bundles:
