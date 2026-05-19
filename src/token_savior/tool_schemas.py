@@ -640,6 +640,37 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["keyword"],
         },
     },
+    # ── Discover (transcript scan for missed TS opportunities) ────────────
+    "ts_discover": {
+        "description": (
+            "Scan Claude Code transcripts for missed Token Savior opportunities "
+            "(native-call chains that should have been a single TS call). "
+            "Returns a ranked Markdown table by default; pass format='json' for "
+            "machine output. Read-only, PII-safe."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_days": {
+                    "type": "integer",
+                    "description": "Only consider events newer than now - since_days (default 7).",
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Restrict to sanitized project dirs whose name contains this substring (e.g. '-root').",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["table", "json"],
+                    "description": "Output format (default 'table').",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Cap the number of findings returned (default unlimited).",
+                },
+            },
+        },
+    },
     # ── Stats (unified) ───────────────────────────────────────────────────
     "get_stats": {
         "description": (
