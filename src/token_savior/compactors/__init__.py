@@ -13,14 +13,26 @@ from .cargo_ import CargoBuildCompactor, CargoTestCompactor
 from .compound import pick_meaningful_segment
 from .docker import DockerLogsCompactor, DockerPsCompactor
 from .eslint import EslintCompactor
-from .gh import GhRunListCompactor, GhRunViewCompactor
+from .gh import (
+    GhIssueViewCompactor,
+    GhPrDiffCompactor,
+    GhPrViewCompactor,
+    GhRepoViewCompactor,
+    GhRunListCompactor,
+    GhRunViewCompactor,
+)
 from .git import (
     GitAddCompactor,
+    GitBranchCompactor,
+    GitCheckoutCompactor,
     GitCommitCompactor,
     GitDiffCompactor,
+    GitFetchCompactor,
     GitLogCompactor,
     GitPushPullCompactor,
+    GitStashListCompactor,
     GitStatusCompactor,
+    GitWorktreeListCompactor,
 )
 from .jest import JestCompactor
 from .pytest_ import PytestCompactor
@@ -44,6 +56,14 @@ from .pkg_list import NpmListCompactor, PipListCompactor
 # Order matters: more-specific patterns first so `gh run view` does not
 # fall through to a hypothetical generic `gh` matcher.
 registry: list[Compactor] = [
+    # v4.3.0 F3a — gh extras MUST sit before GhRun* so the more-specific
+    # `gh pr diff` / `gh pr view` / `gh issue view` / `gh repo view`
+    # forms win over any future generic `gh` fallback. `gh pr diff` is
+    # listed before `gh pr view` so it cannot be swallowed.
+    GhPrDiffCompactor(),
+    GhPrViewCompactor(),
+    GhIssueViewCompactor(),
+    GhRepoViewCompactor(),
     GhRunViewCompactor(),
     GhRunListCompactor(),
     GitStatusCompactor(),
@@ -79,6 +99,14 @@ registry: list[Compactor] = [
     PipListCompactor(),
     # curl
     CurlCompactor(),
+    # v4.3.0 F3a — git extras (appended; existing GitPushPull/GitAdd
+    # matchers were narrowed to no longer claim `fetch` / `checkout`
+    # so these dedicated compactors actually fire).
+    GitFetchCompactor(),
+    GitCheckoutCompactor(),
+    GitBranchCompactor(),
+    GitWorktreeListCompactor(),
+    GitStashListCompactor(),
 ]
 
 
