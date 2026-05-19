@@ -8,8 +8,10 @@ existing sandbox path untouched.
 from __future__ import annotations
 
 from .base import CompactResult, Compactor
+from .biome import BiomeCompactor
 from .cargo_ import CargoBuildCompactor, CargoTestCompactor
 from .docker import DockerLogsCompactor, DockerPsCompactor
+from .eslint import EslintCompactor
 from .gh import GhRunListCompactor, GhRunViewCompactor
 from .git import (
     GitAddCompactor,
@@ -19,8 +21,10 @@ from .git import (
     GitPushPullCompactor,
     GitStatusCompactor,
 )
+from .jest import JestCompactor
 from .pytest_ import PytestCompactor
 from .tsc import TscCompactor
+from .vitest import VitestCompactor
 
 # Order matters: more-specific patterns first so `gh run view` does not
 # fall through to a hypothetical generic `gh` matcher.
@@ -39,6 +43,11 @@ registry: list[Compactor] = [
     TscCompactor(),
     DockerPsCompactor(),
     DockerLogsCompactor(),
+    # F1a — test/lint compactors (appended end-of-list for clean merge)
+    JestCompactor(),
+    VitestCompactor(),
+    EslintCompactor(),
+    BiomeCompactor(),
 ]
 
 
