@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 
-from .base import Compactor
 
 
 _SHELL_COMPOSITION_RE = re.compile(r"[|;&]|&&|\|\|")

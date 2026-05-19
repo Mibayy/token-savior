@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .base import Compactor
 
 
 # Recursive grep / ripgrep output looks like:

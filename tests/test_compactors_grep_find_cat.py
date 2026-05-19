@@ -115,7 +115,6 @@ def test_grep_passthrough_for_short_output():
 
 
 def test_grep_100_line_fixture_savings():
-    g = GrepCompactor()
     big = _make_100_line_grep_fixture()
     result = compact("grep -rn match src/", big)
     assert result is not None

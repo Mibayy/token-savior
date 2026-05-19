@@ -1,7 +1,6 @@
 """Tests for the compound-command splitter (F3c)."""
 from __future__ import annotations
 
-import pytest
 
 from token_savior.compactors import compact, pick_meaningful_segment
 

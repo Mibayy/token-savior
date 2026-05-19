@@ -9,11 +9,7 @@ from token_savior.compactors.gh import (
     GhRepoViewCompactor,
 )
 from token_savior.compactors.git import (
-    GitBranchCompactor,
-    GitCheckoutCompactor,
     GitFetchCompactor,
-    GitStashListCompactor,
-    GitWorktreeListCompactor,
 )
 from token_savior.compactors.pytest_ import PytestCompactor
 
