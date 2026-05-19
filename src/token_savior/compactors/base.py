@@ -11,6 +11,10 @@ class CompactResult:
     original_bytes: int
     compact_bytes: int
     savings_pct: float
+    # Full original output (stdout + stderr) preserved so callers can route it
+    # to the sandbox in hybrid mode without re-fetching. Defaults to "" for
+    # backward-compat with pre-v4.2 call sites.
+    original_text: str = ""
 
 
 class Compactor(ABC):
