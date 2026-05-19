@@ -1,0 +1,17 @@
+{
+  "_comment": "Drop-in PreToolUse hook for the Token Savior Bash rewriter. Merge into ~/.claude/settings.json under the existing 'hooks' key. Default is OFF; set TS_BASH_REWRITE=1 in the Claude Code environment to activate. The rewriter only edits commands matching a known rule (git status / diff / log, tsc, pytest, npm|yarn|pnpm test, cargo test, gh run watch, gh pr list, docker ps); everything else passes through unchanged.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 /root/token-savior/hooks/bash_rewriter_hook.py",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}
