@@ -360,11 +360,22 @@ def main():
         _daemon_serve()
         return
 
+    # `ts init ...` -- merge hook config into agent settings (F3).
+    # Routed early because it has its own argparse and does not need the
+    # dispatcher / daemon at all.
+    if len(sys.argv) >= 2 and sys.argv[1] == "init":
+        from token_savior.cli_init import run as _init_run
+        sys.exit(_init_run(sys.argv[2:]))
+
     p = argparse.ArgumentParser(prog="ts", description="Token Savior CLI")
     p.add_argument("--text", action="store_true", help="Sortie brute au lieu de JSON")
     p.add_argument("--verbose", "-v", action="store_true", help="Afficher les logs moteur")
     p.add_argument("--no-daemon", action="store_true", help="Force fork mode (skip daemon)")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # Init -- merge TS hook config into agent settings (handled above with
+    # its own parser; declared here so `ts --help` advertises it).
+    sub.add_parser("init", help="Install TS hooks into your AI agent settings")
 
     # Daemon
     d = sub.add_parser("daemon", help="Gestion du daemon")
