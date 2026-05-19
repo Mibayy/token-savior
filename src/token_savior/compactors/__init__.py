@@ -10,6 +10,7 @@ from __future__ import annotations
 from .base import CompactResult, Compactor
 from .biome import BiomeCompactor
 from .cargo_ import CargoBuildCompactor, CargoTestCompactor
+from .compound import pick_meaningful_segment
 from .docker import DockerLogsCompactor, DockerPsCompactor
 from .eslint import EslintCompactor
 from .gh import GhRunListCompactor, GhRunViewCompactor
@@ -81,13 +82,20 @@ registry: list[Compactor] = [
 ]
 
 
-def compact(command: str, stdout: str, stderr: str = "") -> CompactResult | None:
-    if not command or not (stdout or stderr):
-        return None
-    original = (stdout or "") + (stderr or "")
-    original_bytes = len(original.encode("utf-8"))
-    if original_bytes == 0:
-        return None
+def _try_compact(
+    command: str,
+    stdout: str,
+    stderr: str,
+    *,
+    original: str,
+    original_bytes: int,
+) -> CompactResult | None:
+    """Run the registry against ``command``; return a CompactResult or None.
+
+    ``original`` / ``original_bytes`` are passed through so the result
+    reports the unmodified shell output, even when the dispatcher matched
+    against a stripped sub-segment of a compound command.
+    """
     for c in registry:
         if c.matches(command):
             text = c.compact(stdout, stderr)
@@ -103,4 +111,40 @@ def compact(command: str, stdout: str, stderr: str = "") -> CompactResult | None
     return None
 
 
-__all__ = ["compact", "registry", "CompactResult", "Compactor"]
+def compact(command: str, stdout: str, stderr: str = "") -> CompactResult | None:
+    if not command or not (stdout or stderr):
+        return None
+    original = (stdout or "") + (stderr or "")
+    original_bytes = len(original.encode("utf-8"))
+    if original_bytes == 0:
+        return None
+    result = _try_compact(
+        command,
+        stdout,
+        stderr,
+        original=original,
+        original_bytes=original_bytes,
+    )
+    if result is not None:
+        return result
+    # F3c — compound command splitting: if the raw command did not match
+    # any compactor, try the last meaningful segment of the chain.
+    segment = pick_meaningful_segment(command)
+    if segment and segment != command:
+        return _try_compact(
+            segment,
+            stdout,
+            stderr,
+            original=original,
+            original_bytes=original_bytes,
+        )
+    return None
+
+
+__all__ = [
+    "compact",
+    "registry",
+    "CompactResult",
+    "Compactor",
+    "pick_meaningful_segment",
+]
