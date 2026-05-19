@@ -1,5 +1,43 @@
 # Changelog
 
+## v4.3.0 — Bench-driven coverage push (2026-05-19)
+
+Real-world bench against 7 days of Louis's transcripts (1130 Bash outputs)
+showed v4.2.0 only matched 11.9% of commands. v4.3.0 closes the gaps
+identified by the bench. Full suite: **1688 passed, 55 skipped**.
+
+### New
+
+- **F3a — fix `pytest` regex + git/gh extras.** `PytestCompactor` now
+  matches `python3 -m pytest`, `python -m pytest`, venv-prefixed forms,
+  and `uv/poetry/hatch/pdm/rye run pytest`. Five new git compactors
+  (`fetch`, `checkout`, `branch`, `worktree list`, `stash list`). Four new
+  gh compactors (`gh repo view`, `gh pr view`, `gh issue view`,
+  `gh pr diff` — last reuses `GitDiffCompactor` internals). Existing
+  `GitPushPull`/`GitAdd` matchers narrowed to release `fetch`/`checkout`
+  to the dedicated compactors.
+- **F3b — `grep` + `find` + `cat` compactors.** GrepCompactor groups
+  `file:line:rest` hits by filename, 83% savings on a 100-line fixture.
+  FindCompactor strips common prefix + head/tail truncation, 96% on a
+  300-file fixture. CatCompactor truncates long file dumps, 92% on a
+  500-line fixture. All bail on shell composition (pipes, `&&`, `;`).
+- **F3c — compound command splitting.** When a command like
+  `cd /root/foo && git status` doesn't match any compactor as-is, the
+  dispatcher now calls `pick_meaningful_segment()` and re-runs the
+  registry against the last meaningful segment. Bails conservatively
+  on subshells, heredocs, pipes, loops, unterminated quotes. Pure
+  stdlib state-machine parser.
+
+### Tests
+
++85 tests across the three feature lines. Full suite **1688 passed**.
+
+### Expected real-world impact
+
+Based on the same 7-day bench window, projected savings should rise from
+~12 K tokens/week to ~25 K tokens/week (3-4× v4.2.0 baseline). Re-bench
+after a few days of live usage to confirm.
+
 ## v4.2.0 — Compactor coverage + hybrid mode + ts init (2026-05-19)
 
 Five parallel feature lines on top of v4.1.0, all green (1603 passed,
