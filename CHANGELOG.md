@@ -1,5 +1,44 @@
 # Changelog
 
+## v4.2.0 — Compactor coverage + hybrid mode + ts init (2026-05-19)
+
+Five parallel feature lines on top of v4.1.0, all green (1603 passed,
+55 skipped).
+
+### New
+
+- **F1a — test/lint compactors** (`compactors/{jest,vitest,eslint,biome}.py`).
+  Savings 58 % (eslint) to 95 % (jest all-green collapses to one line).
+- **F1b — cloud/package compactors** (`compactors/{kubectl,aws,pkg_list,curl}.py`).
+  12 new compactors: `kubectl get/logs`, `aws sts/ec2/lambda/logs/iam/dynamodb/s3`,
+  `npm/yarn/pnpm list`, `pip list/show`, `curl`. Peaks: 91.7 % `aws ec2`,
+  89.1 % `npm list`, 87.9 % `aws lambda`. DynamoDB type-tag unwrap so the
+  agent gets plain JSON.
+- **F2-hybrid — sandbox+compact dual-mode** (`hooks/tool_capture_hook.py`,
+  `compactors/base.py`). When a compactor matches but the compact text is
+  still bulky (> `TS_COMPACT_INLINE_THRESHOLD`, default 4 KB), the hook
+  emits the compact preview AND sandboxes the full original so the model
+  can fetch it via `capture_get` if needed. Small results stay inline-only
+  (legacy behavior). Tiny results (≤ `TS_COMPACT_TINY_THRESHOLD`, default
+  256 B) skip the sandbox path entirely.
+- **F3 — `ts init` CLI** (`src/token_savior/cli_init/`). New subcommand:
+  `ts init --agent {claude,cursor,gemini,codex} [--global] [--dry-run]
+  [--yes]`. Detects agent settings, deep-merges the hook config,
+  preserves existing hooks, dedups by `(matcher, command)`, prints a
+  unified diff, backs up `settings.json` to `.bak-YYYYMMDD-HHMMSS` (UTC),
+  idempotent on re-run.
+- **F4-all — `ts_discover` cross-project + adoption mode** (`discover/`,
+  `server_handlers/discover.py`, `tool_schemas.py`). Semantic change:
+  `project=None` now means "scan ALL transcript projects" (was: active
+  only). Each Finding gains `top_projects: dict[str,int]`. New
+  `format="adoption"` / `"adoption_json"` reports TS vs native ratios
+  per session, overall, with first-half/second-half trend and the 5
+  worst-ratio sessions.
+
+### Tests
+
++75 new tests across the five features. Full suite: **1603 passed**.
+
 ## v4.1.0 — RTK-inspired Bash compaction + discover (2026-05-19)
 
 Four parallel feature lines, all green (1528 passed, 55 skipped):
