@@ -8,10 +8,17 @@ Pytest loads this file before collecting/importing any test module, so setting
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+# Prefer this worktree's `src/` over any installed token_savior (e.g. an
+# editable install pointing at the canonical repo on the same machine).
+_WORKTREE_SRC = Path(__file__).resolve().parent.parent / "src"
+if str(_WORKTREE_SRC) not in sys.path:
+    sys.path.insert(0, str(_WORKTREE_SRC))
 
 _ISOLATED_STATS_DIR = Path(tempfile.mkdtemp(prefix="ts-test-stats-"))
 os.environ["TOKEN_SAVIOR_STATS_DIR"] = str(_ISOLATED_STATS_DIR)
