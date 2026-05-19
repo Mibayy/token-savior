@@ -53,6 +53,11 @@ from .curl import CurlCompactor
 from .kubectl import KubectlGetCompactor, KubectlLogsCompactor
 from .pkg_list import NpmListCompactor, PipListCompactor
 
+# v4.3.0 F3b additions — grep / find / cat compactors
+from .cat_ import CatCompactor
+from .find_ import FindCompactor
+from .grep_ import GrepCompactor
+
 # Order matters: more-specific patterns first so `gh run view` does not
 # fall through to a hypothetical generic `gh` matcher.
 registry: list[Compactor] = [
@@ -99,14 +104,18 @@ registry: list[Compactor] = [
     PipListCompactor(),
     # curl
     CurlCompactor(),
-    # v4.3.0 F3a — git extras (appended; existing GitPushPull/GitAdd
-    # matchers were narrowed to no longer claim `fetch` / `checkout`
-    # so these dedicated compactors actually fire).
+    # v4.3.0 — git extras (existing GitPushPull/GitAdd matchers were
+    # narrowed to no longer claim `fetch` / `checkout` so these dedicated
+    # compactors actually fire).
     GitFetchCompactor(),
     GitCheckoutCompactor(),
     GitBranchCompactor(),
     GitWorktreeListCompactor(),
     GitStashListCompactor(),
+    # v4.3.0 — generic shell catch-alls (last in registry on purpose)
+    GrepCompactor(),
+    FindCompactor(),
+    CatCompactor(),
 ]
 
 
