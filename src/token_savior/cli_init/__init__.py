@@ -231,4 +231,12 @@ def run(argv: list[str] | None = None, *,
         return 2
 
     print(f"Wrote {target}.", file=stdout)
+    print("", file=stdout)
+    print("Next steps to activate Token Savior:", file=stdout)
+    print("  1. Add these env vars to your shell rc (~/.bashrc, ~/.zshrc):", file=stdout)
+    print("       export TS_BASH_COMPACT=1     # compact git/pytest/cargo/gh/... outputs", file=stdout)
+    print("       export TS_BASH_REWRITE=1     # rewrite commands to denser variants", file=stdout)
+    print("  2. (Optional) For the Pareto-optimal MCP manifest:", file=stdout)
+    print("       export TOKEN_SAVIOR_PROFILE=optimized", file=stdout)
+    print(f"  3. Restart {agent} so the new hooks take effect.", file=stdout)
     return 0

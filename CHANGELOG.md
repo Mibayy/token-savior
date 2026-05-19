@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.3.2 — `ts init` next-steps hint (2026-05-19)
+
+After a successful `ts init`, the CLI now prints a short "Next steps"
+block listing the env vars to add (`TS_BASH_COMPACT=1`,
+`TS_BASH_REWRITE=1`, optional `TOKEN_SAVIOR_PROFILE=optimized`) and a
+reminder to restart the agent. Without this hint, new users could end
+up with hooks merged but the activation gates still off.
+
 ## v4.3.1 — Fix `ts init` after vanilla PyPI install (2026-05-19)
 
 Hotfix. v4.3.0 was broken for users installing from PyPI:

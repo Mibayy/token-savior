@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "4.3.1"
+version = "4.3.2"
 description = "Optimized MCP server for AI coding agents. Structural codebase navigation + persistent memory engine — 97.9% accuracy at −80% tokens on tsbench."
 requires-python = ">=3.11"
 readme = "README.md"
