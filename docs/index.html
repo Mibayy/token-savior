@@ -344,6 +344,37 @@ footer .tag a:hover{color:var(--text)}
 .pending-banner{display:none;max-width:720px;margin:0 auto 32px;padding:12px 20px;border-radius:14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fbbf24;font-family:'Geist Mono',monospace;font-size:.76rem;text-align:center}
 .pending-banner.show{display:block}
 .pending-banner b{color:var(--text);font-weight:500}
+
+/* ═══ BEYOND THE BENCH (v4.3) ═══ */
+.beyond{padding:80px 24px 120px}
+.beyond-wrap{max-width:1240px;margin:0 auto}
+.beyond-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:48px}
+.beyond-stat{padding:24px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.025),transparent)}
+.beyond-stat .n{font-family:'Instrument Serif',serif;font-size:2.2rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:10px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.beyond-stat .l{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;line-height:1.4}
+.beyond-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:48px}
+.beyond-col{padding:28px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.beyond-col h3{font-family:'Instrument Serif',serif;font-size:1.4rem;font-weight:400;letter-spacing:-.015em;margin-bottom:6px}
+.beyond-col .sub{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:18px}
+.beyond-col ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}
+.beyond-col li{font-size:.92rem;color:var(--text2);line-height:1.55;padding-left:18px;position:relative}
+.beyond-col li::before{content:'';position:absolute;left:0;top:.55rem;width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.beyond-col li b{color:var(--text);font-weight:500}
+.beyond-col li code{font-family:'Geist Mono',monospace;font-size:.82rem;color:var(--cyan);background:rgba(34,211,238,.07);padding:1px 6px;border-radius:5px}
+.beyond-families{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:48px}
+.bf{padding:20px 22px;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.015)}
+.bf-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
+.bf-name{font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text);letter-spacing:.04em}
+.bf-count{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--cyan);background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.25);padding:2px 8px;border-radius:999px}
+.bf-list{font-family:'Geist Mono',monospace;font-size:.74rem;color:var(--text3);line-height:1.55;word-spacing:.04em}
+.beyond-snippet{padding:24px 28px;border:1px solid var(--border);border-radius:16px;background:#02020a;font-family:'Geist Mono',monospace;font-size:.82rem;color:var(--text2);line-height:1.75;overflow-x:auto}
+.beyond-snippet .c{color:var(--text3)}
+.beyond-snippet .k{color:var(--lime)}
+.beyond-foot{margin-top:24px;font-family:'Geist Mono',monospace;font-size:.74rem;color:var(--text3);text-align:center;letter-spacing:.02em}
+.beyond-foot a{color:var(--cyan);border-bottom:1px solid rgba(34,211,238,.35);transition:all .2s}
+.beyond-foot a:hover{color:var(--lime);border-color:var(--lime)}
+@media(max-width:1080px){.beyond-strip{grid-template-columns:repeat(2,1fr)}.beyond-cols{grid-template-columns:1fr}.beyond-families{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.beyond-strip{grid-template-columns:1fr}.beyond-families{grid-template-columns:1fr}.beyond{padding:48px 16px 80px}}
 </style>
 </head>
 <body>
@@ -354,6 +385,7 @@ footer .tag a:hover{color:var(--text)}
     <a href="#scorecard">results</a>
     <a href="#graph">the graph</a>
     <a href="#replay">replay</a>
+    <a href="#beyond">beyond the bench</a>
     <a href="#compat">works with</a>
   </div>
   <a class="nav-cta" href="https://github.com/Mibayy/token-savior" target="_blank">github ↗</a>
@@ -361,7 +393,7 @@ footer .tag a:hover{color:var(--text)}
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">96 tasks · Claude Opus 4.7 · v4.0 · 97.9%</span></div>
+  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">v4.3 · 97.9% on tsbench + ~20K tokens/week real</span></div>
   <h1>The only MCP server<br>that turns Claude into<br><em>a perfect coder.</em></h1>
   <p class="hero-sub"><strong>v4.0 release.</strong> One MCP server, one profile. Set <code>TOKEN_SAVIOR_PROFILE=optimized</code> and you ship 97.9% accuracy on 96 real coding tasks. Plain Claude scores 78.3%. Active tokens drop 80% (3 395 vs 17 221). Wall time drops 83%. No tuning required.</p>
   <div class="pending-banner" id="pendingBanner"></div>
@@ -647,6 +679,91 @@ footer .tag a:hover{color:var(--text)}
     <span class="compat-chip" style="opacity:.7"><span class="dot" style="background:var(--text3);box-shadow:none"></span>any MCP client</span>
   </div>
   <div class="compat-foot">via the open <a href="https://modelcontextprotocol.io" target="_blank">Model Context Protocol</a> · drop-in hooks for <a href="https://github.com/Mibayy/token-savior/tree/main/hooks" target="_blank">Codex · Cursor · Gemini</a></div>
+</section>
+
+<!-- ═══ BEYOND THE BENCH (v4.3) ═══ -->
+<section class="beyond" id="beyond">
+  <div class="s-intro reveal">
+    <div class="kicker">beyond the bench <i>·</i> real coding sessions</div>
+    <h2>~20K tokens / week<br><em>saved on real sessions.</em></h2>
+    <p>tsbench measures coding accuracy on a synthetic fixture. The new v4.1 / v4.2 / v4.3 layer measures something different: how many tokens leak out of <em>actual</em> tool outputs across a week of live work. Bash chatter, test runners, kubectl dumps, git logs. All of it sandboxed or compacted before it ever reaches the model context.</p>
+  </div>
+
+  <div class="beyond-wrap reveal">
+    <div class="beyond-strip">
+      <div class="beyond-stat"><div class="n">1 121</div><div class="l">bash outputs scanned (7 d)</div></div>
+      <div class="beyond-stat"><div class="n">19.3%</div><div class="l">match rate (was 11.9%)</div></div>
+      <div class="beyond-stat"><div class="n">68.9%</div><div class="l">mean compaction on hit</div></div>
+      <div class="beyond-stat"><div class="n">~20 410</div><div class="l">tokens saved over 7 d</div></div>
+    </div>
+
+    <div class="beyond-cols">
+      <div class="beyond-col">
+        <h3>What shipped since v4.0</h3>
+        <div class="sub">three additive releases, zero prompt change</div>
+        <ul>
+          <li><b>v4.1</b> : 14 Bash output compactors, a PreToolUse rewriter that rewrites bare commands into denser variants, and <code>ts_discover</code> to scan transcripts for missed TS chains.</li>
+          <li><b>v4.2</b> : 8 more compactors (jest, vitest, eslint, biome, kubectl, aws, npm/pip list, curl), hybrid sandbox + compact dual-mode, and a <code>ts init</code> CLI that wires the hooks into Claude / Cursor / Gemini / Codex.</li>
+          <li><b>v4.3</b> : 12 more compactors (grep, find, cat, git extras, gh extras, <code>python3 -m pytest</code>) and a compound command splitter that recognizes <code>cd X &amp;&amp; cmd</code>.</li>
+        </ul>
+      </div>
+      <div class="beyond-col">
+        <h3>Why it matters</h3>
+        <div class="sub">free wins on top of the bench number</div>
+        <ul>
+          <li><b>Projected ~85K tokens / month</b> per active coder at current usage, at zero accuracy cost.</li>
+          <li>All gains arrive <b>without any model-side change</b> : no system prompt edit, no agent rewrite, no profile flip required.</li>
+          <li>The match rate went from <b>11.9% on v4.2 to 19.3% on v4.3</b> after one bench-driven coverage push : <code>scripts/bench_compactors_real.py</code> over your own transcripts to reproduce.</li>
+          <li>Compactors are <b>pure functions, opt-in, fail-safe</b> : unknown command shapes fall through to the existing sandbox path untouched.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="beyond-families">
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">git</span><span class="bf-count">11</span></div>
+        <div class="bf-list">status, diff, log, push, pull, commit, add, fetch, checkout, branch, worktree list, stash list</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">gh</span><span class="bf-count">6</span></div>
+        <div class="bf-list">run list, run view, pr view, pr diff, repo view, issue view</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">test runners</span><span class="bf-count">4</span></div>
+        <div class="bf-list">pytest, cargo test, jest, vitest</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">build &amp; lint</span><span class="bf-count">4</span></div>
+        <div class="bf-list">cargo build, tsc, eslint, biome</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">shell utils</span><span class="bf-count">3</span></div>
+        <div class="bf-list">grep, find, cat</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">cloud (aws + kubectl)</span><span class="bf-count">9</span></div>
+        <div class="bf-list">kubectl get, kubectl logs, aws sts, ec2, lambda, logs, iam, dynamodb, s3</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">misc</span><span class="bf-count">4</span></div>
+        <div class="bf-list">docker ps, docker logs, npm/pip list, curl</div>
+      </div>
+    </div>
+
+    <div class="beyond-snippet">
+<span class="c"># 1. upgrade and wire the hooks in one shot</span>
+pip install <span class="k">--upgrade</span> token-savior-recall
+ts init <span class="k">--agent</span> claude <span class="k">--yes</span>
+
+<span class="c"># 2. flip the two opt-in flags</span>
+export TS_BASH_COMPACT=1
+export TS_BASH_REWRITE=1
+    </div>
+
+    <div class="beyond-foot">
+      reproduce the numbers on your own transcripts : <a href="https://github.com/Mibayy/token-savior/blob/main/scripts/bench_compactors_real.py" target="_blank">scripts/bench_compactors_real.py</a>
+    </div>
+  </div>
 </section>
 
 <!-- ═══ CTA ═══ -->
@@ -1455,7 +1572,7 @@ function renderHero(pair){
   const leftLbl = MODEL_LABEL_FULL[leftModel], rightLbl = MODEL_LABEL_FULL[rightModel];
   const same = leftModel === rightModel;
   heroEyebrow.textContent = same
-    ? `96 tasks · ${leftLbl} · v4.0 · 97.9%`
+    ? `v4.3 · ${leftLbl} · 97.9% on tsbench + ~20K tokens/week real`
     : `96 tasks · ${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
   if(!pair || !pair.n_paired){
     hActive.textContent = '—'; hWall.textContent = '—'; hAcc.textContent = '—'; hWTL.textContent = '—';
