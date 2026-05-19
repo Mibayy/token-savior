@@ -1,5 +1,42 @@
 # Changelog
 
+## v4.1.0 — RTK-inspired Bash compaction + discover (2026-05-19)
+
+Four parallel feature lines, all green (1528 passed, 55 skipped):
+
+### New
+
+- **F1 — Bash output compactors** (`src/token_savior/compactors/`). 14
+  compactors for `git status/diff/log/push/commit/add`, `pytest`, `cargo
+  test/build/clippy`, `tsc`, `docker ps/logs`, `gh run list/view`.
+  Median savings 63 %, peak 100 % (`pytest -q` all-pass collapses to one
+  line). Wired into the existing `tool_capture` PostToolUse hook behind
+  `TS_BASH_COMPACT=1` (default off, no impact on existing users).
+- **F2 — PreToolUse Bash command rewriter** (`hooks/bash_rewriter_hook.py`,
+  `src/token_savior/bash_rewriter/`). Rewrites bare commands into denser
+  variants before execution: `git status` → `--porcelain=v2 --branch`,
+  `tsc` → `--pretty false`, `pytest` → `-q --tb=line`, etc. 10 safe rules,
+  guarded against composition operators and explicit verbose flags.
+  Gated on `TS_BASH_REWRITE=1`. Optional audit log via
+  `TS_BASH_REWRITE_LOG=/path/to/log.jsonl`.
+- **F3 — `get_usage_stats` v2** (`src/token_savior/server_handlers/stats.py`,
+  `stats_render.py`). ASCII sparkline (30 d), daily breakdown table (7 d),
+  top-tools cumulative (proportional attribution), session-vs-previous
+  delta. New kwargs `days`, `daily`, `format` (`text` / `json`). Backward
+  compat preserved.
+- **F4 — `ts_discover`** (`src/token_savior/server_handlers/discover.py`,
+  `src/token_savior/discover/`). New MCP tool that scans
+  `~/.claude/projects/*/*.jsonl` transcripts for missed TS opportunities:
+  Read→Grep→Read chains, sequential `find_symbol`, edit without
+  `get_edit_context`, `memory_search` without prior `memory_index`,
+  native shell on code files. Streams JSONL, mtime fast-skip, args pruned
+  to load-bearing keys (PII-safe). 30-day scan in ~2.5 s on a 343 MB
+  transcript dir.
+
+### Tests
+
++105 new tests across the four features. Full suite 1528 passed.
+
 ## v3.0.0 — PyPI catch-up release (2026-04-30)
 
 First PyPI release since v2.6.0 (2026-04-20). Bundles every accumulated
