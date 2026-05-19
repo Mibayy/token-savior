@@ -25,6 +25,7 @@ from typing import Any
 from token_savior.server_handlers.analysis import HANDLERS as _ANALYSIS_HANDLERS
 from token_savior.server_handlers.checkpoints import HANDLERS as _CHECKPOINT_HANDLERS
 from token_savior.server_handlers.code_nav import QFN_HANDLERS as _QFN_HANDLERS
+from token_savior.server_handlers.discover import HANDLERS as _DISCOVER_HANDLERS
 from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
 from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.memory import (
@@ -60,6 +61,7 @@ META_HANDLERS: dict[str, Any] = _merge_disjoint(
     _MEMORY_ADMIN_HANDLERS,
     _PROJECT_HANDLERS,
     _TOOL_CAPTURE_HANDLERS,
+    _DISCOVER_HANDLERS,
 )
 
 MEMORY_HANDLERS: dict[str, Any] = dict(_MEMORY_HANDLERS_RAW)
