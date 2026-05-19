@@ -8,6 +8,7 @@ _format_usage_stats.
 
 from __future__ import annotations
 
+import json as _json
 import os
 import time
 from typing import Any
@@ -18,6 +19,17 @@ from token_savior._compat import types
 from token_savior import memory_db
 from token_savior import server_state as state
 from token_savior.server_handlers.memory import _resolve_memory_project
+from token_savior.server_handlers.stats_render import (
+    daily_breakdown,
+    daily_token_savings,
+    render_daily_table,
+    render_session_delta,
+    render_sparkline_section,
+    render_top_tools,
+    session_delta,
+    sparkline,
+    top_tools_by_savings,
+)
 from token_savior.server_runtime import _get_stats_file, _load_cumulative_stats
 
 
@@ -344,8 +356,93 @@ def _usage_memory_engine() -> list[str]:
     return lines
 
 
-def _format_usage_stats(include_cumulative: bool = False) -> str:
-    """Format session usage statistics, optionally with cumulative history."""
+def _collect_history() -> list[dict[str, Any]]:
+    """Merge session-history rows from all known project stat files.
+
+    Returned list is sorted by timestamp (oldest first).
+    """
+    merged: list[dict[str, Any]] = []
+    for root, slot in state._slot_mgr.projects.items():
+        sf = getattr(slot, "stats_file", None) or _get_stats_file(root)
+        cum = _load_cumulative_stats(sf)
+        for entry in cum.get("history", []) or []:
+            if isinstance(entry, dict):
+                merged.append(entry)
+    merged.sort(key=lambda e: e.get("timestamp", ""))
+    return merged
+
+
+def _build_usage_stats_payload(
+    *,
+    include_cumulative: bool = True,
+    days: int = 30,
+    daily: bool = False,
+) -> dict[str, Any]:
+    """Build machine-readable JSON payload mirroring the text output."""
+    elapsed = time.time() - state._session_start
+    total_calls = sum(state._tool_call_counts.values())
+    query_calls = total_calls - state._tool_call_counts.get("get_stats", 0)
+
+    source_chars = 0
+    for slot in state._slot_mgr.projects.values():
+        if slot.indexer and slot.indexer._project_index:
+            source_chars += sum(
+                m.total_chars for m in slot.indexer._project_index.files.values()
+            )
+
+    history = _collect_history()
+    spark_vals = daily_token_savings(history, days) if days > 0 else []
+    payload: dict[str, Any] = {
+        "session": {
+            "elapsed_sec": round(elapsed, 3),
+            "query_calls": query_calls,
+            "chars_returned": state._total_chars_returned,
+            "naive_chars": state._total_naive_chars,
+            "tool_counts": {
+                t: c for t, c in state._tool_call_counts.items() if t != "get_stats"
+            },
+        },
+        "source_chars_indexed": source_chars,
+        "sparkline": {
+            "days": days,
+            "values": spark_vals,
+            "ascii": sparkline(spark_vals),
+        },
+        "top_tools": top_tools_by_savings(history, top_n=5),
+        "session_delta": session_delta(history),
+    }
+    if daily:
+        payload["daily"] = daily_breakdown(history, days=7)
+    if include_cumulative:
+        cum_rows: list[dict[str, Any]] = []
+        for root, slot in state._slot_mgr.projects.items():
+            sf = getattr(slot, "stats_file", None) or _get_stats_file(root)
+            cum = _load_cumulative_stats(sf)
+            if cum.get("total_calls", 0) > 0:
+                cum_rows.append({
+                    "project": os.path.basename(root.rstrip("/")),
+                    "sessions": cum.get("sessions", 0),
+                    "total_calls": cum.get("total_calls", 0),
+                    "total_chars_returned": cum.get("total_chars_returned", 0),
+                    "total_naive_chars": cum.get("total_naive_chars", 0),
+                })
+        payload["cumulative_by_project"] = cum_rows
+    return payload
+
+
+def _format_usage_stats(
+    include_cumulative: bool = False,
+    *,
+    days: int = 30,
+    daily: bool = False,
+) -> str:
+    """Format session usage statistics, optionally with cumulative history.
+
+    Args:
+        include_cumulative: include per-project cumulative table and recent log.
+        days: sparkline window (last N days of token-savings). 0 disables it.
+        daily: include daily breakdown table (last 7 days).
+    """
     elapsed = time.time() - state._session_start
     total_calls = sum(state._tool_call_counts.values())
     query_calls = total_calls - state._tool_call_counts.get("get_stats", 0)
@@ -375,6 +472,32 @@ def _format_usage_stats(include_cumulative: bool = False) -> str:
     lines.extend(_usage_symbol_reindex())
     if include_cumulative:
         lines.extend(_usage_cumulative())
+
+    history = _collect_history()
+    if history:
+        if days > 0:
+            spark_vals = daily_token_savings(history, days)
+            spark_lines = render_sparkline_section(spark_vals, days)
+            if spark_lines:
+                lines.append("")
+                lines.extend(spark_lines)
+        if daily:
+            rows = daily_breakdown(history, days=7)
+            tbl = render_daily_table(rows)
+            if tbl:
+                lines.append("")
+                lines.extend(tbl)
+        top = top_tools_by_savings(history, top_n=5)
+        tt_lines = render_top_tools(top)
+        if tt_lines:
+            lines.append("")
+            lines.extend(tt_lines)
+        delta = session_delta(history)
+        d_lines = render_session_delta(delta)
+        if d_lines:
+            lines.append("")
+            lines.extend(d_lines)
+
     lines.extend(_usage_memory_engine())
     return "\n".join(lines)
 
@@ -398,7 +521,28 @@ def _format_duration(seconds: float) -> str:
 
 
 def _hm_get_usage_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
-    return [TextContent(type="text", text=_format_usage_stats(include_cumulative=True))]
+    try:
+        days = int(arguments.get("days", 30) or 0)
+    except (TypeError, ValueError):
+        days = 30
+    if days < 0:
+        days = 0
+    daily = bool(arguments.get("daily", False))
+    fmt = str(arguments.get("format", "text") or "text").strip().lower()
+
+    if fmt == "json":
+        payload = _build_usage_stats_payload(
+            include_cumulative=True, days=days, daily=daily
+        )
+        return [TextContent(type="text", text=_json.dumps(payload, default=str))]
+    return [
+        TextContent(
+            type="text",
+            text=_format_usage_stats(
+                include_cumulative=True, days=days, daily=daily
+            ),
+        )
+    ]
 
 
 def _hm_get_session_budget(arguments: dict[str, Any]) -> list[types.TextContent]:
