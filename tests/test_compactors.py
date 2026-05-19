@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from token_savior.compactors import compact, registry
-from token_savior.compactors.base import CompactResult, Compactor
+from token_savior.compactors.base import CompactResult
 
 
 # ---------------------------------------------------------------------------

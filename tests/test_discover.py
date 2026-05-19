@@ -6,14 +6,11 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
 
 from token_savior.discover import discover
 from token_savior.discover.patterns import (
-    ALL_PATTERNS,
     BatchFindSymbolPattern,
     EditWithoutContextPattern,
-    Finding,
     MemorySearchWithoutIndexPattern,
     NativeShellOnCodePattern,
     ReadGrepReadPattern,
@@ -21,7 +18,6 @@ from token_savior.discover.patterns import (
 from token_savior.discover.transcript_scanner import (
     Event,
     iter_events,
-    transcript_root,
 )
 
 
@@ -129,7 +125,7 @@ class TestTranscriptScanner:
         assert evs[0].args["file_path"] == "/a.py"
 
     def test_iter_events_filters_by_since(self, tmp_path):
-        path = _write_session(
+        _write_session(
             tmp_path,
             "-root-test",
             "s",

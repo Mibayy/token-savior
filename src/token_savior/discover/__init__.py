@@ -16,10 +16,8 @@ or tool inputs verbatim.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Iterator
 
 from token_savior.discover.transcript_scanner import (
     Event,

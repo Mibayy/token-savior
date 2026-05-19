@@ -18,8 +18,8 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Iterable, Iterator
+from datetime import datetime
+from typing import Iterator
 
 from token_savior.discover.transcript_scanner import Event
 
@@ -210,7 +210,6 @@ class EditWithoutContextPattern(Pattern):
         return tn in {"Edit", "Write"} or tn.endswith("__replace_symbol_source") or tn.endswith("__insert_near_symbol")
 
     def detect(self, events: list[Event]) -> Iterator[Finding]:
-        n = len(events)
         # Track the most recent get_full_context / get_edit_context call so
         # we can short-circuit if the model already did the right thing.
         last_context_ts: datetime | None = None
