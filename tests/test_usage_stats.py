@@ -311,3 +311,292 @@ class TestFormatUsageStats:
         assert state._tool_call_counts["run_impacted_tests"] == 1
         assert state._total_chars_returned > 0
         assert state._total_naive_chars >= state._total_chars_returned
+
+
+# ---------------------------------------------------------------------------
+# F3 — get_usage_stats v2 polish
+# ---------------------------------------------------------------------------
+
+
+def _seed_history_stats(tmp_path, entries):
+    """Helper: write a stats.json file and register a slot for it."""
+    import json
+    import token_savior.server_state as state
+    from token_savior.server import _ProjectSlot
+
+    stats_file = tmp_path / "stats.json"
+    payload = {
+        "total_calls": sum(e.get("query_calls", 0) for e in entries),
+        "total_chars_returned": sum(e.get("chars_returned", 0) for e in entries),
+        "total_naive_chars": sum(e.get("naive_chars", 0) for e in entries),
+        "sessions": len(entries),
+        "tool_counts": {},
+        "history": entries,
+    }
+    stats_file.write_text(json.dumps(payload), encoding="utf-8")
+    root = str(tmp_path)
+    slot = _ProjectSlot(root=root, stats_file=str(stats_file))
+    state._slot_mgr.projects[root] = slot
+    state._slot_mgr.active_root = root
+    return slot
+
+
+class TestSparkline:
+    def test_sparkline_basic(self):
+        from token_savior.server_handlers.stats_render import sparkline, SPARK
+
+        out = sparkline([1, 2, 4, 8])
+        assert len(out) == 4
+        # All chars must be in the SPARK alphabet
+        assert all(ch in SPARK for ch in out)
+        # Increasing input -> non-decreasing rank
+        ranks = [SPARK.index(ch) for ch in out]
+        assert ranks == sorted(ranks)
+
+    def test_sparkline_all_zero(self):
+        from token_savior.server_handlers.stats_render import sparkline, SPARK
+
+        out = sparkline([0, 0, 0])
+        assert out == SPARK[0] * 3
+
+    def test_sparkline_empty(self):
+        from token_savior.server_handlers.stats_render import sparkline
+
+        assert sparkline([]) == ""
+
+    def test_sparkline_utf8_roundtrip(self):
+        from token_savior.server_handlers.stats_render import sparkline
+
+        out = sparkline([1, 5, 3, 9, 0, 2, 7])
+        encoded = out.encode("utf-8")
+        assert encoded.decode("utf-8") == out
+
+
+class TestUsageStatsV2:
+    def test_sparkline_section_renders(self, tmp_path):
+        import token_savior.server as srv
+        from datetime import datetime, timezone
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "s1",
+                    "timestamp": ts,
+                    "query_calls": 4,
+                    "tokens_used": 100,
+                    "tokens_naive": 1000,
+                    "savings_pct": 90.0,
+                    "tool_counts": {"find_symbol": 4},
+                }
+            ],
+        )
+        result = srv._format_usage_stats(include_cumulative=True, days=30)
+        assert "sparkline" in result.lower()
+        # Sparkline char must round-trip through utf-8
+        assert result.encode("utf-8").decode("utf-8") == result
+
+    def test_daily_breakdown_table(self, tmp_path):
+        import token_savior.server as srv
+        from datetime import datetime, timezone
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "s1",
+                    "timestamp": ts,
+                    "query_calls": 7,
+                    "tokens_used": 50,
+                    "tokens_naive": 550,
+                    "tool_counts": {"find_symbol": 5, "get_function_source": 2},
+                }
+            ],
+        )
+        result = srv._format_usage_stats(include_cumulative=True, daily=True)
+        assert "Daily breakdown" in result
+        assert "find_symbol" in result
+        # Header columns present
+        assert "tokens saved" in result
+        assert "top tool" in result
+
+    def test_top_tools_section(self, tmp_path):
+        import token_savior.server as srv
+        from datetime import datetime, timezone
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "s1",
+                    "timestamp": ts,
+                    "query_calls": 10,
+                    "tokens_used": 100,
+                    "tokens_naive": 1100,
+                    "tool_counts": {
+                        "find_symbol": 6,
+                        "get_function_source": 3,
+                        "search_codebase": 1,
+                    },
+                }
+            ],
+        )
+        result = srv._format_usage_stats(include_cumulative=True)
+        assert "Top" in result and "tools" in result
+        assert "find_symbol" in result
+        assert "get_function_source" in result
+
+    def test_session_delta_section(self, tmp_path):
+        import token_savior.server as srv
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime.now(timezone.utc)
+        prev_ts = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cur_ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "prev",
+                    "timestamp": prev_ts,
+                    "query_calls": 3,
+                    "tokens_used": 100,
+                    "tokens_naive": 500,
+                    "tool_counts": {"find_symbol": 3},
+                },
+                {
+                    "session_id": "curr",
+                    "timestamp": cur_ts,
+                    "query_calls": 8,
+                    "tokens_used": 200,
+                    "tokens_naive": 1800,
+                    "tool_counts": {"find_symbol": 8},
+                },
+            ],
+        )
+        result = srv._format_usage_stats(include_cumulative=True)
+        assert "Session vs previous" in result
+        # Delta calls = +5
+        assert "+5" in result
+
+    def test_format_json_is_valid_json(self, tmp_path):
+        import json
+        from datetime import datetime, timezone
+        from token_savior.server_handlers.stats import _hm_get_usage_stats
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "s1",
+                    "timestamp": ts,
+                    "query_calls": 4,
+                    "tokens_used": 100,
+                    "tokens_naive": 1000,
+                    "tool_counts": {"find_symbol": 4},
+                }
+            ],
+        )
+        result = _hm_get_usage_stats({"format": "json", "days": 30, "daily": True})
+        assert len(result) == 1
+        payload = json.loads(result[0].text)
+        # Required top-level keys
+        assert "session" in payload
+        assert "sparkline" in payload
+        assert "top_tools" in payload
+        assert "session_delta" in payload
+        assert "daily" in payload
+        # Sparkline structure
+        assert payload["sparkline"]["days"] == 30
+        assert len(payload["sparkline"]["values"]) == 30
+        assert isinstance(payload["sparkline"]["ascii"], str)
+
+    def test_backward_compat_no_args(self, tmp_path):
+        """Calling get_usage_stats with empty args must still produce a parseable text output."""
+        from token_savior.server_handlers.stats import _hm_get_usage_stats
+
+        result = _hm_get_usage_stats({})
+        assert len(result) == 1
+        text = result[0].text
+        # Existing fields must remain
+        assert "Session:" in text
+        assert "queries" in text
+
+    def test_backward_compat_format_text_default(self, tmp_path):
+        """format omitted defaults to text, not JSON."""
+        from token_savior.server_handlers.stats import _hm_get_usage_stats
+
+        result = _hm_get_usage_stats({"days": 30})
+        text = result[0].text
+        # Not a JSON document
+        import json
+        try:
+            parsed = json.loads(text)
+            # If it parsed, it must NOT be a dict with "session" key
+            assert not (isinstance(parsed, dict) and "session" in parsed)
+        except json.JSONDecodeError:
+            pass  # Expected — text output
+
+    def test_days_zero_disables_sparkline(self, tmp_path):
+        import token_savior.server as srv
+        from datetime import datetime, timezone
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_history_stats(
+            tmp_path,
+            [
+                {
+                    "session_id": "s1",
+                    "timestamp": ts,
+                    "query_calls": 1,
+                    "tokens_used": 10,
+                    "tokens_naive": 100,
+                    "tool_counts": {"find_symbol": 1},
+                }
+            ],
+        )
+        result = srv._format_usage_stats(include_cumulative=True, days=0)
+        assert "sparkline" not in result.lower()
+
+
+class TestDailyTokenSavings:
+    def test_old_entries_ignored(self):
+        from token_savior.server_handlers.stats_render import daily_token_savings
+
+        rows = [
+            {
+                "timestamp": "2020-01-01T00:00:00Z",
+                "tokens_used": 0,
+                "tokens_naive": 1000,
+            }
+        ]
+        vals = daily_token_savings(rows, days=7)
+        assert vals == [0] * 7
+
+    def test_bucket_count(self):
+        from token_savior.server_handlers.stats_render import daily_token_savings
+
+        assert len(daily_token_savings([], days=14)) == 14
+
+
+class TestTopToolsBySavings:
+    def test_proportional_distribution(self):
+        from token_savior.server_handlers.stats_render import top_tools_by_savings
+
+        rows = [
+            {
+                "tokens_used": 100,
+                "tokens_naive": 1100,  # 1000 saved
+                "tool_counts": {"a": 4, "b": 1},  # a gets 800, b gets 200
+                "timestamp": "2026-01-01T00:00:00Z",
+            }
+        ]
+        out = top_tools_by_savings(rows, top_n=5)
+        names = [r["tool"] for r in out]
+        assert names[0] == "a"
+        assert out[0]["tokens_saved"] == 800
+        assert out[1]["tokens_saved"] == 200
