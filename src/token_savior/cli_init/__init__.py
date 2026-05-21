@@ -91,10 +91,16 @@ def _write_settings(path: Path, data: dict) -> None:
         raise PermissionError(f"cannot write {path}: {e}") from e
 
 
+def _as_json_string(value: str) -> str:
+    return json.dumps(value)[1:-1]
+
+
 def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
-    """Load shipped hook JSON configs and substitute the {{TS_HOOKS_DIR}}
-    placeholder with the actual install path of this Token Savior copy."""
-    hooks_dir = str((ts_root / "hooks").resolve())
+    """Load shipped hook JSON configs and substitute placeholders with the
+    actual install path of this Token Savior copy and the interpreter that
+    runs ``ts init`` (``sys.executable``)."""
+    hooks_dir = _as_json_string(str((ts_root / "hooks").resolve()))
+    python = _as_json_string(sys.executable)
     bundles: list[dict] = []
     missing: list[Path] = []
     for p in hook_config_paths(agent, ts_root):
@@ -102,7 +108,11 @@ def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
             missing.append(p)
             continue
         try:
-            raw = p.read_text(encoding="utf-8").replace("{{TS_HOOKS_DIR}}", hooks_dir)
+            raw = (
+                p.read_text(encoding="utf-8")
+                .replace("{{TS_HOOKS_DIR}}", hooks_dir)
+                .replace("{{TS_PYTHON}}", python)
+            )
             bundles.append(json.loads(raw))
         except (OSError, json.JSONDecodeError) as e:
             raise RuntimeError(f"cannot load bundled hook config {p}: {e}") from e
