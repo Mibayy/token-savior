@@ -95,6 +95,7 @@ def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
     """Load shipped hook JSON configs and substitute the {{TS_HOOKS_DIR}}
     placeholder with the actual install path of this Token Savior copy."""
     hooks_dir = str((ts_root / "hooks").resolve())
+    hooks_dir_json = json.dumps(hooks_dir)[1:-1]
     bundles: list[dict] = []
     missing: list[Path] = []
     for p in hook_config_paths(agent, ts_root):
@@ -102,7 +103,7 @@ def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
             missing.append(p)
             continue
         try:
-            raw = p.read_text(encoding="utf-8").replace("{{TS_HOOKS_DIR}}", hooks_dir)
+            raw = p.read_text(encoding="utf-8").replace("{{TS_HOOKS_DIR}}", hooks_dir_json)
             bundles.append(json.loads(raw))
         except (OSError, json.JSONDecodeError) as e:
             raise RuntimeError(f"cannot load bundled hook config {p}: {e}") from e
