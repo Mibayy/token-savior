@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.3.3 — Fix MCP `CallToolResult` validation regression (#32) (2026-05-26)
+
+Hotfix for a regression introduced in v3.5.0 with the `_compat.py` shim.
+Every successful tool call was returning `isError=True` with five
+`CallToolResult` pydantic validation errors. Reported by @zinkovsky in #32.
+
+Root cause: `list_tools()` converted shim `ToolDef` -> `mcp.types.Tool` at
+the protocol boundary, but `call_tool()` returned shim `TextContent`
+instances unconverted. pydantic v2 rejects the shim on `CallToolResult`
+validation (same class name, different class object).
+
+Fix: introduce `_to_mcp_content()` in `server.py` that converts shim
+items to real `mcp.types.TextContent` at the boundary. Symmetric with
+the `list_tools` conversion. Cold-start cost preserved -- the import
+stays lazy (server-only path, never hit by the CLI fork-mode consumers
+the shim was built for).
+
+Test gap closed: every prior `call_tool` integration test inspected the
+returned list directly, never going through the SDK's pydantic
+validation step. New `tests/test_issue_32_mcp_textcontent.py` builds a
+real `CallToolResult` from the value `call_tool` returns -- catches any
+future shim leak on the success path, the error path, and the meta-tool
+paths (`ts_search`, `ts_extended`).
+
 ## v4.3.2 — `ts init` next-steps hint (2026-05-19)
 
 After a successful `ts init`, the CLI now prints a short "Next steps"

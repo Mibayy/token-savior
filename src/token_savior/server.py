@@ -759,6 +759,25 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
 _TRACE_REQUESTS = os.environ.get("TOKEN_SAVIOR_TRACE", "").lower() in ("1", "true", "yes")
 
 
+def _to_mcp_content(items: list) -> list:
+    # Convert shim TextContent (_compat) to real mcp.types.TextContent at the
+    # protocol boundary. Handlers return shim instances for cold-start reasons;
+    # the SDK's CallToolResult pydantic v2 model only accepts the real class.
+    # Same-name-different-class -> ValidationError -> every call reports
+    # isError=True. See issue #32 (broken 3.5.0..4.3.2).
+    from mcp.types import TextContent as _McpText
+    out = []
+    for it in items:
+        if isinstance(it, _McpText):
+            out.append(it)
+            continue
+        out.append(_McpText(
+            type=getattr(it, "type", "text"),
+            text=getattr(it, "text", str(it)),
+        ))
+    return out
+
+
 async def call_tool(name: str, arguments: dict[str, Any]) -> list:
 
     # Latency instrumentation: always record, regardless of TOKEN_SAVIOR_TRACE.
@@ -786,7 +805,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
                 file=sys.stderr,
                 flush=True,
             )
-        return result
+        return _to_mcp_content(result)
 
     except Exception as e:
         _lat_status = "err"
@@ -799,7 +818,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
                 flush=True,
             )
         print(f"[token-savior] Error in {name}: {traceback.format_exc()}", file=sys.stderr)
-        return [TextContent(type="text", text=f"Error: {e}")]
+        return _to_mcp_content([TextContent(type="text", text=f"Error: {e}")])
 
     finally:
         # Fire-and-forget persistence. The latency module is silent on
