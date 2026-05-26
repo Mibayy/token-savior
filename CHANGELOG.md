@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.4.1 — Chain nudge covers get_function_source -> get_full_context (2026-05-26)
+
+Extend the chain-nudge detector to cover the dominant remaining wasteful
+pattern: `get_function_source(X)` / `get_class_source(X)` followed by
+`get_full_context(X)` within 60s. 9-day usage data showed **187 occurrences**
+(vs 42 for the find-then-read pattern already covered in v4.4.0). The first
+read is wasted -- `get_full_context` re-fetches the source as part of its
+bundle. Nudge fires at top of payload: "start with get_full_context next time."
+
+Test fixture also snapshots `_tool_call_counts` so chain-nudge tests don't
+push the global counter past the navigation-overuse threshold (15) and
+contaminate `test_query_api::test_navigation_hints_*` in the full suite.
+
 ## v4.4.0 — Chain nudges + ts_search warm-up + set_project_root nudge (2026-05-26)
 
 Driven by an audit of 9 days of usage (2026-05-17..26, 869 tool calls).

@@ -26,8 +26,14 @@ def _reset_chain_state(tmp_path):
     server_state._chain_nudges_emitted = 0
     prev_active = server_state._slot_mgr.active_root
     prev_keys = set(server_state._slot_mgr.projects)
+    # Snapshot _tool_call_counts so chain-nudge calls don't push the global
+    # over the navigation-overuse threshold (15) and flip code_nav._stop_hint
+    # behavior in unrelated tests (test_query_api::test_navigation_hints_*).
+    prev_counts = dict(server_state._tool_call_counts)
     yield
     server_state._chain_calls.clear()
+    server_state._tool_call_counts.clear()
+    server_state._tool_call_counts.update(prev_counts)
     # Drop any tmp_path slots this test created so the next test sees a clean
     # SlotManager (memory_viewer tests resolve the active project at search
     # time -- a stale active_root pointing into a deleted tmp_path silently
@@ -90,6 +96,35 @@ class TestChainNudge:
         result = _run(server.call_tool("get_function_source", {"name": "hello"}))
         assert not result[0].text.startswith("[NUDGE]")
         assert server_state._chain_nudges_emitted == 0
+
+    def test_read_then_full_context_emits_nudge(self, tmp_path):
+        # Pattern 2: get_function_source(X) -> get_full_context(X).
+        # 9-day data: 187 occurrences -- dominant remaining wasteful chain.
+        root = _setup_project(tmp_path)
+        _run(server.call_tool("set_project_root", {"path": root}))
+        _run(server.call_tool("get_function_source", {"name": "hello"}))
+        result = _run(server.call_tool("get_full_context", {"name": "hello"}))
+
+        head = result[0].text
+        assert head.startswith("[NUDGE]"), f"first item must be nudge: {head!r}"
+        assert "get_function_source('hello')" in head
+        assert "get_full_context('hello')" in head
+        assert "Start with get_full_context" in head
+        assert server_state._chain_nudges_emitted == 1
+
+    def test_get_class_source_then_full_context_emits_nudge(self, tmp_path):
+        # get_class_source -> get_full_context is the same wasteful pattern.
+        (tmp_path / "models.py").write_text(
+            "class User:\n    def __init__(self):\n        self.name = ''\n",
+            encoding="utf-8",
+        )
+        _run(server.call_tool("set_project_root", {"path": str(tmp_path)}))
+        _run(server.call_tool("get_class_source", {"name": "User"}))
+        result = _run(server.call_tool("get_full_context", {"name": "User"}))
+        head = result[0].text
+        assert head.startswith("[NUDGE]")
+        assert "get_class_source('User')" in head
+        assert server_state._chain_nudges_emitted == 1
 
     def test_disable_via_env(self, tmp_path, monkeypatch):
         monkeypatch.setattr(server_state, "_CHAIN_NUDGE_DISABLED", True)

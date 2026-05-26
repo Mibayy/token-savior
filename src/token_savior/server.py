@@ -544,21 +544,37 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
 _CHAIN_WINDOW_SEC = 60.0
 
 
+_CHAIN_READ_AFTER_FIND = ("get_function_source", "get_class_source", "get_dependents", "get_dependencies")
+_CHAIN_PREV_FIND = ("find_symbol",)
+_CHAIN_PREV_READ = ("get_function_source", "get_class_source")
+
+
 def _detect_chain_nudge(name: str, symbol: str) -> str | None:
     if s._CHAIN_NUDGE_DISABLED or not symbol:
         return None
-    if name not in ("get_function_source", "get_class_source", "get_dependents", "get_dependencies"):
-        return None
     now = time.monotonic()
-    # Look back for find_symbol(symbol) on the same name within the window.
     for ts, prev_tool, prev_sym in reversed(s._chain_calls):
         if now - ts > _CHAIN_WINDOW_SEC:
             break
-        if prev_tool == "find_symbol" and prev_sym == symbol:
+        if prev_sym != symbol:
+            continue
+        # Pattern 1: find_symbol(X) -> get_function_source/etc(X) within 60s.
+        # 9-day data: 42 occurrences. Both calls fold into one get_full_context.
+        if name in _CHAIN_READ_AFTER_FIND and prev_tool in _CHAIN_PREV_FIND:
             return (
                 f"[NUDGE] You called find_symbol('{symbol}') then {name}('{symbol}') "
                 f"on the same symbol. Next time use get_full_context('{symbol}') "
                 f"-- one round-trip returns location + source + callers + deps."
+            )
+        # Pattern 2: get_function_source/get_class_source(X) -> get_full_context(X)
+        # within 60s. 9-day data: 187 occurrences. Source is re-fetched as part
+        # of get_full_context, so the first read was wasted.
+        if name == "get_full_context" and prev_tool in _CHAIN_PREV_READ:
+            return (
+                f"[NUDGE] You called {prev_tool}('{symbol}') then "
+                f"get_full_context('{symbol}'). The source was re-fetched. "
+                f"Start with get_full_context('{symbol}') next time -- it returns "
+                f"source + callers + deps in one call."
             )
     return None
 
