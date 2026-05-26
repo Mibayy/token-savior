@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 
 from token_savior.leiden_communities import LeidenCommunities
@@ -208,3 +209,19 @@ _auto_save_enabled: bool = os.environ.get("TOKEN_SAVIOR_MEMORY_AUTO_SAVE", "") =
 _auto_save_symbols: list[str] = []
 _auto_save_tools: list[str] = []
 _auto_save_project: str | None = None
+
+# ---------------------------------------------------------------------------
+# Chain-nudge tracker
+# ---------------------------------------------------------------------------
+# Rolling buffer of recent (epoch, tool, symbol) calls. Used by server.py to
+# detect chains like find_symbol(X) -> get_function_source(X) that should
+# collapse into a single get_full_context(X) call. Data from 9 days of usage
+# showed 258 search_codebase->get_function_source and 42 find_symbol->
+# get_function_source chains on the same symbol within 60s; trailing _hints
+# were ignored, so the nudge is prepended at the top of the next response.
+
+_chain_calls: deque[tuple[float, str, str]] = deque(maxlen=8)
+_chain_nudges_emitted: int = 0  # telemetry: count of nudges actually fired
+_CHAIN_NUDGE_DISABLED: bool = (
+    os.environ.get("TOKEN_SAVIOR_CHAIN_NUDGE", "1").lower() in ("0", "false", "off")
+)

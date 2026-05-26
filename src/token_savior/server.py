@@ -525,7 +525,50 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
         if cached is not None:
             s._spec_branches_hit += 1
             s._spec_tokens_saved += len(cached) // 4
+
+    # Chain-nudge buffer (see server_state._chain_calls for rationale).
+    # Push every call so the nudge detector can match on (prev_tool, prev_sym).
+    if not s._CHAIN_NUDGE_DISABLED:
+        s._chain_calls.append((time.monotonic(), name, record_symbol or ""))
+
     return record_symbol
+
+
+# ---------------------------------------------------------------------------
+# Chain-nudge: top-of-payload notice when a known wasteful pattern is detected.
+# Data (2026-05-17..26): 42 find_symbol -> get_function_source same-symbol
+# chains and 26 find_symbol -> get_full_context within 60s, all foldable.
+# Trailing _hints are ignored in practice; this notice is prepended so it
+# lands above any compressed payload.
+# ---------------------------------------------------------------------------
+_CHAIN_WINDOW_SEC = 60.0
+
+
+def _detect_chain_nudge(name: str, symbol: str) -> str | None:
+    if s._CHAIN_NUDGE_DISABLED or not symbol:
+        return None
+    if name not in ("get_function_source", "get_class_source", "get_dependents", "get_dependencies"):
+        return None
+    now = time.monotonic()
+    # Look back for find_symbol(symbol) on the same name within the window.
+    for ts, prev_tool, prev_sym in reversed(s._chain_calls):
+        if now - ts > _CHAIN_WINDOW_SEC:
+            break
+        if prev_tool == "find_symbol" and prev_sym == symbol:
+            return (
+                f"[NUDGE] You called find_symbol('{symbol}') then {name}('{symbol}') "
+                f"on the same symbol. Next time use get_full_context('{symbol}') "
+                f"-- one round-trip returns location + source + callers + deps."
+            )
+    return None
+
+
+def _prepend_nudge(result: list, nudge: str) -> list:
+    if not nudge or not result:
+        return result
+    s._chain_nudges_emitted += 1
+    notice = TextContent(type="text", text=nudge)
+    return [notice, *result]
 
 
 def _maybe_auto_save_findings():
@@ -798,6 +841,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
             result = await _handle_ts_execute(arguments)
         else:
             result = _dispatch_tool(name, arguments, record_symbol)
+        nudge = _detect_chain_nudge(name, record_symbol)
+        if nudge:
+            result = _prepend_nudge(result, nudge)
         if _TRACE_REQUESTS:
             elapsed_ms = (time.monotonic() - _lat_start) * 1000.0
             print(
@@ -845,6 +891,16 @@ async def main():
     if _TRACE_REQUESTS:
         print("[token-savior] startup: running memory migrations", file=sys.stderr, flush=True)
     memory_db.run_migrations()
+    # Warm the tool-description embedding cache in a background thread so the
+    # first ts_search call from the client doesn't pay the Nomic cold start.
+    # 9 days of usage measured avg 4.8s on ts_search; cold load dominates.
+    # Skippable via TOKEN_SAVIOR_NO_WARMUP=1 for resource-constrained hosts.
+    if os.environ.get("TOKEN_SAVIOR_NO_WARMUP", "").lower() not in ("1", "true", "yes"):
+        try:
+            from token_savior.server_handlers.tool_search import warm_up_async
+            warm_up_async()
+        except Exception:
+            pass
     if _TRACE_REQUESTS:
         print("[token-savior] startup: opening stdio transport", file=sys.stderr, flush=True)
     # Lazy : Server() instancie ici, applique les decorateurs sur nos

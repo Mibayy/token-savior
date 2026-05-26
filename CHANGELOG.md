@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.4.0 — Chain nudges + ts_search warm-up + set_project_root nudge (2026-05-26)
+
+Driven by an audit of 9 days of usage (2026-05-17..26, 869 tool calls).
+
+**Chain nudges (server.py):** Data showed 42 `find_symbol(X) -> get_function_source(X)`
+and 26 `find_symbol(X) -> get_full_context(X)` same-symbol chains within 60s,
+plus 258 `search_codebase -> get_function_source` chains. Trailing `_hints`
+were ignored. Now when `get_function_source`/`get_class_source`/`get_dependents`/
+`get_dependencies` is called on a symbol that was passed to `find_symbol`
+within the previous 60s, the response is prepended with a `[NUDGE]` block
+suggesting `get_full_context(X)`. Top-of-payload so it survives output
+compression. Opt out via `TOKEN_SAVIOR_CHAIN_NUDGE=0`.
+
+**ts_search warm-up (server_handlers/tool_search.py + server.py):** Data
+showed `ts_search` avg **4867ms** over 19 calls -- the Nomic cold start +
+66 tool description embeddings dominate the first call. New `warm_up_async()`
+fires a background thread at server startup so the first client `ts_search`
+sees a populated cache. Opt out via `TOKEN_SAVIOR_NO_WARMUP=1`.
+
+**set_project_root nudge (server_handlers/project.py):** When the cheap
+path fires (project already registered via `WORKSPACE_ROOTS`), the response
+now prepends `[NUDGE] Use switch_project('name') next time` so the agent
+self-corrects toward the documented entry point.
+
 ## v4.3.3 — Fix MCP `CallToolResult` validation regression (#32) (2026-05-26)
 
 Hotfix for a regression introduced in v3.5.0 with the `_compat.py` shim.
