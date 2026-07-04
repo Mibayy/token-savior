@@ -1051,6 +1051,24 @@ async def main():
     server = s.get_server()
     server.list_tools()(list_tools)
     server.call_tool()(call_tool)
+
+    # Observations as ts://obs/{id} resources (opt-out: TS_RESOURCES_DISABLED=1).
+    if os.environ.get("TS_RESOURCES_DISABLED", "").lower() not in ("1", "true", "yes"):
+        try:
+            from token_savior.server_handlers import resources as _res
+
+            @server.list_resources()
+            async def _ts_list_resources():
+                try:
+                    return _res.list_observation_resources()
+                except Exception:
+                    return []
+
+            @server.read_resource()
+            async def _ts_read_resource(uri):
+                return _res.read_observation_resource(uri)
+        except Exception:
+            pass
     async with stdio_server() as (read_stream, write_stream):
         if _TRACE_REQUESTS:
             print("[token-savior] startup: server.run loop entered", file=sys.stderr, flush=True)

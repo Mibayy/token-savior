@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.8.0 — Observations as MCP resources (2026-07-04)
+
+Formalises the `ts://obs/{id}` scheme (already printed by memory_index) as real
+MCP resources, so clients that support resource `@`-mentions (Claude Code) can
+pull a specific stored memory without a tool round-trip.
+
+- `server_handlers/resources.py`: `list_observation_resources()` (bounded, ranked
+  by the memory_index score) and `read_observation_resource(uri)`.
+- Wired in `server.main()` via `list_resources`/`read_resource` handlers,
+  opt-out with `TS_RESOURCES_DISABLED=1`. Read-only and additive -- the tool
+  dispatch path is untouched.
+
+Tests: test_resources.py (read roundtrip, bad/missing URIs, list scoping).
+Suite: 1792 passed.
+
 ## v4.7.0 — Self-audit, nudge telemetry, TCA revival, warm-daemon delegation (2026-07-04)
 
 Closes the loop the v4.4→v4.6 passes exposed: fixes were shipped but never
