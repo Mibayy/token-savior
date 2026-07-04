@@ -1,5 +1,38 @@
 # Changelog
 
+## v4.7.0 — Self-audit, nudge telemetry, TCA revival, warm-daemon delegation (2026-07-04)
+
+Closes the loop the v4.4→v4.6 passes exposed: fixes were shipped but never
+measured (and, it turned out, never even deployed -- see v4.6 notes). This adds
+the instrumentation to know whether they work, and fixes a silently-dead ML path.
+
+**Automated usage audit (scripts/ts_audit.py).** Reproduces the manual
+memory.db + tool-calls.json dig as a one-shot report: per-tool latency p50/p95,
+wasteful chains (tool-level, 60s), adoption gaps (edits without get_edit_context,
+nav bursts vs ts_execute, set_project_root churn), nudge fires, and ML liveness.
+Re-run after a deploy to see whether behaviour moved. Baseline 2026-07-04
+confirmed get_edit_context 0/207, TCA dead, ts_search p50 4564ms.
+
+**Persistent nudge telemetry (telemetry.py + server.py).** Each chain-nudge
+fire is now counted by kind in `nudge-stats.json` (`record_nudge`/`nudge_counts`).
+Effectiveness = nudge fires here vs the target tool's rise in tool-calls.json
+over successive audits.
+
+**TCA co-activation revival (server.py + tca_engine.py).** The audit found TCA
+`session_count` stuck at 0 for the whole deployment: `record_activation` filled
+the in-session buffer but `flush_session` was never called, so the co-activation
+tensor stayed empty and `get_coactive_symbols` always returned []. Now flushed at
+each switch_project boundary and via an atexit hook. Not dead code to cut -- a
+broken feature now made live.
+
+**Warm-daemon ts_search delegation, actually enabled (ts-daemon.service).** v4.6
+built the delegation but the daemon ran system python without fastembed
+(substring only). The unit now launches the venv python (fastembed present), so
+delegated ts_search returns embedding quality warm: measured 1505ms cold model
+load then **23ms warm** (vs ~1.5-5.7s in-process per client spawn).
+
+Tests: test_nudge_telemetry.py, test_tca_flush_wiring.py. Suite: 1786 passed.
+
 ## v4.6.0 — ts_search cold-start bridge via the warm daemon (2026-07-04)
 
 Delivers the follow-up flagged in v4.5.0: the in-process Nomic model load costs

@@ -6,7 +6,10 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/ts _daemon-serve
+# Use the venv python (with fastembed) so the daemon serves embedding-quality
+# ts_search warm, letting stdio MCP clients delegate their cold-start ts_search
+# (TS_SEARCH_COLD_DELEGATE=1). The system `ts` lacks fastembed => substring only.
+ExecStart=/root/.local/token-savior-venv/bin/python -m token_savior.cli _daemon-serve
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30

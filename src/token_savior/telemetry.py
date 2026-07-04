@@ -153,6 +153,67 @@ def record_tool_call(tool_name: str) -> None:
         _save(_state)
 
 
+def _nudge_path() -> Path:
+    return _stats_dir() / "nudge-stats.json"
+
+
+_nudge_lock = threading.Lock()
+_nudge_state: dict | None = None
+
+
+def record_nudge(kind: str) -> None:
+    """Persist a fired chain-nudge by kind so its effectiveness can be audited.
+
+    Adoption is measured by comparing the nudge fire count here against the
+    target tool's count in tool-calls.json over time (e.g. does get_edit_context
+    usage rise after the edit-context nudge starts firing?). Never raises.
+    """
+    if not kind:
+        return
+    global _nudge_state
+    with _nudge_lock:
+        if _nudge_state is None:
+            _nudge_state = _load_json(_nudge_path())
+        counts = _nudge_state.setdefault("counts", {})
+        counts[kind] = counts.get(kind, 0) + 1
+        _nudge_state["last_updated_epoch"] = int(time.time())
+        _save_json(_nudge_path(), _nudge_state)
+
+
+def nudge_counts() -> dict[str, int]:
+    """Return persisted per-kind nudge fire counts. Never raises."""
+    global _nudge_state
+    with _nudge_lock:
+        if _nudge_state is None:
+            _nudge_state = _load_json(_nudge_path())
+        counts = _nudge_state.get("counts", {}) or {}
+    return {k: v for k, v in counts.items() if isinstance(v, int)}
+
+
+def _load_json(path: Path) -> dict:
+    try:
+        if not path.exists():
+            return {"schema_version": _SCHEMA_VERSION, "counts": {}}
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("counts"), dict):
+            return {"schema_version": _SCHEMA_VERSION, "counts": {}}
+        return data
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": _SCHEMA_VERSION, "counts": {}}
+
+
+def _save_json(path: Path, data: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 def telemetry_health() -> dict:
     """Snapshot of the counter for a future ``memory_doctor`` section.
 

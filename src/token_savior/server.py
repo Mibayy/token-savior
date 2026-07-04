@@ -491,6 +491,16 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
 
     if name == "switch_project":
         _maybe_auto_save_findings()
+        # Fold the symbols touched since the last switch into the co-activation
+        # tensor. Without this flush, record_activation only ever filled the
+        # in-memory session buffer and flush_session was never called, so
+        # session_count stayed 0 for the whole deployment (audit 2026-07-04:
+        # "TCA co-activation: 0 sessions, DEAD"). switch_project is the natural
+        # session-segment boundary; an atexit flush (server.main) catches the last.
+        try:
+            s._tca_engine.flush_session()
+        except Exception:
+            pass
         s._auto_save_project = s._slot_mgr.active_root
         s._auto_save_symbols.clear()
         s._auto_save_tools.clear()
@@ -570,6 +580,24 @@ _NAV_CHAIN_TOOLS = (
 _TS_EXECUTE_NUDGE_THRESHOLD = 5
 
 
+def _safe_flush_tca() -> None:
+    """Best-effort flush of the TCA co-activation buffer (used at exit)."""
+    try:
+        s._tca_engine.flush_session()
+    except Exception:
+        pass
+
+
+def _fire_nudge(kind: str, text: str) -> str:
+    """Persist a nudge fire (for effectiveness auditing) and return its text."""
+    try:
+        from token_savior import telemetry
+        telemetry.record_nudge(kind)
+    except Exception:
+        pass
+    return text
+
+
 def _detect_chain_nudge(name: str, symbol: str) -> str | None:
     if s._CHAIN_NUDGE_DISABLED:
         return None
@@ -589,12 +617,12 @@ def _detect_chain_nudge(name: str, symbol: str) -> str | None:
                 saw_context = True
                 break
         if not saw_context:
-            return (
+            return _fire_nudge("edit_context", (
                 f"[NUDGE] You're editing '{symbol}' without calling "
                 f"get_edit_context('{symbol}') first. It returns source + callers + "
                 f"deps + siblings + impacted tests in one call, so you don't break a "
                 f"caller you never saw."
-            )
+            ))
 
     if symbol:
         for ts, prev_tool, prev_sym in reversed(s._chain_calls):
@@ -605,21 +633,21 @@ def _detect_chain_nudge(name: str, symbol: str) -> str | None:
             # Pattern 1: find_symbol(X) -> get_function_source/etc(X) within 60s.
             # 9-day data: 42 occurrences. Both calls fold into one get_full_context.
             if name in _CHAIN_READ_AFTER_FIND and prev_tool in _CHAIN_PREV_FIND:
-                return (
+                return _fire_nudge("find_then_read", (
                     f"[NUDGE] You called find_symbol('{symbol}') then {name}('{symbol}') "
                     f"on the same symbol. Next time use get_full_context('{symbol}') "
                     f"-- one round-trip returns location + source + callers + deps."
-                )
+                ))
             # Pattern 2: get_function_source/get_class_source(X) -> get_full_context(X)
             # within 60s. 9-day data: 187 occurrences. Source is re-fetched as part
             # of get_full_context, so the first read was wasted.
             if name == "get_full_context" and prev_tool in _CHAIN_PREV_READ:
-                return (
+                return _fire_nudge("read_then_full_context", (
                     f"[NUDGE] You called {prev_tool}('{symbol}') then "
                     f"get_full_context('{symbol}'). The source was re-fetched. "
                     f"Start with get_full_context('{symbol}') next time -- it returns "
                     f"source + callers + deps in one call."
-                )
+                ))
 
     # Pattern 4: many individual nav calls in one window -> Code Mode.
     # Audit 2026-07-04: ts_execute used only 41x despite thousands of unitary
@@ -632,12 +660,12 @@ def _detect_chain_nudge(name: str, symbol: str) -> str | None:
             if now - ts <= _CHAIN_WINDOW_SEC and tool in _NAV_CHAIN_TOOLS
         )
         if nav_in_window == _TS_EXECUTE_NUDGE_THRESHOLD:
-            return (
+            return _fire_nudge("ts_execute", (
                 f"[NUDGE] {nav_in_window} separate navigation calls in the last minute. "
                 f"ts_execute runs a JS script calling many tools in one round-trip "
                 f"(await tools.get_full_context(...), etc.) -- collapses the chain and "
                 f"cuts tokens. Consider it for multi-step exploration."
-            )
+            ))
 
     return None
 
@@ -999,6 +1027,10 @@ async def main():
     if _TRACE_REQUESTS:
         print("[token-savior] startup: running memory migrations", file=sys.stderr, flush=True)
     memory_db.run_migrations()
+    # Persist the final co-activation segment when the server exits, so the last
+    # session's touched symbols aren't lost (switch_project flushes mid-session).
+    import atexit
+    atexit.register(lambda: _safe_flush_tca())
     # Warm the tool-description embedding cache in a background thread so the
     # first ts_search call from the client doesn't pay the Nomic cold start.
     # 9 days of usage measured avg 4.8s on ts_search; cold load dominates.
