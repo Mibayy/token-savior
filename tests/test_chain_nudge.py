@@ -137,3 +137,61 @@ class TestChainNudge:
         # (find_symbol call still triggered push? Check: yes the push is gated.)
         # We just assert nudge wasn't emitted.
         assert server_state._chain_nudges_emitted == 0
+
+
+class TestEditContextNudge:
+    """Pattern 3: edit tool without a preceding get_edit_context on the symbol.
+
+    Audit 2026-07-04: 0 get_edit_context calls across ~199 edits. Editing blind
+    risks breaking callers the agent never looked at.
+    """
+
+    def _seed(self, entries):
+        import time
+        server_state._chain_calls.clear()
+        now = time.monotonic()
+        for dt, tool, sym in entries:
+            server_state._chain_calls.append((now + dt, tool, sym))
+
+    def test_edit_without_context_emits_nudge(self):
+        self._seed([(0.0, "replace_symbol_source", "foo")])
+        nudge = server._detect_chain_nudge("replace_symbol_source", "foo")
+        assert nudge and "get_edit_context('foo')" in nudge
+
+    def test_edit_with_context_no_nudge(self):
+        self._seed([(-1.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")])
+        assert server._detect_chain_nudge("replace_symbol_source", "foo") is None
+
+    def test_edit_context_different_symbol_still_nudges(self):
+        self._seed([(-1.0, "get_edit_context", "bar"), (0.0, "replace_symbol_source", "foo")])
+        nudge = server._detect_chain_nudge("replace_symbol_source", "foo")
+        assert nudge and "get_edit_context('foo')" in nudge
+
+    def test_context_outside_window_still_nudges(self):
+        self._seed([(-120.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")])
+        assert server._detect_chain_nudge("replace_symbol_source", "foo") is not None
+
+
+class TestTsExecuteNudge:
+    """Pattern 4: many individual nav calls in a window -> suggest Code Mode."""
+
+    def _seed_nav(self, n):
+        import time
+        server_state._chain_calls.clear()
+        now = time.monotonic()
+        for _ in range(n):
+            server_state._chain_calls.append((now, "search_codebase", ""))
+
+    def test_fifth_nav_call_nudges(self):
+        self._seed_nav(5)
+        nudge = server._detect_chain_nudge("search_codebase", "")
+        assert nudge and "ts_execute" in nudge
+
+    def test_four_nav_calls_no_nudge(self):
+        self._seed_nav(4)
+        assert server._detect_chain_nudge("search_codebase", "") is None
+
+    def test_sixth_nav_call_no_repeat(self):
+        # Fires once at the threshold, not on every subsequent call.
+        self._seed_nav(6)
+        assert server._detect_chain_nudge("search_codebase", "") is None

@@ -11,6 +11,8 @@ from token_savior._compat import types
 from token_savior import server_state as state
 from token_savior.server_runtime import _recompute_leiden
 from token_savior.slot_manager import _ProjectSlot
+from token_savior.slot_manager import _load_registered_roots
+from token_savior.slot_manager import _persist_registered_root
 
 
 def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -61,10 +63,50 @@ def _read_project_hint(project_root: str) -> str | None:
     return None
 
 
+def _resolve_unregistered(hint: str) -> str | None:
+    """Resolve a switch_project hint that the SlotManager didn't know about.
+
+    Two sources, in order:
+      1. the hint is (or expands to) a real directory path;
+      2. a project persisted by a prior set_project_root/switch_project, matched
+         by absolute path or (case-insensitive) basename, still on disk.
+
+    Lets the agent reach a project registered in a previous stdio session via
+    plain switch_project instead of a fresh set_project_root reindex -- the #1
+    latency sink (audit 2026-07-04: 51 calls, p95 1.8s, 14.6s max).
+    """
+    cand = os.path.abspath(os.path.expanduser(hint))
+    if os.path.isdir(cand):
+        return cand
+    hint_lower = hint.lower()
+    for root in _load_registered_roots():
+        base = os.path.basename(root)
+        if (root == cand or base == hint or base.lower() == hint_lower) and os.path.isdir(root):
+            return root
+    return None
+
+
 def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     hint = arguments["name"]
     slot, err = state._slot_mgr.resolve(hint)
     if err:
+        cand = _resolve_unregistered(hint)
+        if cand and cand not in state._slot_mgr.projects:
+            state._slot_mgr.projects[cand] = _ProjectSlot(root=cand)
+            state._slot_mgr.active_root = cand
+            slot = state._slot_mgr.projects[cand]
+            state._slot_mgr.ensure(slot)  # reuses disk cache when git ref matches
+            _persist_registered_root(cand)
+            idx = slot.indexer._project_index if slot.indexer else None
+            info = f"{idx.total_files} files" if idx else "index not built"
+            body = (
+                f"Registered and switched to '{os.path.basename(cand)}' "
+                f"({cand}) -- {info}."
+            )
+            hint_body = _read_project_hint(cand)
+            if hint_body:
+                body += "\n\n--- project hint (.token-savior/hint.md) ---\n" + hint_body
+            return [TextContent(type="text", text=body)]
         return [TextContent(type="text", text=f"Error: {err}")]
     already_active = (state._slot_mgr.active_root == slot.root and slot.indexer is not None)
     state._slot_mgr.active_root = slot.root
@@ -84,8 +126,9 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
     new_root = os.path.abspath(arguments["path"])
     if not os.path.isdir(new_root):
         return [TextContent(type="text", text=f"Error: '{new_root}' is not a directory.")]
+    force = bool(arguments.get("force"))
     already_registered = new_root in state._slot_mgr.projects
-    if already_registered and not bool(arguments.get("force")):
+    if already_registered and not force:
         # Audit 17/05 (confirmed 26/05): 32% of calls hit an already-registered
         # project. Cheap path avoids the reindex; the nudge below redirects the
         # caller to switch_project for next time -- that's the documented entry
@@ -96,7 +139,7 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
             type="text",
             text=(
                 f"[NUDGE] Use switch_project('{name}') next time -- the project is "
-                f"already registered via WORKSPACE_ROOTS.\n\n"
+                f"already registered.\n\n"
                 f"Already registered '{new_root}'; switched active project without "
                 "reindex. Pass force=true to rebuild the index."
             ),
@@ -105,10 +148,25 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
         state._slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
     state._slot_mgr.active_root = new_root
     slot = state._slot_mgr.projects[new_root]
-    slot.indexer = None
-    slot.query_fns = None
-    state._slot_mgr.build(slot)
-    return [TextContent(type="text", text=f"Added and indexed '{new_root}' successfully.")]
+    # Persist so switch_project reaches this project after a stdio restart
+    # instead of forcing another set_project_root reindex every session.
+    _persist_registered_root(new_root)
+    if force:
+        slot.indexer = None
+        slot.query_fns = None
+        state._slot_mgr.build(slot)
+        return [TextContent(type="text", text=f"Added and indexed '{new_root}' (rebuilt).")]
+    # Cache-aware: ensure() reuses the on-disk index when the git ref matches,
+    # avoiding the unconditional full rebuild the old build() call paid every
+    # session (the 14.6s outlier in the 2026-07-04 audit).
+    state._slot_mgr.ensure(slot)
+    return [TextContent(
+        type="text",
+        text=(
+            f"Added and indexed '{new_root}' (cache-aware). "
+            "Use switch_project next time."
+        ),
+    )]
 
 
 def _hm_reindex(arguments: dict[str, Any]) -> list[types.TextContent]:

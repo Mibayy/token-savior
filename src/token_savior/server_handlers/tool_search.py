@@ -31,12 +31,70 @@ Design notes:
 """
 from __future__ import annotations
 
+import hashlib
 import math
+import os
 from typing import Any
 
 # Cached at first call; module-level to survive across tool invocations.
 _TOOL_EMBED_CACHE: dict[str, list[float]] | None = None
 _TOOL_DESCRIPTIONS: dict[str, str] | None = None
+
+# Disk persistence of tool-description embeddings. stdio clients respawn the
+# server every session; without this, warm_up re-embeds all ~66 tool
+# descriptions from scratch each time -- one of the two halves of the ~5.7s
+# ts_search cold start measured on 2026-07-04 (the other half is the Nomic
+# model load, unavoidable in-process). Keyed by a hash of (names+descriptions+
+# model), so edited descriptions or a model swap invalidate it automatically.
+_STATS_DIR = os.path.expanduser(
+    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+)
+_EMBED_CACHE_FILE = os.path.join(_STATS_DIR, "tool_embeddings.json")
+
+
+def _cache_signature(descs: dict[str, str]) -> str:
+    """Content hash of the tool descriptions + embedding model identity."""
+    h = hashlib.sha256()
+    for name in sorted(descs):
+        h.update(name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(descs[name].encode("utf-8"))
+        h.update(b"\0")
+    try:
+        from token_savior.memory.embeddings import _MODEL_NAME
+        h.update(_MODEL_NAME.encode("utf-8"))
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def _load_disk_embeds(sig: str) -> dict[str, list[float]] | None:
+    """Return persisted embeddings iff the on-disk signature matches ``sig``."""
+    import json
+    try:
+        with open(_EMBED_CACHE_FILE, encoding="utf-8") as f:
+            blob = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(blob, dict) or blob.get("signature") != sig:
+        return None
+    embeds = blob.get("embeds")
+    if not isinstance(embeds, dict):
+        return None
+    return {k: v for k, v in embeds.items() if isinstance(v, list)}
+
+
+def _save_disk_embeds(sig: str, embeds: dict[str, list[float]]) -> None:
+    """Persist embeddings atomically (best-effort, never raises into dispatch)."""
+    import json
+    try:
+        os.makedirs(_STATS_DIR, exist_ok=True)
+        tmp = _EMBED_CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"signature": sig, "embeds": embeds}, f)
+        os.replace(tmp, _EMBED_CACHE_FILE)
+    except OSError:
+        pass
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -58,14 +116,22 @@ def _build_embedding_cache() -> tuple[dict[str, list[float]], dict[str, str]]:
     except Exception:
         embed = None  # type: ignore[assignment]
 
-    embeds: dict[str, list[float]] = {}
     descs: dict[str, str] = {}
     for name, schema in TOOL_SCHEMAS.items():
         desc = schema.get("description") or ""
         if isinstance(desc, tuple):
             desc = "".join(desc)
-        text = f"{name}: {desc}".strip()
-        descs[name] = text
+        descs[name] = f"{name}: {desc}".strip()
+
+    # Fast path: reuse persisted embeddings when descriptions + model are
+    # unchanged. Skips the Nomic re-embed of every tool on cold start.
+    sig = _cache_signature(descs)
+    disk = _load_disk_embeds(sig)
+    if disk is not None:
+        return disk, descs
+
+    embeds: dict[str, list[float]] = {}
+    for name, text in descs.items():
         if embed is not None:
             try:
                 v = embed(text, as_query=False)
@@ -73,6 +139,8 @@ def _build_embedding_cache() -> tuple[dict[str, list[float]], dict[str, str]]:
                     embeds[name] = v
             except Exception:
                 pass  # Tool stays substring-only.
+    if embeds:
+        _save_disk_embeds(sig, embeds)
     return embeds, descs
 
 

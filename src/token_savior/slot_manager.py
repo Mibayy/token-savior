@@ -89,6 +89,48 @@ def _get_stats_file(project_root: str) -> str:
     return os.path.join(_STATS_DIR, f"{name}-{slug}.json")
 
 
+# --- Registered-project persistence ---------------------------------------
+# stdio clients respawn the server every session, so anything registered via
+# set_project_root used to vanish on restart -- the agent then re-ran
+# set_project_root (a full reindex) every session. Audit 2026-07-04 measured
+# 51 set_project_root calls in 5.5 weeks (p95 1.8s, one 14.6s outlier), with
+# collector-crypt-scanner reindexed 20x. Persisting the registry here lets
+# switch_project reach those projects across restarts (cache-aware, no rebuild).
+
+_REGISTERED_ROOTS_FILE = os.path.join(_STATS_DIR, "registered_projects.json")
+
+
+def _load_registered_roots() -> list[str]:
+    """Return persisted project roots that still exist on disk (best-effort)."""
+    import json
+    try:
+        with open(_REGISTERED_ROOTS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [p for p in data if isinstance(p, str) and os.path.isdir(p)]
+
+
+def _persist_registered_root(root: str) -> None:
+    """Append ``root`` to the persisted registry (idempotent, atomic, silent)."""
+    import json
+    root = os.path.abspath(root)
+    try:
+        existing = _load_registered_roots()
+        if root in existing:
+            return
+        existing.append(root)
+        os.makedirs(_STATS_DIR, exist_ok=True)
+        tmp = _REGISTERED_ROOTS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(existing, f)
+        os.replace(tmp, _REGISTERED_ROOTS_FILE)
+    except OSError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # SlotManager
 # ---------------------------------------------------------------------------

@@ -1,5 +1,51 @@
 # Changelog
 
+## v4.5.0 — Adoption-gap pass driven by 5.5-week usage audit (2026-07-04)
+
+Audit of ~7 weeks of real usage (tool-calls.json + memory.db `tool_latency`
+1414 rows) surfaced four adoption/latency gaps the v4.4 nudges did not close.
+
+**set_project_root churn (server_handlers/project.py + slot_manager.py).**
+Measured 51 `set_project_root` calls in 5.5 weeks (≈ as many as switch_project),
+p95 1.8s with one 14.6s outlier; `collector-crypt-scanner` reindexed 20x. Root
+cause: the in-memory registry was rebuilt from the static `WORKSPACE_ROOTS` env
+on every stdio respawn, so a project registered via set_project_root vanished
+next session and got fully rebuilt again. Fixes:
+- Registered roots now persist to `<stats>/registered_projects.json`
+  (`_persist_registered_root` / `_load_registered_roots`, atomic, best-effort).
+- `switch_project` resolves an unknown hint against a real directory path or a
+  persisted project by basename (`_resolve_unregistered`), registering it
+  cache-aware -- the agent no longer needs set_project_root across sessions.
+- `set_project_root` is now cache-aware: the non-force path uses `ensure()`
+  (reuses the on-disk index when the git ref matches) instead of the
+  unconditional `build()` that paid the 14.6s rebuild every session.
+  `force=true` still does a full rebuild.
+
+**get_edit_context nudge (server.py, chain-nudge pattern 3).** Audit: 0
+`get_edit_context` calls across ~199 edits (replace_symbol_source 156 +
+add_field_to_model 28 + insert_near_symbol 15). Editing a symbol without the
+pre-edit bundle now prepends a `[NUDGE]` pointing at get_edit_context.
+
+**ts_execute nudge (server.py, chain-nudge pattern 4).** Audit: ts_execute
+used only 41x despite thousands of unitary nav calls. When 5 individual
+navigation calls land in one 60s window, a `[NUDGE]` suggests folding them into
+one Code Mode script. Fires once at the threshold.
+
+**ts_search cold-start (server_handlers/tool_search.py).** p50 still 5723ms
+despite the v4.4 warm-up (the thread loses the race in stdio mode). Tool-
+description embeddings now persist to `<stats>/tool_embeddings.json`, keyed by a
+content+model signature, so cold start skips re-embedding all ~66 descriptions.
+(The Nomic model load for the query stays in-process; routing that through the
+warm ts-daemon is a documented follow-up.)
+
+**Hook log noise (hooks/memory-session-stop.sh).** A clean no-observations
+close no longer prints to stderr -- it had appended 3578 benign lines to
+hook-errors.log.
+
+All 6 changes shipped with tests (test_registered_persistence.py,
+test_tool_embed_disk_cache.py, TestEditContextNudge/TestTsExecuteNudge in
+test_chain_nudge.py). Suite: 1771 passed.
+
 ## v4.4.1 — Chain nudge covers get_function_source -> get_full_context (2026-05-26)
 
 Extend the chain-nudge detector to cover the dominant remaining wasteful

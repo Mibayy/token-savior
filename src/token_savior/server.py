@@ -548,34 +548,97 @@ _CHAIN_READ_AFTER_FIND = ("get_function_source", "get_class_source", "get_depend
 _CHAIN_PREV_FIND = ("find_symbol",)
 _CHAIN_PREV_READ = ("get_function_source", "get_class_source")
 
+# Pattern 3: edit tools that should be preceded by get_edit_context.
+_EDIT_TOOLS_NEEDING_CONTEXT = (
+    "replace_symbol_source",
+    "insert_near_symbol",
+    "add_field_to_model",
+    "move_symbol",
+)
+
+# Pattern 4: individual navigation calls foldable into one ts_execute script.
+_NAV_CHAIN_TOOLS = (
+    "find_symbol",
+    "get_function_source",
+    "get_class_source",
+    "get_full_context",
+    "get_dependents",
+    "get_dependencies",
+    "search_codebase",
+    "get_structure_summary",
+)
+_TS_EXECUTE_NUDGE_THRESHOLD = 5
+
 
 def _detect_chain_nudge(name: str, symbol: str) -> str | None:
-    if s._CHAIN_NUDGE_DISABLED or not symbol:
+    if s._CHAIN_NUDGE_DISABLED:
         return None
     now = time.monotonic()
-    for ts, prev_tool, prev_sym in reversed(s._chain_calls):
-        if now - ts > _CHAIN_WINDOW_SEC:
-            break
-        if prev_sym != symbol:
-            continue
-        # Pattern 1: find_symbol(X) -> get_function_source/etc(X) within 60s.
-        # 9-day data: 42 occurrences. Both calls fold into one get_full_context.
-        if name in _CHAIN_READ_AFTER_FIND and prev_tool in _CHAIN_PREV_FIND:
+
+    # Pattern 3: edit tool called without a preceding get_edit_context on the
+    # same symbol. Audit 2026-07-04: 0 get_edit_context calls across ~199 edits
+    # (replace_symbol_source 156 + add_field_to_model 28 + insert_near_symbol 15).
+    # get_edit_context returns source + callers + deps + siblings + tests in one
+    # call -- editing blind risks breaking a caller the agent never looked at.
+    if symbol and name in _EDIT_TOOLS_NEEDING_CONTEXT:
+        saw_context = False
+        for ts, prev_tool, prev_sym in reversed(s._chain_calls):
+            if now - ts > _CHAIN_WINDOW_SEC:
+                break
+            if prev_tool == "get_edit_context" and prev_sym == symbol:
+                saw_context = True
+                break
+        if not saw_context:
             return (
-                f"[NUDGE] You called find_symbol('{symbol}') then {name}('{symbol}') "
-                f"on the same symbol. Next time use get_full_context('{symbol}') "
-                f"-- one round-trip returns location + source + callers + deps."
+                f"[NUDGE] You're editing '{symbol}' without calling "
+                f"get_edit_context('{symbol}') first. It returns source + callers + "
+                f"deps + siblings + impacted tests in one call, so you don't break a "
+                f"caller you never saw."
             )
-        # Pattern 2: get_function_source/get_class_source(X) -> get_full_context(X)
-        # within 60s. 9-day data: 187 occurrences. Source is re-fetched as part
-        # of get_full_context, so the first read was wasted.
-        if name == "get_full_context" and prev_tool in _CHAIN_PREV_READ:
+
+    if symbol:
+        for ts, prev_tool, prev_sym in reversed(s._chain_calls):
+            if now - ts > _CHAIN_WINDOW_SEC:
+                break
+            if prev_sym != symbol:
+                continue
+            # Pattern 1: find_symbol(X) -> get_function_source/etc(X) within 60s.
+            # 9-day data: 42 occurrences. Both calls fold into one get_full_context.
+            if name in _CHAIN_READ_AFTER_FIND and prev_tool in _CHAIN_PREV_FIND:
+                return (
+                    f"[NUDGE] You called find_symbol('{symbol}') then {name}('{symbol}') "
+                    f"on the same symbol. Next time use get_full_context('{symbol}') "
+                    f"-- one round-trip returns location + source + callers + deps."
+                )
+            # Pattern 2: get_function_source/get_class_source(X) -> get_full_context(X)
+            # within 60s. 9-day data: 187 occurrences. Source is re-fetched as part
+            # of get_full_context, so the first read was wasted.
+            if name == "get_full_context" and prev_tool in _CHAIN_PREV_READ:
+                return (
+                    f"[NUDGE] You called {prev_tool}('{symbol}') then "
+                    f"get_full_context('{symbol}'). The source was re-fetched. "
+                    f"Start with get_full_context('{symbol}') next time -- it returns "
+                    f"source + callers + deps in one call."
+                )
+
+    # Pattern 4: many individual nav calls in one window -> Code Mode.
+    # Audit 2026-07-04: ts_execute used only 41x despite thousands of unitary
+    # nav calls. Anthropic's "code execution with MCP" shows chained tool calls
+    # fold into one script (up to -98.7% tokens). Fire once, when the count
+    # crosses the threshold, to avoid nudging on every subsequent call.
+    if name in _NAV_CHAIN_TOOLS:
+        nav_in_window = sum(
+            1 for ts, tool, _ in s._chain_calls
+            if now - ts <= _CHAIN_WINDOW_SEC and tool in _NAV_CHAIN_TOOLS
+        )
+        if nav_in_window == _TS_EXECUTE_NUDGE_THRESHOLD:
             return (
-                f"[NUDGE] You called {prev_tool}('{symbol}') then "
-                f"get_full_context('{symbol}'). The source was re-fetched. "
-                f"Start with get_full_context('{symbol}') next time -- it returns "
-                f"source + callers + deps in one call."
+                f"[NUDGE] {nav_in_window} separate navigation calls in the last minute. "
+                f"ts_execute runs a JS script calling many tools in one round-trip "
+                f"(await tools.get_full_context(...), etc.) -- collapses the chain and "
+                f"cuts tokens. Consider it for multi-step exploration."
             )
+
     return None
 
 

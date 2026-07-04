@@ -121,7 +121,8 @@ sys.path.insert(0, '/root/token-savior/src')
 from token_savior import memory_db
 memory_db.session_end($SESSION_ID, end_type='$HOOK_MODE' == 'end' and 'completed' or 'interrupted')
 memory_db.clear_session_override()
-print(f'Session $SESSION_ID closed (no observations, mode=$HOOK_MODE).', file=sys.stderr)
+# No stderr print on a clean no-observations close: it is not an error, and
+# logging it appended 3578 benign lines to hook-errors.log (audit 2026-07-04).
 " 2>>"$ERR_LOG"
     exit 0
 fi
