@@ -228,6 +228,7 @@ def _daemon_serve() -> None:
     # En install pip, token_savior est déjà importable. Pas de path patch.
     with contextlib.redirect_stdout(sys.stderr):
         from token_savior.server import _dispatch_tool  # type: ignore
+        from token_savior.server import _handle_ts_search  # type: ignore
 
     started = time.time()
     calls = 0
@@ -266,7 +267,14 @@ def _daemon_serve() -> None:
             elif cmd == "call":
                 try:
                     with contextlib.redirect_stdout(sys.stderr):
-                        result = _dispatch_tool(req["tool"], req.get("args", {}), "")
+                        # ts_search is special-cased in server.call_tool (not a
+                        # regular dispatched tool), so route it explicitly here.
+                        # The daemon keeps the Nomic model warm, so this serves
+                        # a stdio client's cold-start ts_search in ~130ms.
+                        if req["tool"] == "ts_search":
+                            result = _handle_ts_search(req.get("args", {}))
+                        else:
+                            result = _dispatch_tool(req["tool"], req.get("args", {}), "")
                     parts = []
                     for r in result:
                         t = getattr(r, "text", None)

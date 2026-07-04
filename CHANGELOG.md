@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.6.0 — ts_search cold-start bridge via the warm daemon (2026-07-04)
+
+Delivers the follow-up flagged in v4.5.0: the in-process Nomic model load costs
+~5s on a fresh stdio spawn (audit: ts_search p50 5723ms). v4.5.0 removed the
+tool-description re-embed; this closes the remaining half -- the query
+embedding.
+
+**Cold-start delegation (server.py + daemon_client.py + cli.py).** When
+`TS_SEARCH_COLD_DELEGATE=1` and the in-process model is still cold, the first
+`ts_search` is delegated over the Unix socket to a running `ts _daemon-serve`,
+which keeps the Nomic model warm across sessions (measured ~130ms warm vs
+~5700ms in-process cold). The startup warm-up thread keeps loading locally, so
+subsequent calls run in-process. Any daemon failure (no socket, timeout, error)
+falls through to the unchanged local path -- opt-in and safe by default (most
+installs have no daemon).
+
+- `daemon_client.call_daemon()`: minimal length-prefixed-JSON socket client,
+  best-effort (returns None on any failure).
+- `cli._daemon_serve`: the daemon's `call` handler now routes `ts_search`
+  through `_handle_ts_search` (it is special-cased in `call_tool`, not a
+  regular dispatched tool, so `_dispatch_tool` returned "unknown tool").
+
+Tests: test_daemon_client.py (real Unix-socket server), test_ts_search_cold_delegate.py
+(delegate/fallback matrix). Suite: 1779 passed.
+
 ## v4.5.0 — Adoption-gap pass driven by 5.5-week usage audit (2026-07-04)
 
 Audit of ~7 weeks of real usage (tool-calls.json + memory.db `tool_latency`

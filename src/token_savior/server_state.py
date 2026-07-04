@@ -225,3 +225,10 @@ _chain_nudges_emitted: int = 0  # telemetry: count of nudges actually fired
 _CHAIN_NUDGE_DISABLED: bool = (
     os.environ.get("TOKEN_SAVIOR_CHAIN_NUDGE", "1").lower() in ("0", "false", "off")
 )
+
+# Opt-in: bridge the ts_search cold start by delegating the first (cold) call
+# to a warm `ts _daemon-serve` over its Unix socket. Off by default -- most
+# installs have no daemon; enable where one runs (see daemon_client.py).
+_TS_SEARCH_COLD_DELEGATE: bool = (
+    os.environ.get("TS_SEARCH_COLD_DELEGATE", "0").lower() in ("1", "true", "on")
+)

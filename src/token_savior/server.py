@@ -769,6 +769,15 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
     return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 
 
+def _local_embed_model_cold() -> bool:
+    """True when the in-process Nomic model has not been loaded yet."""
+    try:
+        from token_savior.memory import embeddings as _emb
+        return getattr(_emb, "_model", None) is None
+    except Exception:
+        return True
+
+
 def _handle_ts_search(arguments: dict[str, Any]) -> list[types.TextContent]:
     """Defer-loading router: cosine-sim over Nomic tool description embeddings.
 
@@ -778,6 +787,26 @@ def _handle_ts_search(arguments: dict[str, Any]) -> list[types.TextContent]:
     excluded (e.g. capture_* under TS_CAPTURE_DISABLED=1).
     """
     import json as _json
+
+    # Cold-start bridge (opt-in via TS_SEARCH_COLD_DELEGATE=1): the in-process
+    # model load costs ~5s on a fresh stdio spawn (audit 2026-07-04: ts_search
+    # p50 5723ms). If the local model isn't warm yet and a persistent daemon is
+    # reachable, delegate this one call to the daemon's already-warm model. The
+    # startup warm_up thread keeps loading in the background, so subsequent
+    # calls run in-process. Any daemon failure falls through to the local path.
+    if s._TS_SEARCH_COLD_DELEGATE and _local_embed_model_cold():
+        from token_savior import daemon_client
+        text = daemon_client.call_daemon(
+            "ts_search",
+            {
+                "query": arguments.get("query") or "",
+                "top_k": arguments.get("top_k", 5),
+                "include_schema": arguments.get("include_schema", True),
+            },
+        )
+        if text:
+            return [TextContent(type="text", text=text)]
+
     visible = {t.name for t in TOOLS}
     fmt = arguments.get("format")
     if fmt is None and _PROFILE == "code_mode":
