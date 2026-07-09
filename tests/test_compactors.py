@@ -527,3 +527,80 @@ def test_gh_run_view_keeps_failures():
     assert "Set up job" not in result.text
     assert "Checkout" not in result.text
     assert result.savings_pct >= 30.0
+
+
+# ---------------------------------------------------------------------------
+# machine-format outputs must NOT be compacted (bash-rewriter collision)
+#
+# The PreToolUse bash rewriter rewrites `git status` / `git diff` / `git log`
+# into machine/dense forms (--porcelain=v2, --stat, --oneline). The git
+# compactors parse only the human formats, so before the matches() narrowing
+# they rendered a dirty porcelain tree as "clean" and stat/oneline output as
+# "" — a false ~100% saving that told the agent the tree was clean / the
+# diff empty.
+# ---------------------------------------------------------------------------
+
+
+GIT_STATUS_PORCELAIN_V2_DIRTY = """# branch.oid 95213c6b9b8e6f55a4f55c0c1d2e3f4a5b6c7d8e
+# branch.head devel
+# branch.upstream origin/devel
+# branch.ab +0 -0
+1 .M N... 100644 100644 100644 903f7bd8 903f7bd8 scripts/ts-hook.sh
+? notes.txt
+"""
+
+
+def test_git_status_porcelain_not_compacted():
+    # The exact command the bash rewriter emits for `git status`.
+    result = compact("git status --porcelain=v2 --branch", GIT_STATUS_PORCELAIN_V2_DIRTY)
+    assert result is None, f"porcelain v2 must pass through, got: {result.text!r}"
+
+
+def test_git_status_short_format_not_compacted():
+    result = compact("git status -s", " M scripts/ts-hook.sh\n?? notes.txt\n")
+    assert result is None, f"--short must pass through, got: {result.text!r}"
+
+
+GIT_DIFF_STAT_OUTPUT = """ scripts/ts-hook.sh | 6 ++++++
+ 1 file changed, 6 insertions(+)
+"""
+
+
+def test_git_diff_stat_not_compacted():
+    # The exact command the bash rewriter emits for `git diff`.
+    result = compact("git diff --no-color --stat=200,5", GIT_DIFF_STAT_OUTPUT)
+    assert result is None, f"--stat must pass through, got: {result.text!r}"
+
+
+def test_git_diff_staged_still_compacted():
+    # \b in the summary-format regex must not swallow --staged, whose output
+    # is a regular unified diff.
+    result = compact("git diff --staged", GIT_DIFF_OUTPUT)
+    assert result is not None
+    assert "+def hello(name):" in result.text
+
+
+GIT_LOG_ONELINE_OUTPUT = """95213c6b (HEAD -> devel, origin/devel) feat: add thing
+27dff537 fix: repair other thing
+"""
+
+
+def test_git_log_oneline_not_compacted():
+    # The exact command the bash rewriter emits for `git log`.
+    result = compact("git log --oneline --decorate -n 20", GIT_LOG_ONELINE_OUTPUT)
+    assert result is None, f"--oneline must pass through, got: {result.text!r}"
+
+
+def test_git_log_custom_format_not_compacted():
+    result = compact("git log --format=%h%x09%s -n 5", "95213c6b\tfeat: add thing\n")
+    assert result is None
+
+
+def test_empty_compact_of_nonempty_output_fails_open():
+    # A matched compactor that renders non-empty output as "" failed to parse
+    # it; the dispatcher must return None instead of a false ~100% saving.
+    # Realistic shape: the harness truncates long tool output, so the hook can
+    # receive a context-only tail of a diff — no headers, no +/- lines.
+    truncated_tail = "     def baz(self):\n         return self.x\n\n     def qux(self):\n"
+    result = compact("git diff", truncated_tail)
+    assert result is None, f"empty rendering must fail open, got: {result.text!r}"

@@ -136,6 +136,12 @@ def _try_compact(
     for c in registry:
         if c.matches(command):
             text = c.compact(stdout, stderr)
+            if not text.strip():
+                # A matched compactor that renders non-empty output as nothing
+                # failed to parse it (e.g. an unrecognized output format).
+                # Reporting "" as a ~100% saving would tell the agent the
+                # command produced no output — fail open to the sandbox path.
+                return None
             compact_bytes = len(text.encode("utf-8"))
             savings = 100.0 * (1.0 - compact_bytes / max(1, original_bytes))
             return CompactResult(

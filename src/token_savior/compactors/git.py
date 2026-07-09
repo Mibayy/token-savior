@@ -24,9 +24,14 @@ class GitStatusCompactor(Compactor):
     """Group `git status` by section, drop instructional hints."""
 
     _CMD_RE = re.compile(r"^\s*git\s+status\b")
+    # Machine/short formats (--porcelain v1/v2, --short/-s, NUL-terminated -z)
+    # carry none of the human section headers the parser below looks for, so a
+    # dirty tree would render as "clean". The bash rewriter emits exactly
+    # `git status --porcelain=v2 --branch`. Already dense — leave uncompacted.
+    _MACHINE_RE = re.compile(r"\s(--porcelain\b|--short\b|-s\b|-z\b)")
 
     def matches(self, command: str) -> bool:
-        return bool(self._CMD_RE.search(command))
+        return bool(self._CMD_RE.search(command)) and not self._MACHINE_RE.search(command)
 
     def compact(self, stdout: str, stderr: str = "") -> str:
         lines = stdout.splitlines()
@@ -88,9 +93,17 @@ class GitDiffCompactor(Compactor):
     """Keep file headers + hunk markers + +/- lines. Drop unchanged context."""
 
     _CMD_RE = re.compile(r"^\s*git\s+(diff|show)\b")
+    # Summary formats emit none of the diff --git/@@/+/- lines the filter below
+    # keeps, so their whole output would reduce to "" (a false 100% saving).
+    # The bash rewriter emits `git diff --no-color --stat=200,5`. Note \b keeps
+    # --staged matching (its output is a regular unified diff).
+    _SUMMARY_RE = re.compile(
+        r"\s(--stat\b|--numstat\b|--shortstat\b|--name-only\b"
+        r"|--name-status\b|--dirstat\b|--summary\b|--raw\b|--compact-summary\b)"
+    )
 
     def matches(self, command: str) -> bool:
-        return bool(self._CMD_RE.search(command))
+        return bool(self._CMD_RE.search(command)) and not self._SUMMARY_RE.search(command)
 
     def compact(self, stdout: str, stderr: str = "") -> str:
         kept: list[str] = []
@@ -121,9 +134,13 @@ class GitLogCompactor(Compactor):
     """Reduce verbose `git log` to oneline: `<short-sha> <subject>`."""
 
     _CMD_RE = re.compile(r"^\s*git\s+log\b")
+    # Custom formats have no `commit <sha>` header lines, so the loop below
+    # would emit nothing. The bash rewriter emits `git log --oneline`;
+    # --pretty/--format cover the rest. Already dense — leave uncompacted.
+    _FORMAT_RE = re.compile(r"\s(--oneline\b|--pretty\b|--format\b)")
 
     def matches(self, command: str) -> bool:
-        return bool(self._CMD_RE.search(command))
+        return bool(self._CMD_RE.search(command)) and not self._FORMAT_RE.search(command)
 
     def compact(self, stdout: str, stderr: str = "") -> str:
         lines = stdout.splitlines()
