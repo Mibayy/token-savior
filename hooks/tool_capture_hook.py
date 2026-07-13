@@ -85,6 +85,10 @@ def main() -> None:
 
     tool_name = event.get("tool_name") or "unknown"
     response = event.get("tool_response") or {}
+    if not isinstance(response, dict):
+        # MCP tools deliver tool_response as a LIST of content blocks, and some
+        # clients as a bare string — normalize to the dict shape (#48).
+        response = {"content": response}
     # Claude Code PostToolUse exposes the textual response under .content
     # for native tools, .stdout/.stderr for Bash, or as a string fallback.
     content = (
