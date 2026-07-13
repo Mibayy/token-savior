@@ -244,6 +244,31 @@ class TestFileDiscovery:
 
         assert "big_file.py" not in idx.files
 
+    def test_env_override_reaches_defaults(self, sample_project, monkeypatch):
+        # Without the ctor params, the TOKEN_SAVIOR_* env overrides must win
+        # over the built-in defaults (the MCP server path passes no params).
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILE_SIZE", "12345")
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILES", "42")
+        indexer = ProjectIndexer(str(sample_project))
+        assert indexer.max_file_size_bytes == 12345
+        assert indexer.max_files == 42
+
+    def test_explicit_params_win_over_env(self, sample_project, monkeypatch):
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILE_SIZE", "12345")
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILES", "42")
+        indexer = ProjectIndexer(
+            str(sample_project), max_file_size_bytes=777, max_files=7
+        )
+        assert indexer.max_file_size_bytes == 777
+        assert indexer.max_files == 7
+
+    def test_defaults_without_env(self, sample_project, monkeypatch):
+        monkeypatch.delenv("TOKEN_SAVIOR_MAX_FILE_SIZE", raising=False)
+        monkeypatch.delenv("TOKEN_SAVIOR_MAX_FILES", raising=False)
+        indexer = ProjectIndexer(str(sample_project))
+        assert indexer.max_file_size_bytes == 500_000
+        assert indexer.max_files == 10_000
+
     def test_include_patterns_filter(self, sample_project):
         # Only include Python files
         indexer = ProjectIndexer(
