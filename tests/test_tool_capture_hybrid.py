@@ -234,3 +234,45 @@ def test_compact_result_carries_original_text():
     assert r is not None
     assert r.original_text == stdout  # stderr empty
     assert r.original_bytes == len(stdout.encode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# 7. tool_response shape normalization (#48) — MCP tools deliver a LIST of
+#    content blocks; some clients deliver a bare string. Neither may crash.
+# ---------------------------------------------------------------------------
+
+
+def _mcp_event(tool_response) -> dict:
+    return {
+        "tool_name": "mcp__token-savior-recall__search_codebase",
+        "tool_input": {"pattern": "x"},
+        "tool_response": tool_response,
+        "session_id": "sess-1",
+        "cwd": "/tmp/proj",
+    }
+
+
+def test_mcp_list_response_small_passes_through(stub_sandbox, monkeypatch):
+    """A small list-shaped response must not crash and must pass through."""
+    out = _run_hook(_mcp_event([{"type": "text", "text": "[]"}]), monkeypatch)
+    assert out == {"continue": True}
+    assert stub_sandbox == []
+
+
+def test_mcp_list_response_large_is_sandboxed(stub_sandbox, monkeypatch):
+    """A large list-shaped response is serialized and captured, not crashed on."""
+    big = [{"type": "text", "text": "x" * 10_000}]
+    out = _run_hook(_mcp_event(big), monkeypatch)
+    note = out["hookSpecificOutput"]["additionalContext"]
+    assert "ts://capture/1" in note
+    assert len(stub_sandbox) == 1
+    assert "x" * 100 in stub_sandbox[0]["output"]
+
+
+def test_string_response_large_is_sandboxed(stub_sandbox, monkeypatch):
+    """A bare-string response is captured verbatim, not crashed on."""
+    out = _run_hook(_mcp_event("y" * 10_000), monkeypatch)
+    note = out["hookSpecificOutput"]["additionalContext"]
+    assert "ts://capture/1" in note
+    assert len(stub_sandbox) == 1
+    assert stub_sandbox[0]["output"] == "y" * 10_000
