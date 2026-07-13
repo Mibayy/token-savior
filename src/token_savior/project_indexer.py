@@ -147,9 +147,11 @@ class ProjectIndexer:
         root_path: str,
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
-        max_file_size_bytes: int = 500_000,
-        max_files: int = 10_000,
+        max_file_size_bytes: int | None = None,
+        max_files: int | None = None,
     ):
+        # None defaults keep the TOKEN_SAVIOR_MAX_FILE_SIZE / TOKEN_SAVIOR_MAX_FILES
+        # env overrides reachable (#49) — a truthy default made them dead code.
         self.root_path = os.path.abspath(root_path)
         self.include_patterns = include_patterns or [
             "**/*.py",
