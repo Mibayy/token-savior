@@ -153,3 +153,64 @@ class TestBuild:
         idx = slot.indexer._project_index
         assert idx.total_files >= 1
         assert idx.total_functions >= 1
+
+
+class TestCacheConfigKey:
+    """A cache built under one configuration must not be served under another (#61)."""
+
+    def _git_repo(self, tmp_path):
+        import subprocess
+
+        root = str(tmp_path)
+        (tmp_path / "a.py").write_text("def fa():\n    pass\n")
+        (tmp_path / "b.php").write_text("<?php\nfunction fb() { return 1; }\n")
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "t@t"],
+            ["git", "config", "user.name", "t"],
+            ["git", "add", "."],
+            ["git", "commit", "-qm", "init"],
+        ):
+            subprocess.run(cmd, cwd=root, check=True, capture_output=True)
+        return root
+
+    def _ensure(self, root):
+        mgr = SlotManager(cache_version=2)
+        mgr.projects[root] = _ProjectSlot(root=root)
+        slot = mgr.projects[root]
+        mgr.ensure(slot)
+        return slot
+
+    def test_include_pattern_change_invalidates_cache(self, tmp_path, monkeypatch):
+        root = self._git_repo(tmp_path)
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.py")
+        slot = self._ensure(root)
+        files = slot.indexer._project_index.files
+        assert "a.py" in files
+        assert "b.php" not in files
+
+        # Same HEAD, wider patterns: the cached narrow index must NOT be served.
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.py:**/*.php")
+        slot2 = self._ensure(root)
+        files2 = slot2.indexer._project_index.files
+        assert "b.php" in files2, "stale cache served after INCLUDE_PATTERNS change"
+
+    def test_cache_hit_indexer_uses_env_patterns(self, tmp_path, monkeypatch):
+        root = self._git_repo(tmp_path)
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.py")
+        self._ensure(root)  # builds + saves the cache
+        slot = self._ensure(root)  # same config: served from cache
+        # The cache-hit path must configure its indexer like build() would,
+        # or incremental updates re-index under the wrong patterns.
+        assert slot.indexer.include_patterns == ["**/*.py"]
+
+    def test_same_config_reload_serves_cache(self, tmp_path, monkeypatch):
+        root = self._git_repo(tmp_path)
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.py")
+        self._ensure(root)
+        cache_path = os.path.join(root, ".token-savior-cache.json")
+        before = os.path.getmtime(cache_path)
+        slot = self._ensure(root)
+        # Served from cache: index present, cache file not rewritten.
+        assert "a.py" in slot.indexer._project_index.files
+        assert os.path.getmtime(cache_path) == before

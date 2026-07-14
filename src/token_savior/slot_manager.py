@@ -13,7 +13,7 @@ import sys
 import time
 from typing import Optional, TYPE_CHECKING
 
-from token_savior.cache_ops import CacheManager
+from token_savior.cache_ops import CacheManager, compute_config_key
 from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files
 from token_savior.project_indexer import ProjectIndexer, _rebuild_path_indexes
 from token_savior.query_api import create_project_query_functions
@@ -148,7 +148,37 @@ class SlotManager:
 
     def _cache_mgr(self, root: str) -> CacheManager:
         """Return a CacheManager for the given project root."""
-        return CacheManager(root, self._cache_version)
+        return CacheManager(root, self._cache_version, config_key=compute_config_key())
+
+    @staticmethod
+    def _make_indexer(root: str) -> ProjectIndexer:
+        """ProjectIndexer honouring the env pattern overrides.
+
+        Single resolution point for build() AND the cache-hit paths — a
+        cache-hit indexer built with defaults would re-index incremental
+        changes under the wrong patterns (#61).
+        """
+        extra_excludes_raw = os.environ.get("EXCLUDE_EXTRA", "")
+        exclude_override_raw = os.environ.get("EXCLUDE_PATTERNS", "")
+        include_override_raw = os.environ.get("INCLUDE_PATTERNS", "")
+
+        exclude_patterns = None
+        include_patterns = None
+
+        if exclude_override_raw:
+            exclude_patterns = [p.strip() for p in exclude_override_raw.split(":") if p.strip()]
+        elif extra_excludes_raw:
+            tmp = ProjectIndexer(root)
+            exclude_patterns = tmp.exclude_patterns + [
+                p.strip() for p in extra_excludes_raw.split(":") if p.strip()
+            ]
+
+        if include_override_raw:
+            include_patterns = [p.strip() for p in include_override_raw.split(":") if p.strip()]
+
+        return ProjectIndexer(
+            root, include_patterns=include_patterns, exclude_patterns=exclude_patterns
+        )
 
     def _save_cache(self, index: ProjectIndex) -> None:
         """Persist the project index to JSON cache."""
@@ -180,7 +210,7 @@ class SlotManager:
             current_head = get_head_commit(root)
             if current_head == cached_index.last_indexed_git_ref:
                 print(f"[token-savior] Cache hit (git ref matches) -- {root}", file=sys.stderr)
-                slot.indexer = ProjectIndexer(root)
+                slot.indexer = self._make_indexer(root)
                 slot.indexer._project_index = cached_index
                 if not cached_index.sorted_paths or not cached_index.basename_map:
                     _rebuild_path_indexes(cached_index)
@@ -200,7 +230,7 @@ class SlotManager:
                     f"applying incremental update -- {root}",
                     file=sys.stderr,
                 )
-                slot.indexer = ProjectIndexer(root)
+                slot.indexer = self._make_indexer(root)
                 slot.indexer._project_index = cached_index
                 if not cached_index.sorted_paths or not cached_index.basename_map:
                     _rebuild_path_indexes(cached_index)

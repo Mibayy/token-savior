@@ -209,6 +209,9 @@ class ProjectIndexer:
             "**/package-lock.json",
             "**/.package-lock.json",
             "**/composer.lock",
+            # Own persisted index caches (match **/*.json; would self-index below the size cap)
+            "**/.token-savior-cache.json",
+            "**/.codebase-index-cache.json",
             # Next.js / build output dirs
             "**/.next/**",
             "dist/**",

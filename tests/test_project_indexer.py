@@ -244,6 +244,15 @@ class TestFileDiscovery:
 
         assert "big_file.py" not in idx.files
 
+    def test_own_cache_files_never_indexed(self, sample_project):
+        # The persisted index caches live inside the project root and match
+        # **/*.json; below the size cap they would index themselves (#61).
+        (sample_project / ".token-savior-cache.json").write_text('{"version": 2}')
+        (sample_project / ".codebase-index-cache.json").write_text('{"version": 1}')
+        idx = ProjectIndexer(str(sample_project)).index()
+        assert ".token-savior-cache.json" not in idx.files
+        assert ".codebase-index-cache.json" not in idx.files
+
     def test_include_patterns_filter(self, sample_project):
         # Only include Python files
         indexer = ProjectIndexer(
