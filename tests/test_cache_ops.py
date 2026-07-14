@@ -290,3 +290,38 @@ class TestIndexSerialization:
 
         assert "app → shared" in result
         assert "com.acme.shared.MathUtil" in result
+
+
+class TestCacheConfigKey:
+    """config_key mismatches invalidate the cache (#61)."""
+
+    def test_same_key_roundtrips(self, tmp_path):
+        root = str(tmp_path)
+        CacheManager(root, 2, config_key="K").save(_make_index(root))
+        assert CacheManager(root, 2, config_key="K").load() is not None
+
+    def test_key_mismatch_invalidates(self, tmp_path):
+        root = str(tmp_path)
+        CacheManager(root, 2, config_key="K").save(_make_index(root))
+        assert CacheManager(root, 2, config_key="OTHER").load() is None
+
+    def test_legacy_payload_without_key_invalidated_by_keyed_loader(self, tmp_path):
+        root = str(tmp_path)
+        CacheManager(root, 2).save(_make_index(root))  # legacy caller: no key stored
+        assert CacheManager(root, 2, config_key="K").load() is None
+
+    def test_empty_key_skips_validation(self, tmp_path):
+        root = str(tmp_path)
+        CacheManager(root, 2, config_key="K").save(_make_index(root))
+        assert CacheManager(root, 2).load() is not None
+
+    def test_compute_config_key_tracks_env_and_version(self, monkeypatch):
+        from token_savior import __version__
+        from token_savior.cache_ops import compute_config_key
+
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.py")
+        a = compute_config_key()
+        monkeypatch.setenv("INCLUDE_PATTERNS", "**/*.php")
+        b = compute_config_key()
+        assert a != b
+        assert __version__ in a

@@ -14,15 +14,40 @@ if TYPE_CHECKING:
     from token_savior.models import ProjectIndex
 
 
+def compute_config_key() -> str:
+    """Fingerprint of the env-driven index configuration plus package version.
+
+    A cache built under one configuration must not be served under another —
+    a changed INCLUDE_PATTERNS or an upgrade shipping new annotators would
+    otherwise silently answer from the stale index (#61).
+    """
+    from token_savior import __version__
+
+    knobs = {
+        name: os.environ.get(name, "")
+        for name in (
+            "INCLUDE_PATTERNS",
+            "EXCLUDE_PATTERNS",
+            "EXCLUDE_EXTRA",
+            "TOKEN_SAVIOR_EXCLUDE_PATTERNS",
+            "TOKEN_SAVIOR_MAX_FILE_SIZE",
+            "TOKEN_SAVIOR_MAX_FILES",
+        )
+    }
+    return json.dumps({"pkg": __version__, **knobs}, sort_keys=True)
+
+
 class CacheManager:
     """Manages persistent JSON cache for a project index."""
 
     FILENAME = ".token-savior-cache.json"
     LEGACY_FILENAME = ".codebase-index-cache.json"
 
-    def __init__(self, root_path: str, cache_version: int):
+    def __init__(self, root_path: str, cache_version: int, config_key: str = ""):
         self.root_path = root_path
         self.cache_version = cache_version
+        # Empty key = legacy caller: config validation is skipped.
+        self.config_key = config_key
 
     def path(self) -> str:
         """Return cache file path, auto-migrating legacy filename."""
@@ -45,6 +70,8 @@ class CacheManager:
         try:
             path = self.path()
             payload = {"version": self.cache_version, "index": self.index_to_dict(index)}
+            if self.config_key:
+                payload["config_key"] = self.config_key
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, separators=(",", ":"))
             print(f"[token-savior] Cache saved -> {path}", file=sys.stderr)
@@ -61,6 +88,9 @@ class CacheManager:
                 payload = json.load(f)
             if not isinstance(payload, dict) or payload.get("version") != self.cache_version:
                 print("[token-savior] Cache version mismatch, ignoring", file=sys.stderr)
+                return None
+            if self.config_key and payload.get("config_key") != self.config_key:
+                print("[token-savior] Cache config changed, ignoring", file=sys.stderr)
                 return None
             raw_index = payload["index"]
             # Back-compat guard for the symbol-hash feature: pre-hash caches
