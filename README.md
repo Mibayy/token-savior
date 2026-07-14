@@ -335,20 +335,86 @@ Opus 4.7. The CLI is there for the portability case.
 
 ---
 
-## Optional env vars
+## Environment variables
 
-| Var | Purpose |
-|---|---|
-| `TS_BASH_COMPACT=1` | Enable PostToolUse Bash output compactors |
-| `TS_BASH_REWRITE=1` | Enable PreToolUse Bash command rewriter |
-| `TS_BASH_REWRITE_LOG` | JSONL audit log of every rewrite |
-| `TS_COMPACT_INLINE_THRESHOLD` | Hybrid mode threshold (default 4 KB) |
-| `TS_COMPACT_TINY_THRESHOLD` | Skip-sandbox threshold (default 256 B) |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | Critical-observation feed |
-| `TS_VIEWER_PORT` | Web viewer dashboard |
-| `TS_AUTO_EXTRACT=1` + `TS_API_KEY` | LLM auto-extraction of memory observations |
-| `TS_CAPTURE_DISABLED=1` | Skip read-side capture sandboxing (default in `optimized`) |
-| `TS_MEMORY_DISABLE=1` | Silence memory hooks (clean-context workloads) |
+All optional. Values shown as `=1` also accept nothing else — set exactly `1`;
+values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
+
+### Server & tool manifest
+
+| Var | Default | Purpose |
+|---|---|---|
+| `WORKSPACE_ROOTS` | current dir | Comma-separated project roots to index |
+| `PROJECT_ROOT` | — | Single-root alternative to `WORKSPACE_ROOTS` |
+| `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile (`optimized` ships the Pareto set and implies thin schemas + capture off) |
+| `TS_THIN_SCHEMAS=1` | off (on in `optimized`) | Strip verbose tool schemas from the manifest |
+| `TS_AUTO_HOT_K` | `10` | Hot-tool count exposed by the telemetry-driven `auto` profile |
+| `TOKEN_SAVIOR_CHAIN_NUDGE` | on | `0`/`false`/`off` disables chained-tool nudges |
+| `TS_MEMORY_DISABLE=1` | off | Disable the memory engine (clean-context workloads) |
+| `TS_CAPTURE_DISABLED=1` | off (on in `optimized`) | Skip read-side capture sandboxing |
+| `TS_CODE_MODE_DISABLE=1` | off | Disable code-mode tools |
+| `TS_CODE_MODE_NODE` | `node` | Node binary used by the code-mode sandbox |
+| `TS_RESOURCES_DISABLED` | off (*bool*) | Don't expose observations as `ts://obs/{id}` MCP resources |
+| `TS_WARM_START` | off (*bool*) | Pre-build project slots at startup |
+| `TOKEN_SAVIOR_NO_WARMUP` | off (*bool*) | Skip the `ts_search` embedding warm-up |
+| `TS_SEARCH_COLD_DELEGATE` | off (*bool*, `on` ok) | Delegate the cold `ts_search` call to a running `ts` daemon |
+| `TS_SOCK` | `/tmp/ts.sock` | Unix socket of the `ts` daemon (CLI + cold delegate) |
+| `TOKEN_SAVIOR_CLIENT` | auto-detected | Client label (`claude-code`, …) for telemetry/client detection |
+| `TOKEN_SAVIOR_SESSION_LABEL` | — | Free-form label attached to session telemetry |
+
+### Indexing
+
+| Var | Default | Purpose |
+|---|---|---|
+| `INCLUDE_PATTERNS` | built-in list | Colon-separated globs; **replaces** the default include list |
+| `EXCLUDE_PATTERNS` | built-in list | Colon-separated globs; **replaces** the default exclude list |
+| `EXCLUDE_EXTRA` | — | Colon-separated globs **appended** to the default excludes |
+| `TOKEN_SAVIOR_EXCLUDE_PATTERNS` | — | Colon-separated globs appended at the indexer level |
+| `TOKEN_SAVIOR_MAX_FILE_SIZE` | `500000` | Max file size (bytes) to index |
+| `TOKEN_SAVIOR_MAX_FILES` | `10000` | Max files per project |
+| `TOKEN_SAVIOR_WATCHER` | `auto` | File watcher: `auto` / `on` / `off` |
+| `TS_WATCHER_FORCE_POLLING` | off | Force the polling watcher backend |
+
+### Claude Code hooks
+
+| Var | Default | Purpose |
+|---|---|---|
+| `TS_CAPTURE_THRESHOLD_BYTES` | `4096` | Minimum tool-output size to sandbox |
+| `TS_CAPTURE_REPLACE=1` | off | Strong-replace: tell the agent to ignore the inline output and `capture_get` the URI |
+| `TS_BASH_COMPACT=1` | off | Enable PostToolUse Bash output compactors |
+| `TS_COMPACT_INLINE_THRESHOLD` | `4096` | Hybrid mode: compact-result size above which the full original is also sandboxed |
+| `TS_COMPACT_TINY_THRESHOLD` | `256` | Hybrid mode: compact-result size below which the sandbox is always skipped |
+| `TS_BASH_REWRITE=1` | off | Enable the PreToolUse Bash command rewriter |
+| `TS_BASH_REWRITE_LOG` | — | JSONL audit log of every rewrite |
+| `TS_HOOK_MINIMAL=1` | off | SessionStart memory hook emits only the Memory Index block |
+
+### Memory extras
+
+| Var | Default | Purpose |
+|---|---|---|
+| `TS_VIEWER_PORT` | off | Port for the observation web viewer (unset = disabled) |
+| `TS_AUTO_EXTRACT=1` + `TS_API_KEY` | off | LLM auto-extraction of memory observations (Anthropic API key required) |
+| `TS_MODEL` | `claude-sonnet-4-6` | Auto-extraction model override |
+| `TOKEN_SAVIOR_MEMORY_AUTO_SAVE=1` | off | Auto-save memory observations |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | — | Critical-observation feed |
+
+### Storage, dashboard, debugging
+
+| Var | Default | Purpose |
+|---|---|---|
+| `TOKEN_SAVIOR_STATS_DIR` | `~/.local/share/token-savior` | Telemetry + stats directory |
+| `TOKEN_SAVIOR_DASHBOARD_HOST` | `127.0.0.1` | Dashboard bind host |
+| `TOKEN_SAVIOR_DASHBOARD_PORT` | `8921` | Dashboard port |
+| `TOKEN_SAVIOR_INCLUDE_TMP_PROJECTS` | off (*bool*) | Dashboard also lists projects under temp dirs |
+| `TOKEN_SAVIOR_DEBUG=1` | off | Debug logging |
+| `TOKEN_SAVIOR_TRACE` | off (*bool*) | MCP request lifecycle tracing |
+
+Not knobs: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PROJECT_ROOT`,
+`CLAUDE_CONTEXT_REMAINING_PCT`, `CODEX_*` and `HERMES_*` are read for host/client
+detection — the environment sets them, you don't.
+
+Naming trap: `TS_PROFILE` in the benchmark snippets is **tsbench's** variable;
+the server reads `TOKEN_SAVIOR_PROFILE`.
 
 ---
 
