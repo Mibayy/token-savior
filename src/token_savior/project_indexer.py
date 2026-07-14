@@ -187,6 +187,8 @@ class ProjectIndexer:
             "**/*.tf",
             "**/*.conf",
             "**/*.prisma",
+            "**/*.sh",
+            "**/*.bash",
             "**/Dockerfile",
             "**/Dockerfile.*",
             "**/*.dockerfile",
