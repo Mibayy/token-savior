@@ -17,6 +17,7 @@ from token_savior.models import AnnotatorProtocol, StructuralMetadata
 from token_savior.python_annotator import annotate_python
 from token_savior.ruby_annotator import annotate_ruby
 from token_savior.rust_annotator import annotate_rust
+from token_savior.shell_annotator import annotate_shell
 from token_savior.text_annotator import annotate_text
 from token_savior.toml_annotator import annotate_toml
 from token_savior.typescript_annotator import annotate_typescript
@@ -61,6 +62,8 @@ _EXTENSION_MAP: dict[str, str] = {
     ".tf": "hcl",
     ".conf": "conf",
     ".prisma": "prisma",
+    ".sh": "shell",
+    ".bash": "shell",
 }
 
 
@@ -86,6 +89,7 @@ _ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "conf": annotate_conf,
     "dockerfile": annotate_dockerfile,
     "prisma": annotate_prisma,
+    "shell": annotate_shell,
 }
 
 
