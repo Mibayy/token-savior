@@ -346,12 +346,12 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 |---|---|---|
 | `WORKSPACE_ROOTS` | current dir | Comma-separated project roots to index |
 | `PROJECT_ROOT` | — | Single-root alternative to `WORKSPACE_ROOTS` |
-| `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile (`optimized` ships the Pareto set and implies thin schemas + capture off) |
+| `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile. `optimized` — the value the quickstart config and `ts init` recommend — ships the Pareto manifest, implies thin schemas, and omits the capture tools from the manifest |
 | `TS_THIN_SCHEMAS=1` | off (on in `optimized`) | Strip verbose tool schemas from the manifest |
 | `TS_AUTO_HOT_K` | `10` | Hot-tool count exposed by the telemetry-driven `auto` profile |
 | `TOKEN_SAVIOR_CHAIN_NUDGE` | on | `0`/`false`/`off` disables chained-tool nudges |
 | `TS_MEMORY_DISABLE=1` | off | Disable the memory engine (clean-context workloads) |
-| `TS_CAPTURE_DISABLED=1` | off (on in `optimized`) | Skip read-side capture sandboxing |
+| `TS_CAPTURE_DISABLED=1` | off | Skip read-side capture sandboxing and drop the capture tools from the manifest (no profile flips this; `optimized` only hides the capture tools) |
 | `TS_CODE_MODE_DISABLE=1` | off | Disable code-mode tools |
 | `TS_CODE_MODE_NODE` | `node` | Node binary used by the code-mode sandbox |
 | `TS_RESOURCES_DISABLED` | off (*bool*) | Don't expose observations as `ts://obs/{id}` MCP resources |
