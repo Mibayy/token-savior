@@ -191,6 +191,8 @@ class ProjectIndexer:
             "**/*.prisma",
             "**/*.sh",
             "**/*.bash",
+            "**/*.php",
+            "**/*.inc",
             "**/Dockerfile",
             "**/Dockerfile.*",
             "**/*.dockerfile",

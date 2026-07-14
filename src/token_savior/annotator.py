@@ -14,6 +14,7 @@ from token_savior.java_annotator import annotate_java
 from token_savior.json_annotator import annotate_json
 from token_savior.prisma_annotator import annotate_prisma
 from token_savior.models import AnnotatorProtocol, StructuralMetadata
+from token_savior.php_annotator import annotate_php
 from token_savior.python_annotator import annotate_python
 from token_savior.ruby_annotator import annotate_ruby
 from token_savior.rust_annotator import annotate_rust
@@ -64,6 +65,8 @@ _EXTENSION_MAP: dict[str, str] = {
     ".prisma": "prisma",
     ".sh": "shell",
     ".bash": "shell",
+    ".php": "php",
+    ".inc": "php",
 }
 
 
@@ -90,6 +93,7 @@ _ANNOTATOR_MAP: dict[str, AnnotatorProtocol] = {
     "dockerfile": annotate_dockerfile,
     "prisma": annotate_prisma,
     "shell": annotate_shell,
+    "php": annotate_php,
 }
 
 

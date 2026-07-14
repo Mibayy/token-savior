@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Mibay"},
 ]
-keywords = ["mcp", "codebase", "indexer", "code-navigation", "structural-analysis", "c", "glsl", "python", "typescript", "go", "rust", "shell"]
+keywords = ["mcp", "codebase", "indexer", "code-navigation", "structural-analysis", "c", "glsl", "python", "typescript", "go", "rust", "shell", "php"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
