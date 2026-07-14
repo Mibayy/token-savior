@@ -6,11 +6,27 @@ any failure returns None so the caller falls back to the in-process path.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import socket
 import struct
+import tempfile
 import threading
 
+import pytest
+
 from token_savior import daemon_client
+
+
+@pytest.fixture
+def sock_dir():
+    # pytest's tmp_path can exceed the AF_UNIX sun_path limit (104 bytes on
+    # macOS/BSD, 108 on Linux) and make bind() fail — which turned the
+    # expect-None tests below into vacuous passes. mkdtemp under the system
+    # temp dir stays short enough to bind everywhere.
+    d = tempfile.mkdtemp(prefix="tsd.")
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def _serve_one(sock_path: str, response: dict | None, *, ready: threading.Event):
@@ -39,32 +55,35 @@ def _run_server(sock_path, response):
     ready = threading.Event()
     t = threading.Thread(target=_serve_one, args=(sock_path, response), kwargs={"ready": ready}, daemon=True)
     t.start()
-    ready.wait(timeout=5)
+    if not ready.wait(timeout=5):
+        # A dead server thread must fail the test loudly — a silent timeout
+        # makes every expect-None assertion below pass vacuously.
+        raise RuntimeError(f"test daemon failed to bind/listen on {sock_path}")
     return t
 
 
-def test_no_socket_returns_none(tmp_path):
-    assert daemon_client.call_daemon("ts_search", {"query": "x"}, sock_path=str(tmp_path / "absent.sock")) is None
+def test_no_socket_returns_none(sock_dir):
+    assert daemon_client.call_daemon("ts_search", {"query": "x"}, sock_path=os.path.join(sock_dir, "absent.sock")) is None
 
 
-def test_successful_call_returns_text(tmp_path):
-    sock_path = str(tmp_path / "ts.sock")
+def test_successful_call_returns_text(sock_dir):
+    sock_path = os.path.join(sock_dir, "ts.sock")
     t = _run_server(sock_path, {"ok": True, "text": "DAEMON_RESULT"})
     out = daemon_client.call_daemon("ts_search", {"query": "find deps"}, sock_path=sock_path)
     t.join(timeout=5)
     assert out == "DAEMON_RESULT"
 
 
-def test_error_response_returns_none(tmp_path):
-    sock_path = str(tmp_path / "ts.sock")
+def test_error_response_returns_none(sock_dir):
+    sock_path = os.path.join(sock_dir, "ts.sock")
     t = _run_server(sock_path, {"ok": False, "error": "boom"})
     out = daemon_client.call_daemon("ts_search", {"query": "x"}, sock_path=sock_path)
     t.join(timeout=5)
     assert out is None
 
 
-def test_non_string_text_returns_none(tmp_path):
-    sock_path = str(tmp_path / "ts.sock")
+def test_non_string_text_returns_none(sock_dir):
+    sock_path = os.path.join(sock_dir, "ts.sock")
     t = _run_server(sock_path, {"ok": True, "text": {"not": "a string"}})
     out = daemon_client.call_daemon("ts_search", {"query": "x"}, sock_path=sock_path)
     t.join(timeout=5)
