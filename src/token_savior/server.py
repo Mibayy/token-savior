@@ -603,26 +603,10 @@ def _detect_chain_nudge(name: str, symbol: str) -> str | None:
         return None
     now = time.monotonic()
 
-    # Pattern 3: edit tool called without a preceding get_edit_context on the
-    # same symbol. Audit 2026-07-04: 0 get_edit_context calls across ~199 edits
-    # (replace_symbol_source 156 + add_field_to_model 28 + insert_near_symbol 15).
-    # get_edit_context returns source + callers + deps + siblings + tests in one
-    # call -- editing blind risks breaking a caller the agent never looked at.
-    if symbol and name in _EDIT_TOOLS_NEEDING_CONTEXT:
-        saw_context = False
-        for ts, prev_tool, prev_sym in reversed(s._chain_calls):
-            if now - ts > _CHAIN_WINDOW_SEC:
-                break
-            if prev_tool == "get_edit_context" and prev_sym == symbol:
-                saw_context = True
-                break
-        if not saw_context:
-            return _fire_nudge("edit_context", (
-                f"[NUDGE] You're editing '{symbol}' without calling "
-                f"get_edit_context('{symbol}') first. It returns source + callers + "
-                f"deps + siblings + impacted tests in one call, so you don't break a "
-                f"caller you never saw."
-            ))
+    # Pattern 3 (edit without prior get_edit_context) is retired: the advisory
+    # nudge fired 12x across 219 edits and converted 0. Superseded by the
+    # edit-impact block (_edit_impact_notice), which appends callers + impacted
+    # tests to the edit result by default -- value delivered, no habit to adopt.
 
     if symbol:
         for ts, prev_tool, prev_sym in reversed(s._chain_calls):
@@ -676,6 +660,84 @@ def _prepend_nudge(result: list, nudge: str) -> list:
     s._chain_nudges_emitted += 1
     notice = TextContent(type="text", text=nudge)
     return [notice, *result]
+
+
+# ---------------------------------------------------------------------------
+# Edit-impact: fold the value of get_edit_context INTO the edit result.
+# Audit 2026-07: get_edit_context called 0 times across 219 edits; the
+# [NUDGE] pointing at it fired 12 times and converted 0. A post-hoc advisory
+# asking the agent to ADD a pre-edit call never lands. So instead of nudging,
+# we append the callers + impacted tests of the just-edited symbol to the edit
+# result -- the safety value ("did you break a caller you never saw?") is
+# delivered by default, no new habit to adopt. Opt out with
+# TOKEN_SAVIOR_EDIT_IMPACT=0.
+# ---------------------------------------------------------------------------
+_EDIT_IMPACT_DISABLED: bool = os.environ.get(
+    "TOKEN_SAVIOR_EDIT_IMPACT", "1"
+).lower() in ("0", "false", "off")
+
+
+def _edit_succeeded(wrapped: list) -> bool:
+    """True unless the (wrapped) tool result looks like an error payload."""
+    for item in wrapped or []:
+        text = getattr(item, "text", "") or ""
+        if text.startswith("Error:") or text.startswith("Error "):
+            return False
+    return True
+
+
+def _edit_impact_notice(slot, name: str, symbol: str) -> str | None:
+    """Compact 'who calls this + impacted tests' block for a just-edited symbol.
+
+    Reuses the same query functions get_edit_context uses (get_dependents +
+    find_impacted_test_files) but returns a terse notice instead of the full
+    context. Best-effort: any failure yields None rather than disturbing the
+    edit result.
+    """
+    if _EDIT_IMPACT_DISABLED:
+        return None
+    if name not in _EDIT_TOOLS_NEEDING_CONTEXT or not symbol:
+        return None
+    qfns = getattr(slot, "query_fns", None)
+    if qfns is None:
+        return None
+
+    parts: list[str] = []
+    try:
+        callers = qfns["get_dependents"](symbol, max_results=8) or []
+    except Exception:
+        callers = []
+    caller_names = [
+        c["name"]
+        for c in callers
+        if isinstance(c, dict) and c.get("name") and "error" not in c
+    ]
+    if caller_names:
+        parts.append(f"callers ({len(caller_names)}): " + ", ".join(caller_names[:8]))
+
+    try:
+        impact = qfns["find_impacted_test_files"](symbol_names=[symbol], max_tests=5)
+        tests = impact.get("impacted_tests", []) if isinstance(impact, dict) else []
+    except Exception:
+        tests = []
+    test_names: list[str] = []
+    for t in tests:
+        tn = (
+            t
+            if isinstance(t, str)
+            else (t.get("file") or t.get("path") if isinstance(t, dict) else None)
+        )
+        if tn:
+            test_names.append(tn)
+    if test_names:
+        parts.append("impacted tests: " + ", ".join(test_names[:5]))
+
+    if not parts:
+        return None
+    return (
+        f"[EDIT IMPACT] '{symbol}' edited -- verify you did not break:\n  "
+        + "\n  ".join(parts)
+    )
 
 
 def _maybe_auto_save_findings():
@@ -766,7 +828,12 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
 
     handler = _SLOT_HANDLERS.get(name)
     if handler is not None:
-        return _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
+        wrapped = _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
+        if name in _EDIT_TOOLS_NEEDING_CONTEXT and _edit_succeeded(wrapped):
+            notice = _edit_impact_notice(slot, name, record_symbol)
+            if notice:
+                wrapped = [*wrapped, TextContent(type="text", text=notice)]
+        return wrapped
 
     qfn_handler = _QFN_HANDLERS.get(name)
     if qfn_handler is not None:

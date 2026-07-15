@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.9.0 — Edit-impact block replaces the get_edit_context nudge (2026-07-15)
+
+Usage audit over 425 real sessions: `get_edit_context` called **0 times across
+219 edits**, and the `[NUDGE]` pointing at it fired 12 times and converted 0.
+A post-hoc advisory asking the agent to ADD a pre-edit call never lands. So we
+stop nudging and fold the value into the edit result instead.
+
+- `server.py`: after a successful `replace_symbol_source` / `insert_near_symbol`
+  / `add_field_to_model` / `move_symbol`, `_edit_impact_notice()` appends a
+  compact `[EDIT IMPACT]` block listing the edited symbol's callers + impacted
+  tests (reuses the same `get_dependents` + `find_impacted_test_files` query
+  functions as `get_edit_context`). The safety value ("did you break a caller
+  you never saw?") is now delivered by default -- no habit to adopt. Opt out
+  with `TOKEN_SAVIOR_EDIT_IMPACT=0`.
+- `_detect_chain_nudge`: Pattern 3 (edit-without-context nudge) retired, now
+  superseded by the edit-impact block.
+- Best-effort: any query failure yields no block rather than disturbing the
+  edit result. `tests/test_edit_impact.py` (7 tests) + updated chain-nudge tests.
+
 ## v4.8.0 — Observations as MCP resources (2026-07-04)
 
 Formalises the `ts://obs/{id}` scheme (already printed by memory_index) as real

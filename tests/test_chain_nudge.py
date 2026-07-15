@@ -139,11 +139,13 @@ class TestChainNudge:
         assert server_state._chain_nudges_emitted == 0
 
 
-class TestEditContextNudge:
-    """Pattern 3: edit tool without a preceding get_edit_context on the symbol.
+class TestEditContextNudgeRetired:
+    """Pattern 3 (edit without prior get_edit_context) is retired.
 
-    Audit 2026-07-04: 0 get_edit_context calls across ~199 edits. Editing blind
-    risks breaking callers the agent never looked at.
+    The advisory nudge fired 12x across 219 edits and converted 0. It is
+    superseded by the edit-impact block (_edit_impact_notice), which appends
+    callers + impacted tests to the edit result by default. So the chain-nudge
+    detector must NOT emit an edit_context nudge anymore.
     """
 
     def _seed(self, entries):
@@ -153,23 +155,19 @@ class TestEditContextNudge:
         for dt, tool, sym in entries:
             server_state._chain_calls.append((now + dt, tool, sym))
 
-    def test_edit_without_context_emits_nudge(self):
+    def test_edit_without_context_no_longer_nudges(self):
         self._seed([(0.0, "replace_symbol_source", "foo")])
-        nudge = server._detect_chain_nudge("replace_symbol_source", "foo")
-        assert nudge and "get_edit_context('foo')" in nudge
-
-    def test_edit_with_context_no_nudge(self):
-        self._seed([(-1.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")])
         assert server._detect_chain_nudge("replace_symbol_source", "foo") is None
 
-    def test_edit_context_different_symbol_still_nudges(self):
-        self._seed([(-1.0, "get_edit_context", "bar"), (0.0, "replace_symbol_source", "foo")])
-        nudge = server._detect_chain_nudge("replace_symbol_source", "foo")
-        assert nudge and "get_edit_context('foo')" in nudge
-
-    def test_context_outside_window_still_nudges(self):
-        self._seed([(-120.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")])
-        assert server._detect_chain_nudge("replace_symbol_source", "foo") is not None
+    def test_edit_various_shapes_no_nudge(self):
+        # Neither missing, different-symbol, nor stale context produce a nudge.
+        for seed in (
+            [(-1.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")],
+            [(-1.0, "get_edit_context", "bar"), (0.0, "replace_symbol_source", "foo")],
+            [(-120.0, "get_edit_context", "foo"), (0.0, "replace_symbol_source", "foo")],
+        ):
+            self._seed(seed)
+            assert server._detect_chain_nudge("replace_symbol_source", "foo") is None
 
 
 class TestTsExecuteNudge:
