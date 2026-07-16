@@ -142,10 +142,17 @@ def test_settings_path_global_per_agent(tmp_path: Path) -> None:
         "claude": home / ".claude" / "settings.json",
         "cursor": home / ".cursor" / "settings.json",
         "gemini": home / ".gemini" / "settings.json",
-        "codex": home / ".codex" / "settings.json",
+        # Codex reads hook config from hooks.json, not settings.json
+        # (config.toml holds its non-hook settings).
+        "codex": home / ".codex" / "hooks.json",
     }
     for agent, path in expected.items():
         assert settings_path(agent, "global", home=home) == path
+
+
+def test_settings_path_local_codex_is_hooks_json(tmp_path: Path) -> None:
+    cwd = tmp_path / "project"
+    assert settings_path("codex", "local", cwd=cwd) == cwd / ".codex" / "hooks.json"
 
 
 def test_settings_path_unsupported_raises(tmp_path: Path) -> None:
@@ -207,6 +214,101 @@ def test_detect_agent_finds_first_existing(tmp_path: Path) -> None:
 
 def test_detect_agent_none_when_nothing(tmp_path: Path) -> None:
     assert _detect_agent(tmp_path) is None
+
+
+def test_detect_agent_codex_via_config_toml(tmp_path: Path) -> None:
+    # Codex installs never create hooks.json themselves; the marker for an
+    # existing Codex install is ~/.codex/config.toml.
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text('model = "gpt-5"\n')
+    assert _detect_agent(tmp_path) == "codex"
+
+
+# --------------------------------------------------------------------------- #
+# Bundled hook config contents                                                #
+# --------------------------------------------------------------------------- #
+def test_codex_bundle_matches_live_codex_hook_schema() -> None:
+    """Codex emits Claude-compatible hook events: hook_event_name
+    'PostToolUse' with tool_name 'Bash' for shell commands, entries shaped
+    'hooks: [{type, command}]', and timeout in seconds.
+    (Probed live against codex-cli 0.144.5.)
+    """
+    import re
+
+    (bundle,) = _load_hook_bundles("codex", REPO_ROOT)
+    hooks = bundle["hooks"]
+    assert "tool_complete" not in hooks
+    assert "PostToolUse" in hooks
+    (entry,) = hooks["PostToolUse"]
+    assert re.search(entry["matcher"], "Bash")
+    (inner,) = entry["hooks"]
+    assert inner["type"] == "command"
+    assert isinstance(inner["command"], str) and inner["command"]
+    assert "timeout_ms" not in inner
+    assert inner.get("timeout", 0) <= 60  # seconds, not milliseconds
+
+
+def test_bundles_use_running_interpreter_not_usr_bin_python3() -> None:
+    """/usr/bin/python3 cannot import token_savior on a normal venv/pipx
+    install — the hook then silently no-ops. Commands must use the
+    interpreter that ran `ts init`.
+    """
+    from token_savior.cli_init import _hook_python
+
+    expected = _hook_python()
+    for agent in SUPPORTED_AGENTS:
+        for bundle in _load_hook_bundles(agent, REPO_ROOT):
+            for entries in bundle["hooks"].values():
+                for entry in entries:
+                    inner = entry.get("hooks")
+                    cmds = (
+                        [h["command"] for h in inner]
+                        if isinstance(inner, list)
+                        else [entry["command"]]
+                    )
+                    for cmd in cmds:
+                        assert "/usr/bin/python3" not in cmd, (agent, cmd)
+                        assert cmd.startswith(expected + " "), (agent, cmd)
+
+
+def test_repo_layout_hook_commands_use_script_path_under_ts_root() -> None:
+    # REPO_ROOT is a source checkout (hooks/ at the root, package under
+    # src/), so commands must reference the hook scripts by path there —
+    # `-m token_savior.hooks.X` is only valid for wheel installs, where the
+    # hooks ship inside the package.
+    (capture, rewriter) = _load_hook_bundles("claude", REPO_ROOT)
+    cap_cmd = capture["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+    rew_cmd = rewriter["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert cap_cmd.endswith(str(REPO_ROOT / "hooks" / "tool_capture_hook.py"))
+    assert rew_cmd.endswith(str(REPO_ROOT / "hooks" / "bash_rewriter_hook.py"))
+
+
+def test_wheel_layout_hook_invocation_uses_module_form() -> None:
+    # When ts_root IS the installed package dir (wheel layout: hooks shipped
+    # at token_savior/hooks via force-include), commands run `-m` so no
+    # lib/pythonX.Y/site-packages path is baked into the agent settings.
+    from token_savior.cli_init import _PACKAGE_ROOT, _hook_invocation
+
+    assert (
+        _hook_invocation("tool_capture_hook", _PACKAGE_ROOT)
+        == "-m token_savior.hooks.tool_capture_hook"
+    )
+
+
+def test_claude_capture_matcher_covers_recall_server_name() -> None:
+    """The MCP server registers on PyPI/README as 'token-savior-recall', so
+    live tool names are mcp__token-savior-recall__*. The matcher must cover
+    both that and a plain 'token-savior' key.
+    """
+    import re
+
+    (capture, _) = _load_hook_bundles("claude", REPO_ROOT)
+    matcher = capture["hooks"]["PostToolUse"][0]["matcher"]
+    for name in (
+        "mcp__token-savior-recall__search_codebase",
+        "mcp__token-savior__search_codebase",
+    ):
+        assert re.search(matcher, name), name
 
 
 # --------------------------------------------------------------------------- #

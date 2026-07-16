@@ -1,11 +1,16 @@
 {
-  "_comment": "OpenAI Codex / Copilot CLI hook config. Codex exposes 'tool_complete' event analogous to PostToolUse. Adapt path to your install location.",
+  "_comment": "OpenAI Codex CLI hook config for the tool_capture sandbox. Merge into ~/.codex/hooks.json (or <project>/.codex/hooks.json). Codex emits Claude-compatible hook events: PostToolUse with tool_name 'Bash' for shell commands; entries nest under 'hooks' and timeout is in seconds (probed against codex-cli 0.144.5).",
   "hooks": {
-    "tool_complete": [
+    "PostToolUse": [
       {
-        "matcher": "shell|read_file|web_search|mcp__token-savior__.*",
-        "command": "/usr/bin/python3 {{TS_HOOKS_DIR}}/tool_capture_hook.py",
-        "timeout_ms": 5000
+        "matcher": "^(Bash|mcp__token-savior[\\w-]*__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:tool_capture_hook}}",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
