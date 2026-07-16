@@ -13,6 +13,7 @@ package.  They are merged into the agent settings file by merger.py.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -57,8 +58,13 @@ def settings_path(agent: str, scope: Scope = "global", *, home: Path | None = No
     """Return the settings.json path for the given agent and scope.
 
     `home` and `cwd` overrides are exposed for tests so we never touch the
-    real user filesystem.
+    real user filesystem. Claude Code honors the CLAUDE_CONFIG_DIR environment
+    variable for its global config root; an explicit `home` override wins.
     """
+    if scope == "global" and agent == "claude" and home is None:
+        config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+        if config_dir:
+            return Path(config_dir) / "settings.json"
     home = home or Path.home()
     cwd = cwd or Path.cwd()
     if scope == "global":

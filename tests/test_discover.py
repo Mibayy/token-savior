@@ -711,3 +711,17 @@ class TestAdoptionHandler:
         assert len(result) == 1
         # Empty transcript root → "no findings" string from _fmt_table.
         assert isinstance(result[0].text, str)
+
+
+def test_transcript_root_honors_claude_config_dir(tmp_path, monkeypatch):
+    from token_savior.discover.transcript_scanner import transcript_root
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
+    assert transcript_root() == tmp_path / "claude2" / "projects"
+
+
+def test_transcript_root_defaults_to_home_claude(monkeypatch):
+    from token_savior.discover.transcript_scanner import transcript_root
+
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert transcript_root() == Path.home() / ".claude" / "projects"
