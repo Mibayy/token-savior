@@ -13,6 +13,7 @@ the sanitized directory name, e.g. ``-root`` for ``/root``).
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +44,13 @@ class Event:
 
 
 def transcript_root() -> Path:
-    """Return ``~/.claude/projects`` as a :class:`Path`."""
+    """Return the Claude projects dir, honoring ``CLAUDE_CONFIG_DIR``.
+
+    Defaults to ``~/.claude/projects`` when the variable is unset.
+    """
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config_dir:
+        return Path(config_dir) / "projects"
     return Path.home() / ".claude" / "projects"
 
 

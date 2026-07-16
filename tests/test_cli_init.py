@@ -160,6 +160,20 @@ def test_settings_path_unsupported_raises(tmp_path: Path) -> None:
         settings_path("emacs", "global", home=tmp_path)
 
 
+def test_settings_path_claude_global_honors_claude_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
+    assert settings_path("claude", "global") == tmp_path / "claude2" / "settings.json"
+
+
+def test_settings_path_explicit_home_wins_over_claude_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
+    assert settings_path("claude", "global", home=tmp_path) == tmp_path / ".claude" / "settings.json"
+
+
 def test_hook_config_paths_claude_has_both() -> None:
     paths = hook_config_paths("claude", REPO_ROOT)
     names = {p.name for p in paths}
