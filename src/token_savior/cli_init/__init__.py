@@ -14,11 +14,12 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Iterable
 
-from .agent_paths import SUPPORTED_AGENTS, hook_config_paths, settings_path
+from .agent_paths import SUPPORTED_AGENTS, detection_path, hook_config_paths, settings_path
 from .merger import added_entries, format_diff, merge_hook_config
 
 
@@ -43,10 +44,10 @@ else:
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
 def _detect_agent(home: Path) -> str | None:
-    """Return the first agent whose global settings file already exists."""
+    """Return the first agent whose install marker already exists."""
     for agent in SUPPORTED_AGENTS:
         try:
-            if settings_path(agent, "global", home=home).exists():
+            if detection_path(agent, home).exists():
                 return agent
         except ValueError:
             continue
@@ -91,10 +92,44 @@ def _write_settings(path: Path, data: dict) -> None:
         raise PermissionError(f"cannot write {path}: {e}") from e
 
 
+def _hook_python() -> str:
+    """Interpreter for the installed hook commands: the one running `ts init`
+    (it can import token_savior by construction), preferring its unversioned
+    `python3` alias so the command survives a venv rebuilt on a newer Python.
+    """
+    exe = Path(sys.executable)
+    alias = exe.with_name("python3")
+    try:
+        if alias != exe and alias.samefile(exe):
+            return str(alias)
+    except OSError:
+        pass
+    return str(exe)
+
+
+def _hook_invocation(module: str, ts_root: Path) -> str:
+    """How the hook command names its Python entrypoint.
+
+    Wheel installs ship the hooks inside the package (ts_root IS the package
+    dir), so `-m token_savior.hooks.<module>` — no interpreter-versioned
+    site-packages path to go stale. Source checkouts keep hooks/ at the repo
+    root, outside the package, so those run by script path.
+    """
+    if ts_root.resolve() == _PACKAGE_ROOT:
+        return f"-m token_savior.hooks.{module}"
+    return str(ts_root / "hooks" / f"{module}.py")
+
+
+def _json_escaped(value: str) -> str:
+    return json.dumps(value)[1:-1]
+
+
 def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
-    """Load shipped hook JSON configs and substitute the {{TS_HOOKS_DIR}}
-    placeholder with the actual install path of this Token Savior copy."""
-    hooks_dir = str((ts_root / "hooks").resolve())
+    """Load shipped hook JSON configs and substitute the {{TS_PYTHON}},
+    {{TS_HOOK:<module>}} and legacy {{TS_HOOKS_DIR}} placeholders with the
+    actual install paths of this Token Savior copy."""
+    hooks_dir = _json_escaped(str((ts_root / "hooks").resolve()))
+    python = _json_escaped(_hook_python())
     bundles: list[dict] = []
     missing: list[Path] = []
     for p in hook_config_paths(agent, ts_root):
@@ -102,7 +137,14 @@ def _load_hook_bundles(agent: str, ts_root: Path) -> list[dict]:
             missing.append(p)
             continue
         try:
-            raw = p.read_text(encoding="utf-8").replace("{{TS_HOOKS_DIR}}", hooks_dir)
+            raw = p.read_text(encoding="utf-8")
+            raw = raw.replace("{{TS_HOOKS_DIR}}", hooks_dir)
+            raw = raw.replace("{{TS_PYTHON}}", python)
+            raw = re.sub(
+                r"\{\{TS_HOOK:(\w+)\}\}",
+                lambda m: _json_escaped(_hook_invocation(m.group(1), ts_root)),
+                raw,
+            )
             bundles.append(json.loads(raw))
         except (OSError, json.JSONDecodeError) as e:
             raise RuntimeError(f"cannot load bundled hook config {p}: {e}") from e

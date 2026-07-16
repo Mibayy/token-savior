@@ -3,11 +3,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Bash|WebFetch|Read|Grep|mcp__playwright__.*|mcp__token-savior__search_codebase|mcp__token-savior__get_function_source|mcp__token-savior__get_class_source",
+        "matcher": "Bash|WebFetch|Read|Grep|mcp__playwright__.*|mcp__token-savior[\\w-]*__(search_codebase|get_function_source|get_class_source)",
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 {{TS_HOOKS_DIR}}/tool_capture_hook.py",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:tool_capture_hook}}",
             "timeout": 5000
           }
         ]

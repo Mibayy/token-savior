@@ -35,8 +35,9 @@ def _global_settings(agent: str, home: Path) -> Path:
     if agent == "gemini":
         return home / ".gemini" / "settings.json"
     if agent == "codex":
-        # OpenAI Codex / Copilot CLI uses ~/.codex/settings.json.
-        return home / ".codex" / "settings.json"
+        # OpenAI Codex CLI reads hook config from ~/.codex/hooks.json;
+        # config.toml holds its non-hook settings.
+        return home / ".codex" / "hooks.json"
     raise ValueError(f"unsupported agent: {agent}")
 
 
@@ -48,8 +49,19 @@ def _local_settings(agent: str, cwd: Path) -> Path:
     if agent == "gemini":
         return cwd / ".gemini" / "settings.json"
     if agent == "codex":
-        return cwd / ".codex" / "settings.json"
+        return cwd / ".codex" / "hooks.json"
     raise ValueError(f"unsupported agent: {agent}")
+
+
+def detection_path(agent: str, home: Path) -> Path:
+    """Return the file whose existence marks an installed agent.
+
+    Usually the global settings file itself — except Codex, whose hooks.json
+    only exists after `ts init` has run; its install marker is config.toml.
+    """
+    if agent == "codex":
+        return home / ".codex" / "config.toml"
+    return _global_settings(agent, home)
 
 
 def settings_path(agent: str, scope: Scope = "global", *, home: Path | None = None,
