@@ -147,8 +147,8 @@ class ProjectIndexer:
         root_path: str,
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
-        max_file_size_bytes: int = 500_000,
-        max_files: int = 10_000,
+        max_file_size_bytes: int | None = None,
+        max_files: int | None = None,
     ):
         self.root_path = os.path.abspath(root_path)
         self.include_patterns = include_patterns or [

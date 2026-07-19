@@ -244,6 +244,30 @@ class TestFileDiscovery:
 
         assert "big_file.py" not in idx.files
 
+    def test_max_files_env_var(self, tmp_path, monkeypatch):
+        # Create more files than the env-var limit
+        for i in range(5):
+            (tmp_path / f"file_{i}.py").write_text(f"x = {i}\n")
+
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILES", "3")
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        assert idx.total_files == 3
+
+    def test_max_file_size_env_var(self, tmp_path, monkeypatch):
+        large_file = tmp_path / "big_file.py"
+        large_file.write_text("x = 1\n" * 100_000)  # ~600KB
+        small_file = tmp_path / "small_file.py"
+        small_file.write_text("x = 1\n")
+
+        monkeypatch.setenv("TOKEN_SAVIOR_MAX_FILE_SIZE", "100")
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        idx = indexer.index()
+
+        assert "big_file.py" not in idx.files
+        assert "small_file.py" in idx.files
+
     def test_include_patterns_filter(self, sample_project):
         # Only include Python files
         indexer = ProjectIndexer(
