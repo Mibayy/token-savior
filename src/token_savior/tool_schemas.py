@@ -371,7 +371,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_symbol": {
         "description": (
-        'Locate a symbol: file, line, signature, minimal preview.'   ),
+        'Locate a symbol: file, line, signature, minimal preview. '
+        'Searches functions and classes by default — pass kinds=["variable"] '
+        'for module globals, constants, and class attributes. A miss reports '
+        'which kinds were searched.'   ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -382,6 +385,14 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "minimum": 0,
                     "maximum": 2,
                     "description": "0 full, 1 no preview, 2 minimal.",
+                },
+                "kinds": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["function", "class", "variable"]},
+                    "description": (
+                        "Symbol kinds to search. Default: function+class "
+                        "(plus variable when TOKEN_SAVIOR_VARIABLES=search)."
+                    ),
                 },
                 "hints": {"type": "boolean", "description": "Add a `_hints` key with next-step tool calls (default true)."},
                 **_COMPRESS_PARAM,

@@ -55,7 +55,7 @@ def __getattr__(name):
 # Persistent cache versioning
 # ---------------------------------------------------------------------------
 
-_CACHE_VERSION: int = 2  # Bumped: switched from pickle to JSON
+_CACHE_VERSION: int = 3  # Bumped: StructuralMetadata.variables + ProjectIndex.variable_table
 
 # ---------------------------------------------------------------------------
 # Project state — slot manager owns the project dict and active root

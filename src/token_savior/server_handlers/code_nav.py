@@ -613,13 +613,24 @@ def _q_find_symbol(qfns, args: dict[str, Any]):
                 ],
             },
         }
-    result = qfns["find_symbol"](name, level=args.get("level", 0))
+    # Only forward `kinds` when the caller set it — the query engine derives
+    # its own default, and an unconditional kwarg would break older engines.
+    extra = {"kinds": args["kinds"]} if args.get("kinds") else {}
+    result = qfns["find_symbol"](name, level=args.get("level", 0), **extra)
     if isinstance(result, dict) and "error" in result:
         if not _HINTS_DISABLED:
+            retry_with = result.get("retry_with")
             result["_suggestion"] = (
-                f"Symbol '{name}' not found. "
-                f"Try: search_codebase('{name}') for a text search, "
-                f"or get_functions() to list all functions."
+                # An indexed-but-unsearched kind is the likeliest reason for a
+                # miss, so name that retry before sending the caller to grep.
+                f"Symbol '{name}' not found in {', '.join(result.get('searched', []))}. "
+                f"Try: {retry_with}"
+                if retry_with
+                else (
+                    f"Symbol '{name}' not found. "
+                    f"Try: search_codebase('{name}') for a text search, "
+                    f"or get_functions() to list all functions."
+                )
             )
     elif args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, dict):
         result["_hints"] = _hints_for_symbol(

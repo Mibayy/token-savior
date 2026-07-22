@@ -326,6 +326,7 @@ class ProjectIndexer:
         # Step 3: build global symbol table
         symbol_table = self._build_symbol_table(files)
         normalized_symbol_index = self._build_normalized_symbol_index(symbol_table)
+        variable_table = self._build_variable_table(files)
         duplicate_classes = self._build_duplicate_classes(files)
 
         # Step 4: build cross-file import graph
@@ -363,6 +364,7 @@ class ProjectIndexer:
             reverse_import_graph=reverse_import_graph,
             symbol_table=symbol_table,
             normalized_symbol_index=normalized_symbol_index,
+            variable_table=variable_table,
             duplicate_classes=duplicate_classes,
             total_files=len(files),
             total_lines=total_lines,
@@ -512,6 +514,7 @@ class ProjectIndexer:
         idx.total_classes += len(metadata.classes)
         idx.symbol_table = self._build_symbol_table(idx.files)
         idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
+        idx.variable_table = self._build_variable_table(idx.files)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
         # Rebuild import graph for this file
@@ -580,6 +583,7 @@ class ProjectIndexer:
         _rebuild_path_indexes(idx)
         idx.symbol_table = self._build_symbol_table(idx.files)
         idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
+        idx.variable_table = self._build_variable_table(idx.files)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
 
     def rebuild_graphs(self) -> None:
@@ -594,6 +598,7 @@ class ProjectIndexer:
         idx = self._project_index
         idx.symbol_table = self._build_symbol_table(idx.files)
         idx.normalized_symbol_index = self._build_normalized_symbol_index(idx.symbol_table)
+        idx.variable_table = self._build_variable_table(idx.files)
         idx.duplicate_classes = self._build_duplicate_classes(idx.files)
         idx.import_graph = self._build_import_graph(idx.files)
         idx.reverse_import_graph = self._build_reverse_graph(idx.import_graph)
@@ -736,6 +741,26 @@ class ProjectIndexer:
                 symbol_table[alias] = alias_targets[alias]
 
         return symbol_table
+
+    def _build_variable_table(
+        self, files: dict[str, StructuralMetadata]
+    ) -> dict[str, list[str]]:
+        """Build the variable table: name -> [file_paths defining it].
+
+        Both the bare name and the qualified name are keys, so a class
+        attribute is reachable as ``retries`` and as ``Engine.retries``. The
+        value is a list because — unlike functions — same-named module
+        globals across files are routine (``logger``, ``DEFAULTS``); a
+        single-winner map would silently pick one and hide the rest.
+        """
+        variable_table: dict[str, list[str]] = {}
+        for file_path, metadata in files.items():
+            for var in metadata.variables:
+                for key in {var.name, var.qualified_name}:
+                    files_for_key = variable_table.setdefault(key, [])
+                    if file_path not in files_for_key:
+                        files_for_key.append(file_path)
+        return variable_table
 
     @staticmethod
     def _normalize_symbol_name(name: str) -> str:
