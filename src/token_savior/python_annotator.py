@@ -13,7 +13,9 @@ from token_savior.models import (
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    VariableInfo,
     build_line_char_offsets,
+    variables_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -219,6 +221,89 @@ def _build_dependency_graph(
     return graph
 
 
+_VALUE_PREVIEW_MAX = 60
+
+
+def _is_constant_name(name: str, annotation: str | None) -> bool:
+    """UPPER_SNAKE or a Final[...] annotation reads as a constant."""
+    if annotation is not None and "Final" in annotation:
+        return True
+    stripped = name.lstrip("_")
+    return bool(stripped) and stripped.upper() == stripped and any(c.isalpha() for c in stripped)
+
+
+def _unparse(node: ast.AST | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        text = ast.unparse(node)
+    except Exception:  # pragma: no cover - unparse is total in practice
+        return None
+    text = " ".join(text.split())
+    if len(text) > _VALUE_PREVIEW_MAX:
+        text = text[: _VALUE_PREVIEW_MAX - 1] + "…"
+    return text
+
+
+def _binding_names(stmt: ast.stmt) -> list[tuple[str, str | None]]:
+    """(name, type_annotation) bound by one assignment statement.
+
+    ``AugAssign`` is skipped: ``x += 1`` rebinds an existing name rather than
+    introducing one, so treating it as a definition would report the wrong
+    line for the actual binding site.
+    """
+    if isinstance(stmt, ast.AnnAssign):
+        if isinstance(stmt.target, ast.Name):
+            return [(stmt.target.id, _unparse(stmt.annotation))]
+        return []
+    if isinstance(stmt, ast.Assign):
+        names: list[tuple[str, str | None]] = []
+        for target in stmt.targets:
+            # `a = b = 1` gives two targets; `a, b = ...` gives one Tuple.
+            elements = target.elts if isinstance(target, (ast.Tuple, ast.List)) else [target]
+            for element in elements:
+                if isinstance(element, ast.Name):
+                    names.append((element.id, None))
+        return names
+    return []
+
+
+def _extract_variables(tree: ast.Module) -> list[VariableInfo]:
+    """Module-level and class-level bindings, in source order.
+
+    Function locals are not collected — they cannot be referenced from
+    another module, so they are not findable symbols.
+    """
+    variables: list[VariableInfo] = []
+    seen: set[str] = set()
+
+    def collect(body: list[ast.stmt], parent_class: str | None) -> None:
+        for stmt in body:
+            for name, annotation in _binding_names(stmt):
+                qualified_name = f"{parent_class}.{name}" if parent_class else name
+                if qualified_name in seen:
+                    continue  # a rebinding; the first one is the definition
+                seen.add(qualified_name)
+                value = getattr(stmt, "value", None)
+                variables.append(
+                    VariableInfo(
+                        name=name,
+                        qualified_name=qualified_name,
+                        line_number=stmt.lineno,
+                        kind="constant" if _is_constant_name(name, annotation) else "variable",
+                        scope="class" if parent_class else "module",
+                        type_annotation=annotation,
+                        value_preview=_unparse(value),
+                    )
+                )
+
+    collect(tree.body, None)
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef):
+            collect(node.body, node.name)
+    return variables
+
+
 def _extract_imports(tree: ast.Module) -> list[ImportInfo]:
     """Extract all import statements from the AST."""
     imports: list[ImportInfo] = []
@@ -311,6 +396,9 @@ def annotate_python(source: str, source_name: str = "<source>") -> StructuralMet
     # Extract imports
     imports = _extract_imports(tree)
 
+    # Extract module- and class-level bindings
+    variables = _extract_variables(tree) if variables_mode() != "off" else []
+
     # Build dependency graph
     defined_names: set[str] = set()
     for f in functions:
@@ -329,5 +417,6 @@ def annotate_python(source: str, source_name: str = "<source>") -> StructuralMet
         functions=functions,
         classes=classes,
         imports=imports,
+        variables=variables,
         dependency_graph=dependency_graph,
     )

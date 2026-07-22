@@ -84,6 +84,47 @@ class ImportInfo:
 
 
 @dataclass(frozen=True)
+class VariableInfo:
+    """Metadata about a module-level or class-level variable/constant.
+
+    Only bindings an outside caller could reference are recorded — module
+    globals and class attributes. Function locals are deliberately excluded:
+    they are not addressable from another file, so indexing them would grow
+    the index without making anything findable.
+    """
+
+    name: str
+    qualified_name: str  # e.g. "Engine.retries"; equals name at module scope
+    line_number: int
+    kind: str  # "variable" | "constant"
+    scope: str  # "module" | "class"
+    type_annotation: str | None = None
+    value_preview: str | None = None
+
+
+_VARIABLES_MODES = ("off", "index", "search")
+_VARIABLES_DEFAULT = "index"
+
+
+def variables_mode() -> str:
+    """How ``TOKEN_SAVIOR_VARIABLES`` gates variable indexing and lookup.
+
+    - ``off``    — annotators skip variable extraction entirely; find_symbol
+      rejects an explicit ``kinds=["variable"]`` rather than reporting an
+      empty result that looks like "no such variable".
+    - ``index``  — (default) variables are indexed, but searched only when
+      the caller asks for them via ``kinds``.
+    - ``search`` — variables are indexed *and* included in find_symbol's
+      default kinds.
+
+    Read per call rather than at import so a client can flip it without a
+    server restart, and so tests can monkeypatch it.
+    """
+    value = os.environ.get("TOKEN_SAVIOR_VARIABLES", "").strip().lower()
+    return value if value in _VARIABLES_MODES else _VARIABLES_DEFAULT
+
+
+@dataclass(frozen=True)
 class SectionInfo:
     """Metadata about a section in a text document."""
 
@@ -185,6 +226,9 @@ class StructuralMetadata:
     functions: list[FunctionInfo] = field(default_factory=list)
     classes: list[ClassInfo] = field(default_factory=list)
     imports: list[ImportInfo] = field(default_factory=list)
+    # Module-level and class-level bindings. Empty when the annotator has no
+    # variable support yet, or when TOKEN_SAVIOR_VARIABLES=off.
+    variables: list[VariableInfo] = field(default_factory=list)
 
     # Text structure (populated for text/markdown files)
     sections: list[SectionInfo] = field(default_factory=list)
@@ -212,6 +256,11 @@ class ProjectIndex:
 
     # Global symbol table: symbol_name -> file_path where defined
     symbol_table: dict[str, str] = field(default_factory=dict)
+
+    # Variable/constant table: name (and qualified_name) -> files defining it.
+    # Kept separate from symbol_table so a module global can never shadow a
+    # function of the same name in the resolvers that walk symbol_table.
+    variable_table: dict[str, list[str]] = field(default_factory=dict)
     duplicate_classes: dict[str, list[str]] = field(default_factory=dict)
 
     # Stats

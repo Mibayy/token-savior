@@ -21,8 +21,13 @@ from token_savior.models import (
     FunctionInfo,
     ProjectIndex,
     StructuralMetadata,
+    variables_mode,
 )
 from token_savior.symbol_hash import analyze_symbol_semantics
+
+# Canonical order for the `kinds` parameter and for the `searched` /
+# `not_searched` report on a find_symbol miss.
+_SYMBOL_KINDS = ("function", "class", "variable")
 
 def _split_signature_suffix(name: str) -> tuple[str, str]:
     if name.endswith(")") and "(" in name:
@@ -1167,24 +1172,116 @@ class ProjectQueryEngine:
                         return ("function", meta, method)
         return None
 
-    def find_symbol(self, name: str, level: int = 0) -> dict:
+    def find_symbol(self, name: str, level: int = 0, kinds: list[str] | None = None) -> dict:
         """Find where a symbol is defined: {file, line, type, signature, source_preview}.
 
         level: 0 full (preview included), 1 no source_preview, 2 minimal {name, file, line, type}.
 
-        Adds ``complete=True`` on success and ``scanned_files=N`` on the error
-        path so callers know the scan was exhaustive and they do not need to
-        fall back to grep/search_codebase.
+        kinds: which symbol kinds to search, any of ``function`` (includes
+        methods), ``class``, ``variable`` (includes constants and class
+        attributes). Defaults to functions + classes, plus variables when
+        ``TOKEN_SAVIOR_VARIABLES=search``.
+
+        A hit carries ``complete=True``. A miss reports ``searched`` (the kinds
+        actually scanned) and, when some indexed kind was left out,
+        ``not_searched`` — a miss is only exhaustive with respect to the kinds
+        named in ``searched``.
         """
-        result = self._resolve_symbol_info(name, level=level)
+        requested = self._resolve_kinds(kinds)
+        if "error" in requested:
+            return requested
+        searched: list[str] = requested["kinds"]
+
+        result: dict = {}
+        if "function" in searched or "class" in searched:
+            result = self._resolve_symbol_info(name, level=level, kinds=searched)
+        if "file" not in result and "variable" in searched:
+            variable_result = self._resolve_variable_info(name, level=level)
+            if variable_result is not None:
+                result = variable_result
+
         if "file" not in result:
-            return {
+            if "error" in result:  # ambiguous / normalized-candidates report
+                return result
+            miss = {
                 "error": f"symbol '{name}' not found",
                 "scanned_files": len(self.index.files),
-                "complete": True,
+                "searched": searched,
             }
+            not_searched = [k for k in _SYMBOL_KINDS if k in self._indexed_kinds() - set(searched)]
+            if not_searched:
+                miss["not_searched"] = not_searched
+                miss["retry_with"] = f"find_symbol(name={name!r}, kinds={not_searched!r})"
+            return miss
         result["complete"] = True
         return result
+
+    def _indexed_kinds(self) -> set[str]:
+        """Kinds present in this index — variables only when indexing is on."""
+        kinds = {"function", "class"}
+        if variables_mode() != "off":
+            kinds.add("variable")
+        return kinds
+
+    def _resolve_kinds(self, kinds: list[str] | None) -> dict:
+        """Validate the requested kinds, or derive the default set."""
+        if kinds is None:
+            default = ["function", "class"]
+            if variables_mode() == "search":
+                default.append("variable")
+            return {"kinds": default}
+        unknown = [k for k in kinds if k not in _SYMBOL_KINDS]
+        if unknown:
+            return {
+                "error": f"unknown symbol kind(s): {', '.join(unknown)}",
+                "valid_kinds": list(_SYMBOL_KINDS),
+            }
+        if "variable" in kinds and variables_mode() == "off":
+            return {
+                "error": (
+                    "kind 'variable' requested but variable indexing is off "
+                    "(TOKEN_SAVIOR_VARIABLES=off)"
+                ),
+                "fix": "set TOKEN_SAVIOR_VARIABLES=index (or search) and reindex",
+            }
+        # Preserve canonical order so `searched` is stable across callers.
+        return {"kinds": [k for k in _SYMBOL_KINDS if k in kinds]}
+
+    def _resolve_variable_info(self, name: str, level: int = 0) -> dict | None:
+        """Resolve a module-level or class-level binding, or None if unknown."""
+        paths = self.index.variable_table.get(name)
+        if not paths:
+            return None
+        if len(paths) > 1:
+            return {
+                "name": name,
+                "error": f"variable '{name}' is ambiguous; it is defined in {len(paths)} files",
+                "candidates": sorted(paths),
+            }
+        path = paths[0]
+        meta = _resolve_file(self.index, path)
+        if meta is None:
+            return None
+        for var in meta.variables:
+            if name in (var.name, var.qualified_name):
+                return self._variable_result(var, path, meta, level=level)
+        return None
+
+    def _variable_result(self, var, path, meta, level: int = 0):
+        out = {
+            "name": var.qualified_name,
+            "file": path,
+            "line": var.line_number,
+            "type": var.kind,
+        }
+        if level >= 2:
+            return out
+        out["scope"] = var.scope
+        if var.type_annotation:
+            out["annotation"] = var.type_annotation
+        if level == 0:
+            out["source_preview"] = meta.lines[var.line_number - 1]
+        return out
 
     def get_dependencies(
         self, name: str, max_results: int = 0, depth: int = 1
@@ -2872,7 +2969,11 @@ class ProjectQueryEngine:
         return out
 
     def _resolve_symbol_info(
-        self, name: str, level: int = 0, strip_preview: bool = False
+        self,
+        name: str,
+        level: int = 0,
+        strip_preview: bool = False,
+        kinds: list[str] | None = None,
     ) -> dict:
         """Resolve a symbol name to rich info (file, line, signature, preview).
 
@@ -2892,14 +2993,37 @@ class ProjectQueryEngine:
             return info
 
         index = self.index
-        class_info = self._resolve_exact_class_info(name, level=level)
-        if class_info is not None:
-            return _strip(class_info)
+        want_functions = kinds is None or "function" in kinds
+        want_classes = kinds is None or "class" in kinds
+        if want_classes:
+            class_info = self._resolve_exact_class_info(name, level=level)
+            if class_info is not None:
+                return _strip(class_info)
         # Try symbol table first
         if name in index.symbol_table:
             path = index.symbol_table[name]
             meta = _resolve_file(index, path)
             if meta is not None:
+                if want_functions:
+                    func, error = _resolve_unique_function(meta.functions, name)
+                    if error == "ambiguous":
+                        return {
+                            "name": name,
+                            "error": (
+                                f"function '{name}' is ambiguous; "
+                                "use a fully qualified signature"
+                            ),
+                        }
+                    if func is not None:
+                        return _strip(self._func_result(func, path, meta, level=level))
+                if want_classes:
+                    for cls in meta.classes:
+                        if cls.name == name or cls.qualified_name == name:
+                            return _strip(self._class_result(cls, path, meta, level=level))
+        # Fallback: search all files
+        candidate_results: list[dict] = []
+        for path, meta in sorted(index.files.items()):
+            if want_functions:
                 func, error = _resolve_unique_function(meta.functions, name)
                 if error == "ambiguous":
                     return {
@@ -2907,24 +3031,13 @@ class ProjectQueryEngine:
                         "error": f"function '{name}' is ambiguous; use a fully qualified signature",
                     }
                 if func is not None:
-                    return _strip(self._func_result(func, path, meta, level=level))
+                    candidate_results.append(
+                        _strip(self._func_result(func, path, meta, level=level))
+                    )
+            if want_classes:
                 for cls in meta.classes:
                     if cls.name == name or cls.qualified_name == name:
                         return _strip(self._class_result(cls, path, meta, level=level))
-        # Fallback: search all files
-        candidate_results: list[dict] = []
-        for path, meta in sorted(index.files.items()):
-            func, error = _resolve_unique_function(meta.functions, name)
-            if error == "ambiguous":
-                return {
-                    "name": name,
-                    "error": f"function '{name}' is ambiguous; use a fully qualified signature",
-                }
-            if func is not None:
-                candidate_results.append(_strip(self._func_result(func, path, meta, level=level)))
-            for cls in meta.classes:
-                if cls.name == name or cls.qualified_name == name:
-                    return _strip(self._class_result(cls, path, meta, level=level))
         if len(candidate_results) == 1:
             return candidate_results[0]
         if len(candidate_results) > 1:

@@ -130,6 +130,17 @@ class CacheManager:
         def _si(si) -> dict:
             return {"title": si.title, "level": si.level, "line_range": _lr(si.line_range)}
 
+        def _vi(vi) -> dict:
+            return {
+                "name": vi.name,
+                "qualified_name": vi.qualified_name,
+                "line_number": vi.line_number,
+                "kind": vi.kind,
+                "scope": vi.scope,
+                "type_annotation": vi.type_annotation,
+                "value_preview": vi.value_preview,
+            }
+
         def _sm(sm) -> dict:
             return {
                 "source_name": sm.source_name,
@@ -142,6 +153,7 @@ class CacheManager:
                 "classes": [_ci(c) for c in sm.classes],
                 "imports": [_ii(i) for i in sm.imports],
                 "sections": [_si(s) for s in sm.sections],
+                "variables": [_vi(v) for v in sm.variables],
                 "dependency_graph": sm.dependency_graph,    # already dict[str, list[str]]
                 "module_name": sm.module_name,
             }
@@ -157,6 +169,7 @@ class CacheManager:
             "import_graph": _sets_to_sorted(index.import_graph),
             "reverse_import_graph": _sets_to_sorted(index.reverse_import_graph),
             "symbol_table": index.symbol_table,
+            "variable_table": index.variable_table,
             "duplicate_classes": index.duplicate_classes,
             "total_files": index.total_files,
             "total_lines": index.total_lines,
@@ -179,6 +192,7 @@ class CacheManager:
             ClassInfo,
             ImportInfo,
             SectionInfo,
+            VariableInfo,
             LineRange,
             LazyLines,
         )
@@ -230,6 +244,17 @@ class CacheManager:
         def _si(d: dict) -> SectionInfo:
             return SectionInfo(title=d["title"], level=d["level"], line_range=_lr(d["line_range"]))
 
+        def _vi(d: dict) -> VariableInfo:
+            return VariableInfo(
+                name=d["name"],
+                qualified_name=d["qualified_name"],
+                line_number=d["line_number"],
+                kind=d["kind"],
+                scope=d["scope"],
+                type_annotation=d.get("type_annotation"),
+                value_preview=d.get("value_preview"),
+            )
+
         root_path = data["root_path"]
 
         def _sm(d: dict, rel_path: str) -> StructuralMetadata:
@@ -246,6 +271,7 @@ class CacheManager:
                 classes=[_ci(c) for c in d.get("classes", [])],
                 imports=[_ii(i) for i in d.get("imports", [])],
                 sections=[_si(s) for s in d.get("sections", [])],
+                variables=[_vi(v) for v in d.get("variables", [])],
                 dependency_graph=d.get("dependency_graph", {}),
                 module_name=d.get("module_name"),
             )
@@ -261,6 +287,7 @@ class CacheManager:
             import_graph=_sets(data.get("import_graph", {})),
             reverse_import_graph=_sets(data.get("reverse_import_graph", {})),
             symbol_table=data.get("symbol_table", {}),
+            variable_table=data.get("variable_table", {}),
             duplicate_classes=data.get("duplicate_classes", {}),
             total_files=data.get("total_files", 0),
             total_lines=data.get("total_lines", 0),
