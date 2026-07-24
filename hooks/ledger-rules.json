@@ -16,5 +16,11 @@
     "trigger": {"tool": "Bash", "command_regex": "(?:^|[;&|]\\s*)git\\s+push\\b"},
     "action": {"type": "require_precondition", "precondition": "preflight", "message": "Lance preflight.sh avant de push (brûlé 2×). Ou TS_RULES_DISABLE=1 pour forcer."},
     "severity": "hard"
+  },
+  {
+    "id": "backup-before-destructive-db",
+    "trigger": {"tool": "Bash", "command_regex": "(?i)(?:psql|mysql|mariadb|sqlite3|mongosh?|\\.execute(?:script)?\\()[^\\n]*\\b(?:delete\\s+from|drop\\s+(?:table|database)|truncate)\\b"},
+    "action": {"type": "require_precondition", "precondition": "db-backup", "message": "Op destructrice sur la DB détectée (DELETE/DROP/TRUNCATE via client ou Python). Fais un backup CETTE session d'abord (cp memory.db ...bak) — ça garantit la récupérabilité même si le WHERE est trop large (brûlé 23/06 et 25/07). Ou TS_RULES_DISABLE=1."},
+    "severity": "hard"
   }
 ]

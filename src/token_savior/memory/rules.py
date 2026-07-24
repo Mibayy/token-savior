@@ -52,6 +52,11 @@ def match(tool_name: str, tool_input: dict[str, Any] | None,
 # `cat preflight.sh` / `grep preflight` must NOT satisfy it.
 PRECONDITION_COMMANDS: dict[str, str] = {
     "preflight": r"(?:^|[;&|]\s*|\b(?:bash|sh|source)\s+|\./)\S*preflight(?:\.sh)?\b",
+    # A DB backup taken this session: cp/rsync of a .db/.sqlite to a *bak*, a
+    # sqlite .backup, or a pg_dump. Satisfies the destructive-DB-op gate.
+    "db-backup": r"(?:cp|rsync)\s+\S*\.(?:db|sqlite)\S*\s+\S*(?:bak|backup)"
+                 r"|sqlite3\s+\S+\s+[\"']?\.backup"
+                 r"|\bpg_dump\b",
 }
 
 

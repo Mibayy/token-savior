@@ -60,6 +60,36 @@ def test_precondition_is_session_scoped(isolated_db):
     assert rules.precondition_met("sB", "preflight") is False
 
 
+def test_db_backup_precondition_recognized(isolated_db):
+    for cmd in ("cp ~/.local/share/token-savior/memory.db memory.db.bak-20260725",
+                "sqlite3 memory.db \".backup /tmp/b.db\"",
+                "pg_dump mydb > dump.sql"):
+        payload = {"tool_input": {"command": cmd}, "tool_response": {"exit_code": 0}}
+        assert rules.record_precondition(payload, session_id="sB") is not None, cmd
+    assert rules.precondition_met("sB", "db-backup") is True
+
+
+def test_python_delete_with_where_requires_backup(isolated_db):
+    # THE actual 25/07 failure pattern: a python .execute DELETE *with* a WHERE.
+    # Rules can't judge the WHERE, but they can guarantee a backup exists first.
+    cmd = 'python3 -c "conn.execute(\'DELETE FROM user_prompts WHERE prompt_text IN (x)\')"'
+    d = rules.evaluate("Bash", {"command": cmd}, "sX",
+                       precondition_check=lambda s, n: False)  # no backup
+    assert d["decision"] == "deny"
+    assert d["rule_id"] == "backup-before-destructive-db"
+    # with a backup this session → allowed
+    d2 = rules.evaluate("Bash", {"command": cmd}, "sX",
+                        precondition_check=lambda s, n: True)
+    assert d2["decision"] == "allow"
+
+
+def test_echo_of_delete_not_gated(isolated_db):
+    # No client / no .execute → not a real DB op → not gated.
+    d = rules.evaluate("Bash", {"command": 'echo "delete from users where id=1"'},
+                       "sX", precondition_check=lambda s, n: False)
+    assert d["decision"] == "allow"
+
+
 def test_evaluate_end_to_end_with_real_precondition(isolated_db):
     # No precondition yet → push denied.
     push = ("Bash", {"command": "git push origin main"}, "sX")
