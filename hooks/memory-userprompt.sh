@@ -92,6 +92,14 @@ try:
     for r in top3:
         sym = f\" ({r['symbol']})\" if r.get('symbol') else ''
         print(f\"  #{r['id']}  [{r['type']}]  {r['title']}{sym}\")
+    # ledger (unité A): journalise ce qui a été injecté (obs_ids + coût).
+    try:
+        from token_savior.memory import ledger as _lg
+        _lg.record_injection(payload.get('session_id'), row[0],
+                             [r['id'] for r in top3],
+                             chr(10).join(r['title'] for r in top3))
+    except Exception:
+        pass
 except Exception:
     pass
 " 2>>"$ERR_LOG"

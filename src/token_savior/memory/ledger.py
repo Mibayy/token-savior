@@ -243,6 +243,22 @@ def _recent_injected_obs(session_id: str | None) -> list[int]:
     return ids
 
 
+def _active_project_root() -> str | None:
+    """The most-active project root, resolved the SAME way the injection block
+    does — so classification searches the exact corpus the injection drew from,
+    not a possibly-mismatched payload cwd."""
+    try:
+        conn = db_core.get_db()
+        row = conn.execute(
+            "SELECT project_root FROM observations "
+            "GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def record_from_userprompt(
     payload: dict[str, Any],
     *,
@@ -255,7 +271,10 @@ def record_from_userprompt(
     if not phrase:
         return None
     injected = _recent_injected_obs(session_id)
-    cls = classify_miss(text, injected, project_root)
+    # Search the same corpus the injection drew from; payload cwd may be absent
+    # or not match the obs project_root.
+    search_root = project_root or _active_project_root()
+    cls = classify_miss(text, injected, search_root)
     mc = cls["miss_class"]
     was_visible = 1 if mc == "ignored" else (0 if mc == "invisible" else None)
     return ledger_put(
