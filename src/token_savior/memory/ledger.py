@@ -7,6 +7,7 @@ flag anything counterproductive (net < 0).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -110,3 +111,24 @@ def ledger_query(
             "meta": json.loads(r[13]) if r[13] else None,
         })
     return out
+
+
+_CORRECTION_PATTERNS = [
+    r"je t'?ai déjà dit",
+    r"je t'?avais dit",
+    r"tu devais\b",
+    r"je te rappelle",
+    r"combien de fois",
+    r"encore une fois",
+    r"comme (?:je t'?ai dit|d'?habitude)",
+    r"je te l'?ai dit",
+]
+_CORRECTION_RE = re.compile("|".join(_CORRECTION_PATTERNS), re.IGNORECASE)
+
+
+def detect_correction(text: str) -> str | None:
+    """Return the matched correction phrase (lowercased) or None."""
+    if not text:
+        return None
+    m = _CORRECTION_RE.search(text)
+    return m.group(0).lower() if m else None
