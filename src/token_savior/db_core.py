@@ -203,6 +203,29 @@ def run_migrations(db_path: Path | str | None = None) -> None:
             "ON consistency_scores(quarantine)"
         )
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ledger_events ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " ts_epoch INTEGER NOT NULL,"
+            " event_type TEXT NOT NULL,"
+            " subject TEXT,"
+            " session_id TEXT,"
+            " project_root TEXT,"
+            " cost_tokens INTEGER DEFAULT 0,"
+            " latency_ms INTEGER DEFAULT 0,"
+            " acted_on INTEGER,"
+            " prevented_error INTEGER,"
+            " ignored INTEGER,"
+            " block_justified INTEGER,"
+            " was_visible INTEGER,"
+            " meta_json TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ledger_type_ts "
+            "ON ledger_events(event_type, ts_epoch)"
+        )
+
         # A1-1: create the vec0 virtual table when sqlite-vec is loadable.
         # FLOAT[768] matches the FastEmbed nomic-embed-text-v1.5-Q output
         # used by memory/embeddings.py. If a legacy FLOAT[384] table is
