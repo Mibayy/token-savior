@@ -65,3 +65,48 @@ def ledger_put(
         print(f"[token-savior:ledger] put error: {exc}", file=sys.stderr)
         return {"id": None, "uri": None, "error": str(exc)}
     return {"id": row_id, "uri": f"ts://ledger/{row_id}"}
+
+
+def ledger_query(
+    *,
+    event_type: str | None = None,
+    session_id: str | None = None,
+    since_epoch: int | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Return ledger rows newest-first, filtered."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if event_type is not None:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    if session_id is not None:
+        clauses.append("session_id = ?")
+        params.append(session_id)
+    if since_epoch is not None:
+        clauses.append("ts_epoch >= ?")
+        params.append(int(since_epoch))
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = (
+        "SELECT id, ts_epoch, event_type, subject, session_id, project_root, "
+        " cost_tokens, latency_ms, acted_on, prevented_error, ignored, "
+        " block_justified, was_visible, meta_json "
+        "FROM ledger_events" + where + " ORDER BY ts_epoch DESC, id DESC LIMIT ?"
+    )
+    params.append(int(limit))
+    conn = db_core.get_db()
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append({
+            "id": r[0], "ts_epoch": r[1], "event_type": r[2], "subject": r[3],
+            "session_id": r[4], "project_root": r[5], "cost_tokens": r[6],
+            "latency_ms": r[7],
+            "outcome": {
+                "acted_on": r[8], "prevented_error": r[9], "ignored": r[10],
+                "block_justified": r[11], "was_visible": r[12],
+            },
+            "meta": json.loads(r[13]) if r[13] else None,
+        })
+    return out
