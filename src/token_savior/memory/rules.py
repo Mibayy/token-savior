@@ -46,6 +46,43 @@ def match(tool_name: str, tool_input: dict[str, Any] | None,
     return out
 
 
+# Command patterns that, when they succeed, satisfy a named precondition.
+# Keep names aligned with rules' require_precondition `precondition` fields.
+PRECONDITION_COMMANDS: dict[str, str] = {
+    "preflight": r"\bpreflight\b",
+}
+
+
+def record_precondition(
+    payload: dict[str, Any],
+    *,
+    session_id: str | None = None,
+    project_root: str | None = None,
+) -> dict[str, Any] | None:
+    """From a PostToolUse payload: if a precondition command ran successfully
+    (exit 0), log a `precondition` event so a later require_precondition rule
+    lets the tool through. Returns the ledger result or None."""
+    ti = payload.get("tool_input") or {}
+    command = ti.get("command") or ""
+    if not command:
+        return None
+    tres = payload.get("tool_response") or {}
+    raw = tres.get("exit_code", tres.get("exitCode", 0))
+    try:
+        exit_code = int(raw) if raw is not None else 0
+    except (TypeError, ValueError):
+        exit_code = 0
+    if exit_code != 0:
+        return None
+    for name, pat in PRECONDITION_COMMANDS.items():
+        if re.search(pat, command):
+            from token_savior.memory import ledger
+            return ledger.ledger_put(
+                "precondition", session_id=session_id,
+                project_root=project_root, meta={"name": name})
+    return None
+
+
 def precondition_met(session_id: str | None, name: str | None) -> bool:
     """True if a `precondition` event named `name` was logged this session."""
     if not session_id or not name:
