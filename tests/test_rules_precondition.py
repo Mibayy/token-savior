@@ -29,6 +29,22 @@ def test_failed_preflight_does_not_record(isolated_db):
     assert rules.precondition_met("s2", "preflight") is False
 
 
+def test_naming_preflight_does_not_satisfy(isolated_db):
+    # Merely reading/naming preflight must NOT satisfy the precondition.
+    for cmd in ("cat scripts/preflight.sh", "grep -n foo preflight.sh",
+                "echo run preflight now", "ls preflight.sh"):
+        payload = {"tool_input": {"command": cmd}, "tool_response": {"exit_code": 0}}
+        assert rules.record_precondition(payload, session_id="sN") is None, cmd
+    assert rules.precondition_met("sN", "preflight") is False
+
+
+def test_invoking_preflight_satisfies(isolated_db):
+    for cmd in ("bash scripts/preflight.sh", "./preflight.sh", "sh preflight.sh",
+                "preflight.sh"):
+        payload = {"tool_input": {"command": cmd}, "tool_response": {"exit_code": 0}}
+        assert rules.record_precondition(payload, session_id="sY") is not None, cmd
+
+
 def test_unrelated_command_records_nothing(isolated_db):
     payload = {"tool_name": "Bash",
                "tool_input": {"command": "ls -la"},

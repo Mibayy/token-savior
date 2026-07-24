@@ -32,11 +32,32 @@ def test_deny_emits_deny_json_and_logs(isolated_db, monkeypatch, capsys):
     assert len(blocks) == 1 and blocks[0]["subject"] == "no-force-push-protected"
 
 
+def test_deny_force_push_trailing_flag(isolated_db, monkeypatch, capsys):
+    # Real catalog: the flag AFTER the branch must still be blocked.
+    _stdin(monkeypatch, {"tool_name": "Bash",
+                         "tool_input": {"command": "git push origin main --force"},
+                         "session_id": "sT"})
+    assert rules_hook.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
 def test_allow_emits_nothing(isolated_db, monkeypatch, capsys):
     _stdin(monkeypatch, {"tool_name": "Bash",
                          "tool_input": {"command": "ls -la"}, "session_id": "s2"})
     assert rules_hook.main() == 0
     assert capsys.readouterr().out == ""
+
+
+def test_non_executing_mention_not_blocked(isolated_db, monkeypatch, capsys):
+    # Real catalog: a force-push pattern that only APPEARS in a string (echo,
+    # test, script) must NOT be blocked — the rule anchors to actual execution.
+    for cmd in ('echo git push origin main --force',
+                'python3 -c "x git push origin main --force y"'):
+        _stdin(monkeypatch, {"tool_name": "Bash", "tool_input": {"command": cmd},
+                             "session_id": "sM"})
+        assert rules_hook.main() == 0
+        assert capsys.readouterr().out == "", cmd
 
 
 def test_killswitch_allows(isolated_db, monkeypatch, capsys):

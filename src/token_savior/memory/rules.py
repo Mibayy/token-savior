@@ -48,8 +48,10 @@ def match(tool_name: str, tool_input: dict[str, Any] | None,
 
 # Command patterns that, when they succeed, satisfy a named precondition.
 # Keep names aligned with rules' require_precondition `precondition` fields.
+# Patterns requiring the precondition to be INVOKED (run), not merely named —
+# `cat preflight.sh` / `grep preflight` must NOT satisfy it.
 PRECONDITION_COMMANDS: dict[str, str] = {
-    "preflight": r"\bpreflight\b",
+    "preflight": r"(?:^|[;&|]\s*|\b(?:bash|sh|source)\s+|\./)\S*preflight(?:\.sh)?\b",
 }
 
 
@@ -134,7 +136,9 @@ def evaluate(
     for r in matched:
         act = r.get("action", {})
         if act.get("type") == "require_precondition":
-            if session_id and check(session_id, act.get("precondition")):
+            # Fail OPEN when we cannot verify: no session_id means we cannot
+            # check the precondition, so we must not block.
+            if not session_id or check(session_id, act.get("precondition")):
                 continue
             return _decision("deny", r)
     for r in matched:

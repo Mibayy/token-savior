@@ -85,6 +85,13 @@ def test_evaluate_require_precondition_allows_when_met():
     assert d["decision"] == "allow"
 
 
+def test_evaluate_require_precondition_allows_without_session():
+    # No session_id → cannot verify → fail OPEN (allow), never block.
+    d = rules.evaluate("Bash", {"command": "git push origin main"}, None,
+                       rules=[PREFLIGHT], precondition_check=lambda sid, n: False)
+    assert d["decision"] == "allow"
+
+
 def test_evaluate_deny_wins_over_precondition_met():
     # A hard deny and a satisfied precondition both match; deny still wins.
     d = rules.evaluate("Bash", {"command": "git push --force origin main"}, "s",

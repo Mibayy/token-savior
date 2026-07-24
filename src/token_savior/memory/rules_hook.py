@@ -20,13 +20,14 @@ def main() -> int:
     except Exception:
         return 0
     try:
-        from token_savior.memory import ledger, rules
+        from token_savior.memory import rules
         tool_name = payload.get("tool_name", "")
         tool_input = payload.get("tool_input") or {}
         session_id = payload.get("session_id")
         decision = rules.evaluate(tool_name, tool_input, session_id)
         if decision["decision"] == "deny":
             try:
+                from token_savior.memory import ledger
                 ledger.ledger_put(
                     "hard_block", subject=decision.get("rule_id"),
                     session_id=session_id,
