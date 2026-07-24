@@ -151,3 +151,38 @@ def record_from_userprompt(
         project_root=project_root,
         meta={"phrase": phrase, "text": text[:500]},
     )
+
+
+def ledger_net_value(*, since_epoch: int | None = None) -> dict[str, Any]:
+    """Aggregate benefit/cost/net per subject. Honest metric: counts real
+    errors prevented and acted-on reminders, not raw activity."""
+    rows = ledger_query(since_epoch=since_epoch, limit=1_000_000)
+    agg: dict[str, dict[str, int]] = {}
+
+    def bucket(subj: str | None) -> dict[str, int]:
+        key = subj or "(none)"
+        return agg.setdefault(key, {"benefit": 0, "cost": 0, "net": 0})
+
+    for r in rows:
+        b = bucket(r["subject"])
+        o = r["outcome"]
+        b["cost"] += int(r["cost_tokens"] or 0)
+        if o.get("prevented_error") == 1:
+            b["benefit"] += 1
+        if r["event_type"] == "soft_remind" and o.get("acted_on") == 1:
+            b["benefit"] += 1
+        if r["event_type"] == "false_positive":
+            b["cost"] += 1
+        if r["event_type"] == "hard_block" and o.get("block_justified") == 0:
+            b["cost"] += 1
+
+    totals = {"benefit": 0, "cost": 0, "net": 0}
+    counterproductive: list[str] = []
+    for subj, b in agg.items():
+        b["net"] = b["benefit"] - b["cost"]
+        totals["benefit"] += b["benefit"]
+        totals["cost"] += b["cost"]
+        if b["net"] < 0:
+            counterproductive.append(subj)
+    totals["net"] = totals["benefit"] - totals["cost"]
+    return {"by_subject": agg, "totals": totals, "counterproductive": counterproductive}
