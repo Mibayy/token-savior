@@ -132,3 +132,22 @@ def detect_correction(text: str) -> str | None:
         return None
     m = _CORRECTION_RE.search(text)
     return m.group(0).lower() if m else None
+
+
+def record_from_userprompt(
+    payload: dict[str, Any],
+    *,
+    session_id: str | None = None,
+    project_root: str | None = None,
+) -> dict[str, Any] | None:
+    """If the user text is a correction, log a 'miss' event. Else None."""
+    text = (payload.get("prompt") or payload.get("user_message") or "")
+    phrase = detect_correction(text)
+    if not phrase:
+        return None
+    return ledger_put(
+        "miss",
+        session_id=session_id,
+        project_root=project_root,
+        meta={"phrase": phrase, "text": text[:500]},
+    )
