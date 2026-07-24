@@ -18,6 +18,8 @@ def test_detects_corrections(text):
     "installe hermes sur le vps",
     "",
     "merci c'est parfait",
+    "relance le build encore une fois",
+    "combien de fois faut-il relancer le service",
 ])
 def test_ignores_non_corrections(text):
     assert ledger.detect_correction(text) is None

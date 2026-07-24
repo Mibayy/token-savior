@@ -118,8 +118,8 @@ _CORRECTION_PATTERNS = [
     r"je t'?avais dit",
     r"tu devais\b",
     r"je te rappelle",
-    r"combien de fois",
-    r"encore une fois",
+    r"combien de fois (?:je (?:dois|te)|faut-il te|dois-je te)",
+    r"encore une fois,? tu\b",
     r"comme (?:je t'?ai dit|d'?habitude)",
     r"je te l'?ai dit",
 ]
