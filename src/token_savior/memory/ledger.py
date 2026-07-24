@@ -153,36 +153,62 @@ def record_from_userprompt(
     )
 
 
+# Tokens a subject may burn with zero benefit before it is flagged as pure
+# waste. Tunable; kept generous so only clear waste trips the flag.
+TOKEN_WASTE_THRESHOLD = 500
+
+
 def ledger_net_value(*, since_epoch: int | None = None) -> dict[str, Any]:
-    """Aggregate benefit/cost/net per subject. Honest metric: counts real
-    errors prevented and acted-on reminders, not raw activity."""
+    """Aggregate per-subject effectiveness on TWO unit-consistent axes.
+
+    Token counts and event counts are never subtracted from each other
+    (that would compare tokens to events). Instead:
+      - friction_net = benefit_events − friction_events  (both event counts)
+      - token_cost   = sum of cost_tokens                (tokens, reported alone)
+
+    benefit_events  = real errors prevented + acted-on reminders.
+    friction_events = false positives + unjustified hard blocks.
+
+    A subject is counterproductive when it hurts more than it helps
+    behaviourally (friction_net < 0), OR it is pure waste (spent tokens above
+    TOKEN_WASTE_THRESHOLD while never helping). An expensive-but-useful subject
+    is left for the reflection loop to judge on the reported token_cost, not
+    auto-killed here. Honest metric: counts real outcomes, not raw activity.
+    """
     rows = ledger_query(since_epoch=since_epoch, limit=1_000_000)
     agg: dict[str, dict[str, int]] = {}
 
     def bucket(subj: str | None) -> dict[str, int]:
-        key = subj or "(none)"
-        return agg.setdefault(key, {"benefit": 0, "cost": 0, "net": 0})
+        key = subj if subj is not None else "(none)"
+        return agg.setdefault(
+            key,
+            {"benefit_events": 0, "friction_events": 0,
+             "friction_net": 0, "token_cost": 0},
+        )
 
     for r in rows:
         b = bucket(r["subject"])
         o = r["outcome"]
-        b["cost"] += int(r["cost_tokens"] or 0)
+        b["token_cost"] += int(r["cost_tokens"] or 0)
         if o.get("prevented_error") == 1:
-            b["benefit"] += 1
+            b["benefit_events"] += 1
         if r["event_type"] == "soft_remind" and o.get("acted_on") == 1:
-            b["benefit"] += 1
+            b["benefit_events"] += 1
         if r["event_type"] == "false_positive":
-            b["cost"] += 1
+            b["friction_events"] += 1
         if r["event_type"] == "hard_block" and o.get("block_justified") == 0:
-            b["cost"] += 1
+            b["friction_events"] += 1
 
-    totals = {"benefit": 0, "cost": 0, "net": 0}
+    totals = {"benefit_events": 0, "friction_events": 0,
+              "friction_net": 0, "token_cost": 0}
     counterproductive: list[str] = []
     for subj, b in agg.items():
-        b["net"] = b["benefit"] - b["cost"]
-        totals["benefit"] += b["benefit"]
-        totals["cost"] += b["cost"]
-        if b["net"] < 0:
+        b["friction_net"] = b["benefit_events"] - b["friction_events"]
+        totals["benefit_events"] += b["benefit_events"]
+        totals["friction_events"] += b["friction_events"]
+        totals["token_cost"] += b["token_cost"]
+        pure_waste = b["benefit_events"] == 0 and b["token_cost"] > TOKEN_WASTE_THRESHOLD
+        if b["friction_net"] < 0 or pure_waste:
             counterproductive.append(subj)
-    totals["net"] = totals["benefit"] - totals["cost"]
+    totals["friction_net"] = totals["benefit_events"] - totals["friction_events"]
     return {"by_subject": agg, "totals": totals, "counterproductive": counterproductive}
