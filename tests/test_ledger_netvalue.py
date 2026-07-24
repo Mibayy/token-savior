@@ -55,14 +55,24 @@ def test_acted_on_soft_remind_counts_as_benefit(isolated_db):
 
 
 def test_pure_token_waste_is_flagged(isolated_db):
-    # Tokens burned above threshold, never helped → pure waste.
-    ledger.ledger_put("injection", subject="waste",
+    # A JUDGEABLE cost-bearing event above threshold, never helped → pure waste.
+    ledger.ledger_put("soft_remind", subject="waste",
                       cost_tokens=ledger.TOKEN_WASTE_THRESHOLD + 1)
     nv = ledger.ledger_net_value()
     b = nv["by_subject"]["waste"]
     assert b["benefit_events"] == 0
     assert b["friction_net"] == 0            # no friction events...
     assert "waste" in nv["counterproductive"]  # ...but pure token waste
+
+
+def test_injection_cost_does_not_trigger_waste(isolated_db):
+    # Injection cost is recorded but not yet judgeable (benefit unattributed
+    # until Phase 2), so it must never flag 'retrieval' as counterproductive.
+    ledger.record_injection("s", "/p", [1, 2],
+                            injected_text="x" * (ledger.TOKEN_WASTE_THRESHOLD * 8))
+    nv = ledger.ledger_net_value()
+    assert nv["by_subject"]["retrieval"]["token_cost"] > ledger.TOKEN_WASTE_THRESHOLD
+    assert "retrieval" not in nv["counterproductive"]
 
 
 def test_cheap_zero_benefit_not_flagged(isolated_db):

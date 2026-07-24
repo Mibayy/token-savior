@@ -225,6 +225,7 @@ def record_injection(
     cost = len(injected_text) // 4  # rough tokens estimate
     return ledger_put(
         "injection",
+        subject="retrieval",  # a real mechanism, not the structural "(none)" bucket
         session_id=session_id,
         project_root=project_root,
         cost_tokens=cost,
@@ -271,9 +272,11 @@ def record_from_userprompt(
     if not phrase:
         return None
     injected = _recent_injected_obs(session_id)
-    # Search the same corpus the injection drew from; payload cwd may be absent
-    # or not match the obs project_root.
-    search_root = project_root or _active_project_root()
+    # Search the SAME corpus the injection block drew from — it always uses the
+    # most-active project (never the payload cwd), so we must too, or the
+    # classification is biased. Fall back to the passed root only when there is
+    # no active project (e.g. an empty test DB).
+    search_root = _active_project_root() or project_root
     cls = classify_miss(text, injected, search_root)
     mc = cls["miss_class"]
     was_visible = 1 if mc == "ignored" else (0 if mc == "invisible" else None)
@@ -321,10 +324,20 @@ def ledger_net_value(*, since_epoch: int | None = None) -> dict[str, Any]:
              "friction_net": 0, "token_cost": 0},
         )
 
+    # Cost we can actually attribute a benefit to. Injection cost is recorded
+    # (token_cost) but its benefit isn't attributed until Phase 2, so it must
+    # NOT trip the pure-waste flag — otherwise 'retrieval' looks wasteful the
+    # moment it spends any tokens.
+    judgeable: dict[str, int] = {}
     for r in rows:
-        b = bucket(r["subject"])
+        subj = r["subject"]
+        key = subj if subj is not None else "(none)"
+        b = bucket(subj)
         o = r["outcome"]
-        b["token_cost"] += int(r["cost_tokens"] or 0)
+        cost = int(r["cost_tokens"] or 0)
+        b["token_cost"] += cost
+        if r["event_type"] != "injection":
+            judgeable[key] = judgeable.get(key, 0) + cost
         if o.get("prevented_error") == 1:
             b["benefit_events"] += 1
         if r["event_type"] == "soft_remind" and o.get("acted_on") == 1:
@@ -342,7 +355,8 @@ def ledger_net_value(*, since_epoch: int | None = None) -> dict[str, Any]:
         totals["benefit_events"] += b["benefit_events"]
         totals["friction_events"] += b["friction_events"]
         totals["token_cost"] += b["token_cost"]
-        pure_waste = b["benefit_events"] == 0 and b["token_cost"] > TOKEN_WASTE_THRESHOLD
+        pure_waste = (b["benefit_events"] == 0
+                      and judgeable.get(subj, 0) > TOKEN_WASTE_THRESHOLD)
         if b["friction_net"] < 0 or pure_waste:
             counterproductive.append(subj)
     totals["friction_net"] = totals["benefit_events"] - totals["friction_events"]
