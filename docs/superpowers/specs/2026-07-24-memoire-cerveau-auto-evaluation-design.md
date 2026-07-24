@@ -143,6 +143,17 @@ coût     = tokens d'injection + faux positifs + frottement (blocages injustifi�
 net      = bénéfice − coût
 ```
 
+> **⚠️ Correction à traiter en Phase 2 (revue finale du ledger, 2026-07-24).**
+> Cette formule mélange deux unités : `coût` additionne des `cost_tokens` bruts
+> (souvent 100+) ET des `+1` par faux positif / blocage injustifié, alors que
+> `bénéfice` est un pur compte d'événements (`+1`). `net = bénéfice − coût`
+> compare donc des magnitudes de tokens à des comptes d'événements. Inerte en
+> Phase 1 (seuls des events `miss` existent, tous à `cost_tokens=0`), mais dès
+> que les producteurs `rules`/`retrieval` émettront des `injection` porteuses de
+> coût, presque tout sera flaggé contre-productif. À corriger AVANT de câbler ces
+> producteurs : normaliser les tokens en équivalent-erreur, ou reporter le
+> coût-tokens comme une dimension séparée du compte bénéfice/coût.
+
 Si `net < 0` pour une règle ou un mécanisme → contre-productif → signalé pour
 suppression. Le système doit pouvoir se recommander son propre rollback.
 
