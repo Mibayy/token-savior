@@ -225,6 +225,6 @@ if archive_enabled and project:
 # redirected to /dev/null so this can never pollute the synchronous injection
 # above; failures are logged, never fatal.
 printf '%s' "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 \
-    -m token_savior.memory.ledger_hook >/dev/null 2>>"$ERR_LOG" || true
+    -m token_savior.memory.ledger_hook >/dev/null 2>>"$ERR_LOG" &
 
 exit 0
