@@ -1,8 +1,9 @@
 """Effectiveness ledger — records every action the memory system takes.
 
 Twin of tool_capture.py: same DB (db_core.get_db), same put/query/aggregate
-shape. Rows let the reflection loop compute net value per rule/mechanism and
-flag anything counterproductive (net < 0).
+shape. Rows let the reflection loop score each rule/mechanism on two
+unit-consistent axes (see ledger_net_value) and flag anything
+counterproductive (negative friction_net, or pure token waste).
 """
 from __future__ import annotations
 

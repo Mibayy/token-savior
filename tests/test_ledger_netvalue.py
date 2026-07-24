@@ -40,6 +40,18 @@ def test_tokens_never_subtracted_from_benefit(isolated_db):
     assert b["token_cost"] == 5000
     assert b["friction_net"] == 1
     assert "useful_expensive" not in nv["counterproductive"]
+    # token_cost also sums into totals.
+    assert nv["totals"]["token_cost"] == 5000
+
+
+def test_acted_on_soft_remind_counts_as_benefit(isolated_db):
+    # The second benefit contributor: a soft reminder that was acted on.
+    ledger.ledger_put("soft_remind", subject="reminder",
+                      outcome={"acted_on": True})
+    nv = ledger.ledger_net_value()
+    assert nv["by_subject"]["reminder"]["benefit_events"] == 1
+    assert nv["by_subject"]["reminder"]["friction_net"] == 1
+    assert "reminder" not in nv["counterproductive"]
 
 
 def test_pure_token_waste_is_flagged(isolated_db):
@@ -60,8 +72,13 @@ def test_cheap_zero_benefit_not_flagged(isolated_db):
     assert "a_miss" not in nv["counterproductive"]
 
 
-def test_none_subject_bucketed_explicitly(isolated_db):
-    # subject=None buckets under "(none)" without merging an empty-string subject.
+def test_none_and_empty_subject_do_not_merge(isolated_db):
+    # subject=None buckets under "(none)"; an empty-string subject keeps its
+    # own "" bucket. The old `subj or "(none)"` truthiness collapsed both —
+    # this locks the `is not None` fix.
     ledger.ledger_put("miss", subject=None)
+    ledger.ledger_put("miss", subject="")
     nv = ledger.ledger_net_value()
     assert "(none)" in nv["by_subject"]
+    assert "" in nv["by_subject"]
+    assert nv["by_subject"]["(none)"] is not nv["by_subject"][""]
