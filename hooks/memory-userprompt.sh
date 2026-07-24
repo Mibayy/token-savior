@@ -219,4 +219,12 @@ if archive_enabled and project:
     memory_db.prompt_save(None, project, text)
 " 2>>"$ERR_LOG" &
 
+# --- ledger: capture misses (non-blocking, must NOT touch stdout) ----------
+# Records a 'miss' event when the user's prompt is a correction ("je t'ai déjà
+# dit…"), so the memory system can learn what it failed to surface. stdout is
+# redirected to /dev/null so this can never pollute the synchronous injection
+# above; failures are logged, never fatal.
+printf '%s' "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 \
+    -m token_savior.memory.ledger_hook >/dev/null 2>>"$ERR_LOG" || true
+
 exit 0
