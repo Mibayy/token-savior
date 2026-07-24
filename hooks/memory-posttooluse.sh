@@ -206,4 +206,11 @@ except Exception as exc:
 " <<< "$PAYLOAD" 2>>"$ERR_LOG" &
 fi
 
+# --- rules: record satisfied preconditions (e.g. preflight ran) ------------
+# Non-blocking; lets a later `require_precondition` rule pass. Kill-switch aware.
+if [ "$TS_RULES_DISABLE" != "1" ]; then
+    printf '%s' "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 \
+        -m token_savior.memory.precondition_hook >/dev/null 2>>"$ERR_LOG" &
+fi
+
 exit 0

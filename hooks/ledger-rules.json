@@ -1,0 +1,20 @@
+[
+  {
+    "id": "no-force-push-protected",
+    "trigger": {"tool": "Bash", "command_regex": "git\\s+push\\b.*(--force|--force-with-lease|-f)\\b.*\\b(main|master)\\b"},
+    "action": {"type": "deny", "message": "Force-push sur main/master bloqué (guardrail). Retire --force, ou vise une branche de feature, ou désactive avec TS_RULES_DISABLE=1 si tu es sûr."},
+    "severity": "hard"
+  },
+  {
+    "id": "no-blanket-delete",
+    "trigger": {"tool": "Bash", "command_regex": "(?i)\\bdelete\\s+from\\s+[\\w.\"'`]+\\s*(;|$|\\||&)"},
+    "action": {"type": "deny", "message": "DELETE sans clause WHERE bloqué (guardrail données prod, brûlé le 23/06). Cible des lignes précises avec un WHERE, ou une base jetable."},
+    "severity": "hard"
+  },
+  {
+    "id": "preflight-before-push",
+    "trigger": {"tool": "Bash", "command_regex": "git\\s+push\\b"},
+    "action": {"type": "require_precondition", "precondition": "preflight", "message": "Lance preflight.sh avant de push (brûlé 2×). Ou TS_RULES_DISABLE=1 pour forcer."},
+    "severity": "hard"
+  }
+]
