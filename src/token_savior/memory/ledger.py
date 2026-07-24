@@ -135,22 +135,137 @@ def detect_correction(text: str) -> str | None:
     return m.group(0).lower() if m else None
 
 
+# --- Miss classification (unité A) -----------------------------------------
+# observation_search exposes no reliable relevance score (FTS-only mode has
+# none), so confidence is token OVERLAP between the correction's content tokens
+# and the top obs (title + excerpt), never an opaque score.
+OVERLAP_HIGH = 0.5          # >= this: confident the obs is the intended one
+MIN_CONTENT_TOKENS = 2      # < this: query too thin to trust → uncertain
+
+_CLASSIFY_STOP = {
+    "que", "qui", "les", "des", "une", "aux", "pour", "avec", "dans", "sur",
+    "par", "est", "sont", "the", "and", "for", "with", "this", "that", "you",
+    "are", "how", "what", "can", "will", "from", "deja", "déjà", "dit", "dois",
+    "fois", "rappelle", "toujours", "jamais",
+}
+_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_]{3,}")
+
+
+def _content_tokens(text: str) -> list[str]:
+    """Content tokens of a correction: strip the matched trigger phrase and
+    stopwords, keep lowercased word tokens >= 3 chars."""
+    stripped = _CORRECTION_RE.sub(" ", text or "")
+    toks = _TOKEN_RE.findall(stripped.lower())
+    return [t for t in toks if t not in _CLASSIFY_STOP]
+
+
+def classify_miss(
+    correction_text: str,
+    injected_obs_ids: list[int] | None,
+    project_root: str | None,
+    *,
+    search_fn: Any = None,
+) -> dict[str, Any]:
+    """Classify a miss into unrecorded / invisible / ignored / uncertain.
+
+    - too few content tokens             → uncertain (query too thin)
+    - search returns nothing             → unrecorded (nothing to surface)
+    - top obs overlaps >= OVERLAP_HIGH:
+        obs id in injected set           → ignored   (surfaced but not acted on)
+        else                             → invisible (existed, not surfaced)
+    - overlap below threshold            → uncertain (found, but too weak to trust)
+
+    ``search_fn(project_root, query, *, limit)`` defaults to observation_search;
+    injected for testability.
+    """
+    tokens = _content_tokens(correction_text)
+    base = {"miss_class": "uncertain", "expected_obs": None,
+            "overlap": 0.0, "content_tokens": len(tokens)}
+    if len(tokens) < MIN_CONTENT_TOKENS:
+        return base
+    if not project_root:
+        return {**base, "miss_class": "uncertain"}
+
+    if search_fn is None:
+        # Resolve via the fully-formed memory_db module (its observation_search
+        # attribute) rather than importing observations directly, which would
+        # trip the observations<->memory_db import cycle.
+        from token_savior import memory_db
+        search_fn = memory_db.observation_search
+
+    query = " OR ".join(f'"{t}"' for t in tokens)
+    try:
+        results = search_fn(project_root, query, limit=5) or []
+    except Exception:
+        return {**base, "miss_class": "uncertain"}
+    if not results:
+        return {**base, "miss_class": "unrecorded"}
+
+    top = results[0]
+    hay = f"{top.get('title', '')} {top.get('excerpt', '')}".lower()
+    hay_toks = set(_TOKEN_RE.findall(hay))
+    overlap = sum(1 for t in tokens if t in hay_toks) / len(tokens)
+    injected = set(injected_obs_ids or [])
+    if overlap >= OVERLAP_HIGH:
+        cls = "ignored" if top.get("id") in injected else "invisible"
+    else:
+        cls = "uncertain"
+    return {"miss_class": cls, "expected_obs": top.get("id"),
+            "overlap": round(overlap, 3), "content_tokens": len(tokens)}
+
+
+def record_injection(
+    session_id: str | None,
+    project_root: str | None,
+    obs_ids: list[int],
+    injected_text: str = "",
+) -> dict[str, Any]:
+    """Log what the memory injection surfaced this prompt: an 'injection' event
+    carrying the surfaced obs ids and an approximate token cost."""
+    cost = len(injected_text) // 4  # rough tokens estimate
+    return ledger_put(
+        "injection",
+        session_id=session_id,
+        project_root=project_root,
+        cost_tokens=cost,
+        meta={"obs_ids": list(obs_ids)},
+    )
+
+
+def _recent_injected_obs(session_id: str | None) -> list[int]:
+    """Union of obs ids surfaced by injection events in this session."""
+    if not session_id:
+        return []
+    ids: list[int] = []
+    for ev in ledger_query(event_type="injection", session_id=session_id, limit=100):
+        meta = ev.get("meta") or {}
+        ids.extend(meta.get("obs_ids") or [])
+    return ids
+
+
 def record_from_userprompt(
     payload: dict[str, Any],
     *,
     session_id: str | None = None,
     project_root: str | None = None,
 ) -> dict[str, Any] | None:
-    """If the user text is a correction, log a 'miss' event. Else None."""
+    """If the user text is a correction, log a classified 'miss' event. Else None."""
     text = (payload.get("prompt") or payload.get("user_message") or "")
     phrase = detect_correction(text)
     if not phrase:
         return None
+    injected = _recent_injected_obs(session_id)
+    cls = classify_miss(text, injected, project_root)
+    mc = cls["miss_class"]
+    was_visible = 1 if mc == "ignored" else (0 if mc == "invisible" else None)
     return ledger_put(
         "miss",
         session_id=session_id,
         project_root=project_root,
-        meta={"phrase": phrase, "text": text[:500]},
+        outcome={"was_visible": was_visible},
+        meta={"phrase": phrase, "text": text[:500],
+              "miss_class": mc, "expected_obs": cls["expected_obs"],
+              "overlap": cls["overlap"]},
     )
 
 
