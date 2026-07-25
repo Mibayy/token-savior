@@ -2,14 +2,14 @@
 
 <div align="center">
 
-# Token Savior -- v4.3
+# Token Savior -- v4.9
 
 > One MCP server. One profile. **97.9% on tsbench at -80% tokens.**
 > Structural code navigation, persistent memory, and Bash output compaction for AI coding agents.
 
-[![Version](https://img.shields.io/badge/version-4.3.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.3.0)
+[![Version](https://img.shields.io/badge/version-4.9.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.9.0)
 [![PyPI](https://img.shields.io/badge/pypi-token--savior--recall-orange)](https://pypi.org/project/token-savior-recall/)
-[![Tests](https://img.shields.io/badge/tests-1688%2F1688-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1958%2F1960-brightgreen)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-97.9%25%20(188%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
@@ -35,6 +35,33 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 ---
 
 ## What's new
+
+### v4.9.0 -- Edit-impact block (Jul 2026)
+
+After a successful edit (`replace_symbol_source` / `insert_near_symbol` /
+`add_field_to_model` / `move_symbol`), the result now ends with a compact
+`[EDIT IMPACT]` block listing the edited symbol's callers + impacted tests --
+so you catch a broken caller you never opened. Replaces the old pre-edit nudge,
+which converted 0 times across 219 edits in 425 audited sessions. Opt out with
+`TOKEN_SAVIOR_EDIT_IMPACT=0`.
+
+### v4.7 - v4.8 -- Self-audit + observations as MCP resources (Jul 2026)
+
+- `scripts/ts_audit.py`: one-shot usage report (per-tool p50/p95, wasteful
+  chains, adoption gaps, nudge fires, ML liveness). Re-run after a deploy to
+  see whether behaviour actually moved.
+- `ts://obs/{id}` stored memories are now first-class MCP resources -- clients
+  that support resource `@`-mentions (Claude Code) pull a specific observation
+  without a tool round-trip.
+- Warm ts-daemon delegation for `ts_search`: **23 ms warm** vs ~1.5-5.7 s cold.
+
+### v4.4 - v4.6 -- Adoption-gap passes, audit-driven (Jun - Jul 2026)
+
+Chain nudges (`find -> read`, `read -> full_context`), persisted registered
+projects (kills `set_project_root` churn -- 51 redundant calls / 5.5 weeks),
+disk-cached tool embeddings, and a cold-start `ts_search` bridge over the warm
+daemon. Every change driven by an audit of real Claude Code usage, not a
+synthetic bench.
 
 ### v4.3.0 -- bench-driven coverage push (May 2026)
 
@@ -284,7 +311,7 @@ python3 -m venv .venv
 pytest tests/ -q
 ```
 
-Suite size: **1688 passed, 55 skipped** on main. CI green on Python
+Suite size: **1958 passed, 2 skipped** on main. CI green on Python
 3.11 / 3.12 / 3.13.
 
 ---

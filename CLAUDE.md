@@ -2,7 +2,7 @@
 
 This file is auto-discovered by Claude Code. It tells the agent how to use
 Token Savior efficiently. Drop this CLAUDE.md (or its contents) at the root
-of your own project to reproduce the 100% / −77% active-tokens result on
+of your own project to reproduce the 97.9% / −80% active-tokens result on
 [tsbench](https://github.com/Mibayy/tsbench).
 
 ## Defaults the bench uses
@@ -71,5 +71,8 @@ git tag v2
 TS_PROFILE=tiny_plus TS_CAPTURE_DISABLED=1 python3 bench.py --tasks all --run B
 ```
 
-Score: 192 / 192 (100%) on Claude Opus 4.7 — wall 26.6 s/task, active
-3 929 tokens/task. See [BENCHMARK-SUMMARY.md](https://github.com/Mibayy/tsbench/blob/main/BENCHMARK-SUMMARY.md).
+Score: **188 / 192 (97.9%)** on Claude Opus 4.7 with the `optimized` profile
+alone -- wall 18.9 s/task, active 3 395 tokens/task. The v2 system-prompt rules
+above earn the last 4 points (192 / 192) but require a tuned prompt, so the
+profile-only 97.9% is the headline figure. See
+[BENCHMARK-SUMMARY.md](https://github.com/Mibayy/tsbench/blob/main/BENCHMARK-SUMMARY.md).

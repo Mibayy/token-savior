@@ -73,3 +73,6 @@ benchmarks/report.md
 *.tmp
 .token-savior-checkpoints/
 memory-backup-*.json
+
+# Internal research notes (not published)
+.research/
