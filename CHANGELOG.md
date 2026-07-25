@@ -1,5 +1,56 @@
 # Changelog
 
+## v4.10.0 — Community fixes, `ts gain`, `compact-only` (2026-07-25)
+
+Contributor pass: every open pull request from @andrebrait applied, plus the
+remaining reported bugs. His branches predated the history rewrite that purged
+a leaked credential from this repo, so they were cherry-picked onto the new
+`main` rather than merged — merging would have pushed the purged commits back
+in. Authorship is preserved on every commit.
+
+**Fixes**
+
+- `tool_capture_hook` no longer crashes with `AttributeError` when
+  `tool_response` arrives as a list of content blocks, which is what MCP tools
+  deliver (#48).
+- `TOKEN_SAVIOR_MAX_FILE_SIZE` / `TOKEN_SAVIOR_MAX_FILES` are reachable again:
+  the parameter defaults were truthy, so the env fallback was dead in the MCP
+  server path and files over 500 KB were silently skipped (#49).
+- The index cache is keyed by the configuration that built it, not just a
+  version int. Changing `INCLUDE_PATTERNS` or upgrading the package no longer
+  serves a stale index that quietly answers from the old file set (#61).
+- Git compactors stop misparsing the Bash rewriter's own machine formats. With
+  both enabled, a dirty tree was reported as `clean` and rewritten diffs
+  rendered empty with a false ~100% saving (#46).
+- The PreToolUse pytest rewriter accepts `uv run pytest`, `poetry`/`hatch`/
+  `pdm`/`rye run pytest`, `python3 -m pytest` and venv-prefixed forms. The
+  PostToolUse compactor learned these in v4.3.0; the rewriter had not (#41).
+- The startup profile banner is opt-in via `TOKEN_SAVIOR_BANNER=1`. It went to
+  stderr on every start, and PowerShell plus several MCP clients on Windows
+  surface stderr as an error, so a healthy server looked broken (#44).
+- `ts init` writes portable hook commands and a real Codex `hooks.json` schema,
+  and honours `CLAUDE_CONFIG_DIR` for global scope and transcript discovery.
+- Daemon-client tests keep their sockets under the `AF_UNIX` path limit.
+
+**Features**
+
+- `ts gain [--project ROOT] [--format text|json|compact]` reports savings
+  without the dashboard. `compact` is the statusline badge, `[TS 372.8M↓]`.
+  Scripts previously had to parse the stats JSON by hand (#63, #39).
+- `TOKEN_SAVIOR_PROFILE=compact-only` advertises `ts_discover` and nothing
+  else, for setups already running symbol navigation and memory elsewhere.
+  1 200 chars of manifest against 5 833 for `optimized` (#42).
+- Shell annotator, `.sh`/`.bash` indexed by default (#51).
+- PHP annotator, `.php`/`.inc` indexed by default (#50).
+- `find_symbol` reports the kinds it searched and indexes module/class
+  variables.
+
+**Docs**
+
+- Complete environment-variable reference in the README, and the
+  `TS_PROFILE` (tsbench) versus `TOKEN_SAVIOR_PROFILE` (server) trap is called
+  out explicitly (#56).
+
 ## v4.9.0 — Edit-impact block replaces the get_edit_context nudge (2026-07-15)
 
 Usage audit over 425 real sessions: `get_edit_context` called **0 times across
