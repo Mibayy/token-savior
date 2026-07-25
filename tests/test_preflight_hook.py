@@ -50,3 +50,14 @@ def test_garbage_stdin_fails_open(isolated_db, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     assert preflight_hook.main() == 0
     assert capsys.readouterr().out == ""
+
+
+def test_checklist_still_shown_if_logging_fails(isolated_db, monkeypatch, capsys):
+    # a ledger failure must not swallow the checklist nor crash the hook
+    from token_savior.memory import preflight
+    monkeypatch.setattr(preflight, "record_preflight",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down")))
+    _stdin(monkeypatch, {"tool_name": "Bash",
+                         "tool_input": {"command": "rm -rf /root/x"}})
+    assert preflight_hook.main() == 0
+    assert "PRÉ-VOL" in capsys.readouterr().out

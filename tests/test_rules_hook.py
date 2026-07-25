@@ -42,6 +42,16 @@ def test_deny_force_push_trailing_flag(isolated_db, monkeypatch, capsys):
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
+def test_deny_sudo_prefixed_force_push(isolated_db, monkeypatch, capsys):
+    # sudo prefix must NOT bypass the hard-deny anchor.
+    _stdin(monkeypatch, {"tool_name": "Bash",
+                         "tool_input": {"command": "sudo git push --force origin main"},
+                         "session_id": "sSudo"})
+    assert rules_hook.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
 def test_allow_emits_nothing(isolated_db, monkeypatch, capsys):
     _stdin(monkeypatch, {"tool_name": "Bash",
                          "tool_input": {"command": "ls -la"}, "session_id": "s2"})

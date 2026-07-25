@@ -15,8 +15,10 @@ import re
 from typing import Any
 
 # Command must sit at a real command boundary (not inside an echo/string), like
-# the rules catalog — so `echo "rm -rf /x"` never triggers the reflex.
-_ANCHOR = r"(?:^|[;&|]\s*|&&\s*|\|\|\s*)"
+# the rules catalog — so `echo "rm -rf /x"` never triggers the reflex. Allows a
+# sudo / env VAR= prefix so those don't silently bypass, and MULTILINE (below)
+# so a dangerous line inside a script/heredoc still anchors.
+_ANCHOR = r"(?:^|[;&|]\s*|&&\s*|\|\|\s*)\s*(?:sudo\s+)?(?:env\s+\S+=\S+\s+)?"
 
 _CATEGORIES: list[tuple[str, str]] = [
     ("destructive-fs",
@@ -53,7 +55,7 @@ def classify_action(tool_name: str, tool_input: dict[str, Any] | None) -> dict:
         return {"level": "none", "category": None, "checklist": [], "reason": ""}
     cmd = (tool_input or {}).get("command", "") or ""
     for category, pat in _CATEGORIES:
-        if re.search(pat, cmd, re.IGNORECASE):
+        if re.search(pat, cmd, re.IGNORECASE | re.MULTILINE):
             return {"level": "reflex", "category": category,
                     "checklist": _checklist(category),
                     "reason": f"action {category} irréversible/conséquente"}

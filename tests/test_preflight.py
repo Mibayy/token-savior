@@ -39,6 +39,12 @@ def test_reflex_category_is_reported():
     assert _c("rm -rf /x")["category"] == "destructive-fs"
     assert _c("systemctl restart foo")["category"] == "service"
     assert _c("git push origin main")["category"] == "publish"
+    assert _c("psql -c 'DROP TABLE users'")["category"] == "db"
+
+
+def test_sudo_prefix_still_triggers_reflex():
+    assert _c("sudo rm -rf /root/x")["level"] == "reflex"
+    assert _c("sudo systemctl stop intel-api")["category"] == "service"
 
 
 def test_echo_of_dangerous_pattern_not_reflex():

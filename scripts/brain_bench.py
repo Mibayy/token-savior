@@ -122,9 +122,10 @@ def main() -> int:
     print("\n## Pré-vols (auto-vérification avant action irréversible)")
     pf = h["preflights"]
     if pf["count"]:
-        print(f"   {pf['count']} réflexes déclenchés : "
+        print(f"   {pf['count']} réflexes INJECTÉS (checklist montrée, pas preuve de vérif) : "
               + ", ".join(f"{k}:{v}" for k, v in pf["by_category"].items()))
-        print("   → plus ce nombre monte sans erreur derrière, plus l'autonomie se mérite.")
+        print("   → mesure de fréquence des actions irréversibles ; l'autonomie se mérite")
+        print("     quand ce flux se corrèle à un taux d'erreur réel bas (à instrumenter).")
     else:
         print("   (aucun pré-vol encore — aucune action irréversible enregistrée)")
 
