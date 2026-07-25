@@ -261,9 +261,34 @@ PreToolUse rewriter. Bench numbers above.
 | `auto` | adaptive | ~1-2 KT | Per-client telemetry-based (experimental) |
 | `tiny` | 6 | ~0.6 KT | Minimal hot loop |
 | `lean` | 51 | ~4 KT | Legacy -- broader surface |
+| **`compact-only`** | **1** | **~0.3 KT** | **Bash compaction only -- you already run symbol nav elsewhere** |
 | `full` | 68 | ~6 KT | Everything exposed |
 
 You probably want `optimized`.
+
+---
+
+## How it composes with adjacent tools
+
+Token Savior spans several layers, and most neighbouring tools occupy exactly
+one of them. Overlap is opt-out per layer, so running both is usually fine once
+you disable the half you already have. Thanks to @chirag127 for mapping this
+out in #45.
+
+| Tool | Layer | Overlap | What to do |
+|---|---|---|---|
+| [RTK](https://github.com/paths-technology/rtk) | PostToolUse Bash output compression | Direct, with the 34 compactors | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
+| [serena](https://github.com/oraios/serena) | Symbol-graph navigation | Direct, with `find_symbol` / `get_dependents` | Run TS as `compact-only` if serena is your navigator |
+| codebase-memory | Persistent code graph | With the memory engine | `TS_MEMORY_DISABLE=1` |
+| Ponytail, Caveman | Output-side compression (code and prose) | Partial, output side only | Complementary, no knob needed |
+
+The layers Token Savior owns that these do not: the PreToolUse Bash **rewriter**
+(it shrinks the command before it runs, not the output after), structural
+**editing** that keeps the index in sync, and the audit tools
+(`detect_breaking_changes`, `find_dead_code`, `analyze_config`).
+
+If you only want the Bash layer, `TOKEN_SAVIOR_PROFILE=compact-only` advertises
+a single tool and leaves the compactors and rewriter running.
 
 ---
 
