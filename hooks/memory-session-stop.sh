@@ -30,6 +30,40 @@ export TS_STOP_HOOK_RUNNING=1
 
 PY=/root/.local/token-savior-venv/bin/python3
 
+# -- Turn-level conversational capture ---------------------------------------
+# The rest of this script summarises *observations*, which only exist when a
+# tool was called. A turn that states a preference or settles a decision
+# without touching a tool exits at step 2 and leaves no trace. This block
+# reads the last turn from the transcript instead.
+#
+# Cost: a local regex gate runs first, so a turn with no intent signal spends
+# nothing. When it does fire, extraction runs on the cheap model.
+# Rollback: TS_TURN_CAPTURE_DISABLE=1, or delete this block.
+if [ "$TS_TURN_CAPTURE_DISABLE" != "1" ] && [ ! -t 0 ]; then
+    HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
+    if [ -n "$HOOK_INPUT" ]; then
+        TC_PROJECT="${CLAUDE_PROJECT_ROOT:-$PWD}"
+        printf '%s' "$HOOK_INPUT" | (
+            "$PY" -c "
+import sys, json
+sys.path.insert(0, '/root/token-savior/src')
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+path = payload.get('transcript_path')
+if not path:
+    sys.exit(0)
+from token_savior.memory.turn_capture import capture_turn
+saved = capture_turn(path, payload.get('cwd') or '$TC_PROJECT')
+if saved:
+    print(f'[turn-capture] {len(saved)} observation(s) saved.', file=sys.stderr)
+" 2>>"$ERR_LOG" &
+        )
+    fi
+fi
+# -- end turn-level conversational capture -----------------------------------
+
 # Always clear session-scoped mode override at the very start, regardless of
 # whether the DB has any state or obs for this session. Mode is a session thing.
 "$PY" -c "

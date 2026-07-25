@@ -47,7 +47,7 @@ def test_record_from_userprompt_stores_miss_class(isolated_db):
 
 
 def test_no_project_root_yields_uncertain(isolated_db):
-    res = ledger.record_from_userprompt(
+    ledger.record_from_userprompt(
         {"prompt": "je t'ai déjà dit de regarder les logs applicatifs"},
         session_id="s2", project_root=None)
     miss = ledger.ledger_query(event_type="miss", session_id="s2")[0]

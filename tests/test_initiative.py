@@ -6,7 +6,6 @@ NOW = 1_753_000_000  # ~2025-07; fixed for determinism
 
 def test_days_until_parses_deadline():
     # 10 days ahead
-    epoch = NOW
     assert ini.days_until("1970-01-01", now_epoch=0) == 0
     d = ini.days_until("2025-08-01", now_epoch=int(__import__("datetime").datetime(
         2025, 7, 22, tzinfo=__import__("datetime").timezone.utc).timestamp()))

@@ -1,6 +1,5 @@
 import json
 
-import pytest
 
 from token_savior.memory import rules
 
