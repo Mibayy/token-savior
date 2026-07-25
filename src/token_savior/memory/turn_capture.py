@@ -173,6 +173,7 @@ def _call_claude(prompt: str, model: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=CALL_TIMEOUT_SEC,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"[token-savior:turn-capture] call failed: {exc}", file=sys.stderr)

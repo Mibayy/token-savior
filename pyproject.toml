@@ -31,7 +31,12 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.25"]
-dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.5"]
+# ruff is pinned, not floated: 0.16 turned on new default rules (PLW1510,
+# RUF100, UP017, I001) and CI went from 0 to 658 findings on untouched code
+# while preflight, on 0.15.9, still said "safe to push". A lint gate that
+# disagrees with CI is worse than no gate. Bump deliberately, with the
+# cleanup in the same commit.
+dev = ["build>=1.2", "pytest>=8.0", "ruff==0.15.9"]
 benchmark = ["aiohttp>=3.9"]
 memory-vector = ["sqlite-vec>=0.1", "fastembed>=0.4", "onnxruntime>=1.16"]
 
