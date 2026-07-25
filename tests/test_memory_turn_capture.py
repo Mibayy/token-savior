@@ -259,3 +259,59 @@ class TestCaptureTurn:
         )
         monkeypatch.setattr(turn_capture, "_call_claude", lambda p, m: None)
         assert turn_capture.capture_turn(path, PROJECT) == []
+
+
+# ── Provenance ───────────────────────────────────────────────────────────
+#
+# L'audit Mem0 sur 32 jours de production a trouve 97,8% de bruit, dont la
+# cause racine est une boucle de retroaction : un souvenir rappele en debut de
+# session est re-extrait au tour suivant comme s'il venait de la conversation,
+# parce que rien ne distingue « rappele » de « nouveau ». Un seul faux
+# souvenir y a engendre 808 doublons.
+# (github.com/mem0ai/mem0/issues/4573)
+#
+# Meme montage ici : la capture lit le dernier tour, et le bloc memoire injecte
+# au demarrage se retrouve dans ce tour.
+
+
+def test_ignore_un_tour_qui_ne_fait_que_citer_la_memoire_injectee(tmp_path):
+    """Un rappel n'est pas une nouvelle information."""
+    path = _write_transcript(tmp_path, _turn(
+        "<system-reminder>Memoire pertinente : toujours utiliser l'email noreply "
+        "pour les commits</system-reminder>",
+        "compris",
+    ))
+    assert turn_capture.read_last_turn(path) is not None
+    assert turn_capture.should_capture(
+        "<system-reminder>Memoire pertinente : toujours utiliser l'email "
+        "noreply</system-reminder>"
+    ) is False
+
+
+def test_capture_encore_ce_que_l_utilisateur_dit_lui_meme(tmp_path):
+    """Le filtre ne doit pas assecher la capture legitime."""
+    assert turn_capture.should_capture(
+        "a l'avenir utilise toujours l'email noreply pour les commits"
+    ) is True
+
+
+def test_marque_la_provenance_sur_ce_qu_il_enregistre(tmp_path, monkeypatch, _memory_tmpdb):
+    """Sans marqueur de provenance, impossible de distinguer plus tard un fait
+    dit par Louis d'un fait extrait d'une page web ingeree par l'agent. C'est
+    la racine commune du bug Mem0 et de l'attaque MemGhost."""
+    path = _write_transcript(tmp_path, _turn(
+        "a l'avenir ne mets jamais de tiret long", "compris"))
+    monkeypatch.setattr(
+        turn_capture, "_call_claude",
+        lambda prompt, model: json.dumps([{
+            "type": "preference", "title": "Pas de tiret long",
+            "content": "Jamais de tiret long", "why": "demande explicite",
+        }]),
+    )
+    turn_capture.capture_turn(path, PROJECT)
+
+    db = memory_db.get_db()
+    tags = db.execute("SELECT tags FROM observations WHERE project_root=?",
+                      [PROJECT]).fetchone()[0]
+    db.close()
+    assert "provenance:utilisateur" in tags

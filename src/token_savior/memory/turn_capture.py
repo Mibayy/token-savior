@@ -76,11 +76,28 @@ SYSTEM_PROMPT = (
 )
 
 
+# Blocs injectes par le harnais : rappels memoire, notes systeme. Un tour qui
+# ne fait que les citer ne contient aucune information nouvelle.
+_INJECTED_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE)
+
+
 def should_capture(prompt_text: str) -> bool:
-    """Local gate — True when the turn carries a durable intent signal."""
-    if not prompt_text or len(prompt_text.strip()) < MIN_PROMPT_CHARS:
+    """Local gate — True when the turn carries a durable intent signal.
+
+    Les blocs injectes sont retires AVANT de chercher un signal. Sans ca, un
+    souvenir rappele en debut de session est re-extrait au tour suivant comme
+    s'il venait de la conversation, et se reecrit en boucle. C'est la cause
+    racine mesuree de l'audit Mem0 : 97,8% de bruit sur 32 jours de
+    production, dont 52,7% de re-extraction du contexte injecte, et un seul
+    faux souvenir ayant engendre 808 doublons.
+    github.com/mem0ai/mem0/issues/4573
+    """
+    if not prompt_text:
         return False
-    return _SIGNAL_RE.search(prompt_text) is not None
+    said = _INJECTED_RE.sub(" ", prompt_text).strip()
+    if len(said) < MIN_PROMPT_CHARS:
+        return False
+    return _SIGNAL_RE.search(said) is not None
 
 
 def _text_of(content: Any) -> str:
@@ -212,7 +229,14 @@ def capture_turn(transcript_path: str, project_root: str) -> list[dict]:
             title=item["title"],
             content=item["content"],
             why=item.get("why"),
-            tags=["turn-capture"],
+            # Provenance : distinguer ce que l'utilisateur a dit lui-meme d'un
+            # fait extrait d'un contenu tiers ingere par l'agent. C'est le
+            # manque numero un du domaine, et la racine commune du bug de
+            # boucle Mem0 et de l'attaque MemGhost, qui plante un faux souvenir
+            # persistant via un simple email piege (arXiv 2607.05189, 71% de
+            # reussite sur Claude Code). Sans ce marqueur, un souvenir empoisonne
+            # est indiscernable d'une preference exprimee de vive voix.
+            tags=["turn-capture", "provenance:utilisateur"],
         )
         if obs_id is not None:
             saved.append(item)
