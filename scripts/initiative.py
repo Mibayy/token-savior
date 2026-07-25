@@ -45,11 +45,17 @@ def rank_actions(projects: list[dict], *, now_epoch: int) -> list[dict]:
                     "urgency": urgency,
                     "suggested": "vérifier l'avancement et préparer le livrable"})
         if p.get("service_status") == "failed":
+            known = p.get("mute_service_failure")
             actions.append({
                 "project": name, "kind": "failed_service",
-                "why": "service en échec", "urgency": 85,
-                "suggested": f"journalctl -u {p.get('service', name)} -n 50, "
-                             f"puis restart si la cause est saine"})
+                "why": ("échec CONNU — " + (p.get("note") or "en attente d'action métier"))
+                       if known else "service en échec",
+                # A known/expected failure is contextualized, not urgent — don't
+                # cry wolf on something already triaged.
+                "urgency": 15 if known else 85,
+                "suggested": ("aucune action côté agent (déjà diagnostiqué)" if known else
+                              f"journalctl -u {p.get('service', name)} -n 50, "
+                              f"puis restart si la cause est saine")})
         if p.get("dirty_files", 0) >= 1 and p.get("activity") in ("recent", "stale", "dormant"):
             actions.append({
                 "project": name, "kind": "uncommitted_work",

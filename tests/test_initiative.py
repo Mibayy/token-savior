@@ -27,6 +27,16 @@ def test_failed_service_action():
                               "service": "improvence.service"}], now_epoch=NOW)
     fs = [a for a in acts if a["kind"] == "failed_service"]
     assert len(fs) == 1 and "journalctl" in fs[0]["suggested"]
+    assert fs[0]["urgency"] == 85
+
+
+def test_known_service_failure_is_muted_not_wolf_cried():
+    acts = ini.rank_actions([{"name": "improvence", "service_status": "failed",
+                              "mute_service_failure": True, "note": "slug HA 2026/2027"}],
+                            now_epoch=NOW)
+    fs = [a for a in acts if a["kind"] == "failed_service"]
+    assert fs[0]["urgency"] == 15
+    assert "CONNU" in fs[0]["why"]
 
 
 def test_uncommitted_work_flagged_when_stale():
