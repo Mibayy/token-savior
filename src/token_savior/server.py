@@ -354,13 +354,19 @@ _PROFILE_EXCLUDES: dict[str, set[str]] = {
     # + TS_MEMORY_DISABLE=1. Reproduit 97.9% @ 3 395 tokens/task sur tsbench.
     # Les autres profiles restent dispo pour compat retro.
     "optimized": set(TOOL_SCHEMAS) - _TINY_PLUS_INCLUDES,
+    # `compact-only` (#42) — for users already running symbol navigation and
+    # memory elsewhere (serena, codebase-memory...). The Bash compactors and
+    # the PreToolUse rewriter are hooks: they cost nothing in the manifest, so
+    # this profile only has to stop advertising tools. `ts_discover` stays so
+    # adoption remains measurable.
+    "compact_only": set(TOOL_SCHEMAS) - {"ts_discover"},
 }
 
 # Profiles slated for removal in 4.0.0 — superseded by the single adaptive
 # `auto` profile that uses real telemetry instead of hand-tuned subsets.
 _DEPRECATED_PROFILES: set[str] = {"core", "nav", "lean", "ultra", "tiny", "tiny_plus"}
 
-_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower()
+_PROFILE = os.environ.get("TOKEN_SAVIOR_PROFILE", "full").lower().replace("-", "_")
 if _PROFILE not in _PROFILE_EXCLUDES:
     print(
         f"[token-savior] unknown profile '{_PROFILE}', using full",

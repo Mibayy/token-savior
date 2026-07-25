@@ -79,3 +79,27 @@ def test_profile_is_case_insensitive(monkeypatch):
     srv = _reload_with_profile(monkeypatch, "CORE")
     names = {t.name for t in srv.TOOLS}
     assert names.isdisjoint(MEMORY_HANDLERS)
+
+
+# ---------------------------------------------------------------------------
+# compact-only (#42): Bash compactors + rewriter, nothing else in the manifest
+# ---------------------------------------------------------------------------
+
+
+def test_compact_only_exposes_just_the_adoption_probe(monkeypatch):
+    """For users who already run symbol nav and memory elsewhere: the
+    compactors and the rewriter are PreToolUse/PostToolUse hooks and cost no
+    manifest at all, so the profile only has to stop advertising tools."""
+    mod = _reload_with_profile(monkeypatch, "compact-only")
+    assert [t.name for t in mod.TOOLS] == ["ts_discover"]
+
+
+def test_compact_only_accepts_the_underscore_spelling(monkeypatch):
+    mod = _reload_with_profile(monkeypatch, "compact_only")
+    assert [t.name for t in mod.TOOLS] == ["ts_discover"]
+
+
+def test_compact_only_is_the_smallest_profile(monkeypatch):
+    small = len(_reload_with_profile(monkeypatch, "compact-only").TOOLS)
+    optimized = len(_reload_with_profile(monkeypatch, "optimized").TOOLS)
+    assert small < optimized
