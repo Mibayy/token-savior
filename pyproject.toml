@@ -61,6 +61,10 @@ packages = ["src/token_savior"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `python -m pytest` prepends the CWD to sys.path, bare `pytest` does not.
+# Tests importing `from scripts import ...` therefore passed locally and
+# failed in CI. Make the import path explicit so both agree.
+pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py311"
