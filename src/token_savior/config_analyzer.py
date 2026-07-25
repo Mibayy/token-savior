@@ -262,7 +262,7 @@ def _extract_value(line: str) -> str:
 
 
 def _looks_like_template(value: str) -> bool:
-    return "${" in value or "%(" in value or "<" in value and ">" in value
+    return "${" in value or "%(" in value or ("<" in value and ">" in value)
 
 
 def _looks_like_structured_config(value: str) -> bool:

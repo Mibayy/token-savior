@@ -21,24 +21,27 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",
 ]
+# Every requirement carries an upper bound on the next incompatible major.
+# Without one, an upstream release breaks existing installs with no commit
+# on our side; bumping a bound is a deliberate act, made here.
 dependencies = [
-    "PyYAML>=6.0",
+    "PyYAML>=6.0,<7",
     "tree-sitter>=0.25,<0.26",
     "tree-sitter-java>=0.23,<0.24",
     "tree-sitter-ruby>=0.23,<0.24",
-    "watchfiles>=0.20",
+    "watchfiles>=0.20,<2",
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.25"]
+mcp = ["mcp>=1.25,<2"]
 # ruff is pinned, not floated, so preflight and CI always agree on the rule
 # set. Moving this pin is a deliberate act: bump it together with whatever
 # cleanup the new defaults demand, in the same commit. The 0.15.9 -> 0.16.0
 # bump is the worked example (PLW1510, RUF100, UP017, I001 et al. turned on
 # by default; see [tool.ruff.lint] for the three rules we opted back out of).
-dev = ["build>=1.2", "pytest>=8.0", "ruff==0.16.0"]
-benchmark = ["aiohttp>=3.9"]
-memory-vector = ["sqlite-vec>=0.1", "fastembed>=0.4", "onnxruntime>=1.16"]
+dev = ["build>=1.2,<2", "pytest>=8.0,<9", "ruff==0.16.0"]
+benchmark = ["aiohttp>=3.9,<4"]
+memory-vector = ["sqlite-vec>=0.1,<2", "fastembed>=0.4,<2", "onnxruntime>=1.16,<2"]
 
 [project.scripts]
 ts = "token_savior.cli:main"
@@ -89,6 +92,11 @@ line-length = 100
 # every site, with no defect behind it and a real risk of surfacing crashes
 # the broad catch currently absorbs. Suppressed by policy, not by fatigue.
 ignore = ["BLE001", "S110", "S112"]
+
+# RUF021 is not in the default set. A ruff 0.16 fix once merged two elif
+# branches into `A and B and C or D and E and F` — correct by precedence,
+# unreadable in review. Parenthesising mixed and/or chains is now mandatory.
+extend-select = ["RUF021"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -86,7 +86,7 @@ def _mask_comments_and_heredocs(text: str) -> str:
     while i < n:
         ch = text[i]
         if state == "normal":
-            if ch == "/" and i + 1 < n and text[i + 1] == "/" or ch == "#" and not (i + 1 < n and text[i + 1] == "["):
+            if (ch == "/" and i + 1 < n and text[i + 1] == "/") or (ch == "#" and not (i + 1 < n and text[i + 1] == "[")):
                 j = i
                 while j < n and text[j] != "\n":
                     out[j] = " "

@@ -193,7 +193,7 @@ def _match_pytest(toks: list[str]) -> bool:
     rest: list[str] | None = None
     if toks[0] == "pytest":
         rest = toks[1:]
-    elif len(toks) >= 3 and toks[0] in _PYTEST_RUNNERS and toks[1] == "run" and toks[2] == "pytest" or len(toks) >= 3 and _PYTHON_EXE_RE.match(toks[0]) and toks[1] == "-m" and toks[2] == "pytest":
+    elif (len(toks) >= 3 and toks[0] in _PYTEST_RUNNERS and toks[1] == "run" and toks[2] == "pytest") or (len(toks) >= 3 and _PYTHON_EXE_RE.match(toks[0]) and toks[1] == "-m" and toks[2] == "pytest"):
         rest = toks[3:]
     if rest is None:
         return False
