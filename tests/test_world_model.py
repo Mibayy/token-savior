@@ -35,6 +35,22 @@ def test_map_services_to_projects():
     assert gw["service_status"] == "failed"
 
 
+def test_map_services_no_false_substring_match():
+    # short/unrelated names must NOT map to an incidentally-containing service
+    projects = [{"name": "a"}, {"name": "ec"}]
+    services = {"intel-api.service": "active", "eclatauto-api.service": "active"}
+    mapped = wm.map_services(projects, services)
+    assert all("service" not in p for p in mapped)
+
+
+def test_map_services_picks_most_specific():
+    projects = [{"name": "intel"}]
+    services = {"intel.service": "active", "intel-api.service": "failed"}
+    mapped = wm.map_services(projects, services)
+    # 'intel-api' is the more specific (longer) anchored match
+    assert mapped[0]["service"] == "intel-api.service"
+
+
 def test_needs_attention_flags_failed_service():
     projects = [{"name": "a", "service_status": "failed", "activity": "active"},
                 {"name": "b", "service_status": "active", "activity": "active"}]

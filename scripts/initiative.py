@@ -35,7 +35,9 @@ def rank_actions(projects: list[dict], *, now_epoch: int) -> list[dict]:
         if p.get("deadline"):
             d = days_until(p["deadline"], now_epoch=now_epoch)
             if d is not None and d <= 14:
-                urgency = max(10, 100 - max(d, 0) * 6)
+                # Floor above the uncommitted-work band (40) so an in-window
+                # deadline never sorts below a single dirty file.
+                urgency = max(50, 100 - max(d, 0) * 4)
                 actions.append({
                     "project": name, "kind": "deadline_soon",
                     "why": f"deadline {p['deadline']} dans {d}j"

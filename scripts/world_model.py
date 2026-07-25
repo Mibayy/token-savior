@@ -52,19 +52,22 @@ def merge_overlay(projects: list[dict], overlay: dict) -> list[dict]:
 
 
 def map_services(projects: list[dict], services: dict[str, str]) -> list[dict]:
-    """Attach the best-matching systemd service (by name containment)."""
+    """Attach the systemd service whose name is DELIMITER-anchored to the
+    project name (exact, or name-prefixed), picking the most specific. Anchored
+    matching avoids 'a' → 'intel-api.service' false maps."""
     out = []
     for p in projects:
         name = p["name"]
-        match = None
+        candidates = []
         for svc, status in services.items():
             base = svc.replace(".service", "")
-            if name == base or name in base or base in name:
-                match = (svc, status)
-                break
+            if (base == name or base.startswith(name + "-") or base.startswith(name + ".")
+                    or name.startswith(base + "-")):
+                candidates.append((svc, status, len(base)))
         q = dict(p)
-        if match:
-            q["service"], q["service_status"] = match
+        if candidates:
+            svc, status, _ = max(candidates, key=lambda c: c[2])  # most specific
+            q["service"], q["service_status"] = svc, status
         out.append(q)
     return out
 
@@ -94,14 +97,13 @@ def _run(cmd: list[str], cwd: str | None = None, timeout: int = 8) -> str:
 
 
 def discover_projects() -> list[dict]:
-    seen: dict[str, dict] = {}
-    for root in SCAN_ROOTS:
+    seen: dict[str, dict] = {}  # keyed by PATH, so same-name repos in different
+    for root in SCAN_ROOTS:      # roots aren't silently dropped
         out = _run(["find", root, "-maxdepth", "2", "-name", ".git", "-type", "d"])
         for gitdir in out.splitlines():
             path = str(Path(gitdir).parent)
-            name = Path(path).name
-            if name not in seen:
-                seen[name] = {"name": name, "path": path}
+            if path not in seen:
+                seen[path] = {"name": Path(path).name, "path": path}
     return list(seen.values())
 
 

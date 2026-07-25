@@ -41,6 +41,16 @@ def test_no_noise_on_clean_active_project():
     assert acts == []
 
 
+def test_far_deadline_still_outranks_uncommitted_work():
+    # a deadline 12 days out must NOT be buried under a single dirty file
+    now = int(__import__("datetime").datetime(
+        2025, 7, 16, tzinfo=__import__("datetime").timezone.utc).timestamp())
+    projects = [{"name": "dirty", "dirty_files": 1, "activity": "stale"},
+                {"name": "q", "deadline": "2025-07-28", "priority": "high"}]  # 12 days
+    acts = ini.rank_actions(projects, now_epoch=now)
+    assert acts[0]["project"] == "q"
+
+
 def test_actions_sorted_by_urgency():
     now = int(__import__("datetime").datetime(
         2025, 7, 28, tzinfo=__import__("datetime").timezone.utc).timestamp())
