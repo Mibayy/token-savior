@@ -56,7 +56,7 @@ def analyze(events: list[dict], net_value: dict, *, min_count: int = 3) -> list[
 def main() -> int:
     from token_savior.memory import ledger
     args = sys.argv[1:]
-    min_count = int(args[args.index("--min-count") + 1]) if "--min-count" in args else 3
+    min_count = max(1, int(args[args.index("--min-count") + 1])) if "--min-count" in args else 3
 
     events = ledger.ledger_query(limit=1_000_000)
     nv = ledger.ledger_net_value()

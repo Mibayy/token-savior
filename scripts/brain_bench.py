@@ -101,7 +101,7 @@ def main() -> int:
         print("   (pas encore de données)")
 
     print("\n## Déclenchements de règles")
-    for rid, c in sorted(h["rule_firings"].items(), key=lambda kv: -kv[1]) or []:
+    for rid, c in sorted(h["rule_firings"].items(), key=lambda kv: -kv[1]):
         print(f"   {c:4}  {rid}")
     if not h["rule_firings"]:
         print("   (aucune règle déclenchée — normal, gardes dormants)")

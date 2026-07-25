@@ -60,10 +60,17 @@ def main() -> int:
     from scripts.brain_bench import health_summary
 
     dry = "--dry-run" in sys.argv
-    events = ledger.ledger_query(limit=1_000_000)
-    nv = ledger.ledger_net_value()
-    health = health_summary(events)
-    reviewed = skeptical_review(analyze(events, nv))
+    # Fail-soft: a locked/corrupt ledger or a bad row must degrade to a no-op
+    # cycle, never crash the unattended nightly unit.
+    try:
+        events = ledger.ledger_query(limit=1_000_000)
+        nv = ledger.ledger_net_value()
+        health = health_summary(events)
+        reviewed = skeptical_review(analyze(events, nv))
+    except Exception as exc:
+        print(f"(cycle read/analyze dégradé en no-op : {exc})", file=sys.stderr)
+        events, reviewed = [], []
+        health = {"total_events": 0, "miss_classes": {}}
     ts = int(datetime.now(tz=timezone.utc).timestamp())
     rec = build_cycle_record(ts, health, reviewed)
 

@@ -34,7 +34,7 @@ def parse_failed_services(text: str) -> list[str]:
         ln = ln.strip()
         if not ln or "loaded units listed" in ln or ln.startswith("UNIT"):
             continue
-        m = re.match(r"([\w@.\-]+\.service)\b", ln)
+        m = re.match(r"([\w@.\-]+\.(?:service|socket|mount|timer|target))\b", ln)
         if m:
             out.append(m.group(1))
     return out

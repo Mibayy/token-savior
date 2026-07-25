@@ -1,0 +1,11 @@
+[Unit]
+Description=Memory brain — nightly bounded self-review cycle (append-only journal)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/.local/token-savior-venv/bin/python3 /root/token-savior/scripts/brain_cycle.py
+WorkingDirectory=/root/token-savior
+MemoryMax=200M
+MemoryHigh=160M
+Nice=10

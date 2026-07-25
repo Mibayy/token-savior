@@ -33,6 +33,15 @@ def test_build_cycle_record_shape():
     assert rec["needs_human"] == 1
 
 
+def test_skeptic_survives_empty():
+    assert bc.skeptical_review([]) == []
+
+
+def test_build_record_empty_is_safe():
+    rec = bc.build_cycle_record(1, {"total_events": 0, "miss_classes": {}}, [])
+    assert rec["actionable"] == 0 and rec["needs_human"] == 0 and rec["refuted"] == 0
+
+
 def test_never_auto_applies_enforcement():
     # invariant: nothing that touches rules is ever marked auto-applied
     reviewed = bc.skeptical_review([
