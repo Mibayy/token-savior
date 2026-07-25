@@ -50,9 +50,14 @@ def _latest_entry() -> str:
     return ""
 
 
+# Le meme chiffre apparait a plusieurs endroits de la page. Le premier
+# correctif n'en avait marque qu'un : le site continuait d'annoncer 59 outils
+# ailleurs. Chaque occurrence a son marqueur, sinon la verification passe au
+# vert sur une page encore fausse.
 FIELDS = {
     "version": _version,
     "tools": _tool_count,
+    "tools2": _tool_count,
     "latest": _latest_entry,
 }
 
