@@ -982,3 +982,91 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# ts gain: the savings numbers without the dashboard (#63, #39)
+# ---------------------------------------------------------------------------
+
+
+def gain_report(stats_dir: Path = DEFAULT_STATS_DIR, project: str | None = None) -> dict:
+    """Savings for every project, or for one, reusing the dashboard collector.
+
+    Scripts wanting these numbers previously had to run the dashboard or parse
+    the stats JSON directly, which is an internal format. This is the supported
+    surface: same arithmetic as the dashboard, no HTTP.
+
+    `project` matches a project root or its display name, exactly or as a
+    suffix, so both `/srv/app` and `app` resolve.
+    """
+    data = collect_dashboard_data(stats_dir)
+    if project is None:
+        totals = data["totals"]
+        return {
+            "project": None,
+            "found": True,
+            "queries": totals["queries"],
+            "chars_used": totals["chars_used"],
+            "chars_naive": totals["chars_naive"],
+            "tokens_used": totals["tokens_used"],
+            "tokens_naive": totals["tokens_naive"],
+            "tokens_saved": totals["tokens_saved"],
+            "savings_pct": totals["savings_pct"],
+        }
+
+    wanted = project.rstrip("/")
+    for row in data["projects"]:
+        candidates = (
+            str(row.get("raw_project_root") or "").rstrip("/"),
+            str(row.get("project_root") or "").rstrip("/"),
+            str(row.get("project") or ""),
+        )
+        if any(c == wanted or (c and c.endswith("/" + wanted)) for c in candidates):
+            return {
+                "project": project,
+                "found": True,
+                "queries": row["queries"],
+                "chars_used": row["chars_used"],
+                "chars_naive": row["chars_naive"],
+                "tokens_used": row["tokens_used"],
+                "tokens_naive": row["tokens_naive"],
+                "tokens_saved": row["tokens_saved"],
+                "savings_pct": row["savings_pct"],
+            }
+    # An unknown project must not silently report the global total.
+    return {
+        "project": project,
+        "found": False,
+        "queries": 0,
+        "chars_used": 0,
+        "chars_naive": 0,
+        "tokens_used": 0,
+        "tokens_naive": 0,
+        "tokens_saved": 0,
+        "savings_pct": 0.0,
+    }
+
+
+def _human_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def format_gain(report: dict, compact: bool = False) -> str:
+    """Human rendering. `compact` is the statusline badge form: [TS 3.3M↓]."""
+    if compact:
+        return f"[TS {_human_tokens(report['tokens_saved'])}↓]"
+    scope = report["project"] or "all projects"
+    if not report["found"]:
+        return f"{scope}: no stats recorded"
+    return (
+        f"{scope}\n"
+        f"  queries       {report['queries']}\n"
+        f"  tokens used   {report['tokens_used']}\n"
+        f"  tokens naive  {report['tokens_naive']}\n"
+        f"  tokens saved  {report['tokens_saved']}\n"
+        f"  savings       {report['savings_pct']}%"
+    )

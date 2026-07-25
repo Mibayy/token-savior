@@ -397,6 +397,11 @@ def main():
 
     sub.add_parser("projects", help="Lister les projets")
 
+    g = sub.add_parser("gain", help="Tokens economises (global ou par projet)")
+    g.add_argument("--project", default=None, help="Racine ou nom du projet")
+    g.add_argument("--format", dest="fmt", choices=["text", "json", "compact"],
+                   default="text", help="compact = badge statusline [TS 3.3M-]")
+
     # Read
     s = sub.add_parser("get", help="Source d'une fonction/classe (auto)")
     s.add_argument("name")
@@ -497,6 +502,17 @@ def main():
             except Exception:
                 pass
         _print(f"Active project set to: {args.path}", args.text)
+        return
+
+    if args.cmd == "gain":
+        # Local: the numbers come from the stats files, not from the server.
+        from .dashboard import format_gain, gain_report
+
+        report = gain_report(project=args.project)
+        if args.fmt == "json":
+            print(json.dumps(report, ensure_ascii=False))
+        else:
+            print(format_gain(report, compact=args.fmt == "compact"))
         return
 
     try:
