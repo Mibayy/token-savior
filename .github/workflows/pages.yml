@@ -25,6 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # La page publiee affichait v4.3 alors que le paquet etait en
+      # 4.10.0 : chaque nombre etait ecrit en dur et personne ne pensait
+      # a le mettre a jour. Le build echoue maintenant si elle derive.
+      - name: Verifier que le site est a jour
+        run: python3 scripts/site_sync.py --check
       - name: Stage site
         run: |
           mkdir -p _site
