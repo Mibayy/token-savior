@@ -18,7 +18,6 @@ from token_savior.brace_matcher import (
     find_brace_end_rust,
 )
 
-
 # (name, lines, start_line_0, expected_end_line)
 CHARACTERIZATION_CASES: list[tuple[str, list[str], int, int]] = [
     # --- trivial / baseline ---

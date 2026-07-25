@@ -131,7 +131,8 @@ _VECTOR_REQUIRED = pytest.mark.skipif(
 def test_reindex_then_search_finds_expected_symbol(fixture_project: Path, tmp_path: Path):
     from token_savior import db_core, memory_db
     from token_savior.memory.symbol_embeddings import (
-        reindex_project_symbols, search_symbols_semantic,
+        reindex_project_symbols,
+        search_symbols_semantic,
     )
 
     db = tmp_path / "bench.db"

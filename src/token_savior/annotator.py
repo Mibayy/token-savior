@@ -2,8 +2,8 @@
 
 from token_savior.c_annotator import annotate_c
 from token_savior.conf_annotator import annotate_conf
-from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.csharp_annotator import annotate_csharp
+from token_savior.dockerfile_annotator import annotate_dockerfile
 from token_savior.env_annotator import annotate_env
 from token_savior.generic_annotator import annotate_generic
 from token_savior.go_annotator import annotate_go
@@ -12,9 +12,9 @@ from token_savior.hcl_annotator import annotate_hcl
 from token_savior.ini_annotator import annotate_ini
 from token_savior.java_annotator import annotate_java
 from token_savior.json_annotator import annotate_json
-from token_savior.prisma_annotator import annotate_prisma
 from token_savior.models import AnnotatorProtocol, StructuralMetadata
 from token_savior.php_annotator import annotate_php
+from token_savior.prisma_annotator import annotate_prisma
 from token_savior.python_annotator import annotate_python
 from token_savior.ruby_annotator import annotate_ruby
 from token_savior.rust_annotator import annotate_rust

@@ -54,9 +54,8 @@ def _h_run_impacted_tests(slot: _ProjectSlot, args: dict) -> object:
                 symbol=symbols[0] if symbols else None,
                 tags=["test-failure", "auto"],
             )
-            if obs_id is not None:
-                if isinstance(result, dict):
-                    result["_memory_saved"] = f"#{obs_id}"
+            if obs_id is not None and isinstance(result, dict):
+                result["_memory_saved"] = f"#{obs_id}"
     except Exception:
         pass
     return result

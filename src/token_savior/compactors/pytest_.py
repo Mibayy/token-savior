@@ -5,7 +5,6 @@ import re
 
 from .base import Compactor
 
-
 _PROGRESS_RE = re.compile(r"^.+\.py\s+[.FsExX]+\s*(\[\s*\d+%\])?\s*$")
 _SUMMARY_RE = re.compile(r"^=+\s+(\d+ passed|\d+ failed|\d+ error|\d+ skipped|short test summary)")
 
@@ -85,13 +84,13 @@ class PytestCompactor(Compactor):
                 continue
 
             # Outside failures block: keep FAILED/ERROR summary lines, drop everything else noisy
-            if stripped.startswith("FAILED ") or stripped.startswith("ERROR "):
+            if stripped.startswith(("FAILED ", "ERROR ")):
                 out.append(stripped)
                 continue
             if _PROGRESS_RE.match(stripped):
                 # Skip dot-progress lines
                 continue
-            if stripped.startswith("platform ") or stripped.startswith("rootdir:") or stripped.startswith("plugins:") or stripped.startswith("collected "):
+            if stripped.startswith(("platform ", "rootdir:", "plugins:", "collected ")):
                 continue
             if stripped.startswith("===") and "test session" in stripped:
                 continue

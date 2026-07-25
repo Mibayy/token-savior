@@ -219,8 +219,8 @@ def analyze_docker(index: ProjectIndex) -> str:
     env_keys = _env_file_keys(env_files)
 
     parts: list[str] = [
-        "Docker Analysis -- "
-        f"Found {len(dockerfile_files)} Dockerfile(s), {len(compose_files)} compose file(s)",
+        ("Docker Analysis -- "
+        f"Found {len(dockerfile_files)} Dockerfile(s), {len(compose_files)} compose file(s)"),
         "",
     ]
 
@@ -265,14 +265,13 @@ def analyze_docker(index: ProjectIndex) -> str:
 
         # ENV/ARG vars not found in .env files
         for var in env_vars:
-            if env_keys and var not in env_keys:
-                if not _code_contains(index, var):
-                    issues.append(f"[warning] ENV/ARG var '{var}' not found in any .env file")
+            if env_keys and var not in env_keys and not _code_contains(index, var):
+                issues.append(f"[warning] ENV/ARG var '{var}' not found in any .env file")
 
         # COPY/ADD source existence
         for src in copy_sources:
             # Skip URL sources or glob-like sources
-            if src.startswith("http://") or src.startswith("https://"):
+            if src.startswith(("http://", "https://")):
                 continue
             if "*" in src or "?" in src:
                 continue

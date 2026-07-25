@@ -12,13 +12,8 @@ import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from token_savior.models import ConfigIssue, ProjectIndex, StructuralMetadata
-
-if TYPE_CHECKING:
-    pass
-
 
 # ---------------------------------------------------------------------------
 # Levenshtein edit distance
@@ -297,9 +292,7 @@ def _is_non_secret_pattern(value: str) -> bool:
         return True
     if _BOOL_LIKE_RE.match(value):
         return True
-    if _looks_like_structured_config(value):
-        return True
-    return False
+    return _looks_like_structured_config(value)
 
 
 # ---------------------------------------------------------------------------
@@ -665,11 +658,9 @@ def check_orphans(
         normalized = source_name.replace("\\", "/")
         if (
             basename in convention_patterns
-            or basename.startswith("tsconfig.")
-            or basename.startswith("docker-compose")
-            or normalized.startswith(".github/workflows/")
+            or basename.startswith(("tsconfig.", "docker-compose"))
+            or normalized.startswith((".github/workflows/", "config/deploy/"))
             or "/.github/workflows/" in normalized
-            or normalized.startswith("config/deploy/")
             or "/config/deploy/" in normalized
         ):
             continue
@@ -704,21 +695,18 @@ def check_orphans(
         normalized = source_name.replace("\\", "/")
         if (
             basename in convention_patterns
-            or basename.startswith("tsconfig.")
-            or basename.startswith("docker-compose")
+            or basename.startswith(("tsconfig.", "docker-compose"))
             or basename == "package.json"
-            or normalized.startswith(".github/workflows/")
             or "/.github/workflows/" in normalized
             # Infra manifests applied by kubectl/helm/terraform — never loaded
             # by app code, not decoys.
+            or normalized.startswith(
+                (".github/workflows/", "k8s/", "kubernetes/", "terraform/", "helm/")
+            )
             or "/k8s/" in normalized
-            or normalized.startswith("k8s/")
             or "/kubernetes/" in normalized
-            or normalized.startswith("kubernetes/")
             or "/terraform/" in normalized
-            or normalized.startswith("terraform/")
             or "/helm/" in normalized
-            or normalized.startswith("helm/")
             or basename.endswith((".tf", ".hcl"))
         ):
             continue

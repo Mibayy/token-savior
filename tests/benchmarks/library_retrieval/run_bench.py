@@ -65,7 +65,8 @@ def _agg(per_query: list[dict]) -> dict:
 def run() -> dict:
     sys.path.insert(0, str(REPO_ROOT / "src"))
     from token_savior.library_api import (
-        _cached_doc_embed, find_library_symbol_by_description,
+        _cached_doc_embed,
+        find_library_symbol_by_description,
     )
 
     qspec = json.loads(QUERIES_PATH.read_text())

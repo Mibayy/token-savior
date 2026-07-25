@@ -21,7 +21,6 @@ from token_savior.project_indexer import ProjectIndexer
 from token_savior.python_annotator import annotate_python
 from token_savior.query_api import create_project_query_functions
 
-
 SAMPLE = """\
 from typing import Any
 

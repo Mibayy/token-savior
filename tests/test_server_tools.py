@@ -6,8 +6,8 @@ import sys
 import pytest
 
 from token_savior.server_handlers import (
-    META_HANDLERS,
     MEMORY_HANDLERS,
+    META_HANDLERS,
     QFN_HANDLERS,
     SLOT_HANDLERS,
 )

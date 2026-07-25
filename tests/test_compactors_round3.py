@@ -13,7 +13,6 @@ from token_savior.compactors.git import (
 )
 from token_savior.compactors.pytest_ import PytestCompactor
 
-
 # ---------------------------------------------------------------------------
 # PytestCompactor.matches() — extended forms
 # ---------------------------------------------------------------------------

@@ -76,7 +76,7 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
             if parent_class_name and parent_class_name.endswith(("Application", "Main")):
                 score += 1.5
                 reasons.append(f"entry class ({parent_class_name})")
-            if filename.endswith("main.java") or filename.endswith("application.java"):
+            if filename.endswith(("main.java", "application.java")):
                 score += 1.0
                 reasons.append(f"entry java file ({filename})")
             if "SpringBootApplication" in class_decorators:
@@ -108,7 +108,7 @@ def score_entry_points(index: ProjectIndex, max_results: int = 20) -> list[dict]
             if func_decorators & {"Benchmark", "Setup", "TearDown"}:
                 score += 2.0
                 reasons.append("benchmark lifecycle")
-            if parent_class_lower.endswith("benchmark") or parent_class_lower.endswith("benchmarks"):
+            if parent_class_lower.endswith(("benchmark", "benchmarks")):
                 score += 1.0
                 reasons.append("benchmark class")
 

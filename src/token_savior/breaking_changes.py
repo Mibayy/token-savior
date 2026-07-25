@@ -19,7 +19,6 @@ from token_savior.java_annotator import annotate_java
 from token_savior.models import ProjectIndex
 from token_savior.symbol_hash import compute_body_hash
 
-
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -272,6 +271,7 @@ def _get_old_file_content(root_path: str, ref: str, file_path: str) -> str | Non
             ["git", "show", f"{ref}:{file_path}"],
             cwd=root_path,
             capture_output=True,
+            check=False,
             stdin=subprocess.DEVNULL,
             text=True,
             timeout=15,
@@ -324,18 +324,22 @@ def _compare_functions(
         changes.extend(sig_changes_combined)
 
         # Non-breaking: signature identical, body differs (refactor/bugfix).
-        if not sig_changes_combined and old_func.body_hash and new_func.body_hash:
-            if old_func.body_hash != new_func.body_hash:
-                changes.append(
-                    BreakingChange(
-                        file=file_path,
-                        symbol=name,
-                        line=new_func.line,
-                        severity="info",
-                        message=f"function {name}(): body only (refactor/bugfix)",
-                        change_type=ChangeType.BODY_ONLY_CHANGED,
-                    )
+        if (
+            not sig_changes_combined
+            and old_func.body_hash
+            and new_func.body_hash
+            and old_func.body_hash != new_func.body_hash
+        ):
+            changes.append(
+                BreakingChange(
+                    file=file_path,
+                    symbol=name,
+                    line=new_func.line,
+                    severity="info",
+                    message=f"function {name}(): body only (refactor/bugfix)",
+                    change_type=ChangeType.BODY_ONLY_CHANGED,
                 )
+            )
 
     # Added functions (non-breaking, info only).
     for name, new_func in new_map.items():
@@ -406,18 +410,22 @@ def _compare_classes(
                     c.change_type = ChangeType.SIGNATURE_CHANGED
                 changes.extend(sig_changes_combined)
 
-                if not sig_changes_combined and old_m.body_hash and new_m.body_hash:
-                    if old_m.body_hash != new_m.body_hash:
-                        changes.append(
-                            BreakingChange(
-                                file=file_path,
-                                symbol=symbol,
-                                line=new_m.line,
-                                severity="info",
-                                message=f"method {symbol}(): body only (refactor/bugfix)",
-                                change_type=ChangeType.BODY_ONLY_CHANGED,
-                            )
+                if (
+                    not sig_changes_combined
+                    and old_m.body_hash
+                    and new_m.body_hash
+                    and old_m.body_hash != new_m.body_hash
+                ):
+                    changes.append(
+                        BreakingChange(
+                            file=file_path,
+                            symbol=symbol,
+                            line=new_m.line,
+                            severity="info",
+                            message=f"method {symbol}(): body only (refactor/bugfix)",
+                            change_type=ChangeType.BODY_ONLY_CHANGED,
                         )
+                    )
 
         for mname, new_m in new_methods.items():
             if mname not in old_methods:
@@ -769,9 +777,9 @@ def _format_report(since_ref: str, changes: list[BreakingChange]) -> str:
 
     total = len(changes)
     lines: list[str] = [
-        f"Breaking Change Analysis ({since_ref}..working tree) "
+        (f"Breaking Change Analysis ({since_ref}..working tree) "
         f"-- {total} issue{'s' if total != 1 else ''} "
-        f"(T0={len(breaking)} T1={len(warnings)} T2={len(infos)})",
+        f"(T0={len(breaking)} T1={len(warnings)} T2={len(infos)})"),
     ]
 
     if breaking:

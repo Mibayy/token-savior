@@ -11,8 +11,8 @@ import fnmatch
 import os
 import re
 from collections import defaultdict, deque
+from collections.abc import Callable
 from functools import partial
-from typing import Callable
 
 from token_savior.community import compute_communities, get_cluster_for_symbol
 from token_savior.entry_points import score_entry_points
@@ -60,9 +60,7 @@ def _graph_name_matches(candidate: str, name: str) -> bool:
     name_base, _ = _split_signature_suffix(name)
     if candidate_base == name_base:
         return True
-    if candidate_base.endswith(f".{name_base}"):
-        return True
-    return False
+    return candidate_base.endswith(f".{name_base}")
 
 
 def _is_constructor_symbol(name: str) -> bool:
@@ -134,8 +132,7 @@ def _file_get_lines_impl(metadata: StructuralMetadata, start: int, end: int) -> 
     """Get specific lines (1-indexed, inclusive)."""
     if start < 1:
         return "Error: start must be >= 1"
-    if end > metadata.total_lines:
-        end = metadata.total_lines
+    end = min(end, metadata.total_lines)
     if start > end:
         return f"Error: start ({start}) > end ({end})"
     return "\n".join(metadata.lines[start - 1 : end])
@@ -570,7 +567,7 @@ def _infer_component_end_line(meta: StructuralMetadata, func) -> int:
         if stripped in {"};", "}", ");", ")", "</>"} and depth_brace == 0 and depth_paren == 0:
             return idx + 1
         if (
-            (";" in line or stripped.endswith(")") or stripped.endswith("}") or stripped.endswith("};"))
+            (";" in line or stripped.endswith((")", "}", "};")))
             and depth_paren == 0
             and depth_brace == 0
             and depth_bracket == 0
@@ -682,7 +679,8 @@ class ProjectQueryEngine:
     the old ``create_project_query_functions`` dict interface.
     """
 
-    _tools = [
+    # Tuple, not list: this is a read-only class-level registry (see as_dict).
+    _tools = (
         "get_project_summary",
         "list_files",
         "get_structure_summary",
@@ -715,7 +713,7 @@ class ProjectQueryEngine:
         "find_import_cycles",
         "get_duplicate_classes",
         "find_impacted_test_files",
-    ]
+    )
 
     def __init__(self, index: ProjectIndex):
         self.index = index
@@ -739,8 +737,8 @@ class ProjectQueryEngine:
         index = self.index
         parts = [
             f"Project: {index.root_path}",
-            f"Files: {index.total_files}, Lines: {index.total_lines}, "
-            f"Functions: {index.total_functions}, Classes: {index.total_classes}",
+            (f"Files: {index.total_files}, Lines: {index.total_lines}, "
+            f"Functions: {index.total_functions}, Classes: {index.total_classes}"),
         ]
 
         # Top-level packages only (deduplicated)
@@ -839,7 +837,7 @@ class ProjectQueryEngine:
             resolved_path = file_path
         else:
             for p in self.index.files:
-                if p == file_path or p.endswith("/" + file_path) or p.endswith(file_path):
+                if p == file_path or p.endswith(("/" + file_path, file_path)):
                     resolved_path = p
                     break
 
@@ -1350,7 +1348,7 @@ class ProjectQueryEngine:
         full set was returned (no truncation), so callers know no further
         scanning is needed.
         """
-        resolved_name, deps = self._resolve_dep_name(name)
+        _resolved_name, deps = self._resolve_dep_name(name)
         if deps is None:
             return [{"error": f"'{name}' not found in reverse dependency graph"}]
         result = sorted(deps)
@@ -1562,7 +1560,7 @@ class ProjectQueryEngine:
             regex = re.compile(pattern)
         except re.error as e:
             return [{"error": f"Invalid regex: {e}"}]
-        limit = max_results if max_results > 0 else 0
+        limit = max(0, max_results)
         char_cap = max_line_chars if max_line_chars and max_line_chars > 0 else 0
 
         _GEN_MARKERS = (
@@ -1898,9 +1896,7 @@ class ProjectQueryEngine:
             if "not implemented" in low or "todo" in low or "fixme" in low:
                 return True
             stripped = [ln.strip() for ln in body.splitlines() if ln.strip()]
-            if len(stripped) <= 2:
-                return True
-            return False
+            return len(stripped) <= 2
 
         def add_route(route: dict) -> None:
             methods = route.get("methods") or [""]
@@ -2364,11 +2360,12 @@ class ProjectQueryEngine:
         (~2 min, same as ``search_codebase(semantic=True)``).
         """
         try:
+            import sqlite_vec  # noqa: F401  # loaded side-effect
+
+            from token_savior import memory_db
             from token_savior.memory.symbol_embeddings import (
                 reindex_project_symbols,
             )
-            from token_savior import memory_db
-            import sqlite_vec  # noqa: F401  # loaded side-effect
         except ImportError as exc:
             return f"Semantic duplicates (embedding): unavailable ({exc})"
 
@@ -2499,11 +2496,11 @@ class ProjectQueryEngine:
         groups = groups[:max_groups]
 
         lines = [
-            f"Semantic duplicates (embedding, sim>={threshold:.2f}): "
+            (f"Semantic duplicates (embedding, sim>={threshold:.2f}): "
             f"{total} cluster(s) found across {len(symbols)} symbols "
-            f"(showing top {len(groups)})",
-            "WARNING: embedding matches can be conceptual but not functional."
-            " Verify with get_function_source before merging or deleting.",
+            f"(showing top {len(groups)})"),
+            ("WARNING: embedding matches can be conceptual but not functional."
+            " Verify with get_function_source before merging or deleting."),
         ]
         cap = max(2, max_members_per_group) if max_members_per_group > 0 else 0
         for members, smin, smean in groups:
@@ -2575,8 +2572,8 @@ class ProjectQueryEngine:
 
     def _build_semantic_hash_cache(self, min_lines: int = 2) -> None:
         """Pre-compute semantic hashes for all functions in the index."""
-        from token_savior.semantic_hasher import semantic_hash
         from token_savior.project_indexer import is_path_excluded_from_scans
+        from token_savior.semantic_hasher import semantic_hash
 
         cache: dict[str, str] = {}
         for file_path, meta in self.index.files.items():
@@ -2637,8 +2634,9 @@ class ProjectQueryEngine:
         tca_scores: dict[str, float] = {}
         tca_used = False
         try:
-            from pathlib import Path
             import os
+            from pathlib import Path
+
             from token_savior.tca_engine import TCAEngine
 
             stats_dir = Path(
@@ -2706,8 +2704,10 @@ class ProjectQueryEngine:
         from token_savior.context_packer import (
             SymbolCandidate,
             bfs_distance,
-            pack_context as knapsack,
             score_symbol,
+        )
+        from token_savior.context_packer import (
+            pack_context as knapsack,
         )
 
         index = self.index
@@ -2768,8 +2768,8 @@ class ProjectQueryEngine:
 
         total_cost = sum(s.token_cost for s in selected)
         lines: list[str] = [
-            f"Context pack for '{query}' "
-            f"({len(selected)} symbols, ~{total_cost} tokens / {budget_tokens} budget)",
+            (f"Context pack for '{query}' "
+            f"({len(selected)} symbols, ~{total_cost} tokens / {budget_tokens} budget)"),
             "-" * 60,
         ]
         for sym in selected[:10]:
@@ -2813,7 +2813,7 @@ class ProjectQueryEngine:
         resolved = self._resolve_any_symbol(name, file_path)
         if resolved is None:
             return f"Symbol '{name}' not found"
-        kind, meta, sym = resolved
+        _kind, meta, sym = resolved
 
         start = sym.line_range.start
         end = sym.line_range.end
@@ -2844,8 +2844,8 @@ class ProjectQueryEngine:
 
         header = [
             f"Backward slice: {variable}@{line} in {name} ({meta.source_name})",
-            f"{result.reduction_pct}% reduction "
-            f"({len(result.lines)} lines / {result.total_lines} total in symbol)",
+            (f"{result.reduction_pct}% reduction "
+            f"({len(result.lines)} lines / {result.total_lines} total in symbol)"),
             "-" * 50,
         ]
         body: list[str] = []

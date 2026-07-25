@@ -31,7 +31,7 @@ def test_auto_cold_start_falls_back_to_warm_baseline():
     # Patch aggregate_counts to return nothing (cold start)
     from token_savior import telemetry
     orig = telemetry.aggregate_counts
-    telemetry.aggregate_counts = lambda: {}
+    telemetry.aggregate_counts = dict
     try:
         includes = srv._auto_includes()
     finally:

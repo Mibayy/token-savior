@@ -19,11 +19,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from token_savior._compat import TextContent
-from token_savior._compat import types
-
+from token_savior._compat import TextContent, types
 from token_savior.discover import (
     discover as _discover,
+)
+from token_savior.discover import (
     discover_adoption as _discover_adoption,
 )
 from token_savior.discover.patterns import AdoptionReport
@@ -62,11 +62,11 @@ def _fmt_adoption(report: AdoptionReport) -> str:
     lines = [
         "# ts_discover — Token Savior adoption",
         "",
-        f"**Overall:** {report.total_ts} TS / {report.total_native} native "
-        f"({ts_pct:.1f}% TS, {native_pct:.1f}% native) across {len(report.sessions)} session(s)",
+        (f"**Overall:** {report.total_ts} TS / {report.total_native} native "
+        f"({ts_pct:.1f}% TS, {native_pct:.1f}% native) across {len(report.sessions)} session(s)"),
         "",
-        f"**Trend:** first half {report.first_half_ratio * 100.0:.1f}% TS  "
-        f"→  second half {report.second_half_ratio * 100.0:.1f}% TS  ({arrow} {trend:+.1f}pp)",
+        (f"**Trend:** first half {report.first_half_ratio * 100.0:.1f}% TS  "
+        f"→  second half {report.second_half_ratio * 100.0:.1f}% TS  ({arrow} {trend:+.1f}pp)"),
         "",
         "## Worst 5 sessions (most native-heavy)",
         "",

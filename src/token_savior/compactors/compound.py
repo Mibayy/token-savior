@@ -272,9 +272,7 @@ def _is_meaningful(segment: str) -> bool:
         # level; the caller will see _scan_for_bailouts already handled
         # most cases, but a stray ``do`` etc. should still be skipped.
         return False
-    if tok in _TRIVIAL_COMMANDS:
-        return False
-    return True
+    return tok not in _TRIVIAL_COMMANDS
 
 
 def _meaningful_form(segment: str) -> str:

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from token_savior.complexity import (
-    find_hotspots,
     _compute_nesting_depth,
     _count_branches,
     _score_function,
+    find_hotspots,
 )
 from token_savior.models import (
     FunctionInfo,

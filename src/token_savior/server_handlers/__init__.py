@@ -30,6 +30,8 @@ from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
 from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
 from token_savior.server_handlers.memory import (
     ADMIN_HANDLERS as _MEMORY_ADMIN_HANDLERS,
+)
+from token_savior.server_handlers.memory import (
     HANDLERS as _MEMORY_HANDLERS_RAW,
 )
 from token_savior.server_handlers.project import HANDLERS as _PROJECT_HANDLERS
@@ -93,8 +95,8 @@ ALL_HANDLERS: dict[str, Any] = _merge_disjoint(
 
 __all__ = [
     "ALL_HANDLERS",
-    "META_HANDLERS",
     "MEMORY_HANDLERS",
-    "SLOT_HANDLERS",
+    "META_HANDLERS",
     "QFN_HANDLERS",
+    "SLOT_HANDLERS",
 ]

@@ -5,7 +5,6 @@ import re
 
 from .base import Compactor
 
-
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # Vitest default reporter glyphs:
 #   ✓ test passed

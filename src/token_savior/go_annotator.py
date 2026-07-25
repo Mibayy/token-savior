@@ -5,7 +5,6 @@ types, import statements, and doc comments using regex and brace counting.
 """
 
 import re
-from typing import Optional
 
 from token_savior.brace_matcher import find_brace_end_go as _find_brace_end
 from token_savior.models import (
@@ -97,7 +96,7 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
                     short_name = module.rsplit("/", 1)[-1] if "/" in module else module
                     # dot import: alias='.'
                     # blank import: alias='_'
-                    effective_alias: Optional[str] = None
+                    effective_alias: str | None = None
                     if alias and alias not in (".", "_"):
                         effective_alias = alias
                     elif alias == ".":
@@ -177,7 +176,7 @@ def _extract_params(raw: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_doc_comment(lines: list[str], decl_line_0: int) -> Optional[str]:
+def _collect_doc_comment(lines: list[str], decl_line_0: int) -> str | None:
     """Collect consecutive // comment lines immediately before decl_line_0."""
     doc_lines: list[str] = []
     j = decl_line_0 - 1
@@ -289,7 +288,7 @@ def annotate_go(source: str, source_name: str = "<source>") -> StructuralMetadat
         stripped = lines[i].strip()
 
         # Skip empty lines and comments
-        if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
+        if not stripped or stripped.startswith(("//", "/*")):
             i += 1
             continue
 

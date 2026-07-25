@@ -20,7 +20,6 @@ import json
 import math
 from pathlib import Path
 
-
 SIGNATURE_DIM = 32
 
 TOP_TOOLS = (

@@ -18,7 +18,6 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 from token_savior.db_core import MEMORY_DB_PATH
 
@@ -44,12 +43,12 @@ _INSERT_SQL = (
     "VALUES (?, ?, ?, ?, ?, ?)"
 )
 
-_conn: Optional[sqlite3.Connection] = None
+_conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
 _disabled = False
 
 
-def _open_conn(db_path: Optional[Path] = None) -> sqlite3.Connection:
+def _open_conn(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or MEMORY_DB_PATH
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(
@@ -69,7 +68,7 @@ def _open_conn(db_path: Optional[Path] = None) -> sqlite3.Connection:
     return conn
 
 
-def _get_conn() -> Optional[sqlite3.Connection]:
+def _get_conn() -> sqlite3.Connection | None:
     global _conn, _disabled
     if _disabled:
         return None
@@ -88,11 +87,11 @@ def _get_conn() -> Optional[sqlite3.Connection]:
 
 def record(
     tool: str,
-    project: Optional[str],
+    project: str | None,
     duration_ms: int,
     status: str,
-    error_type: Optional[str] = None,
-    ts: Optional[int] = None,
+    error_type: str | None = None,
+    ts: int | None = None,
 ) -> None:
     """Persist a single latency sample. Never raises."""
     conn = _get_conn()

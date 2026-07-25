@@ -1,10 +1,9 @@
 """Tests for the Python file annotator."""
 
-from token_savior.python_annotator import annotate_python
 from token_savior.models import (
     StructuralMetadata,
 )
-
+from token_savior.python_annotator import annotate_python
 
 # ---------------------------------------------------------------------------
 # Test source strings

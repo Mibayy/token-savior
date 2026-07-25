@@ -14,7 +14,7 @@ Monkey-patch surface that callers depend on (do NOT break):
 - memory_db.run_migrations         (server boot)
 """
 
-import token_savior.memory_db as memory_db
+from token_savior import memory_db
 
 EXPECTED_PUBLIC = [
     "ACTIVITY_TRACKER_PATH",

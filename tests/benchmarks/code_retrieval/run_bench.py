@@ -141,7 +141,8 @@ def run() -> dict:
     sys.path.insert(0, str(REPO_ROOT / "src"))
     from token_savior import db_core, memory_db
     from token_savior.memory.symbol_embeddings import (
-        reindex_project_symbols, search_symbols_semantic,
+        reindex_project_symbols,
+        search_symbols_semantic,
     )
 
     qspec = json.loads(QUERIES_PATH.read_text())

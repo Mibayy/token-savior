@@ -64,7 +64,7 @@ class TestWarmStartStore:
         sig = ws.save_session_signature(1, "/proj/a", data)
         sim = ws.find_similar_sessions(sig, project_root="/proj/a", top_k=3, min_sim=0.5)
         assert sim
-        entry, score = sim[0]
+        _entry, score = sim[0]
         assert score > 0.9
 
     def test_no_cross_project(self, tmp_path: Path):

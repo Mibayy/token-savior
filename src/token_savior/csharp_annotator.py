@@ -6,7 +6,6 @@ method and constructor detection, using directives, [Attributes], and
 """
 
 import re
-from typing import Optional
 
 from token_savior.brace_matcher import find_brace_end_csharp as _find_brace_end
 from token_savior.models import (
@@ -17,7 +16,6 @@ from token_savior.models import (
     StructuralMetadata,
     build_line_char_offsets,
 )
-
 
 # ---------------------------------------------------------------------------
 # Using directive detection
@@ -32,7 +30,7 @@ def _parse_using_directives(lines: list[str]) -> list[ImportInfo]:
     imports: list[ImportInfo] = []
     for i, raw_line in enumerate(lines):
         stripped = raw_line.strip()
-        if not (stripped.startswith("using ") or stripped.startswith("global using ")):
+        if not (stripped.startswith(("using ", "global using "))):
             continue
 
         # Alias: using Alias = Namespace.Type;
@@ -71,7 +69,7 @@ def _parse_using_directives(lines: list[str]) -> list[ImportInfo]:
         if m:
             module = m.group(1).strip()
             # Skip if it accidentally matches a using statement (block)
-            if module.startswith("(") or module.startswith("var "):
+            if module.startswith(("(", "var ")):
                 continue
             imports.append(
                 ImportInfo(
@@ -91,7 +89,7 @@ def _parse_using_directives(lines: list[str]) -> list[ImportInfo]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[str], Optional[str]]:
+def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[str], str | None]:
     """Collect [Attribute] and /// XML doc comments above a declaration."""
     attrs: list[str] = []
     doc_lines: list[str] = []
@@ -304,7 +302,7 @@ def _is_method_line(stripped: str, class_name: str | None) -> re.Match | None:
 # ---------------------------------------------------------------------------
 
 
-def _handle_csharp_namespace(lines: list[str], i: int, total_lines: int) -> Optional[int]:
+def _handle_csharp_namespace(lines: list[str], i: int, total_lines: int) -> int | None:
     """Handle a namespace declaration. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     ns_m = _NAMESPACE_RE.match(stripped)
@@ -388,11 +386,7 @@ def _extract_type_methods(
 
         # Skip empty, comments, attributes, doc comments
         if (
-            not mline
-            or mline.startswith("//")
-            or mline.startswith("/*")
-            or mline.startswith("[")
-            or mline.startswith("///")
+            not mline or mline.startswith(("//", "/*", "[", "///"))
         ):
             j += 1
             continue
@@ -440,7 +434,7 @@ def _handle_csharp_type(
     consumed: set[int],
     functions: list[FunctionInfo],
     classes: list[ClassInfo],
-) -> Optional[int]:
+) -> int | None:
     """Handle a type declaration at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     type_m = _TYPE_RE.match(stripped)
@@ -503,7 +497,7 @@ def _handle_csharp_type(
     return type_end + 1
 
 
-def _parse_base_classes(base_str: Optional[str]) -> list[str]:
+def _parse_base_classes(base_str: str | None) -> list[str]:
     """Parse base classes/interfaces from a type declaration's base list string."""
     base_classes: list[str] = []
     if not base_str:
@@ -520,7 +514,7 @@ def _parse_base_classes(base_str: Optional[str]) -> list[str]:
 
 def _find_type_end(
     lines: list[str], i: int, stripped: str, total_lines: int
-) -> Optional[int]:
+) -> int | None:
     """Find the end line of a type body. Returns line index or None if needs further scanning."""
     if "{" in stripped or (i + 1 < total_lines and "{" in lines[i + 1].strip()):
         return _find_brace_end(lines, i)
@@ -540,7 +534,7 @@ def _handle_csharp_toplevel_fn(
     total_lines: int,
     consumed: set[int],
     functions: list[FunctionInfo],
-) -> Optional[int]:
+) -> int | None:
     """Handle a top-level function at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     method_m = _is_method_line(stripped, None)
@@ -581,13 +575,11 @@ def _should_skip_pass1(stripped: str) -> bool:
     """Return True if line should be skipped in pass 1."""
     if not stripped:
         return True
-    if stripped.startswith("//") or stripped.startswith("/*"):
+    if stripped.startswith(("//", "/*")):
         return True
-    if stripped.startswith("using ") or stripped.startswith("global using "):
+    if stripped.startswith(("using ", "global using ")):
         return True
-    if stripped.startswith("[") or stripped.startswith("///"):
-        return True
-    return False
+    return stripped.startswith(("[", "///"))
 
 
 def _should_skip_pass2(stripped: str) -> bool:

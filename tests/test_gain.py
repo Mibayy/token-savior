@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from token_savior.dashboard import gain_report, format_gain
+from token_savior.dashboard import format_gain, gain_report
 
 
 def _write_stats(tmp_path, name, project, used, naive, calls=10, sessions=2):

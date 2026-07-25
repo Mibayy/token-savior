@@ -28,7 +28,7 @@ class CargoTestCompactor(Compactor):
                 if in_second_failures_list:
                     in_second_failures_list = False
                 continue
-            if stripped.startswith("Compiling ") or stripped.startswith("Finished ") or stripped.startswith("Running ") or stripped.startswith("running "):
+            if stripped.startswith(("Compiling ", "Finished ", "Running ", "running ")):
                 continue
             if re.match(r"^test\s+\S+\s+\.\.\.\s+ok$", stripped):
                 continue
@@ -74,10 +74,10 @@ class CargoBuildCompactor(Compactor):
             stripped = line.strip()
             if not stripped:
                 continue
-            if stripped.startswith("Compiling ") or stripped.startswith("Finished ") or stripped.startswith("Building "):
+            if stripped.startswith(("Compiling ", "Finished ", "Building ")):
                 continue
             # Error/warning header (e.g. `error[E0308]: mismatched types`)
-            if stripped.startswith("error") or stripped.startswith("warning:") or stripped.startswith("note:") or stripped.startswith("help:"):
+            if stripped.startswith(("error", "warning:", "note:", "help:")):
                 out.append(stripped)
                 continue
             # Location pointer (e.g. `--> src/main.rs:12:18`) — keep, it tells the agent where

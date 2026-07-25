@@ -28,7 +28,6 @@ import os
 import re
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Regex patterns. All case-insensitive, MULTILINE, DOTALL where relevant.
 # ---------------------------------------------------------------------------

@@ -104,7 +104,7 @@ def format_session_budget_box(stats: dict[str, Any]) -> str:
     """Render get_session_budget_stats() as a 60-char status box."""
     pct = stats.get("pct_used", 0.0)
     bar_w = 40
-    filled = max(0, min(bar_w, int(round(pct / 100.0 * bar_w))))
+    filled = max(0, min(bar_w, round(pct / 100.0 * bar_w)))
     bar = "█" * filled + "·" * (bar_w - filled)
     sid = stats.get("session_id") or "—"
     project = stats.get("project_root") or "(none)"

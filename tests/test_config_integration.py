@@ -8,8 +8,8 @@ import textwrap
 
 import pytest
 
-from token_savior.project_indexer import ProjectIndexer
 from token_savior.config_analyzer import analyze_config
+from token_savior.project_indexer import ProjectIndexer
 
 
 class TestFullPipeline:

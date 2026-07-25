@@ -14,7 +14,7 @@ import re
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MEMORY_DB_PATH = Path.home() / ".local" / "share" / "token-savior" / "memory.db"
@@ -66,7 +66,7 @@ def _maybe_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
         _sqlite_vec.load(conn)
         conn.enable_load_extension(False)
         return True
-    except (sqlite3.OperationalError, AttributeError, Exception) as exc:
+    except Exception as exc:  # `Exception` already subsumed the narrower arms
         if not _vector_warning_emitted:
             _logger.warning(
                 "[token-savior:memory] sqlite-vec load failed (%s); "
@@ -336,7 +336,7 @@ def db_session(db_path: Path | None = None):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _now_epoch() -> int:

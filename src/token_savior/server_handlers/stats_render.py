@@ -7,9 +7,9 @@ from runtime state: callers pass in the data they want rendered.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
-
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 SPARK = "▁▂▃▄▅▆▇█"
 
@@ -31,7 +31,7 @@ def _parse_ts(ts: str) -> datetime | None:
     try:
         if ts.endswith("Z"):
             ts = ts[:-1] + "+00:00"
-        return datetime.fromisoformat(ts).astimezone(timezone.utc)
+        return datetime.fromisoformat(ts).astimezone(UTC)
     except Exception:
         return None
 
@@ -40,7 +40,7 @@ def daily_token_savings(history: Iterable[dict[str, Any]], days: int) -> list[in
     """Return token-savings per day for the last ``days`` days (oldest first)."""
     if days <= 0:
         return []
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     buckets: dict[Any, int] = {today - timedelta(days=i): 0 for i in range(days)}
     for entry in history:
         ts = _parse_ts(entry.get("timestamp", ""))
@@ -60,7 +60,7 @@ def daily_breakdown(history: Iterable[dict[str, Any]], days: int = 7) -> list[di
 
     Each row: ``{date, calls, tokens_saved, top_tool}``.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     days_window = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
     by_day: dict[Any, dict[str, Any]] = {
         d: {"date": d.isoformat(), "calls": 0, "tokens_saved": 0, "tools": {}}
@@ -95,7 +95,7 @@ def render_daily_table(rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
     lines = [
-        "Daily breakdown (last {n} days):".format(n=len(rows)),
+        f"Daily breakdown (last {len(rows)} days):",
         f"  {'date':<10} {'calls':>6} {'tokens saved':>14}  top tool",
     ]
     for row in rows:
@@ -138,7 +138,7 @@ def top_tools_by_savings(
         {
             "tool": tool,
             "calls": calls,
-            "tokens_saved": int(round(per_tool_saved.get(tool, 0.0))),
+            "tokens_saved": round(per_tool_saved.get(tool, 0.0)),
         }
         for tool, calls in ranked
     ]

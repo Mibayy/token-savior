@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from datetime import UTC
 
 import pytest
 
@@ -235,6 +236,7 @@ class TestFormatUsageStats:
 
     def test_format_usage_stats_shows_recent_session_log(self, tmp_path):
         import json
+
         import token_savior.server as srv
         import token_savior.server_state as state
         from token_savior.server import _ProjectSlot
@@ -321,6 +323,7 @@ class TestFormatUsageStats:
 def _seed_history_stats(tmp_path, entries):
     """Helper: write a stats.json file and register a slot for it."""
     import json
+
     import token_savior.server_state as state
     from token_savior.server import _ProjectSlot
 
@@ -343,7 +346,7 @@ def _seed_history_stats(tmp_path, entries):
 
 class TestSparkline:
     def test_sparkline_basic(self):
-        from token_savior.server_handlers.stats_render import sparkline, SPARK
+        from token_savior.server_handlers.stats_render import SPARK, sparkline
 
         out = sparkline([1, 2, 4, 8])
         assert len(out) == 4
@@ -354,7 +357,7 @@ class TestSparkline:
         assert ranks == sorted(ranks)
 
     def test_sparkline_all_zero(self):
-        from token_savior.server_handlers.stats_render import sparkline, SPARK
+        from token_savior.server_handlers.stats_render import SPARK, sparkline
 
         out = sparkline([0, 0, 0])
         assert out == SPARK[0] * 3
@@ -374,10 +377,11 @@ class TestSparkline:
 
 class TestUsageStatsV2:
     def test_sparkline_section_renders(self, tmp_path):
-        import token_savior.server as srv
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        import token_savior.server as srv
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
             tmp_path,
             [
@@ -398,10 +402,11 @@ class TestUsageStatsV2:
         assert result.encode("utf-8").decode("utf-8") == result
 
     def test_daily_breakdown_table(self, tmp_path):
-        import token_savior.server as srv
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        import token_savior.server as srv
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
             tmp_path,
             [
@@ -423,10 +428,11 @@ class TestUsageStatsV2:
         assert "top tool" in result
 
     def test_top_tools_section(self, tmp_path):
-        import token_savior.server as srv
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        import token_savior.server as srv
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
             tmp_path,
             [
@@ -450,10 +456,11 @@ class TestUsageStatsV2:
         assert "get_function_source" in result
 
     def test_session_delta_section(self, tmp_path):
-        import token_savior.server as srv
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
 
-        now = datetime.now(timezone.utc)
+        import token_savior.server as srv
+
+        now = datetime.now(UTC)
         prev_ts = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         cur_ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
@@ -484,10 +491,11 @@ class TestUsageStatsV2:
 
     def test_format_json_is_valid_json(self, tmp_path):
         import json
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from token_savior.server_handlers.stats import _hm_get_usage_stats
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
             tmp_path,
             [
@@ -542,10 +550,11 @@ class TestUsageStatsV2:
             pass  # Expected — text output
 
     def test_days_zero_disables_sparkline(self, tmp_path):
-        import token_savior.server as srv
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        import token_savior.server as srv
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         _seed_history_stats(
             tmp_path,
             [

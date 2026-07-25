@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 # Operators that turn a Bash one-liner into a composition. We never
 # rewrite a command that contains any of them — too easy to break the
@@ -51,9 +51,7 @@ def is_unsafe_to_rewrite(cmd: str) -> bool:
     toks = _tokens(cmd)
     if _UNSAFE_TOKEN_DOUBLE_DASH in toks:
         return True
-    if any(t in _VERBOSE_TOKENS for t in toks):
-        return True
-    return False
+    return any(t in _VERBOSE_TOKENS for t in toks)
 
 
 def _has_any_flag(toks: list[str]) -> bool:
@@ -172,9 +170,7 @@ def _apply_git_log(cmd: str, toks: list[str]) -> str:
 def _match_tsc(toks: list[str]) -> bool:
     if toks == ["tsc"]:
         return True
-    if toks[:2] == ["npx", "tsc"] and len(toks) == 2:
-        return True
-    return False
+    return toks[:2] == ["npx", "tsc"] and len(toks) == 2
 
 
 def _apply_tsc(cmd: str, _toks: list[str]) -> str:
@@ -197,16 +193,12 @@ def _match_pytest(toks: list[str]) -> bool:
     rest: list[str] | None = None
     if toks[0] == "pytest":
         rest = toks[1:]
-    elif len(toks) >= 3 and toks[0] in _PYTEST_RUNNERS and toks[1] == "run" and toks[2] == "pytest":
-        rest = toks[3:]
-    elif len(toks) >= 3 and _PYTHON_EXE_RE.match(toks[0]) and toks[1] == "-m" and toks[2] == "pytest":
+    elif len(toks) >= 3 and toks[0] in _PYTEST_RUNNERS and toks[1] == "run" and toks[2] == "pytest" or len(toks) >= 3 and _PYTHON_EXE_RE.match(toks[0]) and toks[1] == "-m" and toks[2] == "pytest":
         rest = toks[3:]
     if rest is None:
         return False
     # Block if quietness/verbosity already specified
-    if _has_flag(rest, "-q", "--quiet", "-v", "-vv", "--verbose", "--tb"):
-        return False
-    return True
+    return not _has_flag(rest, "-q", "--quiet", "-v", "-vv", "--verbose", "--tb")
 
 
 def _apply_pytest(cmd: str, _toks: list[str]) -> str:
@@ -220,9 +212,7 @@ def _match_npm_test(toks: list[str]) -> bool:
         return True
     if toks == ["yarn", "test"]:
         return True
-    if toks == ["pnpm", "test"]:
-        return True
-    return False
+    return toks == ["pnpm", "test"]
 
 
 def _apply_npm_test(cmd: str, _toks: list[str]) -> str:
@@ -235,9 +225,7 @@ def _match_cargo_test(toks: list[str]) -> bool:
     if not _starts_with(toks, "cargo", "test"):
         return False
     rest = toks[2:]
-    if _has_flag(rest, "-q", "--quiet", "-v", "--verbose"):
-        return False
-    return True
+    return not _has_flag(rest, "-q", "--quiet", "-v", "--verbose")
 
 
 def _apply_cargo_test(cmd: str, _toks: list[str]) -> str:

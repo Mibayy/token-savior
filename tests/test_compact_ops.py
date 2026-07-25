@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from token_savior.compact_ops import get_changed_symbols
+from token_savior.git_tracker import GitChangeSet
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -13,7 +14,6 @@ from token_savior.models import (
     SectionInfo,
     StructuralMetadata,
 )
-from token_savior.git_tracker import GitChangeSet
 
 
 def _metadata() -> StructuralMetadata:

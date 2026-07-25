@@ -98,8 +98,9 @@ def test_ts_execute_real_chain(monkeypatch):
     values across the Node boundary correctly, not to re-test the
     individual TS tools (covered elsewhere).
     """
-    import token_savior.server as srv
     from mcp.types import TextContent
+
+    import token_savior.server as srv
 
     calls: list[tuple[str, dict]] = []
 
@@ -207,6 +208,7 @@ def test_ts_execute_in_tool_manifest():
 def test_ts_execute_disabled_via_env():
     """When TS_CODE_MODE_DISABLE=1, ts_execute is not advertised."""
     import importlib
+
     import token_savior.server as srv
     importlib.reload(srv)
     names = {t.name for t in srv.TOOLS}
@@ -221,6 +223,7 @@ def fresh_pool():
     """Force a brand-new worker pool for the test and tear it down after."""
     import os as _os
     import signal as _signal
+
     import token_savior.code_mode.sandbox as sb
 
     def _reset_sync():

@@ -2,7 +2,6 @@
 
 from token_savior.java_annotator import annotate_java
 
-
 SOURCE_COMPLEX = """\
 package com.acme.pricing;
 

@@ -102,10 +102,8 @@ def _clean_javadoc_line(raw: str) -> str:
         stripped = stripped[3:]
     elif stripped.startswith("/*"):
         stripped = stripped[2:]
-    if stripped.endswith("*/"):
-        stripped = stripped[:-2]
-    if stripped.startswith("*"):
-        stripped = stripped[1:]
+    stripped = stripped.removesuffix("*/")
+    stripped = stripped.removeprefix("*")
     return stripped.strip()
 
 
@@ -343,8 +341,7 @@ def _extract_params(raw: str) -> list[str]:
             last = tokens[-2]
         if last.endswith("this") and "." in last:
             last = last.rsplit(".", 1)[0]
-        if last.startswith("..."):
-            last = last[3:]
+        last = last.removeprefix("...")
         last = last.lstrip("*").rstrip("[]")
         names.append(last)
     return names

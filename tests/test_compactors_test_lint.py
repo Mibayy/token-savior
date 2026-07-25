@@ -7,7 +7,6 @@ from token_savior.compactors.eslint import EslintCompactor
 from token_savior.compactors.jest import JestCompactor
 from token_savior.compactors.vitest import VitestCompactor
 
-
 # ---------------------------------------------------------------------------
 # Registry membership
 # ---------------------------------------------------------------------------

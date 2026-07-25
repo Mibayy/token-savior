@@ -13,7 +13,6 @@ from dataclasses import dataclass
 
 from token_savior.models import ClassInfo, FunctionInfo, ProjectIndex
 
-
 # ---------------------------------------------------------------------------
 # Entry-point detection
 # ---------------------------------------------------------------------------
@@ -171,9 +170,7 @@ def _is_java_dynamic_dispatch_method(func: FunctionInfo, parent_class: ClassInfo
     decorator_names = _decorator_names(func.decorators)
     if "Override" in decorator_names and parent_class.base_classes:
         return True
-    if func.name == "run" and set(parent_class.base_classes) & _JAVA_DYNAMIC_DISPATCH_BASES:
-        return True
-    return False
+    return bool(func.name == "run" and set(parent_class.base_classes) & _JAVA_DYNAMIC_DISPATCH_BASES)
 
 
 def _class_declaration_text(cls: ClassInfo, meta) -> str:
@@ -364,9 +361,7 @@ def _is_java_callback_like_method(func: FunctionInfo, parent_class: ClassInfo | 
         return True
     if func.name.startswith("on") and len(func.name) > 2 and func.name[2].isupper():
         return True
-    if func.name.startswith("fetchAndIngest") and func.name.endswith("Once"):
-        return True
-    return False
+    return func.name.startswith("fetchAndIngest") and func.name.endswith("Once")
 
 
 def _is_java_trivial_value_method(
@@ -400,9 +395,7 @@ def _is_java_trivial_value_method(
         return True
     if func.name.startswith(("get", "is")) and len(func.parameters) == 0:
         return True
-    if len(func.parameters) == 0 and len(body_lines) <= 3 and "return " in body_text:
-        return True
-    return False
+    return len(func.parameters) == 0 and len(body_lines) <= 3 and "return " in body_text
 
 
 def _is_function_entry_point(
@@ -439,9 +432,7 @@ def _is_function_entry_point(
         return True
     if _is_java_callback_like_method(func, parent_class):
         return True
-    if meta is not None and _is_java_trivial_value_method(func, file_path, parent_class, meta):
-        return True
-    return False
+    return meta is not None and _is_java_trivial_value_method(func, file_path, parent_class, meta)
 
 
 def _is_class_entry_point(cls: ClassInfo, file_path: str, meta) -> bool:
@@ -462,9 +453,7 @@ def _is_class_entry_point(cls: ClassInfo, file_path: str, meta) -> bool:
         return True
     if file_path.endswith(".java") and _class_has_java_main_method(cls):
         return True
-    if _is_java_type_only_class(cls, file_path, meta):
-        return True
-    return False
+    return _is_java_type_only_class(cls, file_path, meta)
 
 
 # ---------------------------------------------------------------------------

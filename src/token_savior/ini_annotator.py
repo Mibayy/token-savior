@@ -27,7 +27,7 @@ def _parse_properties(text: str, source_name: str) -> StructuralMetadata:
     for i, line in enumerate(lines):
         stripped = line.strip()
         # Skip blank lines and comments
-        if not stripped or stripped.startswith("#") or stripped.startswith("!"):
+        if not stripped or stripped.startswith(("#", "!")):
             continue
         # Match KEY=VALUE or KEY:VALUE
         m = re.match(r"^([^=:#!\s][^=:]*?)\s*[=:](.*)", stripped)

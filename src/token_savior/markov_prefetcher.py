@@ -201,7 +201,7 @@ class PPMPrefetcher(MarkovPrefetcher):
             if order not in self.higher_order:
                 continue
             for ctx_str, nexts in contexts.items():
-                ctx = tuple(ctx_str.split("|||")) if ctx_str else tuple()
+                ctx = tuple(ctx_str.split("|||")) if ctx_str else ()
                 self.higher_order[order][ctx] = defaultdict(int, nexts)
 
     def save_model(self) -> None:

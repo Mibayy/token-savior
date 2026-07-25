@@ -19,8 +19,8 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
-from mcp.types import CallToolResult, TextContent as McpTextContent
+from mcp.types import CallToolResult
+from mcp.types import TextContent as McpTextContent
 
 from token_savior.server import call_tool
 

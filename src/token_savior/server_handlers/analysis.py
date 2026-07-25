@@ -21,6 +21,8 @@ from token_savior.dead_code import find_dead_code as run_dead_code
 from token_savior.docker_analyzer import analyze_docker as run_docker_analysis
 from token_savior.java_quality import (
     find_allocation_hotspots as run_allocation_hotspots,
+)
+from token_savior.java_quality import (
     find_performance_hotspots as run_performance_hotspots,
 )
 from token_savior.models import ProjectIndex

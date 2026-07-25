@@ -10,8 +10,9 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Louis-editable catalog, next to the hooks.
 DEFAULT_RULES_PATH = Path(__file__).resolve().parents[2].parent / "hooks" / "ledger-rules.json"

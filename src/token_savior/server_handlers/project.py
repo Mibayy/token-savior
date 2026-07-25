@@ -5,14 +5,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from token_savior._compat import TextContent
-from token_savior._compat import types
-
 from token_savior import server_state as state
+from token_savior._compat import TextContent, types
 from token_savior.server_runtime import _recompute_leiden
-from token_savior.slot_manager import _ProjectSlot
-from token_savior.slot_manager import _load_registered_roots
-from token_savior.slot_manager import _persist_registered_root
+from token_savior.slot_manager import _load_registered_roots, _persist_registered_root, _ProjectSlot
 
 
 def _hm_list_projects(arguments: dict[str, Any]) -> list[types.TextContent]:

@@ -5,7 +5,6 @@ import re
 
 from .base import Compactor
 
-
 _VER_RE = re.compile(r"(\d+)\.(\d+)(?:\.\d+)?(?:[-+][\w.]+)?")
 
 
@@ -74,7 +73,7 @@ class PipListCompactor(Compactor):
             if not stripped:
                 continue
             # Drop pip's verbose deprecation warnings + "DEPRECATION:" preambles
-            if stripped.startswith("DEPRECATION:") or stripped.startswith("WARNING:"):
+            if stripped.startswith(("DEPRECATION:", "WARNING:")):
                 continue
             if "pip install --upgrade pip" in stripped:
                 continue

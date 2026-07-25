@@ -56,7 +56,7 @@ def annotate_hcl(text: str, source_name: str = "<hcl>") -> StructuralMetadata:
         # Skip empty lines and comments
         if not stripped:
             continue
-        if stripped.startswith("#") or stripped.startswith("//"):
+        if stripped.startswith(("#", "//")):
             continue
 
         # Count braces on this line to update depth correctly.

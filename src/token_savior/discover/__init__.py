@@ -21,15 +21,10 @@ or tool inputs verbatim.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Iterator
 
-from token_savior.discover.transcript_scanner import (
-    Event,
-    iter_events,
-    transcript_root,
-)
 from token_savior.discover.patterns import (
     ALL_PATTERNS,
     AdoptionReport,
@@ -37,7 +32,11 @@ from token_savior.discover.patterns import (
     SessionAdoption,
     compute_adoption,
 )
-
+from token_savior.discover.transcript_scanner import (
+    Event,
+    iter_events,
+    transcript_root,
+)
 
 __all__ = [
     "AdoptionReport",
@@ -80,7 +79,7 @@ def _stream_sessions(
             current_proj = ev.project
         elif sid != current_sid:
             current_events.sort(
-                key=lambda e: e.ts or datetime.min.replace(tzinfo=timezone.utc)
+                key=lambda e: e.ts or datetime.min.replace(tzinfo=UTC)
             )
             yield current_sid, current_proj, current_events
             current_sid = sid
@@ -89,7 +88,7 @@ def _stream_sessions(
         current_events.append(ev)
     if current_sid is not None:
         current_events.sort(
-            key=lambda e: e.ts or datetime.min.replace(tzinfo=timezone.utc)
+            key=lambda e: e.ts or datetime.min.replace(tzinfo=UTC)
         )
         yield current_sid, current_proj, current_events
 
@@ -119,7 +118,7 @@ def discover(
     if not base.exists():
         return []
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, since_days))
+    cutoff = datetime.now(UTC) - timedelta(days=max(0, since_days))
 
     # Aggregator: bucket by (pattern, replacement) so we can sum across
     # sessions and projects without retaining individual events.
@@ -167,7 +166,7 @@ def discover_adoption(
     if not base.exists():
         return AdoptionReport()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, since_days))
+    cutoff = datetime.now(UTC) - timedelta(days=max(0, since_days))
 
     # Stream session-by-session into compute_adoption to keep memory bounded.
     def _gen() -> Iterator[tuple[str, list[Event]]]:

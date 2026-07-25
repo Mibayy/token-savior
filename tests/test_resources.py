@@ -32,15 +32,15 @@ def test_read_observation_roundtrip(tmp_path):
 
 
 def test_read_rejects_non_obs_uri(tmp_path):
-    with patch.object(memory_db, "MEMORY_DB_PATH", tmp_path / "memory.db"):
-        with pytest.raises(ValueError):
-            resources.read_observation_resource("https://example.com/x")
+    with patch.object(memory_db, "MEMORY_DB_PATH", tmp_path / "memory.db"), \
+         pytest.raises(ValueError):
+        resources.read_observation_resource("https://example.com/x")
 
 
 def test_read_rejects_bad_id(tmp_path):
-    with patch.object(memory_db, "MEMORY_DB_PATH", tmp_path / "memory.db"):
-        with pytest.raises(ValueError):
-            resources.read_observation_resource("ts://obs/not-an-int")
+    with patch.object(memory_db, "MEMORY_DB_PATH", tmp_path / "memory.db"), \
+         pytest.raises(ValueError):
+        resources.read_observation_resource("ts://obs/not-an-int")
 
 
 def test_read_missing_observation_raises(tmp_path):

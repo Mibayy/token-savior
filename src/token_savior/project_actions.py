@@ -233,6 +233,7 @@ def run_project_action(
             action["command"],
             cwd=root_path,
             capture_output=True,
+            check=False,
             stdin=subprocess.DEVNULL,
             text=True,
             timeout=timeout_sec,

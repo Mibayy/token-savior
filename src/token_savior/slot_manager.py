@@ -11,13 +11,14 @@ import hashlib
 import os
 import sys
 import time
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from token_savior.cache_ops import CacheManager, compute_config_key
-from token_savior.git_tracker import is_git_repo, get_head_commit, get_changed_files
+from token_savior.git_tracker import get_changed_files, get_head_commit, is_git_repo
 from token_savior.project_indexer import ProjectIndexer, _rebuild_path_indexes
 from token_savior.query_api import create_project_query_functions
-from token_savior.watcher import SlotWatcher, resolve_mode as resolve_watcher_mode
+from token_savior.watcher import SlotWatcher
+from token_savior.watcher import resolve_mode as resolve_watcher_mode
 
 if TYPE_CHECKING:
     from token_savior.models import ProjectIndex
@@ -35,11 +36,11 @@ _STATS_DIR = os.path.expanduser(
 @dataclasses.dataclass
 class _ProjectSlot:
     root: str
-    indexer: Optional[ProjectIndexer] = None
-    query_fns: Optional[dict] = None
+    indexer: ProjectIndexer | None = None
+    query_fns: dict | None = None
     is_git: bool = False
     stats_file: str = ""
-    cache: Optional[CacheManager] = None
+    cache: CacheManager | None = None
     # Incremental update tracking
     _last_update_check: float = 0.0
     # Cache of directory mtimes for scandir-based optimization
@@ -50,7 +51,7 @@ class _ProjectSlot:
     # Optional file watcher (TOKEN_SAVIOR_WATCHER=on|auto). None when off,
     # when the watchfiles dep is missing, or when the watcher failed to
     # start. In those cases the legacy mtime phase of maybe_update runs.
-    watcher: Optional["SlotWatcher"] = None
+    watcher: SlotWatcher | None = None
 
 
 # ---------------------------------------------------------------------------

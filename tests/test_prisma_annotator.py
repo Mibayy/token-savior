@@ -2,7 +2,6 @@
 
 from token_savior.prisma_annotator import annotate_prisma
 
-
 SAMPLE_SCHEMA = """\
 generator client {
   provider = "prisma-client-js"

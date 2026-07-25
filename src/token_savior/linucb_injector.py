@@ -19,7 +19,6 @@ import json
 import re
 from pathlib import Path
 
-
 FEATURE_NAMES = (
     "type_score",
     "age_score",

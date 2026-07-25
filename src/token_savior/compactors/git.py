@@ -5,7 +5,6 @@ import re
 
 from .base import Compactor
 
-
 _GIT_HINT_PATTERNS = (
     re.compile(r'^\s*\(use "git '),
     re.compile(r'^\s*\(commit or discard the untracked or modified content'),
@@ -119,12 +118,12 @@ class GitDiffCompactor(Compactor):
                 # Hunk header — keep but drop the trailing context after second @@
                 m = re.match(r"(@@ [^@]+ @@)", line)
                 kept.append(m.group(1) if m else line)
-            elif line.startswith("+++") or line.startswith("---"):
+            elif line.startswith(("+++", "---")):
                 # File markers redundant with our `# path` header
                 continue
             elif line.startswith("index "):
                 continue
-            elif line.startswith("+") or line.startswith("-"):
+            elif line.startswith(("+", "-")):
                 kept.append(line)
             # Everything else (unchanged context, mode lines, similarity, etc.) is dropped
         return "\n".join(kept)
@@ -150,7 +149,7 @@ class GitLogCompactor(Compactor):
             if line.startswith("commit "):
                 sha = line.split()[1][:8]
                 continue
-            if line.startswith("Author:") or line.startswith("Date:") or line.startswith("Merge:"):
+            if line.startswith(("Author:", "Date:", "Merge:")):
                 continue
             stripped = line.strip()
             if not stripped:
@@ -286,9 +285,7 @@ class GitCheckoutCompactor(Compactor):
         # Find a `Switched to ...` / `Already on ...` / `HEAD is now at ...` line.
         for line in lines:
             if (
-                line.startswith("Switched to ")
-                or line.startswith("Already on ")
-                or line.startswith("HEAD is now at ")
+                line.startswith(("Switched to ", "Already on ", "HEAD is now at "))
             ):
                 # Compact: `Switched to branch 'foo'` -> `ok -> branch foo`
                 m = re.match(r"^Switched to (a new )?branch '([^']+)'", line)

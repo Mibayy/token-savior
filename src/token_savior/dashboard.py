@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-
 
 DEFAULT_STATS_DIR = Path(
     os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
@@ -18,7 +17,7 @@ INCLUDE_TMP_PROJECTS = os.environ.get("TOKEN_SAVIOR_INCLUDE_TMP_PROJECTS", "").l
     "true",
     "yes",
 }
-STARTED_AT = datetime.now(timezone.utc)
+STARTED_AT = datetime.now(UTC)
 
 
 def load_payload(path: Path) -> dict | None:
@@ -92,9 +91,7 @@ def _should_include_project(payload: dict, path: Path) -> bool:
     if INCLUDE_TMP_PROJECTS:
         return True
     root = payload.get("project") or ""
-    if isinstance(root, str) and root.startswith("/tmp/"):
-        return False
-    return True
+    return not (isinstance(root, str) and root.startswith("/tmp/"))
 
 
 VALID_OBS_TYPES = (
@@ -332,7 +329,7 @@ def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
     recent_sessions = recent_sessions[:25]
     top_tools = sorted(tool_totals.items(), key=lambda item: (-item[1], item[0]))[:12]
     top_clients = sorted(client_totals.items(), key=lambda item: (-item[1], item[0]))
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at = datetime.now(UTC).isoformat()
     total_sessions = sum(client_totals.values())
 
     result = {

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 
-
 from token_savior.cache_ops import CacheManager
 from token_savior.cross_project import find_cross_project_deps
 from token_savior.models import ClassInfo, ImportInfo, LineRange, ProjectIndex, StructuralMetadata

@@ -63,12 +63,10 @@ def _compute_nesting_depth(lines: list[str], file_path: str | None = None) -> in
             continue
         indent = len(line) - len(line.lstrip())
         relative = indent - base_indent
-        if relative < 0:
-            relative = 0
+        relative = max(relative, 0)
         # depth is how many 4-space levels beyond the base
         depth = relative // 4
-        if depth > max_depth:
-            max_depth = depth
+        max_depth = max(max_depth, depth)
 
     return max_depth
 
@@ -131,9 +129,9 @@ def find_hotspots(
     Returns:
         A formatted string report of the top complexity hotspots.
     """
-    from token_savior.project_indexer import is_path_excluded_from_scans
-
     import re as _re
+
+    from token_savior.project_indexer import is_path_excluded_from_scans
     _MARKER_RE = _re.compile(r"\b(TODO|FIXME|XXX|HACK)\b", _re.IGNORECASE)
 
     results: list[tuple[int, float, int, int, int, str, int, str, bool]] = []

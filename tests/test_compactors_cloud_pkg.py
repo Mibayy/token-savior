@@ -6,7 +6,6 @@ import json
 from token_savior.compactors import compact, registry
 from token_savior.compactors.aws import _unwrap_ddb
 
-
 # ---------------------------------------------------------------------------
 # Registry sanity
 # ---------------------------------------------------------------------------

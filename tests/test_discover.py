@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
 
 from token_savior.discover import discover
 from token_savior.discover.patterns import (
@@ -19,7 +18,6 @@ from token_savior.discover.transcript_scanner import (
     Event,
     iter_events,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic JSONL fixtures
@@ -62,7 +60,7 @@ def _write_session(
 
 
 def _ev(seconds: float, tool: str, args: dict, session: str = "S1") -> Event:
-    base = datetime(2026, 5, 19, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC)
     return Event(
         ts=base + timedelta(seconds=seconds),
         tool_name=tool,
@@ -140,7 +138,7 @@ class TestTranscriptScanner:
         )
         # mtime is recent (file just written) so per-file filter passes; per-event filter
         # should drop the old one.
-        since = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        since = datetime(2026, 3, 1, tzinfo=UTC)
         evs = list(iter_events(tmp_path, since=since))
         assert len(evs) == 1
         assert evs[0].args["file_path"] == "/new.py"
@@ -369,8 +367,8 @@ class TestDiscoverEndToEnd:
                 _assistant_event("2026-05-19T12:00:10Z", "Read", {"file_path": "/root/p/b.py"}),
             ],
         )
-        from token_savior.discover import transcript_scanner as ts_mod
         from token_savior import discover as discover_pkg
+        from token_savior.discover import transcript_scanner as ts_mod
 
         monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
         monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)
@@ -395,8 +393,8 @@ class TestDiscoverEndToEnd:
                 _assistant_event("2026-05-19T12:00:10Z", "Read", {"file_path": "/root/p/b.py"}),
             ],
         )
-        from token_savior.discover import transcript_scanner as ts_mod
         from token_savior import discover as discover_pkg
+        from token_savior.discover import transcript_scanner as ts_mod
 
         monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
         monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)
@@ -662,8 +660,8 @@ class TestAdoptionHandler:
                 ),
             ],
         )
-        from token_savior.discover import transcript_scanner as ts_mod
         from token_savior import discover as discover_pkg
+        from token_savior.discover import transcript_scanner as ts_mod
 
         monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
         monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)
@@ -699,8 +697,8 @@ class TestAdoptionHandler:
 
     def test_backward_compat_empty_arguments(self, tmp_path, monkeypatch):
         # Existing callers passing {} (no format, no project) must still work.
-        from token_savior.discover import transcript_scanner as ts_mod
         from token_savior import discover as discover_pkg
+        from token_savior.discover import transcript_scanner as ts_mod
 
         monkeypatch.setattr(ts_mod, "transcript_root", lambda: tmp_path)
         monkeypatch.setattr(discover_pkg, "transcript_root", lambda: tmp_path)

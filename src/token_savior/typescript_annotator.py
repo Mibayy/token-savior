@@ -14,7 +14,6 @@ v2 improvements over v1:
 """
 
 import re
-from typing import Optional
 
 from token_savior.models import (
     ClassInfo,
@@ -131,7 +130,7 @@ def _parse_imports(lines: list[str]) -> list[ImportInfo]:
             module = m.group(6)
 
             names: list[str] = []
-            alias: Optional[str] = None
+            alias: str | None = None
 
             if named_group is not None:
                 names = [
@@ -236,10 +235,10 @@ def _extract_params(raw: str) -> list[str]:
         name = re.split(r"[:\s=?]", p)[0].strip()
         if name and name != "...":
             # Handle destructuring — extract a meaningful name
-            if name.startswith("{") or name.startswith("["):
+            if name.startswith(("{", "[")):
                 params.append("destructured")
                 continue
-            if name.startswith("}") or name.startswith("]"):
+            if name.startswith(("}", "]")):
                 continue  # closing brace from destructured — skip
             params.append(name)
     return params

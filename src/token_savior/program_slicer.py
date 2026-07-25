@@ -114,9 +114,12 @@ def backward_slice(source: str, variable: str, line: int) -> SliceResult:
             for node in line_to_nodes.get(def_line, []):
                 if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.For)):
                     for child in ast.walk(node):
-                        if isinstance(child, ast.Name) and child.id != var:
-                            if (child.id, def_line) not in visited:
-                                queue.append((child.id, def_line))
+                        if (
+                            isinstance(child, ast.Name)
+                            and child.id != var
+                            and (child.id, def_line) not in visited
+                        ):
+                            queue.append((child.id, def_line))
 
     slice_lines.add(line)
 

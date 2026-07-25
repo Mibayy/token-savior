@@ -31,8 +31,9 @@ import ast
 import hashlib
 import logging
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 _logger = logging.getLogger(__name__)
 

@@ -5,8 +5,10 @@ closely related symbols into functional clusters.
 """
 
 from __future__ import annotations
+
 import random
 from collections import defaultdict
+
 from token_savior.models import ProjectIndex
 
 

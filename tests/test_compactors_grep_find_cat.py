@@ -6,7 +6,6 @@ from token_savior.compactors.cat_ import CatCompactor
 from token_savior.compactors.find_ import FindCompactor
 from token_savior.compactors.grep_ import GrepCompactor
 
-
 # ---------------------------------------------------------------------------
 # Registry membership
 # ---------------------------------------------------------------------------

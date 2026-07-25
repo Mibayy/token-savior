@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import bisect
 import re
-from typing import Optional
 
 from token_savior.models import (
     ClassInfo,
@@ -83,17 +82,11 @@ def _mask_comments_and_heredocs(text: str) -> str:
     n = len(text)
     i = 0
     state = "normal"
-    terminator: Optional[re.Pattern[str]] = None
+    terminator: re.Pattern[str] | None = None
     while i < n:
         ch = text[i]
         if state == "normal":
-            if ch == "/" and i + 1 < n and text[i + 1] == "/":
-                j = i
-                while j < n and text[j] != "\n":
-                    out[j] = " "
-                    j += 1
-                i = j
-            elif ch == "#" and not (i + 1 < n and text[i + 1] == "["):
+            if ch == "/" and i + 1 < n and text[i + 1] == "/" or ch == "#" and not (i + 1 < n and text[i + 1] == "["):
                 j = i
                 while j < n and text[j] != "\n":
                     out[j] = " "
@@ -198,7 +191,7 @@ def _find_matching(text: str, open_i: int, open_ch: str, close_ch: str) -> int:
     return n
 
 
-def _find_open_brace(text: str, from_idx: int) -> Optional[int]:
+def _find_open_brace(text: str, from_idx: int) -> int | None:
     i = from_idx
     n = len(text)
     while i < n:
@@ -212,7 +205,7 @@ def _find_open_brace(text: str, from_idx: int) -> Optional[int]:
     return None
 
 
-def _find_body_start(text: str, from_idx: int) -> tuple[Optional[int], str]:
+def _find_body_start(text: str, from_idx: int) -> tuple[int | None, str]:
     """Scan forward from a closed param list for '{' (body) or ';' (no
     body — abstract/interface signature)."""
     i = from_idx
@@ -331,7 +324,7 @@ def _extract_bases(rest: str) -> list[str]:
 _DOC_LINE_STRIP_RE = re.compile(r"^\s*\*+\s?")
 
 
-def _collect_doc_comment(raw_lines: list[str], decl_line_0: int) -> Optional[str]:
+def _collect_doc_comment(raw_lines: list[str], decl_line_0: int) -> str | None:
     """First non-empty content line of a /** ... */ docblock ending on the
     line immediately above decl_line_0 (0-indexed)."""
     end = decl_line_0 - 1
@@ -365,8 +358,8 @@ _REQUIRE_RE = re.compile(
 )
 
 
-def _extract_module_and_imports(clean_text: str) -> tuple[Optional[str], list[ImportInfo]]:
-    module_name: Optional[str] = None
+def _extract_module_and_imports(clean_text: str) -> tuple[str | None, list[ImportInfo]]:
+    module_name: str | None = None
     imports: list[ImportInfo] = []
     for i, line in enumerate(clean_text.split("\n"), start=1):
         m = _NAMESPACE_RE.match(line)
@@ -459,8 +452,8 @@ def annotate_php(source: str, source_name: str = "<source>") -> StructuralMetada
         mods = (m.group("mods") or "").lower()
         visibility = next((v for v in ("public", "private", "protected") if v in mods), None)
 
-        parent: Optional[str] = None
-        best_span: Optional[int] = None
+        parent: str | None = None
+        best_span: int | None = None
         for cs, ce, cname in class_ranges:
             if cs <= m.start() <= ce and (best_span is None or (ce - cs) < best_span):
                 best_span = ce - cs
@@ -515,6 +508,6 @@ def annotate_php(source: str, source_name: str = "<source>") -> StructuralMetada
     )
 
 
-def _extract_return_type(segment: str) -> Optional[str]:
+def _extract_return_type(segment: str) -> str | None:
     m = _RETURN_TYPE_RE.search(segment)
     return m.group(1).strip() or None if m else None

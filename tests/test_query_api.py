@@ -10,12 +10,11 @@ from token_savior.models import (
     StructuralMetadata,
 )
 from token_savior.query_api import (
-    ProjectQueryEngine,
     STRUCTURAL_QUERY_INSTRUCTIONS,
+    ProjectQueryEngine,
     create_file_query_functions,
     create_project_query_functions,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: build small in-memory metadata and project index
@@ -366,7 +365,7 @@ class TestFileQueryFunctions:
         assert "run" in names
         assert "__init__" in names
         # Check structure
-        helper = [f for f in funcs if f["name"] == "helper"][0]
+        helper = next(f for f in funcs if f["name"] == "helper")
         assert helper["qualified_name"] == "helper"
         assert helper["params"] == ["x"]
         assert helper["is_method"] is False

@@ -7,12 +7,27 @@ existing sandbox path untouched.
 """
 from __future__ import annotations
 
-from .base import CompactResult, Compactor
+# F1b — cloud/package compactors (v4.2.0)
+from .aws import (
+    AwsDynamoDbScanCompactor,
+    AwsEc2DescribeInstancesCompactor,
+    AwsIamListRolesCompactor,
+    AwsLambdaListFunctionsCompactor,
+    AwsLogsGetLogEventsCompactor,
+    AwsS3LsCompactor,
+    AwsStsIdentityCompactor,
+)
+from .base import Compactor, CompactResult
 from .biome import BiomeCompactor
 from .cargo_ import CargoBuildCompactor, CargoTestCompactor
+
+# v4.3.0 F3b additions — grep / find / cat compactors
+from .cat_ import CatCompactor
 from .compound import pick_meaningful_segment
+from .curl import CurlCompactor
 from .docker import DockerLogsCompactor, DockerPsCompactor
 from .eslint import EslintCompactor
+from .find_ import FindCompactor
 from .gh import (
     GhIssueViewCompactor,
     GhPrDiffCompactor,
@@ -34,29 +49,13 @@ from .git import (
     GitStatusCompactor,
     GitWorktreeListCompactor,
 )
+from .grep_ import GrepCompactor
 from .jest import JestCompactor
+from .kubectl import KubectlGetCompactor, KubectlLogsCompactor
+from .pkg_list import NpmListCompactor, PipListCompactor
 from .pytest_ import PytestCompactor
 from .tsc import TscCompactor
 from .vitest import VitestCompactor
-
-# F1b — cloud/package compactors (v4.2.0)
-from .aws import (
-    AwsDynamoDbScanCompactor,
-    AwsEc2DescribeInstancesCompactor,
-    AwsIamListRolesCompactor,
-    AwsLambdaListFunctionsCompactor,
-    AwsLogsGetLogEventsCompactor,
-    AwsS3LsCompactor,
-    AwsStsIdentityCompactor,
-)
-from .curl import CurlCompactor
-from .kubectl import KubectlGetCompactor, KubectlLogsCompactor
-from .pkg_list import NpmListCompactor, PipListCompactor
-
-# v4.3.0 F3b additions — grep / find / cat compactors
-from .cat_ import CatCompactor
-from .find_ import FindCompactor
-from .grep_ import GrepCompactor
 
 # Order matters: more-specific patterns first so `gh run view` does not
 # fall through to a hypothetical generic `gh` matcher.
@@ -185,9 +184,9 @@ def compact(command: str, stdout: str, stderr: str = "") -> CompactResult | None
 
 
 __all__ = [
-    "compact",
-    "registry",
     "CompactResult",
     "Compactor",
+    "compact",
     "pick_meaningful_segment",
+    "registry",
 ]

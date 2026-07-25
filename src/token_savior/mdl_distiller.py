@@ -22,7 +22,6 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-
 _WORD_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 

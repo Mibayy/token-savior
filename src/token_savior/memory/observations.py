@@ -40,9 +40,7 @@ def _is_corrupted_content(title: str, content: str) -> bool:
     if any(m in text for m in _CORRUPTION_MARKERS):
         return True
     t = (title or "").strip()
-    if t.endswith(("',", '",', "}}", "}},")):
-        return True
-    return False
+    return t.endswith(("',", '",', "}}", "}},"))
 
 
 def observation_save(

@@ -14,7 +14,6 @@ import re
 
 from token_savior.models import ClassInfo, FunctionInfo
 
-
 _COMMENT_RE = re.compile(r"#.*$", flags=re.MULTILINE)
 _WHITESPACE_RE = re.compile(r"\s+")
 

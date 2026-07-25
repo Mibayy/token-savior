@@ -6,7 +6,6 @@ functions, and forward declarations.
 """
 
 import re
-from typing import Optional
 
 from token_savior.brace_matcher import find_brace_end_c as _find_brace_end
 from token_savior.models import (
@@ -18,7 +17,6 @@ from token_savior.models import (
     build_line_char_offsets,
 )
 from token_savior.utils.dependency_graph import build_dependency_graph
-
 
 # ---------------------------------------------------------------------------
 # #include parsing
@@ -129,10 +127,9 @@ def _extract_c_params(raw: str) -> list[str]:
         tokens = part.split()
         if tokens:
             name = tokens[-1].lstrip("*").strip()
-            if name and re.match(r"^[A-Za-z_]\w*$", name):
-                # Exclude type-only params like "int" in old-style K&R
-                if len(tokens) > 1 or "*" in part:
-                    params.append(name)
+            # Exclude type-only params like "int" in old-style K&R
+            if name and re.match(r"^[A-Za-z_]\w*$", name) and (len(tokens) > 1 or "*" in part):
+                params.append(name)
     return params
 
 
@@ -141,7 +138,7 @@ def _extract_c_params(raw: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_doc_comment(lines: list[str], decl_line_0: int) -> Optional[str]:
+def _collect_doc_comment(lines: list[str], decl_line_0: int) -> str | None:
     """Collect /** ... */ or /// comments directly above a declaration."""
     doc_lines: list[str] = []
     j = decl_line_0 - 1
@@ -226,7 +223,7 @@ def _collect_params_multiline(lines: list[str], start_line_0: int) -> tuple[str,
 # ---------------------------------------------------------------------------
 
 
-def _find_typedef_name_after_brace(lines: list[str], brace_end_0: int) -> Optional[str]:
+def _find_typedef_name_after_brace(lines: list[str], brace_end_0: int) -> str | None:
     """After a closing brace for a typedef struct/union/enum, find the name.
     e.g. '} MyType;' -> 'MyType'"""
     line = lines[brace_end_0]

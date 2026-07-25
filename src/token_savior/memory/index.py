@@ -85,7 +85,7 @@ def get_top_observations(
 
 def _ensure_memory_cache(conn) -> None:
     """Deprecated: memory_cache is now created by memory_schema.sql. No-op."""
-    return None
+    return
 
 
 def invalidate_memory_cache(project_root: str | None = None, mode: str | None = None) -> None:

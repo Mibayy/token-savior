@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from token_savior.cross_project import (
-    find_cross_project_deps,
-    _get_project_packages,
     _get_all_imports,
+    _get_project_packages,
     _is_stdlib,
+    find_cross_project_deps,
 )
 from token_savior.models import ImportInfo, ProjectIndex, StructuralMetadata
-
 
 # ---------------------------------------------------------------------------
 # Helpers

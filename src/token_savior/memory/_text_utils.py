@@ -13,8 +13,7 @@ _STOPWORDS = frozenset({
     "are", "be", "this", "that", "it", "at", "by", "with", "as", "from", "how",
     "why", "what", "when", "where", "can", "le", "la", "les", "un", "une", "des",
     "de", "du", "et", "ou", "est", "sont", "pour", "dans", "sur", "avec", "pas",
-    "qui", "que", "quoi", "comment", "pourquoi", "je", "tu", "il", "elle", "on",
-    "nous", "vous", "ils", "se", "sa", "son", "ses", "ce", "ces", "tout", "tous",
+    "qui", "que", "quoi", "comment", "pourquoi", "je", "tu", "il", "elle", "nous", "vous", "ils", "se", "sa", "son", "ses", "ce", "ces", "tout", "tous",
     "plus", "moins", "faire", "fait", "peux", "peut", "veux", "mais", "donc",
 })
 

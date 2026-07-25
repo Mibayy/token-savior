@@ -19,7 +19,6 @@ import os
 import re
 from dataclasses import dataclass
 
-
 _SIDE_EFFECT_RE = re.compile(
     r"\b(open|print|requests\.|subprocess\.|os\.system|socket\.|shutil\.|"
     r"urllib\.|httpx\.|smtplib\.|threading\.|multiprocessing\.|asyncio\.create_subprocess|"

@@ -18,7 +18,6 @@ import pytest
 
 from token_savior.project_indexer import ProjectIndexer, _parse_gitignore
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: temporary project directory with interconnected Python files
 # ---------------------------------------------------------------------------

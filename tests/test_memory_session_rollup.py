@@ -62,7 +62,7 @@ class TestSessionEndRollup:
         assert row["n"] == 0
 
     def test_session_end_with_one_field_writes_row(self):
-        sid, sum_id = _end_with_rollup(request="add a hook")
+        _sid, sum_id = _end_with_rollup(request="add a hook")
         assert sum_id > 0
         conn = memory_db.get_db()
         row = conn.execute(

@@ -13,11 +13,9 @@ import os
 import time
 from typing import Any
 
-from token_savior._compat import TextContent
-from token_savior._compat import types
-
 from token_savior import memory_db
 from token_savior import server_state as state
+from token_savior._compat import TextContent, types
 from token_savior.server_handlers.memory import _resolve_memory_project
 from token_savior.server_handlers.stats_render import (
     daily_breakdown,
@@ -31,7 +29,6 @@ from token_savior.server_handlers.stats_render import (
     top_tools_by_savings,
 )
 from token_savior.server_runtime import _get_stats_file, _load_cumulative_stats
-
 
 # ---------------------------------------------------------------------------
 # _usage_* section builders (called by _format_usage_stats)
@@ -111,9 +108,9 @@ def _usage_dcp() -> list[str]:
     # Each stable chunk ≈ 256B ≈ 64 tokens of cache savings
     benefit_tokens = (state._dcp_stable_chunks * 256) // 4
     return [
-        f"DCP: {state._dcp_total_chunks} chunks registered | "
+        (f"DCP: {state._dcp_total_chunks} chunks registered | "
         f"{stable_pct:.0f}% stable | "
-        f"est. cache benefit: {benefit_tokens:,}t"
+        f"est. cache benefit: {benefit_tokens:,}t")
     ]
 
 
@@ -123,9 +120,9 @@ def _usage_tcs() -> list[str]:
     tcs_saved = state._tcs_chars_before - state._tcs_chars_after
     tcs_pct = (tcs_saved / state._tcs_chars_before * 100) if state._tcs_chars_before else 0.0
     return [
-        f"Schema compression: {state._tcs_calls} calls, "
+        (f"Schema compression: {state._tcs_calls} calls, "
         f"{state._tcs_chars_before:,} → {state._tcs_chars_after:,} chars "
-        f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)"
+        f"(-{tcs_pct:.1f}%, ~{tcs_saved // 4:,} tokens saved)")
     ]
 
 
@@ -137,9 +134,9 @@ def _usage_linucb() -> list[str]:
     if linucb_s.get("updates", 0) <= 0 and linucb_s.get("scored", 0) <= 0:
         return []
     return [
-        f"LinUCB: {linucb_s['updates']} updates | "
+        (f"LinUCB: {linucb_s['updates']} updates | "
         f"{linucb_s['scored']} scored | "
-        f"top feature: {linucb_s['top_feature']} ({linucb_s['top_weight']:+.2f})"
+        f"top feature: {linucb_s['top_feature']} ({linucb_s['top_weight']:+.2f})")
     ]
 
 
@@ -151,8 +148,8 @@ def _usage_warm_start() -> list[str]:
     if ws_s.get("signatures", 0) <= 0:
         return []
     return [
-        f"Warm Start: {ws_s['signatures']} sessions | "
-        f"avg similarity: {ws_s.get('avg_pairwise_similarity', 0.0):.0%}"
+        (f"Warm Start: {ws_s['signatures']} sessions | "
+        f"avg similarity: {ws_s.get('avg_pairwise_similarity', 0.0):.0%}")
     ]
 
 
@@ -164,10 +161,10 @@ def _usage_consistency() -> list[str]:
     if cs_s.get("scored", 0) <= 0:
         return []
     return [
-        f"Consistency: {cs_s['scored']} scored | "
+        (f"Consistency: {cs_s['scored']} scored | "
         f"{cs_s['quarantined']} quarantined | "
         f"{cs_s['stale_suspected']} stale | "
-        f"avg validity: {cs_s['avg_validity']:.0%}"
+        f"avg validity: {cs_s['avg_validity']:.0%}")
     ]
 
 
@@ -179,9 +176,9 @@ def _usage_leiden() -> list[str]:
     if ls.get("total_communities", 0) <= 0:
         return []
     return [
-        f"Leiden: {ls['total_communities']} communities | "
+        (f"Leiden: {ls['total_communities']} communities | "
         f"{ls['covered_symbols']} symbols | "
-        f"Q={ls['modularity']} | avg size={ls['avg_size']}"
+        f"Q={ls['modularity']} | avg size={ls['avg_size']}")
     ]
 
 
@@ -193,8 +190,8 @@ def _usage_mdl() -> list[str]:
     if mdl_s.get("abstractions", 0) <= 0 and mdl_s.get("distilled", 0) <= 0:
         return []
     return [
-        f"MDL: {mdl_s['abstractions']} abstractions | "
-        f"{mdl_s['distilled']} obs distilled"
+        (f"MDL: {mdl_s['abstractions']} abstractions | "
+        f"{mdl_s['distilled']} obs distilled")
     ]
 
 
@@ -206,11 +203,11 @@ def _usage_roi_tokens() -> list[str]:
     if roi_s.get("total", 0) <= 0:
         return []
     return [
-        f"Token Economy: {roi_s['total']} obs | "
+        (f"Token Economy: {roi_s['total']} obs | "
         f"stored {roi_s['total_tokens_stored']:,}t | "
         f"expected savings {roi_s['total_expected_savings']:,.0f}t | "
         f"net ROI {roi_s.get('net_roi', 0):+,.0f} | "
-        f"GC candidates: {roi_s['negative_roi_count']}"
+        f"GC candidates: {roi_s['negative_roi_count']}")
     ]
 
 
@@ -222,9 +219,9 @@ def _usage_speculative_tree() -> list[str]:
         if state._spec_branches_warmed else 0.0
     )
     return [
-        f"Speculative Tree: {state._spec_branches_explored} explored, "
+        (f"Speculative Tree: {state._spec_branches_explored} explored, "
         f"{state._spec_branches_warmed} warmed, {state._spec_branches_hit} hit "
-        f"({hit_rate:.1f}%), ~{state._spec_tokens_saved:,} tokens saved"
+        f"({hit_rate:.1f}%), ~{state._spec_tokens_saved:,} tokens saved")
     ]
 
 
@@ -314,10 +311,10 @@ def _usage_memory_engine_roi() -> list[str]:
         "MEMORY ENGINE ROI",
         "──────────────────────────────",
         f"Sessions tracked : {roi['sessions']}",
-        f"Tokens injected  : {roi['total_injected']} "
-        f"(avg {roi['avg_injected']}/session)",
-        f"Tokens saved est.: {roi['total_saved_est']} "
-        f"(avg {roi['avg_saved']}/session)",
+        (f"Tokens injected  : {roi['total_injected']} "
+        f"(avg {roi['avg_injected']}/session)"),
+        (f"Tokens saved est.: {roi['total_saved_est']} "
+        f"(avg {roi['avg_saved']}/session)"),
         f"ROI ratio        : {roi['roi_ratio']}x",
     ]
 
@@ -525,8 +522,7 @@ def _hm_get_usage_stats(arguments: dict[str, Any]) -> list[types.TextContent]:
         days = int(arguments.get("days", 30) or 0)
     except (TypeError, ValueError):
         days = 30
-    if days < 0:
-        days = 0
+    days = max(days, 0)
     daily = bool(arguments.get("daily", False))
     fmt = str(arguments.get("format", "text") or "text").strip().lower()
 

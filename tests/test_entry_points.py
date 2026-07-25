@@ -1,6 +1,7 @@
 """Tests for entry point detection."""
 
 import tempfile
+
 from token_savior.project_indexer import ProjectIndexer
 
 
@@ -65,6 +66,7 @@ class TestEntryPoints:
 
     def test_api_substring_alone_does_not_create_route_reason(self):
         from pathlib import Path
+
         from token_savior.project_indexer import ProjectIndexer
         from token_savior.query_api import create_project_query_functions
 

@@ -20,13 +20,10 @@ import subprocess
 import time
 from typing import Any
 
-from token_savior._compat import TextContent
-from token_savior._compat import types
-
 from token_savior import memory_db
 from token_savior import server_state as state
+from token_savior._compat import TextContent, types
 from token_savior.server_runtime import _resolve_project_root
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -356,7 +353,7 @@ def _mh_memory_export_md(args: dict[str, Any]) -> str:
     try:
         proc = subprocess.run(
             ["/root/.local/token-savior-venv/bin/python3", script, "--output-dir", out_dir],
-            capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=60,
+            capture_output=True, check=False, stdin=subprocess.DEVNULL, text=True, timeout=60,
         )
         out = (proc.stdout or "").strip()
         err = (proc.stderr or "").strip()
@@ -562,9 +559,9 @@ def _mh_memory_roi_gc(args: dict[str, Any]) -> str:
     lines = [
         f"💰 Token Economy ROI GC {'(dry run)' if dry else ''}",
         "─" * 60,
-        f"{verb}: {res['candidates'] if dry else res['archived']} "
+        (f"{verb}: {res['candidates'] if dry else res['archived']} "
         f"| kept: {res['kept']} "
-        f"| threshold: {res['threshold']}",
+        f"| threshold: {res['threshold']}"),
     ]
     if res.get("preview"):
         lines.append("\nLowest-ROI preview:")

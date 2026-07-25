@@ -5,7 +5,6 @@ impl blocks, use statements, attributes, doc comments, and macro_rules.
 """
 
 import re
-from typing import Optional
 
 from token_savior.brace_matcher import find_brace_end_rust as _find_brace_end
 from token_savior.models import (
@@ -42,7 +41,7 @@ def _parse_use_statements(lines: list[str]) -> list[ImportInfo]:
         stripped = lines[i].strip()
 
         # Skip non-use lines
-        if not (stripped.startswith("use ") or stripped.startswith("pub use ")):
+        if not (stripped.startswith(("use ", "pub use "))):
             i += 1
             continue
 
@@ -193,7 +192,7 @@ def _extract_fn_params(raw: str) -> list[str]:
         # Skip self variants
         if part in ("self", "&self", "&mut self", "mut self"):
             continue
-        if part.startswith("self:") or part.startswith("&self"):
+        if part.startswith(("self:", "&self")):
             continue
         # Pattern: "name: Type" — extract name
         colon_idx = part.find(":")
@@ -248,7 +247,7 @@ def _find_fn_params(lines: list[str], start_line_0: int) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[str], Optional[str]]:
+def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[str], str | None]:
     """Collect #[...] attributes and /// doc comments above a declaration."""
     attrs: list[str] = []
     doc_lines: list[str] = []
@@ -258,7 +257,7 @@ def _collect_attrs_and_docs(lines: list[str], decl_line_0: int) -> tuple[list[st
         if stripped.startswith("///"):
             doc_lines.insert(0, stripped[3:].strip())
             j -= 1
-        elif stripped.startswith("#[") or stripped.startswith("#!["):
+        elif stripped.startswith(("#[", "#![")):
             # Extract attribute name
             attr_match = re.match(r"#!?\[(\w+)", stripped)
             if attr_match:
@@ -383,7 +382,7 @@ def _handle_rust_impl(
 
 def _handle_rust_macro(
     lines: list[str], i: int, total_lines: int, consumed: set[int], functions: list[FunctionInfo]
-) -> Optional[int]:
+) -> int | None:
     """Try to handle a macro_rules! at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     macro_m = _MACRO_RULES_RE.match(stripped)
@@ -425,7 +424,7 @@ def _handle_rust_struct(
     consumed: set[int],
     classes: list[ClassInfo],
     impl_methods: dict[str, list[FunctionInfo]],
-) -> Optional[int]:
+) -> int | None:
     """Try to handle a struct at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     struct_m = _STRUCT_RE.match(stripped)
@@ -469,7 +468,7 @@ def _handle_rust_enum(
     consumed: set[int],
     classes: list[ClassInfo],
     impl_methods: dict[str, list[FunctionInfo]],
-) -> Optional[int]:
+) -> int | None:
     """Try to handle an enum at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     enum_m = _ENUM_RE.match(stripped)
@@ -512,7 +511,7 @@ def _handle_rust_trait(
     functions: list[FunctionInfo],
     classes: list[ClassInfo],
     impl_methods: dict[str, list[FunctionInfo]],
-) -> Optional[int]:
+) -> int | None:
     """Try to handle a trait at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     if "trait" not in stripped:
@@ -594,7 +593,7 @@ def _handle_rust_trait(
 
 def _handle_rust_fn(
     lines: list[str], i: int, total_lines: int, consumed: set[int], functions: list[FunctionInfo]
-) -> Optional[int]:
+) -> int | None:
     """Try to handle a top-level fn at line i. Returns next line index or None if not a match."""
     stripped = lines[i].strip()
     fn_m = _FN_RE.match(stripped)
@@ -679,17 +678,13 @@ def annotate_rust(source: str, source_name: str = "<source>") -> StructuralMetad
         stripped = lines[i].strip()
 
         if (
-            not stripped
-            or stripped.startswith("//")
-            or stripped.startswith("/*")
-            or stripped.startswith("#[")
-            or stripped.startswith("#![")
+            not stripped or stripped.startswith(("//", "/*", "#[", "#!["))
         ):
             i += 1
             continue
 
         # Skip use statements (already parsed)
-        if stripped.startswith("use ") or stripped.startswith("pub use "):
+        if stripped.startswith(("use ", "pub use ")):
             if ";" not in stripped:
                 while i < total_lines and ";" not in lines[i]:
                     i += 1

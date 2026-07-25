@@ -1,6 +1,5 @@
 from scripts import rules_backtest
 
-
 CATALOG = [
     {"id": "no-force-push-protected",
      "trigger": {"tool": "Bash", "command_regex":

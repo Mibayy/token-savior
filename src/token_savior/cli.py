@@ -30,6 +30,7 @@ Usage commun :
   ts projects
 """
 from __future__ import annotations
+
 import argparse
 import contextlib
 import json
@@ -138,7 +139,7 @@ def _try_daemon_call(tool: str, args: dict, timeout: float = 60.0):
         if not resp.get("ok"):
             raise RuntimeError(resp.get("error", "daemon error"))
         return resp.get("text", ""), True
-    except (socket.error, OSError):
+    except OSError:
         return None, False
 
 
@@ -157,14 +158,16 @@ def _daemon_start() -> str:
     # Re-exec via le module CLI (pip install fournit `ts` comme entry_point).
     # En dev (sans pip install), fallback sur `python -m token_savior.cli`.
     cmd = ["ts", "_daemon-serve"] if _is_ts_in_path() else [sys.executable, "-m", "token_savior.cli", "_daemon-serve"]
-    proc = subprocess.Popen(
-        cmd,
-        stdout=open(log, "ab"),
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        env=env,
-        start_new_session=True,
-    )
+    # The child inherits the fd, so the parent can drop its handle immediately.
+    with open(log, "ab") as logf:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
     # wait up to 3s for socket to come up
     for _ in range(60):
         if _daemon_running():
@@ -227,8 +230,10 @@ def _daemon_serve() -> None:
     # Charger le dispatcher UNE fois (cout 1.5s)
     # En install pip, token_savior est déjà importable. Pas de path patch.
     with contextlib.redirect_stdout(sys.stderr):
-        from token_savior.server import _dispatch_tool  # type: ignore
-        from token_savior.server import _handle_ts_search  # type: ignore
+        from token_savior.server import (
+            _dispatch_tool,  # type: ignore
+            _handle_ts_search,  # type: ignore
+        )
 
     started = time.time()
     calls = 0

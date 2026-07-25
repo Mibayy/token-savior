@@ -31,12 +31,12 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.25"]
-# ruff is pinned, not floated: 0.16 turned on new default rules (PLW1510,
-# RUF100, UP017, I001) and CI went from 0 to 658 findings on untouched code
-# while preflight, on 0.15.9, still said "safe to push". A lint gate that
-# disagrees with CI is worse than no gate. Bump deliberately, with the
-# cleanup in the same commit.
-dev = ["build>=1.2", "pytest>=8.0", "ruff==0.15.9"]
+# ruff is pinned, not floated, so preflight and CI always agree on the rule
+# set. Moving this pin is a deliberate act: bump it together with whatever
+# cleanup the new defaults demand, in the same commit. The 0.15.9 -> 0.16.0
+# bump is the worked example (PLW1510, RUF100, UP017, I001 et al. turned on
+# by default; see [tool.ruff.lint] for the three rules we opted back out of).
+dev = ["build>=1.2", "pytest>=8.0", "ruff==0.16.0"]
 benchmark = ["aiohttp>=3.9"]
 memory-vector = ["sqlite-vec>=0.1", "fastembed>=0.4", "onnxruntime>=1.16"]
 
@@ -69,6 +69,26 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
+# Ruff 0.16 widened the default rule set well beyond the old E/F baseline
+# (bandit `S`, `BLE`, `B`, `C4`, `DTZ`, `PERF`, `SIM`, ... are now on by
+# default). Nearly all of it is a real upgrade and the tree was cleaned to
+# satisfy it. These three are the deliberate exception:
+#
+#   BLE001  blind-except
+#   S110    try-except-pass
+#   S112    try-except-continue
+#
+# They flag ~275 sites that are load-bearing isolation boundaries, not
+# defects. An MCP server must never let an optional subsystem — telemetry,
+# embeddings, sqlite-vec, the watcher, a best-effort close()/kill() — take
+# down the agent's session; several of these handlers already carry comments
+# saying exactly that ("Silent — telemetry must never break dispatch").
+# Narrowing them to concrete exception types would be a behaviour change at
+# every site, with no defect behind it and a real risk of surfacing crashes
+# the broad catch currently absorbs. Suppressed by policy, not by fatigue.
+ignore = ["BLE001", "S110", "S112"]
 
 [tool.mypy]
 python_version = "3.11"

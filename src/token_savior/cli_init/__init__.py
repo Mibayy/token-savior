@@ -16,12 +16,11 @@ import datetime as _dt
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from .agent_paths import SUPPORTED_AGENTS, detection_path, hook_config_paths, settings_path
 from .merger import added_entries, format_diff, merge_hook_config
-
 
 # Resolve the directory whose ``hooks/`` subdir holds the bundled configs.
 # Two layouts to support:
@@ -68,12 +67,16 @@ def _read_settings(path: Path) -> dict:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"settings file is not valid JSON ({path}): {e}") from e
     if not isinstance(data, dict):
-        raise RuntimeError(f"settings file root must be a JSON object: {path}")
+        # TRY004 wants TypeError here, but every failure mode of this loader is
+        # deliberately reported as RuntimeError so callers can use a single
+        # `except RuntimeError` (see _run_init). Narrowing the type would let
+        # this one case escape that handler — hence the suppression below.
+        raise RuntimeError(f"settings file root must be a JSON object: {path}")  # noqa: TRY004
     return data
 
 
 def _utcnow() -> _dt.datetime:
-    return _dt.datetime.now(_dt.timezone.utc)
+    return _dt.datetime.now(_dt.UTC)
 
 
 def _backup_path(target: Path, *, now: _dt.datetime | None = None) -> Path:
@@ -240,7 +243,7 @@ def run(argv: list[str] | None = None, *,
     print(f"Will add {len(added)} hook entr{'y' if len(added) == 1 else 'ies'}:", file=stdout)
     for event, (matcher, cmd) in added:
         print(f"  + {event}: matcher={matcher!r} command={cmd}", file=stdout)
-    print("", file=stdout)
+    print(file=stdout)
     print(format_diff(before, after), file=stdout)
 
     if args.dry_run:
@@ -273,7 +276,7 @@ def run(argv: list[str] | None = None, *,
         return 2
 
     print(f"Wrote {target}.", file=stdout)
-    print("", file=stdout)
+    print(file=stdout)
     print("Next steps to activate Token Savior:", file=stdout)
     print("  1. Add these env vars to your shell rc (~/.bashrc, ~/.zshrc):", file=stdout)
     print("       export TS_BASH_COMPACT=1     # compact git/pytest/cargo/gh/... outputs", file=stdout)

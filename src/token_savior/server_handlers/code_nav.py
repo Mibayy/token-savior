@@ -10,10 +10,9 @@ call_tool fan-out (after _META_HANDLERS, _MEMORY_HANDLERS, _SLOT_HANDLERS).
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
-
-import json
 
 from token_savior import memory_db
 from token_savior import server_state as state
@@ -149,7 +148,7 @@ def _csc_diff_preview(old_full: str, new_full: str, max_lines: int = 5) -> str:
     )
     out: list[str] = []
     for line in diff:
-        if line.startswith("@@") or line.startswith("---") or line.startswith("+++"):
+        if line.startswith(("@@", "---", "+++")):
             continue
         out.append(line)
         if len(out) >= max_lines:
@@ -662,9 +661,14 @@ def _q_get_functions(qfns, args: dict[str, Any]):
     result = qfns["get_functions"](
         args.get("file_path"), max_results=args.get("max_results", 100)
     )
-    if args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, list) and result:
-        if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
-            result = result + [{"_hints": _LIST_HINTS}]
+    if (
+        args.get("hints", True)
+        and not _HINTS_DISABLED
+        and isinstance(result, list)
+        and result
+        and not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0])
+    ):
+        result = result + [{"_hints": _LIST_HINTS}]
     return result
 
 
@@ -672,9 +676,14 @@ def _q_get_classes(qfns, args: dict[str, Any]):
     result = qfns["get_classes"](
         args.get("file_path"), max_results=args.get("max_results", 100)
     )
-    if args.get("hints", True) and not _HINTS_DISABLED and isinstance(result, list) and result:
-        if not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0]):
-            result = result + [{"_hints": _LIST_HINTS}]
+    if (
+        args.get("hints", True)
+        and not _HINTS_DISABLED
+        and isinstance(result, list)
+        and result
+        and not (len(result) == 1 and isinstance(result[0], dict) and "error" in result[0])
+    ):
+        result = result + [{"_hints": _LIST_HINTS}]
     return result
 
 

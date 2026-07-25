@@ -4,8 +4,6 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-
-
 # Recursive grep / ripgrep output looks like:
 #   src/a.py:14:  found match here
 #   src/a.py:22:  another match
@@ -110,7 +108,6 @@ class GrepCompactor:
         # Keep any non-hit lines that aren't separators (rare: summary lines
         # from ``rg --stats``). Cap to 5 to avoid leaking noise.
         if non_hit_lines:
-            for extra in non_hit_lines[:5]:
-                out.append(extra)
+            out.extend(non_hit_lines[:5])
 
         return "\n".join(out)

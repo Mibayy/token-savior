@@ -126,8 +126,7 @@ def _parse_items(raw: str) -> list[dict]:
         text = text.strip("`")
         if "\n" in text:
             text = text.split("\n", 1)[1]
-        if text.endswith("```"):
-            text = text[:-3]
+        text = text.removesuffix("```")
         text = text.strip()
     try:
         data = json.loads(text)

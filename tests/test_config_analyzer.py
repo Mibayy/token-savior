@@ -1,13 +1,13 @@
 """Tests for config_analyzer.check_duplicates."""
 
 from token_savior.config_analyzer import (
+    _format_issues,
+    _is_code_file,
+    _is_config_file,
     analyze_config,
     check_duplicates,
     check_orphans,
     check_secrets,
-    _format_issues,
-    _is_config_file,
-    _is_code_file,
 )
 from token_savior.models import (
     ConfigIssue,

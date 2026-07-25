@@ -6,11 +6,9 @@ import asyncio
 import os
 import time
 
-
+from token_savior.cache_ops import CacheManager
 from token_savior.server import call_tool
 from token_savior.server_state import _slot_mgr
-from token_savior.cache_ops import CacheManager
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -250,6 +248,7 @@ class TestRequestTracing:
         # Force a clean reload of the module-level _TRACE_REQUESTS flag.
         monkeypatch.delenv("TOKEN_SAVIOR_TRACE", raising=False)
         import importlib
+
         from token_savior import server as srv
 
         importlib.reload(srv)
@@ -268,6 +267,7 @@ class TestRequestTracing:
     def test_trace_enabled_logs_start_and_complete(self, tmp_path, capsys, monkeypatch):
         monkeypatch.setenv("TOKEN_SAVIOR_TRACE", "1")
         import importlib
+
         from token_savior import server as srv
 
         importlib.reload(srv)

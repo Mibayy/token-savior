@@ -21,7 +21,6 @@ from typing import Any
 
 from token_savior import db_core
 
-
 _DEFAULT_PREVIEW_BYTES = 800
 _DEFAULT_PREVIEW_LINES = 8
 _MAX_OUTPUT_BYTES = 8 * 1024 * 1024  # 8 MiB hard cap; truncate beyond

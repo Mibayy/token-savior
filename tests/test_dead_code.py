@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from token_savior.dead_code import find_dead_code
 from token_savior.models import (
     ClassInfo,
     FunctionInfo,
@@ -10,8 +11,6 @@ from token_savior.models import (
     ProjectIndex,
     StructuralMetadata,
 )
-from token_savior.dead_code import find_dead_code
-
 
 # ---------------------------------------------------------------------------
 # Helpers

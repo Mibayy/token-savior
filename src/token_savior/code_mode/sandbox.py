@@ -21,8 +21,9 @@ import atexit
 import base64
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 _WORKER_PATH = Path(__file__).parent / "worker.mjs"
 _NODE_BIN = os.environ.get("TS_CODE_MODE_NODE", "node")
@@ -88,7 +89,7 @@ class _Worker:
         # race against an uninitialized stdin pipe.
         try:
             ready_line = await asyncio.wait_for(self.proc.stdout.readline(), timeout=5)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             await self._force_kill()
             raise RuntimeError("ts_execute worker did not signal ready in 5s") from exc
         if not ready_line:
@@ -114,7 +115,7 @@ class _Worker:
                 pass
             try:
                 await asyncio.wait_for(self.proc.wait(), timeout=2)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
         self.proc = None
 
@@ -248,7 +249,7 @@ class _Worker:
 
         try:
             await asyncio.wait_for(reader(), timeout=timeout_ms / 1000.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             timed_out = True
             error = {"message": f"script timeout after {timeout_ms}ms", "stack": ""}
 
@@ -280,7 +281,7 @@ class _Worker:
                 pass
             try:
                 await asyncio.wait_for(self.proc.wait(), timeout=2)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await self._force_kill()
         self.proc = None
 
@@ -306,7 +307,6 @@ async def shutdown() -> None:
 
 def _atexit_shutdown() -> None:
     """Best-effort sync shutdown at interpreter exit."""
-    global _POOL
     if _POOL is None or _POOL.proc is None:
         return
     proc = _POOL.proc

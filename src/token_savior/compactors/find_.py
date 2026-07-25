@@ -4,8 +4,6 @@ from __future__ import annotations
 import os
 import re
 
-
-
 _SHELL_COMPOSITION_RE = re.compile(r"[|;&]|&&|\|\|")
 
 # Limits chosen to match the spec.

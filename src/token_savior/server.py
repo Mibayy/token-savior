@@ -48,6 +48,9 @@ import time
 import traceback
 from typing import Any
 
+from token_savior import memory_db
+from token_savior import server_state as s
+
 # MCP imports : tous deferred a `run()`. Le import `mcp.types` declenche
 # `import mcp` qui charge tout le SDK (uvicorn, sse_starlette, fastmcp) ~800ms
 # cold start. Inacceptable pour la CLI fork-mode et les scripts qui importent
@@ -56,23 +59,26 @@ from typing import Any
 # vrais types `mcp.types.*` UNIQUEMENT a la frontiere protocole (list_tools,
 # call_tool), une fois par appel, sans pollution du cold-start des handlers.
 from token_savior._compat import TextContent, Tool, types  # type: ignore
-
-from token_savior import memory_db
-from token_savior import server_state as s
+from token_savior.server_handlers import (
+    MEMORY_HANDLERS as _MEMORY_HANDLERS,
+)
 from token_savior.server_handlers import (
     META_HANDLERS as _META_HANDLERS,
-    MEMORY_HANDLERS as _MEMORY_HANDLERS,
+)
+from token_savior.server_handlers import (
     QFN_HANDLERS as _QFN_HANDLERS,
+)
+from token_savior.server_handlers import (
     SLOT_HANDLERS as _SLOT_HANDLERS,
 )
 from token_savior.server_handlers.code_nav import (
     _q_get_edit_context,  # noqa: F401  -- re-export for tests/test_server.py
 )
-from token_savior.server_handlers.tool_search import ts_search as _ts_search_impl
 from token_savior.server_handlers.stats import (
     _format_duration,  # noqa: F401  -- re-export for tests/test_usage_stats.py
     _format_usage_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
 )
+from token_savior.server_handlers.tool_search import ts_search as _ts_search_impl
 from token_savior.server_runtime import (
     _count_and_wrap_result,
     _flush_stats,  # noqa: F401  -- re-export for tests/test_usage_stats.py
@@ -84,12 +90,15 @@ from token_savior.server_runtime import (
     _warm_cache_async,
     compress_symbol_output,
 )
+
 # `from token_savior.server_state import server` declenchait
 # __getattr__('server') qui faisait lazy import de mcp.server (1.24s SDK).
 # On retire l import au top et on accede a `s.server` UNIQUEMENT dans run()
 # qui est le seul site de l acces. Les decorateurs sont appliques en runtime
 # dans run() egalement.
-from token_savior.slot_manager import _ProjectSlot  # noqa: F401  -- re-export for tests/test_usage_stats.py
+from token_savior.slot_manager import (
+    _ProjectSlot,  # noqa: F401  -- re-export for tests/test_usage_stats.py
+)
 
 # Called once at module import so slots exist before any tool call.
 _register_roots(_parse_workspace_roots())
@@ -107,7 +116,7 @@ except Exception as _viewer_exc:  # pragma: no cover — defensive
 # Tool definitions (schemas live in tool_schemas.py)
 # ---------------------------------------------------------------------------
 
-from token_savior.tool_schemas import TOOL_SCHEMAS  # noqa: E402
+from token_savior.tool_schemas import TOOL_SCHEMAS
 
 
 def _thin_input_schema(schema: dict) -> dict:
@@ -528,7 +537,7 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
         sym = arguments.get("name") or arguments.get("symbol_name", "")
         if sym:
             s._auto_save_symbols.append(sym)
-        if name.startswith("get_") or name.startswith("find_") or name.startswith("search_"):
+        if name.startswith(("get_", "find_", "search_")):
             s._auto_save_tools.append(name)
 
     s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
@@ -701,7 +710,7 @@ def _edit_succeeded(wrapped: list) -> bool:
     """True unless the (wrapped) tool result looks like an error payload."""
     for item in wrapped or []:
         text = getattr(item, "text", "") or ""
-        if text.startswith("Error:") or text.startswith("Error "):
+        if text.startswith(("Error:", "Error ")):
             return False
     return True
 
@@ -944,8 +953,9 @@ def _handle_ts_extended(arguments: dict[str, Any]) -> list[types.TextContent]:
       - describe: return the inputSchema of one hidden tool
       - call: dispatch a hidden tool by name with provided args
     """
-    from token_savior.tool_schemas import TOOL_SCHEMAS
     import json as _json
+
+    from token_savior.tool_schemas import TOOL_SCHEMAS
 
     mode = (arguments.get("mode") or "").lower()
     target = arguments.get("name")
@@ -989,6 +999,7 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
     value becomes the tool result.
     """
     import json as _json
+
     from token_savior.code_mode import ALLOWED_TOOLS, run_script_async
 
     script = arguments.get("script") or ""
@@ -1002,7 +1013,7 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
         result = _dispatch_tool(tool_name, tool_args, record_symbol)
         text = "".join(part.text for part in result if hasattr(part, "text"))
         stripped = text.strip()
-        if stripped.startswith("{") or stripped.startswith("["):
+        if stripped.startswith(("{", "[")):
             try:
                 return _json.loads(stripped)
             except _json.JSONDecodeError:

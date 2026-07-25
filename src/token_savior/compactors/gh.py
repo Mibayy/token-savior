@@ -54,7 +54,7 @@ class GhRunViewCompactor(Compactor):
                 continue
             # Top-level jobs (start of line, e.g. "X test in 1m24s (ID 12346)")
             if re.match(r"^[X✓*]\s+\w+\s+in\s+", stripped):
-                if stripped.startswith("X") or stripped.startswith("*"):
+                if stripped.startswith(("X", "*")):
                     out.append(stripped)
                     keeping_job_body = True
                 else:
@@ -64,7 +64,7 @@ class GhRunViewCompactor(Compactor):
                 continue
             # Sub-step inside a job: "X Run pytest", "✓ Checkout", "- Upload coverage"
             if re.match(r"^[X✓*\-]\s+\S", stripped):
-                if stripped.startswith("X") or stripped.startswith("*"):
+                if stripped.startswith(("X", "*")):
                     out.append(f"  {stripped}")
                     keeping_job_body = True
                 else:
@@ -72,7 +72,7 @@ class GhRunViewCompactor(Compactor):
                     continue
             elif keeping_job_body:
                 out.append(f"    {stripped}")
-            elif stripped.startswith("Triggered ") or stripped.startswith("JOBS"):
+            elif stripped.startswith(("Triggered ", "JOBS")):
                 out.append(stripped)
         return "\n".join(out)
 

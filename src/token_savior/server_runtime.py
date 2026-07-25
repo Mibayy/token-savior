@@ -16,11 +16,9 @@ import threading
 import time
 from typing import Any
 
-from token_savior._compat import types
-from token_savior._compat import TextContent
-
 from token_savior import memory_db
 from token_savior import server_state as s
+from token_savior._compat import TextContent, types
 from token_savior.slot_manager import _ProjectSlot
 
 # ---------------------------------------------------------------------------
@@ -593,7 +591,7 @@ def _recompute_leiden(slot) -> None:
 
 def _resolve_project_root(arguments: dict[str, Any]) -> str:
     project_hint = arguments.get("project")
-    slot, err = s._slot_mgr.resolve(project_hint)
+    slot, _err = s._slot_mgr.resolve(project_hint)
     if slot:
         return slot.root
     roots = _parse_workspace_roots()

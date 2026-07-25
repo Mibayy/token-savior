@@ -216,15 +216,15 @@ class CacheManager:
     def index_from_dict(data: dict) -> ProjectIndex:
         """Deserialize a ProjectIndex from JSON dict, restoring sets where needed."""
         from token_savior.models import (
-            ProjectIndex,
-            StructuralMetadata,
-            FunctionInfo,
             ClassInfo,
+            FunctionInfo,
             ImportInfo,
-            SectionInfo,
-            VariableInfo,
-            LineRange,
             LazyLines,
+            LineRange,
+            ProjectIndex,
+            SectionInfo,
+            StructuralMetadata,
+            VariableInfo,
         )
 
         def _lr(d: dict) -> LineRange:

@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Iterable, Iterator
 
 from token_savior.discover.transcript_scanner import Event
-
 
 _CODE_EXTS = (".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go")
 _NATIVE_SHELL_CODE_VERBS = ("grep", "cat", "head", "sed", "awk", "find", "rg", "tail")
@@ -245,7 +244,7 @@ class EditWithoutContextPattern(Pattern):
     @staticmethod
     def _is_edit(ev: Event) -> bool:
         tn = ev.tool_name
-        return tn in {"Edit", "Write"} or tn.endswith("__replace_symbol_source") or tn.endswith("__insert_near_symbol")
+        return tn in {"Edit", "Write"} or tn.endswith(("__replace_symbol_source", "__insert_near_symbol"))
 
     def detect(self, events: list[Event]) -> Iterator[Finding]:
         # Track the most recent get_full_context / get_edit_context call so

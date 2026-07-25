@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import re
 
-
-
 _SHELL_COMPOSITION_RE = re.compile(r"[|;&]|&&|\|\|")
 
 _PASSTHROUGH_LIMIT = 50

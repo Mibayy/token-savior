@@ -6,7 +6,6 @@ from collections import defaultdict
 
 from .base import Compactor
 
-
 _TSC_LINE = re.compile(r"^(?P<file>[^()]+)\((?P<line>\d+),(?P<col>\d+)\):\s+error\s+(?P<code>TS\d+):\s+(?P<msg>.+)$")
 
 

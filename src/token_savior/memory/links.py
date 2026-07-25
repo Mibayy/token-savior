@@ -36,7 +36,7 @@ _TYPE_PRIORITY = {
 
 def _ensure_links_index(conn) -> None:
     """Deprecated: idx_links_unique is now created by memory_schema.sql. No-op."""
-    return None
+    return
 
 
 def auto_link_observation(

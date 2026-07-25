@@ -1,8 +1,6 @@
 import json
 
-
 from token_savior.memory import rules
-
 
 DENY = {
     "id": "no-force-push",

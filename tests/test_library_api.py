@@ -73,7 +73,7 @@ class TestTypescriptLookup:
         """)
         result = list_library_symbols("widgetlib", project_root=str(tmp_path))
         names = [i["name"] for i in result["items"]]
-        assert set(["foo", "bar", "Baz", "qux"]).issubset(set(names))
+        assert {"foo", "bar", "Baz", "qux"}.issubset(set(names))
 
     def test_list_with_pattern(self, tmp_path):
         _write_npm_dts(tmp_path, "widgetlib", "index.d.ts", """
@@ -135,8 +135,8 @@ class TestEmbedCache:
     def test_cache_hits_on_identical_doc(self):
         import pytest
         try:
-            from token_savior.memory.embeddings import is_available
             from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+            from token_savior.memory.embeddings import is_available
         except Exception:
             pytest.skip("embedding stack not importable")
         if not (VECTOR_SEARCH_AVAILABLE and is_available()):
@@ -161,8 +161,8 @@ class TestEmbedCache:
     def test_cache_differs_on_different_doc(self):
         import pytest
         try:
-            from token_savior.memory.embeddings import is_available
             from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+            from token_savior.memory.embeddings import is_available
         except Exception:
             pytest.skip("embedding stack not importable")
         if not (VECTOR_SEARCH_AVAILABLE and is_available()):

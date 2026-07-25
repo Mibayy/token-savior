@@ -692,9 +692,8 @@ class ProjectIndexer:
                 return True
             # For patterns starting with "**/" strip the prefix and retry.
             # fnmatch's "*" matches "/" so "*.log" matches "sub/dir/file.log".
-            if pattern.startswith("**/"):
-                if fnmatch.fnmatch(normalized, pattern[3:]):
-                    return True
+            if pattern.startswith("**/") and fnmatch.fnmatch(normalized, pattern[3:]):
+                return True
             # Also check if any path component matches a simple name
             # e.g., "__pycache__" or ".worktrees" present as a directory segment
             pattern_parts = pattern.replace("**/", "").replace("/**", "").strip("/")
@@ -838,10 +837,10 @@ class ProjectIndexer:
         return aliases
 
     @staticmethod
-    def _class_symbol_aliases(cls) -> list[str]:
-        if ProjectIndexer._is_local_scoped_symbol(getattr(cls, "qualified_name", None)):
+    def _class_symbol_aliases(cls_info) -> list[str]:
+        if ProjectIndexer._is_local_scoped_symbol(getattr(cls_info, "qualified_name", None)):
             return []
-        return [cls.name]
+        return [cls_info.name]
 
     # ------------------------------------------------------------------
     # Import graph
@@ -1238,9 +1237,11 @@ class ProjectIndexer:
                     # fast path: skip regex if the name isn't even in the text
                     if local_name not in body_text:
                         continue
-                    if compiled_patterns[local_name].search(body_text):
-                        if resolved_name != func_qualified:
-                            global_graph[func_qualified].add(resolved_name)
+                    if (
+                        compiled_patterns[local_name].search(body_text)
+                        and resolved_name != func_qualified
+                    ):
+                        global_graph[func_qualified].add(resolved_name)
                 if is_java_file:
                     current_owner = func_qualified.rsplit(".", 1)[0] if "." in func_qualified else None
                     global_graph[func_qualified].update(
@@ -1268,9 +1269,11 @@ class ProjectIndexer:
                     # fast path: skip regex if the name isn't even in the text
                     if local_name not in body_text:
                         continue
-                    if compiled_patterns[local_name].search(body_text):
-                        if resolved_name != cls_qualified:
-                            global_graph[cls_qualified].add(resolved_name)
+                    if (
+                        compiled_patterns[local_name].search(body_text)
+                        and resolved_name != cls_qualified
+                    ):
+                        global_graph[cls_qualified].add(resolved_name)
                 if is_java_file:
                     global_graph[cls_qualified].update(
                         target

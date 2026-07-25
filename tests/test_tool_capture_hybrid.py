@@ -26,7 +26,7 @@ import pytest
 HOOK_DIR = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOK_DIR))
 
-import tool_capture_hook  # noqa: E402
+import tool_capture_hook
 
 
 @pytest.fixture

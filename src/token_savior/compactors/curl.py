@@ -5,7 +5,6 @@ import re
 
 from .base import Compactor
 
-
 _HEAD_KEEP_BYTES = 2048
 _TAIL_KEEP_BYTES = 200
 _THRESHOLD_BYTES = 4096

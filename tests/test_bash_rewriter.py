@@ -5,7 +5,6 @@ import pytest
 
 from token_savior.bash_rewriter import is_unsafe_to_rewrite, rewrite
 
-
 # ---------------------------------------------------------------------------
 # Safety / pass-through
 # ---------------------------------------------------------------------------

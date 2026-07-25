@@ -22,7 +22,7 @@ def list_observation_resources(limit: int = 50) -> list[Any]:
     Bounded on purpose: resources/list is a menu, not a data dump. Ranked by
     the same score memory_index uses (access_count / recency / importance).
     """
-    import mcp.types as types
+    from mcp import types
 
     root = state._slot_mgr.active_root or ""
     if not root:

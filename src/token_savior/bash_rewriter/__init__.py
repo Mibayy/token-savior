@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from .rules import RULES, RewriteRule, is_unsafe_to_rewrite
 
-__all__ = ["rewrite", "RULES", "RewriteRule", "is_unsafe_to_rewrite"]
+__all__ = ["RULES", "RewriteRule", "is_unsafe_to_rewrite", "rewrite"]
 
 
 def rewrite(command: str) -> tuple[str, str | None]:

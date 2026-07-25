@@ -142,7 +142,7 @@ class LazyLines:
     cached indexes.
     """
 
-    __slots__ = ("_data", "_root_path", "_rel_path")
+    __slots__ = ("_data", "_rel_path", "_root_path")
 
     def __init__(
         self,
@@ -318,7 +318,7 @@ class ConfigIssue:
     detail: str | None = None
 
 
-from typing import Protocol, runtime_checkable  # noqa: E402
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable

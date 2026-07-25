@@ -26,7 +26,6 @@ from token_savior.cli_init.merger import (
     merge_hook_config,
 )
 
-
 # Resolve repo root from the test file location -> .../ts-f3cli/
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -213,7 +212,7 @@ def test_read_settings_invalid_json_raises(tmp_path: Path) -> None:
 
 def test_backup_path_format(tmp_path: Path) -> None:
     target = tmp_path / "settings.json"
-    now = _dt.datetime(2026, 5, 19, 13, 45, 7, tzinfo=_dt.timezone.utc)
+    now = _dt.datetime(2026, 5, 19, 13, 45, 7, tzinfo=_dt.UTC)
     bak = _backup_path(target, now=now)
     assert bak.name == "settings.json.bak-20260519-134507"
 

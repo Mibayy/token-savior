@@ -8,8 +8,7 @@ from pathlib import PurePosixPath
 
 from token_savior.models import ProjectIndex
 from token_savior.output_helpers import truncate_output
-from token_savior.project_actions import discover_project_actions
-from token_savior.project_actions import summarize_command_output
+from token_savior.project_actions import discover_project_actions, summarize_command_output
 
 
 def find_impacted_test_files(
@@ -30,7 +29,7 @@ def find_impacted_test_files(
         import difflib
 
         all_symbol_names: list[str] = []
-        for _, meta in index.files.items():
+        for meta in index.files.values():
             for func in meta.functions:
                 all_symbol_names.append(func.name)
                 if func.qualified_name and func.qualified_name != func.name:
@@ -173,6 +172,7 @@ def run_impacted_tests(
             command,
             cwd=index.root_path,
             capture_output=True,
+            check=False,
             stdin=subprocess.DEVNULL,
             text=True,
             timeout=timeout_sec,
@@ -259,7 +259,7 @@ def _resolve_changed_symbols(
     for symbol_name in symbol_names or []:
         if symbol_name in index.reverse_dependency_graph or symbol_name in index.global_dependency_graph:
             symbols.add(symbol_name)
-        for path, meta in index.files.items():
+        for meta in index.files.values():
             if any(
                 func.name == symbol_name or func.qualified_name == symbol_name
                 for func in meta.functions

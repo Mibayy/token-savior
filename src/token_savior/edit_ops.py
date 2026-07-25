@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 
 from token_savior.models import ProjectIndex
-
-
-import re
 
 
 def replace_symbol_source(
@@ -344,7 +342,7 @@ def _find_insert_position(
     # Default: before the closing brace/bracket
     for i in range(block_end - 1, block_start, -1):
         stripped = lines[i].strip()
-        if stripped in {"}", "}", "};", "):", ")"}:
+        if stripped in {"}", "};", "):", ")"}:
             return i
     # Fallback: end of block
     return block_end
@@ -457,7 +455,8 @@ def move_symbol(
             if not os.path.exists(file_abs):
                 continue
             try:
-                content = open(file_abs, encoding="utf-8").read()
+                with open(file_abs, encoding="utf-8") as fh:
+                    content = fh.read()
             except Exception:
                 continue
             new_content = _rewrite_imports(content, src_module, tgt_module, simple_name)
@@ -657,7 +656,8 @@ def _refactor_rename(
         if not os.path.exists(abs_path):
             continue
         try:
-            content = open(abs_path, encoding="utf-8").read()
+            with open(abs_path, encoding="utf-8") as fh:
+                content = fh.read()
         except Exception:
             continue
         new_content = pattern.sub(simple_new, content)

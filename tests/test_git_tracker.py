@@ -1,14 +1,14 @@
 """Unit tests for git_tracker module."""
 
-from unittest.mock import patch, MagicMock
 import subprocess
+from unittest.mock import MagicMock, patch
 
 from token_savior.git_tracker import (
-    is_git_repo,
-    get_head_commit,
+    GitChangeSet,
     get_changed_files,
     get_git_status,
-    GitChangeSet,
+    get_head_commit,
+    is_git_repo,
 )
 
 

@@ -161,7 +161,7 @@ def get_lattice_stats(context_type: str | None = None) -> list[dict]:
         trials = a + b - 2.0  # subtract the uniform prior counts
         mean = a / (a + b) if (a + b) > 0 else 0.0
         d["mean"] = round(mean, 3)
-        d["trials"] = max(0, int(round(trials)))
+        d["trials"] = max(0, round(trials))
         d["age"] = relative_age(d.get("updated_at_epoch"))
         out.append(d)
     return out

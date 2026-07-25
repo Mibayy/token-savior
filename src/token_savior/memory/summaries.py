@@ -67,10 +67,10 @@ def summary_parse(content: str) -> dict[str, Any]:
         if not line:
             continue
         low = line.lower().lstrip("#").strip()
-        if low.startswith("changements") or low.startswith("changes") or low.startswith("changement"):
+        if low.startswith(("changements", "changes", "changement")):
             current = "changes"
             continue
-        if low.startswith("mémoire") or low.startswith("memoire") or low.startswith("memory"):
+        if low.startswith(("mémoire", "memoire", "memory")):
             current = "memory"
             continue
         if line.startswith(("- ", "* ", "• ")):

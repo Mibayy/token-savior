@@ -85,7 +85,7 @@ def start_if_configured() -> bool:
         if port is None:
             return False
         try:
-            import http.server  # noqa: F401 — deferred import
+            import http.server
             handler_cls = _build_handler()
             server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler_cls)
         except OSError as exc:
@@ -410,8 +410,8 @@ _HTML = _render_page()  # A2-2: supersedes the A2-1 placeholder above
 
 
 def _build_handler() -> type:
-    import http.server
     import html as _html
+    import http.server
     import json
     import queue
     import re
@@ -441,7 +441,7 @@ def _build_handler() -> type:
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self):  # noqa: N802 (stdlib interface)
+        def do_GET(self):
             try:
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path
@@ -501,9 +501,9 @@ def _build_handler() -> type:
                 f'<li class="r" id="r-{obs_id}">',
                 f'<span class="badge {badge_cls}">{e(obs_type)}</span> ',
                 f'<span class="title{title_cls}">{e(title_text)}</span>',
-                f'<button class="cite" hx-get="/obs/{obs_id}?format=html" '
+                (f'<button class="cite" hx-get="/obs/{obs_id}?format=html" '
                 f'hx-target="#r-{obs_id}" hx-swap="beforeend" '
-                f'hx-on:click="this.disabled=true">ts://obs/{obs_id}</button>',
+                f'hx-on:click="this.disabled=true">ts://obs/{obs_id}</button>'),
             ]
             if meta_bits:
                 parts.append(
@@ -635,7 +635,8 @@ def _build_handler() -> type:
                 db.close()
             try:
                 from token_savior.memory.embeddings import (
-                    EMBED_DIM, vector_coverage,
+                    EMBED_DIM,
+                    vector_coverage,
                 )
                 vc = vector_coverage(project)
                 vc["dim"] = EMBED_DIM
