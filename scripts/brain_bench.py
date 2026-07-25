@@ -51,12 +51,21 @@ def misses_per_day(events: list[dict], day_of) -> dict[str, int]:
     return dict(out)
 
 
+def preflight_stats(events: list[dict]) -> dict:
+    by_cat: dict[str, int] = defaultdict(int)
+    for e in events:
+        if e.get("event_type") == "preflight":
+            by_cat[e.get("subject") or "?"] += 1
+    return {"count": sum(by_cat.values()), "by_category": dict(by_cat)}
+
+
 def health_summary(events: list[dict]) -> dict:
     return {
         "total_events": len(events),
         "miss_classes": miss_class_breakdown(events),
         "rule_firings": rule_firings(events),
         "injections": injection_stats(events),
+        "preflights": preflight_stats(events),
     }
 
 
@@ -109,6 +118,15 @@ def main() -> int:
     print("\n## Injections mémoire")
     print(f"   {h['injections']['count']} injections, "
           f"{h['injections']['total_token_cost']} tokens estimés")
+
+    print("\n## Pré-vols (auto-vérification avant action irréversible)")
+    pf = h["preflights"]
+    if pf["count"]:
+        print(f"   {pf['count']} réflexes déclenchés : "
+              + ", ".join(f"{k}:{v}" for k, v in pf["by_category"].items()))
+        print("   → plus ce nombre monte sans erreur derrière, plus l'autonomie se mérite.")
+    else:
+        print("   (aucun pré-vol encore — aucune action irréversible enregistrée)")
 
     print("\n## Valeur nette (par sujet)")
     cp = nv.get("counterproductive", [])

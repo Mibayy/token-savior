@@ -38,6 +38,16 @@ def test_health_summary_combines():
     assert h["injections"]["count"] == 2
 
 
+def test_preflight_stats_counts_by_category():
+    evs = [{"event_type": "preflight", "subject": "destructive-fs"},
+           {"event_type": "preflight", "subject": "service"},
+           {"event_type": "preflight", "subject": "destructive-fs"},
+           {"event_type": "miss", "meta": {}}]
+    s = bb.preflight_stats(evs)
+    assert s["count"] == 3
+    assert s["by_category"] == {"destructive-fs": 2, "service": 1}
+
+
 def test_empty_is_safe():
     h = bb.health_summary([])
     assert h["total_events"] == 0
