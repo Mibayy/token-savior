@@ -41,6 +41,7 @@ Rules of thumb:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import time
@@ -1043,6 +1044,20 @@ def _to_mcp_content(items: list) -> list:
     return out
 
 
+# Tool bodies are synchronous and share mutable project slots, so they run in a
+# worker thread one at a time: the loop stays free to service the transport
+# without making the handlers concurrent.
+_CALL_LOCK = asyncio.Lock()
+
+
+def _run_sync_tool(name: str, arguments: dict[str, Any], record_symbol) -> object:
+    if name == "ts_extended":
+        return _handle_ts_extended(arguments)
+    if name == "ts_search":
+        return _handle_ts_search(arguments)
+    return _dispatch_tool(name, arguments, record_symbol)
+
+
 async def call_tool(name: str, arguments: dict[str, Any]) -> list:
 
     # Latency instrumentation: always record, regardless of TOKEN_SAVIOR_TRACE.
@@ -1055,14 +1070,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
     _lat_status = "ok"
     _lat_err: str | None = None
     try:
-        if name == "ts_extended":
-            result = _handle_ts_extended(arguments)
-        elif name == "ts_search":
-            result = _handle_ts_search(arguments)
-        elif name == "ts_execute":
+        if name == "ts_execute":
             result = await _handle_ts_execute(arguments)
         else:
-            result = _dispatch_tool(name, arguments, record_symbol)
+            # Everything under here is synchronous, and `_prep` builds or
+            # updates the index inline. On a cold slot that is seconds to
+            # minutes, and running it on the loop thread froze the whole
+            # server: the stdio transport could not answer protocol traffic
+            # either, so clients concluded the process was dead and dropped
+            # the connection (#40). Offload to a thread, but keep every call
+            # serialized behind one lock — the slots and their indexes are
+            # not written for concurrent access.
+            async with _CALL_LOCK:
+                result = await asyncio.to_thread(_run_sync_tool, name, arguments, record_symbol)
         nudge = _detect_chain_nudge(name, record_symbol)
         if nudge:
             result = _prepend_nudge(result, nudge)
