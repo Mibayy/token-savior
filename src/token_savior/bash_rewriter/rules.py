@@ -183,16 +183,28 @@ def _apply_tsc(cmd: str, _toks: list[str]) -> str:
 
 # --- pytest ----------------------------------------------------------------
 
+# Task runners that shell out to pytest, and any python executable spelling
+# (python, python3, python3.12, or a venv/absolute path to one). Kept in sync
+# with the PostToolUse compactor in compactors/pytest_.py, which accepted these
+# forms from v4.3.0 while this matcher did not (#41).
+_PYTEST_RUNNERS = frozenset({"uv", "poetry", "hatch", "pdm", "rye"})
+_PYTHON_EXE_RE = re.compile(r"^(?:\S*/)?python[0-9.]*$")
+
+
 def _match_pytest(toks: list[str]) -> bool:
     if not toks:
         return False
-    if toks[0] != "pytest" and toks[:2] != ["python", "-m"]:
+    rest: list[str] | None = None
+    if toks[0] == "pytest":
+        rest = toks[1:]
+    elif len(toks) >= 3 and toks[0] in _PYTEST_RUNNERS and toks[1] == "run" and toks[2] == "pytest":
+        rest = toks[3:]
+    elif len(toks) >= 3 and _PYTHON_EXE_RE.match(toks[0]) and toks[1] == "-m" and toks[2] == "pytest":
+        rest = toks[3:]
+    if rest is None:
         return False
-    if toks[0] == "python":
-        if len(toks) < 3 or toks[2] != "pytest":
-            return False
     # Block if quietness/verbosity already specified
-    if _has_flag(toks, "-q", "--quiet", "-v", "-vv", "--verbose", "--tb"):
+    if _has_flag(rest, "-q", "--quiet", "-v", "-vv", "--verbose", "--tb"):
         return False
     return True
 

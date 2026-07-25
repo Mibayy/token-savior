@@ -449,20 +449,33 @@ if _PROFILE == "ultra":
 if os.environ.get("TS_CODE_MODE_DISABLE") == "1":
     TOOLS = [t for t in TOOLS if t.name != "ts_execute"]
 
-print(
-    f"[token-savior] profile={_PROFILE} tools={len(TOOLS)}/{len(TOOL_SCHEMAS)}",
-    file=sys.stderr,
-)
+def _emit_startup_banner(stream, *, profile: str, tools: int, total: int, explicit: bool) -> None:
+    """Write the profile banner, but only when explicitly asked for.
 
-# Default stays at 'full' (66 tools, ~9k tokens). Token-conscious users
-# can opt down via TOKEN_SAVIOR_PROFILE=lean (51 tools), =ultra (33 hot
-# tools + ts_extended proxy, ~5k tokens), =core, or =nav.
-if "TOKEN_SAVIOR_PROFILE" not in os.environ and _PROFILE == "full":
-    print(
-        "[token-savior] profile=full (66 tools). Set TOKEN_SAVIOR_PROFILE=lean "
-        "or =ultra to reduce manifest cost.",
-        file=sys.stderr,
-    )
+    It used to go to stderr on every start. PowerShell and several MCP clients
+    on Windows surface stderr as an error, so an informational line made a
+    healthy server look broken on every launch (#44). Opt in with
+    TOKEN_SAVIOR_BANNER=1 when you actually want it in your logs.
+    """
+    if os.environ.get("TOKEN_SAVIOR_BANNER", "").strip() != "1":
+        return
+    print(f"[token-savior] profile={profile} tools={tools}/{total}", file=stream)
+    # Only nudge when the profile was not chosen deliberately.
+    if not explicit and profile == "full":
+        print(
+            f"[token-savior] profile=full ({tools} tools). Set TOKEN_SAVIOR_PROFILE="
+            "optimized, =lean or =ultra to reduce manifest cost.",
+            file=stream,
+        )
+
+
+_emit_startup_banner(
+    sys.stderr,
+    profile=_PROFILE,
+    tools=len(TOOLS),
+    total=len(TOOL_SCHEMAS),
+    explicit="TOKEN_SAVIOR_PROFILE" in os.environ,
+)
 
 
 

@@ -176,6 +176,38 @@ def test_python_m_pytest() -> None:
     assert new == "python -m pytest tests/ -q --tb=line"
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "uv run pytest",
+        "poetry run pytest tests/",
+        "hatch run pytest",
+        "pdm run pytest",
+        "rye run pytest",
+        "python3 -m pytest",
+        "python3.12 -m pytest tests/",
+        "/srv/app/.venv/bin/python -m pytest",
+        "./.venv/bin/python3 -m pytest tests/",
+    ],
+)
+def test_pytest_wrappers_are_rewritten(cmd: str) -> None:
+    """The PostToolUse compactor accepts these forms since v4.3.0; the
+    PreToolUse rewriter only knew `pytest` and a literal `python -m pytest`,
+    so every modern invocation silently skipped the -q --tb=line rewrite (#41).
+    """
+    new, _ = rewrite(cmd)
+    assert new == f"{cmd} -q --tb=line"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["uv run pytest -q", "python3 -m pytest --tb=short", "poetry run pytest -vv"],
+)
+def test_pytest_wrappers_respect_explicit_flags(cmd: str) -> None:
+    new, _ = rewrite(cmd)
+    assert new == cmd
+
+
 # ---------------------------------------------------------------------------
 # npm/yarn/pnpm test
 # ---------------------------------------------------------------------------
