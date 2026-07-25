@@ -9,7 +9,7 @@
 
 [![Version](https://img.shields.io/badge/version-4.9.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.9.0)
 [![PyPI](https://img.shields.io/badge/pypi-token--savior--recall-orange)](https://pypi.org/project/token-savior-recall/)
-[![Tests](https://img.shields.io/badge/tests-1958%2F1960-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1898%2F1900-brightgreen)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-97.9%25%20(188%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
@@ -311,7 +311,7 @@ python3 -m venv .venv
 pytest tests/ -q
 ```
 
-Suite size: **1958 passed, 2 skipped** on main. CI green on Python
+Suite size: **1898 passed, 2 skipped** on main. CI green on Python
 3.11 / 3.12 / 3.13.
 
 ---

@@ -287,7 +287,7 @@ class SlotManager:
                 if os.path.basename(root) == project_hint:
                     return slot, ""
             # Case-insensitive basename match (often the agent says
-            # "TSBench" or "Estalle" with different casing).
+            # "MyProject" or "myproject" with different casing).
             hint_lower = project_hint.lower()
             for root, slot in self.projects.items():
                 if os.path.basename(root).lower() == hint_lower:

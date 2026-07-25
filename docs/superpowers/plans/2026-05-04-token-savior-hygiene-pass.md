@@ -275,7 +275,7 @@ per-tool p50/p95 latency, total call count, set_project_root churn root cause.
 
 ### Task B3: Wait — observation window (48 h)
 
-- [ ] **Step 1: Do not collect prematurely.** Real signal needs at least one full work session per project (improvence, intel, estalle). Re-engage on 2026-05-06.
+- [ ] **Step 1: Do not collect prematurely.** Real signal needs at least one full work session per project (each active workspace). Re-engage on 2026-05-06.
 
 - [ ] **Step 2: Reminder hook (optional):** `at now + 48 hours <<< 'echo "TS trace window over — analyze logs" | wall'`.
 

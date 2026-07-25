@@ -1,9 +1,0 @@
-[Unit]
-Description=Run the memory-brain self-review nightly
-
-[Timer]
-OnCalendar=*-*-* 04:20:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target

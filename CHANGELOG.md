@@ -530,8 +530,8 @@ No code changes; docs only.
 
 ## v2.8.2 — Fix `_matches_include_patterns` on root-level files (2026-04-23)
 
-Non-breaking bug fix surfaced during v2.8.1 validation on hermes-agent
-(1704 files). A file created at project root (e.g. `foo.py`) was being
+Non-breaking bug fix surfaced during v2.8.1 validation on a
+1704-file workspace. A file created at project root (e.g. `foo.py`) was being
 silently filtered out of incremental updates because Python's
 `fnmatch` treats `**` as a single `*` (no globstar), so the default
 `**/*.py` include pattern doesn't match a bare `foo.py`. The watcher

@@ -76,3 +76,6 @@ memory-backup-*.json
 
 # Internal research notes (not published)
 .research/
+
+# Personal operator layer lives in /root/token-savior-brain (private)
+world/

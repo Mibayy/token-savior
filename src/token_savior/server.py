@@ -8,7 +8,7 @@ Single-project usage (original):
     PROJECT_ROOT=/path/to/project token-savior
 
 Multi-project workspace usage:
-    WORKSPACE_ROOTS=/root/hermes-agent,/root/token-savior,/root/improvence token-savior
+    WORKSPACE_ROOTS=/path/to/project-a,/path/to/project-b token-savior
 
 Each root gets its own isolated index — no symbol collision, no dependency
 graph pollution, no shared RAM between unrelated projects.
