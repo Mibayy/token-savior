@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.Mibayy/token-savior-recall",
+  "name": "io.github.Mibayy/token-savior",
   "description": "Structural codebase MCP server with persistent memory: navigate by symbol, recall across sessions.",
   "repository": {
     "url": "https://github.com/Mibayy/token-savior",
