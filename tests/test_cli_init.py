@@ -180,10 +180,28 @@ def test_hook_config_paths_claude_has_both() -> None:
     assert "bash-rewriter-config.json" in names
 
 
+def _bundle_containing(agent: str, needle: str) -> dict:
+    """Return the loaded bundle whose commands mention `needle`.
+
+    Selecting by content rather than by position: the bundle list grows as
+    agents gain hooks, and positional unpacking made every such addition
+    break unrelated tests.
+    """
+    for bundle in _load_hook_bundles(agent, REPO_ROOT):
+        for entries in bundle["hooks"].values():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    if needle in hook.get("command", ""):
+                        return bundle
+    raise AssertionError(f"no {agent} bundle references {needle!r}")
+
+
 def test_load_hook_bundles_claude_real_repo() -> None:
+    from token_savior.cli_init.agent_paths import _HOOK_CONFIG_FILES
+
     bundles = _load_hook_bundles("claude", REPO_ROOT)
-    # tool-capture + bash-rewriter
-    assert len(bundles) == 2
+    # One loaded bundle per declared config file — no silent drop.
+    assert len(bundles) == len(_HOOK_CONFIG_FILES["claude"])
     # All have an inner "hooks" dict.
     for b in bundles:
         assert isinstance(b.get("hooks"), dict)
@@ -248,7 +266,7 @@ def test_codex_bundle_matches_live_codex_hook_schema() -> None:
     """
     import re
 
-    (bundle,) = _load_hook_bundles("codex", REPO_ROOT)
+    bundle = _bundle_containing("codex", "tool_capture_hook")
     hooks = bundle["hooks"]
     assert "tool_complete" not in hooks
     assert "PostToolUse" in hooks
@@ -281,7 +299,10 @@ def test_bundles_use_running_interpreter_not_usr_bin_python3() -> None:
                     )
                     for cmd in cmds:
                         assert "/usr/bin/python3" not in cmd, (agent, cmd)
-                        assert cmd.startswith(expected + " "), (agent, cmd)
+                        # Only Python hooks need the resolved interpreter;
+                        # the memory engine ships shell scripts run via bash.
+                        if ".py" in cmd:
+                            assert cmd.startswith(expected + " "), (agent, cmd)
 
 
 def test_repo_layout_hook_commands_use_script_path_under_ts_root() -> None:
@@ -289,7 +310,8 @@ def test_repo_layout_hook_commands_use_script_path_under_ts_root() -> None:
     # src/), so commands must reference the hook scripts by path there —
     # `-m token_savior.hooks.X` is only valid for wheel installs, where the
     # hooks ship inside the package.
-    (capture, rewriter) = _load_hook_bundles("claude", REPO_ROOT)
+    capture = _bundle_containing("claude", "tool_capture_hook")
+    rewriter = _bundle_containing("claude", "bash_rewriter_hook")
     cap_cmd = capture["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
     rew_cmd = rewriter["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert cap_cmd.endswith(str(REPO_ROOT / "hooks" / "tool_capture_hook.py"))
@@ -315,7 +337,7 @@ def test_claude_capture_matcher_covers_recall_server_name() -> None:
     """
     import re
 
-    (capture, _) = _load_hook_bundles("claude", REPO_ROOT)
+    capture = _bundle_containing("claude", "tool_capture_hook")
     matcher = capture["hooks"]["PostToolUse"][0]["matcher"]
     for name in (
         "mcp__token-savior-recall__search_codebase",

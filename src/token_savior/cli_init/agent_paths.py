@@ -88,18 +88,24 @@ def settings_path(agent: str, scope: Scope = "global", *, home: Path | None = No
 # Bundled hook config locations                                               #
 # --------------------------------------------------------------------------- #
 _HOOK_CONFIG_FILES = {
-    "claude": ("tool-capture-hooks-config.json", "bash-rewriter-config.json"),
+    "claude": (
+        "tool-capture-hooks-config.json",
+        "bash-rewriter-config.json",
+        "memory-hooks-config.json",
+    ),
     "cursor": ("tool-capture-cursor.json",),
     "gemini": ("tool-capture-gemini.json",),
-    "codex": ("tool-capture-codex.json",),
+    "codex": ("tool-capture-codex.json", "memory-codex.json"),
 }
 
 
 def hook_config_paths(agent: str, ts_root: Path) -> list[Path]:
     """Return the bundled hook config JSON file(s) for an agent.
 
-    Claude gets both tool_capture (PostToolUse) and bash_rewriter (PreToolUse).
-    Other agents currently only ship the tool_capture half.
+    Claude gets tool_capture (PostToolUse), bash_rewriter (PreToolUse) and the
+    memory engine. Codex gets tool_capture plus a Codex-specific memory bundle
+    whose timeouts are expressed in seconds rather than milliseconds.
+    Cursor and Gemini still ship the tool_capture half only.
     """
     if agent not in _HOOK_CONFIG_FILES:
         raise ValueError(f"unsupported agent: {agent}")
