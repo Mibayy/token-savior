@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.12.1 — Registry identifier names the repository (2026-07-26)
+
+`io.github.<account>/<name>` is a GitHub *repository* convention. The PyPI
+package name had been copied into it, so the registry advertised
+`io.github.Mibayy/token-savior-recall` — a repository that does not exist and
+returns 404. The registry had accepted it because it validates the account,
+not the repository.
+
+Fixed to `io.github.Mibayy/token-savior`. The PyPI package keeps its name,
+`token-savior-recall`, carried by `packages[].identifier`.
+
+This is a patch release because the registry validates package ownership
+against the `mcp-name:` comment in the README **as published on PyPI**, not in
+the repository — so the corrected identifier only takes effect once PyPI
+carries the updated README. Its error message is worth quoting for anyone
+hitting it: the token must be followed by a space, a newline, an HTML tag or a
+comment close, otherwise a longer name starting with the same prefix silently
+fails to match.
+
 ## v4.12.0 — Discipline guard: enforce the rules instead of documenting them (2026-07-26)
 
 Measured on this repo with `scripts/ts_audit.py`, one-day window:

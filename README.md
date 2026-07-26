@@ -1,4 +1,4 @@
-<!-- mcp-name: io.github.Mibayy/token-savior-recall -->
+<!-- mcp-name: io.github.Mibayy/token-savior -->
 
 <div align="center">
 
