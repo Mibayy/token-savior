@@ -55,7 +55,13 @@ PRECONDITION_COMMANDS: dict[str, str] = {
     "preflight": r"(?:^|[;&|]\s*|\b(?:bash|sh|source)\s+|\./)\S*preflight(?:\.sh)?\b",
     # A DB backup taken this session: cp/rsync of a .db/.sqlite to a *bak*, a
     # sqlite .backup, or a pg_dump. Satisfies the destructive-DB-op gate.
-    "db-backup": r"(?:cp|rsync)\s+\S*\.(?:db|sqlite)\S*\s+\S*(?:bak|backup)"
+    # La cible doit ressembler a une sauvegarde ; la source n'a pas besoin de
+    # contenir litteralement `.db`. L'ancien motif exigeait les deux, donc
+    # `DB=...; cp "$DB" "$DB.bak-$(date ...)"` -- la forme la plus naturelle --
+    # n'etait pas reconnue : la sauvegarde etait faite, le garde-fou la niait,
+    # et il ne restait qu'a le contourner. Un garde-fou impossible a satisfaire
+    # legitimement se fait contourner, ce qui est pire que pas de garde-fou.
+    "db-backup": r"(?:cp|rsync)\s+\S+\s+\S*(?:bak|backup)"
                  r"|sqlite3\s+\S+\s+[\"']?\.backup"
                  r"|\bpg_dump\b",
 }

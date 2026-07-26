@@ -8,7 +8,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+
+
+def _debraye_dans_la_commande(payload: dict) -> bool:
+    """`TS_RULES_DISABLE=1 <commande>` doit debrayer, comme le message le dit.
+
+    Le hook tourne dans son propre processus : un prefixe de commande pose la
+    variable pour l'enfant, jamais pour lui. Sa porte de sortie ne fonctionnait
+    donc pas comme annonce -- la meilleure facon de faire retirer un garde-fou
+    de la configuration pour de bon.
+    """
+    try:
+        commande = str((payload.get("tool_input") or {}).get("command") or "")
+    except AttributeError:
+        return False
+    return bool(re.search(r"\bTS_RULES_DISABLE\s*=\s*['\"]?1\b", commande))
 
 
 def main() -> int:
@@ -18,6 +34,8 @@ def main() -> int:
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
     except Exception:
+        return 0
+    if _debraye_dans_la_commande(payload):
         return 0
     try:
         from token_savior.memory import rules

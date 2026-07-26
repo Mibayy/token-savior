@@ -31,8 +31,24 @@ OBSERVATIONS = [
 
 @pytest.fixture
 def base(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    monkeypatch.setenv("TOKEN_SAVIOR_DATA_DIR", str(tmp_path / "ts"))
+    """Base isolee.
+
+    Poser TOKEN_SAVIOR_DATA_DIR ne suffit pas : le chemin est resolu a
+    l'import du module, bien avant qu'un test ne s'execute. Sans ce patch, la
+    suite ecrivait dans la base reelle de l'utilisateur -- constate en
+    retrouvant 25 observations de test dedans -- et les resultats dependaient
+    des executions precedentes.
+    """
+    from token_savior import db_core
+    from token_savior import memory_db as md
+
+    # Les deux noms : `memory_db` garde une copie prise a l'import et la passe
+    # explicitement a db_core. Ne patcher qu'un des deux laisse le test
+    # partager la base des autres, et ses assertions « ne doit rien rendre »
+    # voient alors les observations des voisins.
+    cible = tmp_path / "memoire.db"
+    monkeypatch.setattr(db_core, "MEMORY_DB_PATH", cible)
+    monkeypatch.setattr(md, "MEMORY_DB_PATH", cible)
     racine = str(tmp_path / "projet")
     for type_, titre, contenu in OBSERVATIONS:
         memory_db.observation_save(None, racine, type_, titre, contenu)

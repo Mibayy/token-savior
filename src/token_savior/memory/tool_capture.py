@@ -162,6 +162,10 @@ def capture_search(
     return rows
 
 
+# `12-30` ou `line:12-30` : bornes 1-indexees, incluses.
+_PLAGE_LIGNES = re.compile(r"(\d+)\s*-\s*(\d+)")
+
+
 def capture_get(
     cap_id: int,
     *,
@@ -191,6 +195,8 @@ def capture_get(
     if not row:
         return None
     full = row["output_full"] or ""
+    if spec.startswith("line:"):
+        spec = spec[len("line:"):].strip()
     if spec == "preview":
         content = row["output_preview"] or _make_preview(full)
     elif spec == "head":
@@ -199,16 +205,27 @@ def capture_get(
         content = "\n".join(full.splitlines()[-50:])
     elif spec == "all":
         content = full
-    elif spec.startswith("line:"):
-        try:
-            start_s, end_s = spec[len("line:"):].split("-", 1)
-            start, end = int(start_s), int(end_s)
-            lines = full.splitlines()
-            content = "\n".join(lines[max(0, start - 1):end])
-        except Exception:
-            content = full[:_DEFAULT_PREVIEW_BYTES]
+    elif _PLAGE_LIGNES.fullmatch(spec):
+        # `10-12` est accepte au meme titre que `line:10-12`. Un appelant qui
+        # ecrit la forme naturelle recevait auparavant le contenu ENTIER, sans
+        # que rien ne signale que sa demande avait ete ignoree : il croyait
+        # avoir trois lignes et payait deux mille caracteres. Dans un outil
+        # dont le but est d'economiser des tokens, c'est le pire des silences.
+        m = _PLAGE_LIGNES.fullmatch(spec)
+        start, end = int(m.group(1)), int(m.group(2))
+        lines = full.splitlines()
+        content = "\n".join(lines[max(0, start - 1):end])
     else:
-        content = full
+        return {
+            "id": cap_id,
+            "uri": f"ts://capture/{cap_id}",
+            "error": (f"range '{range_spec}' non reconnu. Formes acceptees : "
+                      "'preview' (defaut), 'head', 'tail', 'all', "
+                      "'line:<debut>-<fin>' ou '<debut>-<fin>' (1-indexe, "
+                      "bornes incluses)."),
+            "output_lines": row["output_lines"],
+            "output_bytes": row["output_bytes"],
+        }
     if max_bytes is not None and len(content) > max_bytes:
         content = content[:max_bytes] + "…[capped]"
     out = dict(row)

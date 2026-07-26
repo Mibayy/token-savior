@@ -54,6 +54,15 @@ def rrf_merge(
     return out
 
 
+# Seuils mesures, pas choisis : voir le commentaire dans hybrid_search.
+_DISTANCE_MAX_FUSION = 0.90   # en appui d'un resultat lexical
+_DISTANCE_MAX_SEULE = 0.90    # seul signal disponible : exiger la confiance
+# Les deux valeurs sont egales aujourd'hui : la mesure ne montre aucune bande
+# ou le vecteur serait fiable en appui mais pas seul. Elles restent distinctes
+# parce que ce sont deux decisions differentes, et qu'un modele d'embedding
+# mieux adapte a la langue justifierait de relacher la premiere.
+
+
 def vec_search_rows(
     conn: Any,
     query_vec: list[float],
@@ -62,8 +71,14 @@ def vec_search_rows(
     limit: int = 40,
     type_filter: str | None = None,
     include_quarantine: bool = False,
+    max_distance: float | None = None,
 ) -> list[dict[str, Any]]:
     """k-NN over obs_vectors → list of dicts matching observation_search shape.
+
+    ``max_distance`` ecarte les voisins trop lointains. Sans lui, un k-NN rend
+    toujours k resultats, quelle que soit la distance : une requete sans aucun
+    rapport avec la base ressort avec les observations les moins eloignees,
+    presentees comme des souvenirs pertinents.
 
     Returns [] on any failure (missing table, unloaded extension, bad vec
     serialization) so the hybrid path degrades gracefully.
@@ -101,7 +116,11 @@ def vec_search_rows(
         rows = conn.execute(sql, params).fetchall()
     except Exception:
         return []
-    return [dict(r) for r in rows]
+    resultats = [dict(r) for r in rows]
+    if max_distance is not None:
+        resultats = [r for r in resultats
+                     if r.get("distance") is None or r["distance"] <= max_distance]
+    return resultats
 
 
 def hybrid_search(
@@ -131,11 +150,23 @@ def hybrid_search(
     vec = embed(query, as_query=True)
     if vec is None:
         return fts_rows[:limit]
+    # Mesure sur des observations francaises : les distances des voisins
+    # PERTINENTS vont de 0,85 a 0,99, celles des voisins SANS RAPPORT de 0,97
+    # a 1,07. Les bandes se recouvrent presque entierement, et une requete
+    # absurde obtenait un meilleur score que la bonne reponse d'une requete
+    # legitime. Le vecteur n'apporte donc quelque chose que lorsqu'il est
+    # franchement confiant ; ailleurs c'est le lexical qui sait.
+    #
+    # Quand le lexical n'a rien trouve, le seuil est resserre : sans lui,
+    # toute requete rendait un resultat, ce qui transforme une memoire en
+    # generateur de souvenirs plausibles.
+    seuil = _DISTANCE_MAX_SEULE if not fts_rows else _DISTANCE_MAX_FUSION
     vec_rows = vec_search_rows(
         conn, vec, project_root,
         limit=limit * 2,
         type_filter=type_filter,
         include_quarantine=include_quarantine,
+        max_distance=seuil,
     )
     if not vec_rows:
         return fts_rows[:limit]

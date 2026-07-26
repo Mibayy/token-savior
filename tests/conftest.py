@@ -56,3 +56,37 @@ def _isolate_latency_db():
     latency.reset_for_tests()
     yield
     latency.reset_for_tests()
+
+# La base memoire elle-meme n'etait pas isolee, seule la table de latence
+# l'etait. Constate en retrouvant 284 observations de test dans la base reelle
+# de l'utilisateur : chaque execution de la suite y ecrivait, et les tests de
+# recherche dependaient donc des executions precedentes.
+#
+# Une garantie par fichier ne tient pas : il suffit qu'un test futur oublie de
+# patcher. Celle-ci vaut pour toute la suite, et un test qui veut sa propre
+# base peut toujours patcher MEMORY_DB_PATH par-dessus.
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isole_base_memoire():
+    """Redirige la base memoire vers un fichier temporaire, pour toute la suite."""
+    from token_savior import db_core, memory_db
+
+    originale = db_core.MEMORY_DB_PATH
+    originale_alias = memory_db.MEMORY_DB_PATH
+    cible = _ISOLATED_STATS_DIR / "memoire_tests.db"
+    # Sans ce mkdir, SQLite echoue a creer le fichier et `observation_save`
+    # rend None sans lever : 28 tests tombaient sur un « save failed » qui ne
+    # disait rien de la cause reelle.
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    # Les deux noms, parce que `memory_db` garde une copie prise a l'import et
+    # la passe explicitement a `db_core.get_db()`. Ne patcher que db_core
+    # laissait la suite ecrire dans la base reelle ; ne patcher que memory_db
+    # laisserait passer les modules qui lisent db_core en direct.
+    db_core.MEMORY_DB_PATH = cible
+    memory_db.MEMORY_DB_PATH = cible
+    try:
+        yield
+    finally:
+        db_core.MEMORY_DB_PATH = originale
+        memory_db.MEMORY_DB_PATH = originale_alias

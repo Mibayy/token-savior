@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -17,7 +18,27 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-MEMORY_DB_PATH = Path.home() / ".local" / "share" / "token-savior" / "memory.db"
+
+def _resoudre_repertoire_donnees() -> Path:
+    """Repertoire de donnees, selon la convention suivie par le reste du produit.
+
+    La base memoire etait le seul element a ignorer `TOKEN_SAVIOR_DATA_DIR` et
+    `XDG_DATA_HOME` : elle prenait `~/.local/share` en dur. Un utilisateur qui
+    deplace ses donnees retrouvait donc ses captures et son etat au nouvel
+    endroit, et sa memoire a l'ancien, sans que rien ne le signale.
+
+    Consequence secondaire, mesuree : les tests memoire ecrivaient dans la base
+    reelle de l'utilisateur, faute de pouvoir la rediriger.
+    """
+    explicite = os.environ.get("TOKEN_SAVIOR_DATA_DIR", "").strip()
+    if explicite:
+        return Path(explicite)
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "token-savior"
+
+
+MEMORY_DB_PATH = _resoudre_repertoire_donnees() / "memory.db"
 
 _SCHEMA_PATH = Path(__file__).parent / "memory_schema.sql"
 

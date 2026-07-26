@@ -497,15 +497,32 @@ def observation_search(
         return []
 
 
-def observation_get(ids: list[int]) -> list[dict]:
-    """Fetch full observation details by IDs (batch)."""
+def observation_get(ids: list[int], *, include_archived: bool = False) -> list[dict]:
+    """Fetch full observation details by IDs (batch).
+
+    Les observations archivees sont exclues par defaut. Elles ne l'etaient pas,
+    et `observation_search` les filtrait deja : un agent supprimait une memoire
+    puis la relisait et la retrouvait, ce qui ressemble a une suppression qui
+    n'a pas pris. Pire, une observation « supprimee » pouvait encore etre
+    servie au modele.
+
+    Deux causes d'archivage, meme traitement par defaut : la suppression
+    demandee par l'appelant, et le remplacement automatique d'une observation
+    perimee par une plus recente. Dans les deux cas, la rendre comme si elle
+    etait courante est ce que le benchmark STALE mesure comme l'echec principal
+    des systemes memoire.
+
+    ``include_archived=True`` les rend quand meme, avec leurs drapeaux
+    ``archived`` et ``superseded_by``, pour l'audit ou une annulation.
+    """
     if not ids:
         return []
     try:
         conn = memory_db.get_db()
         placeholders = ",".join("?" for _ in ids)
+        filtre = "" if include_archived else " AND archived = 0"
         rows = conn.execute(
-            f"SELECT * FROM observations WHERE id IN ({placeholders})",
+            f"SELECT * FROM observations WHERE id IN ({placeholders}){filtre}",
             ids,
         ).fetchall()
         result = [dict(r) for r in rows]

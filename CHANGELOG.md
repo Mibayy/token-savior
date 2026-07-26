@@ -1,5 +1,45 @@
 # Changelog
 
+## v4.19.0 — A memory that always answers is not a memory (2026-07-26)
+
+**Vector search had no distance floor.** A k-NN always returns k results, however
+far they are. Any query — including one with no relation to anything stored —
+came back with the least-distant observations, presented as relevant memories
+and injected into the model as if it had lived them.
+
+Distances measured on French observations, as returned by sqlite-vec:
+
+```
+relevant neighbours      0.85 – 0.99
+unrelated neighbours     0.97 – 1.07
+```
+
+The bands overlap almost entirely. Worse: `redemarrer le serveur web` ranked
+`Certificat SSL expire` (0.928) **ahead of** `Redemarrer nginx` (0.989), and a
+nonsense query scored better (0.973) than the correct answer to a legitimate
+one. The vector layer only contributes when it is clearly confident; elsewhere
+lexical search is the one that knows. The floor is a measured value, and a test
+guards it against being relaxed without re-measuring.
+
+**Three more defects around the memory store, all found by trying to use it:**
+
+- `memory_delete` returned `True` and `memory_get` still returned the
+  observation. Deletion archives, and `observation_get` did not filter archived
+  rows while `observation_search` did. A "deleted" memory could still reach the
+  model. Now excluded by default, `include_archived=True` to audit or undelete.
+- `capture_get(range="10-12")` returned the **entire** capture instead of three
+  lines. Only `line:10-12` was recognised, and any unrecognised form silently
+  meant "everything" — in a tool whose purpose is to save tokens. Natural ranges
+  are accepted; an unknown one is refused with the accepted forms.
+- The memory database ignored `TOKEN_SAVIOR_DATA_DIR` and `XDG_DATA_HOME`, the
+  convention every other data path follows. Moving your data left captures and
+  state in the new place and memory in the old one, silently.
+
+**And the test suite was writing into the user's real database.** 284 test
+observations were found in it. `conftest.py` now redirects the memory DB for the
+whole suite: a per-file guarantee does not hold, since one future test forgetting
+to patch is enough.
+
 ## v4.18.1 — Two clients on one repository, now covered by tests (2026-07-26)
 
 A Claude Code session and a Codex session open on the same repository is not an
