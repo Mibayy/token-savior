@@ -331,6 +331,32 @@ class SlotManager:
             ]
             if len(substring_matches) == 1:
                 return substring_matches[0][1], ""
+            # Reverse containment: the hint is *longer* than the project name.
+            # Measured on real calls: `scribe-transcription` never matched the
+            # registered `scribe`, because only hint-inside-basename was tried.
+            # Longest basename wins, so `api` never beats `api-client`.
+            reverse = [
+                (root, slot) for root, slot in self.projects.items()
+                if os.path.basename(root).lower() in hint_lower
+                and len(os.path.basename(root)) >= 4
+            ]
+            if reverse:
+                reverse.sort(key=lambda rs: len(os.path.basename(rs[0])), reverse=True)
+                best = os.path.basename(reverse[0][0]).lower()
+                if len({os.path.basename(r).lower() for r, _ in reverse
+                        if len(os.path.basename(r).lower()) == len(best)}) == 1:
+                    return reverse[0][1], ""
+            # The hint names a real directory nobody registered yet. Refusing
+            # here sent the caller to set_project_root for no reason: we know
+            # the path, it exists, and registering is what they wanted.
+            if os.path.isdir(hint_abs):
+                try:
+                    self.register_roots([*self.projects, hint_abs])
+                    if hint_abs in self.projects:
+                        self.active_root = hint_abs
+                        return self.projects[hint_abs], ""
+                except Exception:
+                    pass
             # Build a "did you mean?" suggestion based on edit distance.
             import difflib
             basenames = [os.path.basename(r) for r in self.projects]

@@ -1,5 +1,35 @@
 # Changelog
 
+## v4.15.0 — Accept what we can resolve (2026-07-26)
+
+The audit that produced v4.14.1 dismissed seven of its eight failures as "not
+defects". That was wrong on three of them, and the measurement says so.
+
+**Argument names.** Of 295 real recorded calls, 9 used a parameter that does
+not exist — and every one of them was the name a *sibling tool* uses for the
+same thing. `query` comes from `ts_search`, `source` from
+`replace_symbol_source`, `path` from half the others. The same concept carried
+three names depending on the tool: `name` / `project` / `symbol_name` to point
+at a target, `pattern` / `query` to search, `content` / `new_source` to pass
+code. The caller was guessing because the API made them guess, and a wrong
+guess costs a full round-trip.
+
+Known aliases are now translated to the canonical name before dispatch. The
+schema still advertises the canonical one: aliases catch, they do not replace.
+A value already supplied under the right name always wins.
+
+**Project resolution.** `scribe-transcription` never found the registered
+`scribe` project: fuzzy matching only looked for the hint *inside* the project
+name, never the reverse. It now tries both, longest name first so `api` cannot
+steal what belongs to `api-client`, and ignores names under four characters
+which would match half of everything.
+
+**A real path that nobody registered is now registered.** Refusing it sent the
+caller to `set_project_root` for no reason — the path was known, it existed,
+and registering it was exactly the intent.
+
+Ambiguity is still refused. Silently switching to the wrong project costs more
+than an error does.
 ## v4.14.1 — A missing argument now says what to provide (2026-07-26)
 
 Found by auditing all 69 tools one by one, replaying 100 real calls taken from

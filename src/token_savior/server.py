@@ -840,12 +840,57 @@ def _prefetch_next(name: str, record_symbol: str, slot) -> None:
         pass
 
 
+# Le meme concept portait trois noms selon l'outil, et l'appelant devinait.
+# Mesure sur 295 appels reels : 9 utilisaient un nom d'argument inexistant, et
+# chacun etait le nom employe par un outil VOISIN pour la meme chose --
+# `query` vient de ts_search, `source` de replace_symbol_source. Ce ne sont pas
+# des fautes d'appelant, c'est une API incoherente, et chaque devinette ratee
+# coute un aller-retour complet.
+#
+# On accepte donc l'alias plutot que de refuser. Le schema continue d'annoncer
+# le nom canonique : les alias rattrapent, ils ne remplacent pas.
+_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "search_codebase": {"query": "pattern", "q": "pattern", "regex": "pattern"},
+    "insert_near_symbol": {"source": "content", "new_source": "content",
+                           "code": "content", "name": "symbol_name"},
+    "replace_symbol_source": {"content": "new_source", "source": "new_source",
+                              "code": "new_source", "name": "symbol_name"},
+    "switch_project": {"project": "name", "path": "name", "root": "name"},
+    "set_project_root": {"project": "path", "name": "path", "root": "path"},
+    "get_function_source": {"symbol_name": "name", "function": "name"},
+    "get_class_source": {"symbol_name": "name", "class_name": "name"},
+    "get_full_context": {"symbol_name": "name", "symbol": "name"},
+    "get_edit_context": {"symbol_name": "name", "symbol": "name"},
+    "find_symbol": {"symbol_name": "name", "symbol": "name", "query": "name"},
+    "list_files": {"glob": "pattern", "query": "pattern"},
+    "ts_search": {"pattern": "query", "q": "query"},
+}
+
+
+def _normalize_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Traduit les alias connus vers le nom canonique de l'outil.
+
+    Ne remplace jamais une valeur deja fournie sous le bon nom : si l'appelant
+    a mis les deux, le canonique gagne et l'alias est ignore.
+    """
+    table = _ARG_ALIASES.get(name)
+    if not table or not isinstance(arguments, dict):
+        return arguments
+    out = dict(arguments)
+    for alias, canonique in table.items():
+        if alias in out and canonique not in out:
+            out[canonique] = out.pop(alias)
+    return out
+
+
 def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> list[types.TextContent]:
     """Dispatch a tool by name, honoring the four handler categories.
 
     Shared by `call_tool` (normal entry) and the `ts_extended` proxy so that
     hidden tools in the `ultra` profile run through the exact same path.
     """
+    arguments = _normalize_arguments(name, arguments)
+
     meta_handler = _META_HANDLERS.get(name)
     if meta_handler is not None:
         return meta_handler(arguments)
