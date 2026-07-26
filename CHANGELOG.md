@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.14.1 — A missing argument now says what to provide (2026-07-26)
+
+Found by auditing all 69 tools one by one, replaying 100 real calls taken from
+recorded sessions plus synthesised calls for the 53 tools no session had ever
+used.
+
+92 of the 100 real calls answered correctly. Of the eight that did not, seven
+were not defects: four referenced projects or files absent from the registry,
+and three were malformed calls from past sessions that the schema correctly
+rejected — `switch_project(project=...)` instead of `name`, `search_codebase
+(query=...)` instead of `pattern`, `insert_near_symbol(source=...)` instead of
+`content`. Validation doing its job.
+
+The eighth was real. **Three tools answered `Error: 'name'`** — the repr of a
+Python `KeyError`, nothing else: `get_function_source`, `get_class_source`,
+`get_full_context`, three of the most used tools in the set. For an LLM client
+that is the worst possible message, naming neither the missing argument nor how
+to obtain it, so the caller retries blind and pays the round-trip twice.
+
+They now say what is missing, show an example, and point at `search_codebase`
+or `ts_search` for when the exact name is unknown — matching what `find_symbol`
+already did. `get_full_context` keeps accepting `names=[...]`; requiring `name`
+would have broken batch mode.
+
+Audit result for the rest: of the 34 tools with no `required` field in their
+schema, 27 legitimately take no mandatory argument and 4 already returned an
+explicit message. Only these three were wrong.
+
 ## v4.14.0 — The client tells us which projects are open (2026-07-26)
 
 v4.13.0 guessed the user's projects from the filesystem. That closed most of

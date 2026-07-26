@@ -251,10 +251,36 @@ def _csc_maybe_serve(
 # ---------------------------------------------------------------------------
 
 
+def _require_name(args: dict[str, Any], tool: str, *, batch: bool = False) -> str | None:
+    """Explicit message when `name` is missing, instead of a raw KeyError.
+
+    Found by auditing all 69 tools one by one: three of them answered
+    ``Error: 'name'`` — the repr of a Python ``KeyError``, nothing else. For an
+    LLM client that is the worst possible message: it names neither the missing
+    argument nor how to obtain it, so the caller retries blind and pays the
+    round-trip twice. That is exactly the waste this project exists to remove.
+    `find_symbol` already did this properly; these three did not.
+    """
+    if isinstance(args.get("name"), str) and args["name"]:
+        return None
+    if batch and isinstance(args.get("names"), list) and args["names"]:
+        return None
+    expected = "'name=<str>'" + (" or 'names=[<str>, ...]'" if batch else "")
+    return (
+        f"{tool} requires {expected}.\n"
+        f'  Example: {tool}(name="my_function")\n'
+        f"  If you do not know the exact name: search_codebase(pattern=...) "
+        f"or ts_search(query=...)."
+    )
+
+
 def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
     batch = _batch_dispatch(qfns, args, _q_get_class_source)
     if batch is not None:
         return batch
+    missing = _require_name(args, "get_class_source")
+    if missing:
+        return missing
     slot, _ = state._slot_mgr.resolve(args.get("project"))
     explicit_level = "level" in args and args.get("level") is not None
     if explicit_level:
@@ -295,6 +321,9 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     batch = _batch_dispatch(qfns, args, _q_get_function_source)
     if batch is not None:
         return batch
+    missing = _require_name(args, "get_function_source")
+    if missing:
+        return missing
     from token_savior.server_runtime import _resolve_project_root
 
     slot, _ = state._slot_mgr.resolve(args.get("project"))
@@ -525,6 +554,9 @@ def _q_get_full_context(qfns, args: dict[str, Any]):
     batch = _batch_dispatch(qfns, args, _q_get_full_context)
     if batch is not None:
         return batch
+    missing = _require_name(args, "get_full_context", batch=True)
+    if missing:
+        return missing
     result = qfns["get_full_context"](
         args["name"],
         depth=args.get("depth", 1),
