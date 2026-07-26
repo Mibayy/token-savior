@@ -6,12 +6,12 @@
     "url": "https://github.com/Mibayy/token-savior",
     "source": "github"
   },
-  "version": "3.0.0",
+  "version": "4.10.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "token-savior-recall",
-      "version": "3.0.0",
+      "version": "4.10.0",
       "transport": {
         "type": "stdio"
       },
@@ -25,6 +25,12 @@
         {
           "name": "TOKEN_SAVIOR_CLIENT",
           "description": "Optional client identifier (e.g. 'claude-code', 'cursor', 'hermes') for usage attribution.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "TOKEN_SAVIOR_PROFILE",
+          "description": "Manifest size. 'optimized' (recommended) advertises the Pareto-optimal 15-tool set; 'auto' sizes it from your own usage; 'full' advertises every tool; 'compact-only' if you already run symbol navigation elsewhere.",
           "isRequired": false,
           "format": "string"
         }

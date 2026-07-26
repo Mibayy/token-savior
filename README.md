@@ -2,14 +2,14 @@
 
 <div align="center">
 
-# Token Savior -- v4.9
+# Token Savior -- v4.10
 
 > One MCP server. One profile. **97.9% on tsbench at -80% tokens.**
 > Structural code navigation, persistent memory, and Bash output compaction for AI coding agents.
 
-[![Version](https://img.shields.io/badge/version-4.9.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.9.0)
+[![Version](https://img.shields.io/badge/version-4.10.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.10.0)
 [![PyPI](https://img.shields.io/badge/pypi-token--savior--recall-orange)](https://pypi.org/project/token-savior-recall/)
-[![Tests](https://img.shields.io/badge/tests-1898%2F1900-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2081%2F2083-brightgreen)]()
 [![Benchmark](https://img.shields.io/badge/tsbench-97.9%25%20(188%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
@@ -35,6 +35,17 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 ---
 
 ## What's new
+
+### v4.10.0 -- Community fixes, `ts gain`, `compact-only` (Jul 2026)
+
+Every open pull request from @andrebrait applied, plus the remaining reported
+bugs: list-shaped `tool_response` no longer crashes the capture hook (#48),
+`TOKEN_SAVIOR_MAX_FILES` reaches the server path again (#49), the index cache is
+keyed by the config that built it (#61), and the git compactors stop misparsing
+the Bash rewriter's own output -- with both enabled, a dirty tree was reported
+as `clean` (#46). New: `ts gain` reports savings without the dashboard (#63),
+and `TOKEN_SAVIOR_PROFILE=compact-only` suits setups that already bring their
+own symbol navigation (#42). Full detail in [CHANGELOG.md](CHANGELOG.md).
 
 ### v4.9.0 -- Edit-impact block (Jul 2026)
 
