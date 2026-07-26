@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.18.0 — Recall found 4 queries out of 6 (2026-07-26)
+
+"Recall" is in the product name and its quality had never been measured, only
+its absence of errors. First measurement: **4 out of 6 queries returned the
+right observation.**
+
+SQLite FTS5 applies an implicit AND across the words of a bare query. A
+natural-language sentence — exactly how an agent phrases things — therefore
+required *every* word to appear in the observation, function words included.
+`supprimer des donnees en prod` returned nothing against an observation
+containing supprimer, donnees and prod, because it did not contain `des`.
+
+Three passes now, narrowest first, each attempted only if the previous returned
+nothing — so a query that worked before returns byte-identical results:
+
+1. the query as written (unchanged behaviour);
+2. an `OR` over the meaningful terms, function words dropped;
+3. prefix matching for word families — FTS5 does not stem French, so `nommer`
+   never joined `Nommage`, nor `branche` its plural. Reserved to terms of four
+   letters or more; below that a prefix returns half the database.
+
+Malformed queries (stray punctuation, misplaced operators) return a list rather
+than raising `OperationalError` at the caller.
+
+Measured on the same set after the change: **8 out of 8**, and a genuinely
+absent query still returns nothing. Widening a search must not turn it into a
+noise generator, so `tests/test_memory_recall_quality.py` pins both directions.
+
 ## v4.17.1 — `min_lines` looked broken, and the cache answered for another threshold (2026-07-26)
 
 Two defects in `find_semantic_duplicates`, both found by demanding a known

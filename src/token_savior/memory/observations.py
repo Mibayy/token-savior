@@ -5,6 +5,7 @@ Lifted from memory_db.py during the memory/ subpackage split.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 from typing import Any
@@ -349,6 +350,58 @@ def observation_save_volatile(
     return obs_id
 
 
+
+# FTS5 fait un ET implicite entre les mots d'une requete nue. Une phrase en
+# langage naturel -- c'est a dire exactement la facon dont un agent formule --
+# exige donc que CHAQUE mot figure dans l'observation, y compris les mots
+# outils. Mesure : « supprimer des donnees en prod » ne rendait rien alors que
+# l'observation visee contenait supprimer, donnees et prod, parce qu'elle ne
+# contenait pas « des ». Pour un produit dont le nom est Recall, c'est le
+# defaut le plus cher possible.
+_FTS_OPERATEURS = re.compile(r'[":^*()\-]')
+_MOTS_OUTILS = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "d", "et", "ou", "a",
+    "au", "aux", "en", "dans", "sur", "pour", "par", "avec", "sans", "que",
+    "qui", "quoi", "est", "sont", "the", "of", "in", "on", "for", "with",
+    "and", "or", "to", "is", "are",
+}
+
+
+def _termes_utiles(query: str) -> list[str]:
+    return [m for m in _FTS_OPERATEURS.sub(" ", query).split()
+            if len(m) > 1 and m.lower() not in _MOTS_OUTILS]
+
+
+def _requete_prefixe(query: str) -> str | None:
+    """Troisieme essai : correspondance par prefixe.
+
+    FTS5 ne racinise pas le francais. « nommer une branche » ne trouvait pas
+    « Nommage des branches » parce que ni `nommer`/`nommage` ni
+    `branche`/`branches` ne sont le meme jeton. Un prefixe couvre toute la
+    famille d'un mot, ce qui est exactement ce que l'appelant voulait dire.
+
+    Reserve aux mots d'au moins quatre lettres : en dessous, un prefixe
+    ramene la moitie de la base.
+    """
+    mots = [m for m in _termes_utiles(query) if len(m) >= 4]
+    if not mots:
+        return None
+    return " OR ".join(f"{m}*" for m in mots)
+
+
+def _requete_elargie(query: str) -> str | None:
+    """Variante OR d'une requete, pour le second essai.
+
+    On ne remplace pas le ET d'origine : une requete precise qui marche doit
+    continuer a rendre exactement la meme chose. C'est un repli, declenche
+    seulement quand le ET ne rend rien.
+    """
+    mots = _termes_utiles(query)
+    if len(mots) < 2:
+        return None
+    return " OR ".join(mots)
+
+
 def observation_search(
     project_root: str,
     query: str,
@@ -399,7 +452,28 @@ def observation_search(
         sql += "ORDER BY rank LIMIT ?"
         params.append(fts_limit)
 
-        fts_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        try:
+            fts_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        except sqlite3.OperationalError:
+            # Requete refusee par la syntaxe FTS (ponctuation, operateur mal
+            # place). Mieux vaut un second essai qu'une exception remontee a
+            # l'appelant pour une question legitime.
+            fts_rows = []
+        # Trois essais, du plus precis au plus large. Chacun n'est tente que
+        # si le precedent n'a rien rendu : une requete qui marche aujourd'hui
+        # rend exactement la meme chose qu'avant.
+        for construire in (_requete_elargie, _requete_prefixe):
+            if fts_rows:
+                break
+            variante = construire(query)
+            if not variante:
+                continue
+            params_var = list(params)
+            params_var[0] = variante
+            try:
+                fts_rows = [dict(r) for r in conn.execute(sql, params_var).fetchall()]
+            except sqlite3.OperationalError:
+                fts_rows = []
 
         from token_savior.memory.search import hybrid_search
         result = hybrid_search(
