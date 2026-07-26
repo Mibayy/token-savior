@@ -43,6 +43,50 @@ def _is_corrupted_content(title: str, content: str) -> bool:
     return t.endswith(("',", '",', "}}", "}},"))
 
 
+_SUPERSEDE_MIN_SCORE = 0.90
+# Ce qu'un doublon proche ne remplace jamais en silence : une regle figee ou une
+# decision ne devient pas fausse parce qu'on a reparle du meme sujet.
+_NEVER_SUPERSEDE = frozenset({"guardrail", "convention", "decision", "user", "feedback"})
+
+
+def _supersede_stale(conn, candidate: dict | None, new_id: int | None, now: str) -> int | None:
+    """Archive l'observation que la nouvelle rend perimee. Rien n'est supprime.
+
+    Le probleme resolu : deux observations sur le meme sujet (proximite entre
+    0.85 et 0.95) restaient toutes deux actives, l'une a jour et l'autre
+    perimee, sans que rien ne dise laquelle gagne. Le code les taguait
+    "near-duplicate" et passait a la suite. C'est l'ecart mesure par le
+    benchmark STALE : les systemes memoire retrouvent l'information fraiche
+    dans 77% des cas mais echouent a la PREFERER a l'ancienne 56% du temps.
+
+    L'arbitrage tient a une comparaison d'anteriorite, en code : le LLM a
+    produit le contenu, il ne juge pas la fraicheur. C'est la lecon du papier
+    "Don't Ask the LLM to Track Freshness" et du mecanisme d'invalidation de
+    Graphiti -- LLM a l'ecriture, deterministe a la lecture.
+    """
+    if not candidate or not new_id:
+        return None
+    old_id = candidate.get("id")
+    score = candidate.get("score") or 0.0
+    if old_id is None or old_id == new_id or score < _SUPERSEDE_MIN_SCORE:
+        return None
+    row = conn.execute(
+        "SELECT type FROM observations WHERE id=? AND archived=0", (old_id,)
+    ).fetchone()
+    if row is None or (row[0] or "") in _NEVER_SUPERSEDE:
+        return None
+    conn.execute(
+        "UPDATE observations SET archived=1, superseded_by=?, updated_at=? WHERE id=?",
+        (new_id, now, old_id),
+    )
+    print(
+        f"[token-savior:memory] #{old_id} perimee, remplacee par #{new_id} "
+        f"(proximite {score})",
+        file=sys.stderr,
+    )
+    return old_id
+
+
 def observation_save(
     session_id: int | None,
     project_root: str,
@@ -190,6 +234,7 @@ def observation_save(
                 ),
             )
             obs_id = cur.lastrowid
+            _supersede_stale(conn, semantic, obs_id, now)
             try:
                 from token_savior.memory.embeddings import maybe_index_obs
                 maybe_index_obs(obs_id, narrative or content, conn)

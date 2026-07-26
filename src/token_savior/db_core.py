@@ -126,6 +126,12 @@ def run_migrations(db_path: Path | str | None = None) -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
         if "agent_id" not in obs_cols:
             conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
+        if "superseded_by" not in obs_cols:
+            # Peremption. Une observation rendue fausse par une plus recente est
+            # archivee, jamais supprimee, et garde le lien vers celle qui la
+            # remplace : on peut repondre "qu'est-ce qui etait vrai en avril" et
+            # defaire un remplacement errone.
+            conn.execute("ALTER TABLE observations ADD COLUMN superseded_by INTEGER")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
         # A5: narrative/facts/concepts — non-destructive column adds.
         # The FTS5 virtual table rebuild below picks them up.
