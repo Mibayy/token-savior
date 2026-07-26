@@ -110,7 +110,7 @@ _HOOK_CONFIG_FILES = {
         "memory-hooks-config.json",
     ),
     "cursor": ("tool-capture-cursor.json",),
-    "gemini": ("tool-capture-gemini.json",),
+    "gemini": ("tool-capture-gemini.json", "memory-gemini.json"),
     "codex": ("tool-capture-codex.json", "memory-codex.json"),
     # OpenClaw charge des hook packs (dossier HOOK.md + handler.js) au lieu de
     # commandes par evenement : le bundle declare le dossier, pas des commandes.
@@ -123,8 +123,11 @@ def hook_config_paths(agent: str, ts_root: Path) -> list[Path]:
 
     Claude gets tool_capture (PostToolUse), bash_rewriter (PreToolUse) and the
     memory engine. Codex gets tool_capture plus a Codex-specific memory bundle
-    whose timeouts are expressed in seconds rather than milliseconds.
-    Cursor and Gemini still ship the tool_capture half only.
+    whose timeouts are expressed in seconds rather than milliseconds. Gemini
+    gets tool_capture plus a memory bundle using its own event names
+    (SessionStart / SessionEnd / Stop / BeforeTool / AfterTool) and Claude-style
+    millisecond timeouts. OpenClaw declares a hook pack directory instead of
+    commands. Cursor still ships the tool_capture half only.
     """
     if agent not in _HOOK_CONFIG_FILES:
         raise ValueError(f"unsupported agent: {agent}")

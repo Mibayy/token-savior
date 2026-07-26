@@ -1,0 +1,62 @@
+{
+  "_comment": "Moteur memoire Token Savior pour Gemini CLI. Merge sous la cle 'hooks' de ~/.gemini/settings.json. Evenements extraits du paquet @google/gemini-cli 0.38.1 : SessionStart, SessionEnd, Stop, BeforeTool, AfterTool, Notification. Absents cote Gemini donc non portes : UserPromptSubmit et PreCompact. Unite des timeouts : MILLISECONDES (DEFAULT_HOOK_TIMEOUT = 6e4 dans le paquet), comme Claude Code et contrairement a Codex. Les noms d'outils sont ceux de Gemini (run_shell_command, read_file, ...), pas ceux de Claude.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-start.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh end",
+            "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh stop",
+            "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command|mcp__plugin_token-savior",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command|web_fetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ]
+  }
+}
