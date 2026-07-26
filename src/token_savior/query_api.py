@@ -630,6 +630,50 @@ _SPRING_QUOTED_VALUE_RE = re.compile(r'"([^"]+)"')
 _SPRING_VALUE_RE = re.compile(r'@Value\(\s*"[^"]*\$\{([^}:"]+)')
 
 
+
+# FastAPI, Flask, Starlette, Sanic : tous posent un decorateur `<objet>.<verbe>`
+# ou `<objet>.route`. Le nom du decorateur est indexe, pas ses arguments : le
+# chemin se lit donc sur la ligne, comme pour Spring.
+_VERBES_HTTP = ("get", "post", "put", "patch", "delete", "head", "options")
+_DECORATEUR_ROUTE = re.compile(
+    r"@\s*[\w.]+\.(" + "|".join([*_VERBES_HTTP, "route"]) + r")\s*\(")
+_METHODS_KW = re.compile(r"methods\s*=\s*\[([^\]]*)\]")
+
+
+def _extract_python_routes(meta, func) -> list[tuple[list[str], str, int]]:
+    """[(methodes, chemin, ligne)] pour un handler Python decore.
+
+    `get_routes` ne connaissait que Next.js et Spring. Sur un projet FastAPI ou
+    Flask il rendait `[]`, ce qu'un appelant lit comme « ce projet n'a pas de
+    routes » : un silence qui se confond avec une reponse. Les deux frameworks
+    Python les plus repandus sont maintenant reconnus.
+    """
+    resultats: list[tuple[list[str], str, int]] = []
+    decorateurs = [d for d in (getattr(func, "decorators", None) or [])
+                   if d.rsplit(".", 1)[-1] in (*_VERBES_HTTP, "route")]
+    if not decorateurs:
+        return resultats
+    debut = max(0, func.line_range.start - 8)
+    lignes = getattr(meta, "lines", None) or []
+    for i in range(debut, min(func.line_range.start, len(lignes))):
+        ligne = lignes[i]
+        m = _DECORATEUR_ROUTE.search(ligne)
+        if not m:
+            continue
+        verbe = m.group(1)
+        chemin = re.search(r"""\(\s*["']([^"']+)["']""", ligne)
+        if not chemin:
+            continue
+        if verbe == "route":
+            kw = _METHODS_KW.search(ligne)
+            methodes = ([x.strip().strip("\"'").upper() for x in kw.group(1).split(",") if x.strip()]
+                        if kw else ["GET"])
+        else:
+            methodes = [verbe.upper()]
+        resultats.append((methodes or ["GET"], chemin.group(1), i + 1))
+    return resultats
+
+
 def _is_spring_controller(cls) -> bool:
     decorators = set(getattr(cls, "decorators", []))
     return bool(decorators & {"RestController", "Controller", "RequestMapping"})
@@ -2013,6 +2057,19 @@ class ProjectQueryEngine:
                         "line": 1,
                     }
                 )
+            elif path.endswith(".py"):
+                for func in meta.functions:
+                    for methodes, chemin, ligne in _extract_python_routes(meta, func):
+                        entree = {
+                            "route": chemin,
+                            "file": path,
+                            "methods": methodes,
+                            "type": "api",
+                            "line": ligne,
+                        }
+                        if _fn_is_stub(meta, func):
+                            entree["stub"] = True
+                        add_route(entree)
             elif path.endswith(".java"):
                 spring_classes = [cls for cls in meta.classes if _is_spring_controller(cls)]
                 for cls in spring_classes:

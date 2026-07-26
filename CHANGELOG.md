@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.17.0 — `get_routes` answered `[]` on FastAPI and Flask (2026-07-26)
+
+It knew Next.js App Router and Spring. On the two most common Python web
+frameworks it returned an empty list, which a caller reads as "this project has
+no routes". A silence indistinguishable from an answer is worse than an error:
+nothing signals that you should look elsewhere.
+
+FastAPI, Flask, Starlette and Sanic are now detected: `@app.get("/x")`,
+`@router.delete("/x/{id}")`, and `@app.route("/x", methods=[...])` with its
+method list, falling back to `GET`. Recognising only an object literally named
+`app` would miss half of any structured project, so any `<object>.<verb>`
+decorator counts.
+
+**And the reason this was found at all.** Of ~292 checks in a full audit, only
+16 verified content; the other 281 verified that no error came back. A tool
+answering confidently wrong passed. Two releases shipped the same day did
+exactly that while passing 2253 then 2267 green tests.
+
+`tests/test_analysis_correctness.py` inverts that: a project built so every
+answer is known in advance — dead code, an exact AST duplicate, an import
+cycle, routes, a model, an orphan variable in `.env`, an API break between two
+git tags — and each test demands the expected content. Including what must
+*not* be reported: a used function is not dead code, and a search with no
+result invents nothing.
+
 ## v4.16.1 — A Java signature no longer starts with `def` (2026-07-26)
 
 Three call sites built `def name(params)` regardless of language. On Java that
