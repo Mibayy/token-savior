@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.18.1 — Two clients on one repository, now covered by tests (2026-07-26)
+
+A Claude Code session and a Codex session open on the same repository is not an
+exotic setup, and it was never tested. Each client keeps its own in-memory
+index: the moment one writes, the other's line ranges are stale, and its next
+edit targets lines that have moved. That is precisely the corruption seen
+during development.
+
+The pre-edit reindex shipped in v4.15.2 already handles it. This release adds
+the tests that prove it and stop it regressing: crossed edits from two
+independent clients leave one definition, the neighbours above and below
+untouched, and a file that still compiles.
+
+No behaviour change — a verification that was missing.
+
 ## v4.18.0 — Recall found 4 queries out of 6 (2026-07-26)
 
 "Recall" is in the product name and its quality had never been measured, only
