@@ -2995,10 +2995,15 @@ class ProjectQueryEngine:
         index = self.index
         want_functions = kinds is None or "function" in kinds
         want_classes = kinds is None or "class" in kinds
+        homonymes: list[str] = []
         if want_classes:
-            class_info = self._resolve_exact_class_info(name, level=level)
-            if class_info is not None:
-                return _strip(class_info)
+            homonymes = [pth for pth, m in sorted(index.files.items())
+                         if any(c.name == name or c.qualified_name == name
+                                for c in m.classes)]
+            if len(homonymes) <= 1:
+                class_info = self._resolve_exact_class_info(name, level=level)
+                if class_info is not None:
+                    return _strip(class_info)
         # Try symbol table first
         if name in index.symbol_table:
             path = index.symbol_table[name]
@@ -3016,12 +3021,16 @@ class ProjectQueryEngine:
                         }
                     if func is not None:
                         return _strip(self._func_result(func, path, meta, level=level))
-                if want_classes:
+                if want_classes and len(homonymes) <= 1:
+                    # Meme raison que plus bas : sur un projet polyglotte, rendre
+                    # le premier match donne une reponse sur N presentee comme
+                    # la seule. `homonymes` a deja compte les definitions.
                     for cls in meta.classes:
                         if cls.name == name or cls.qualified_name == name:
                             return _strip(self._class_result(cls, path, meta, level=level))
         # Fallback: search all files
         candidate_results: list[dict] = []
+        class_candidates: list[tuple] = []
         for path, meta in sorted(index.files.items()):
             if want_functions:
                 func, error = _resolve_unique_function(meta.functions, name)
@@ -3037,7 +3046,27 @@ class ProjectQueryEngine:
             if want_classes:
                 for cls in meta.classes:
                     if cls.name == name or cls.qualified_name == name:
-                        return _strip(self._class_result(cls, path, meta, level=level))
+                        class_candidates.append((cls, path, meta))
+                        break
+        # Les fonctions collectaient leurs candidats et signalaient l'ambiguite ;
+        # les classes rendaient le premier match et sortaient. Sur un projet
+        # polyglotte -- une classe `Tarif` en Java et une en Ruby -- l'appelant
+        # recevait donc une reponse sur deux, presentee comme la seule, sans
+        # rien pour s'en douter. On nomme les fichiers : une ambiguite qui dit
+        # ou regarder se resout en un appel, pas en trois.
+        if len(class_candidates) > 1:
+            fichiers = [c[1] for c in class_candidates]
+            return {
+                "name": name,
+                "error": (f"class '{name}' is ambiguous; defined in "
+                          f"{len(fichiers)} files: {', '.join(fichiers[:5])}"),
+                "candidates": fichiers[:10],
+                "_suggestion": (f"get_class_source('{name}', file_path='{fichiers[0]}') "
+                                "or pass the fully qualified name."),
+            }
+        if len(class_candidates) == 1:
+            cls, path, meta = class_candidates[0]
+            return _strip(self._class_result(cls, path, meta, level=level))
         if len(candidate_results) == 1:
             return candidate_results[0]
         if len(candidate_results) > 1:

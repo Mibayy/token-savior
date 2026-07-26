@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.16.0 — A class defined in two languages returned one of them, silently (2026-07-26)
+
+Found by exercising Java and Ruby for the first time. `tree-sitter-java` and
+`tree-sitter-ruby` have shipped for a long time and **no test had ever run
+them**.
+
+Functions collected their candidates and reported ambiguity. Classes returned
+the **first** match and stopped. On a polyglot project — a `Tarif` class in
+Java and another in Ruby — asking for `Tarif` returned the Java one, presented
+as the only one, with nothing to suggest otherwise. That is the worst category
+of defect: a wrong answer delivered with confidence, indistinguishable from a
+right one.
+
+Both resolution paths are fixed (the `symbol_table` shortcut and the
+whole-index fallback), and the message names the files:
+
+```
+class 'Panier' is ambiguous; defined in 3 files:
+app/panier.py, java/src/main/java/boutique/Panier.java, ruby/lib/panier.rb
+```
+
+An ambiguity that says where to look costs one more call. A silent one costs
+three, plus whatever was built on the wrong answer. A class defined once still
+answers directly, and `file_path` still settles it.
+
+`tests/test_polyglot_class_ambiguity.py` covers Python, Java and Ruby together
+— the first test in this repo to index all three.
+
 ## v4.15.2 — `move_symbol` failed every single time (2026-07-26)
 
 Found by an adversarial audit of all 69 tools against a purpose-built project,
