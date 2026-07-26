@@ -317,6 +317,16 @@ _AUTO_ESSENTIALS: set[str] = {
     "get_git_status",
     "ts_search",
     "ts_execute",
+    # Les trois primitives d'edition que le classement par usage ne peut pas
+    # faire remonter, parce qu'il se mord la queue : un outil qui n'est pas
+    # annonce n'est jamais appele, donc son compteur reste a zero, donc il n'est
+    # jamais annonce. Mesure du 26/07 : `get_edit_context` a 0 appel a vie et
+    # 25 regles du CLAUDE.md citaient un outil inatteignable, ce qui donnait
+    # 9,8% d'adherence sur "editer par outil structurel". Ce n'etait pas de la
+    # discipline, c'etait un cliquet. Les essentiels sont la sortie prevue.
+    "get_edit_context",
+    "insert_near_symbol",
+    "move_symbol",
 }
 
 
