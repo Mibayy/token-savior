@@ -331,6 +331,30 @@ class SlotManager:
             ]
             if len(substring_matches) == 1:
                 return substring_matches[0][1], ""
+            # Containment inverse : le hint est plus LONG que le nom du projet.
+            # Mesure : `scribe-transcription` ne trouvait jamais `scribe`.
+            # Nom le plus long d'abord, pour que `api` ne rafle pas
+            # `api-client` ; moins de 4 caracteres ignore, ca matcherait tout.
+            reverse = [
+                (root, slot) for root, slot in self.projects.items()
+                if os.path.basename(root).lower() in hint_lower
+                and len(os.path.basename(root)) >= 4
+            ]
+            if reverse:
+                reverse.sort(key=lambda rs: len(os.path.basename(rs[0])), reverse=True)
+                best = len(os.path.basename(reverse[0][0]))
+                if sum(1 for r, _ in reverse if len(os.path.basename(r)) == best) == 1:
+                    return reverse[0][1], ""
+            # Un chemin reel que personne n'a enregistre : le refuser envoyait
+            # vers set_project_root sans raison. On sait ou il est, il existe.
+            if os.path.isdir(hint_abs):
+                try:
+                    self.register_roots([*self.projects, hint_abs])
+                    if hint_abs in self.projects:
+                        self.active_root = hint_abs
+                        return self.projects[hint_abs], ""
+                except Exception:
+                    pass
             # Reverse containment: the hint is *longer* than the project name.
             # Measured on real calls: `scribe-transcription` never matched the
             # registered `scribe`, because only hint-inside-basename was tried.
@@ -373,9 +397,22 @@ class SlotManager:
                     f" Multiple substring matches: {', '.join(multi)} — "
                     "be more specific."
                 )
+            # Le nom correspond peut-etre a un dossier existant mais non
+            # indexe (sauvegarde, archive). Le dire transforme un cul-de-sac
+            # en information.
+            ailleurs = ""
+            try:
+                for parent in sorted({os.path.dirname(r) for r in self.projects}):
+                    candidat = os.path.join(parent, project_hint)
+                    if os.path.isdir(candidat):
+                        ailleurs = (f" A directory '{candidat}' exists but is not "
+                                    f"registered: set_project_root('{candidat}').")
+                        break
+            except OSError:
+                ailleurs = ""
             return None, (
                 f"Project '{project_hint}' not found.{suggestion}"
-                f"{ambiguous_note} "
+                f"{ambiguous_note}{ailleurs} "
                 f"Known projects: {', '.join(basenames)}"
             )
 

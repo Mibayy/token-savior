@@ -1,5 +1,44 @@
 # Changelog
 
+## v4.15.1 — The alias fix that did nothing, and the edits that overwrote themselves (2026-07-26)
+
+**v4.15.0 shipped an argument-alias feature that never ran.** It translated
+aliases just before dispatch, passed 2253 tests, and changed nothing in
+production: the MCP SDK validates arguments against the advertised schema
+*before* calling the handler, so the call was rejected before reaching the
+translation. The tests called the helper directly and saw a function that works
+perfectly, on a path nobody takes. A green suite that does not cross the real
+path proves nothing.
+
+Aliases are now declared **in the schema**: each becomes a property, and a
+canonical `required` becomes an `anyOf` accepting either name. New
+`tests/test_protocol_end_to_end.py` speaks the protocol over stdio and knows
+nothing about the implementation — it fails on v4.15.0 and passes here, which
+is the only reason to trust it.
+
+**Structural edits now reindex the target file first.** They only reindexed
+*after* writing. As long as the disk changes solely through Token Savior the
+in-memory ranges stay correct; the moment anything else touches it — a `git
+checkout`, a script, another tool — the recorded line ranges point elsewhere
+and the write lands on the wrong lines. Observed repeatedly in one session:
+earlier versions of functions resurrected, whole definitions duplicated, and no
+signal at all. One file reparse costs nothing against silent corruption.
+
+**Project resolution stops refusing what it can resolve.** Fuzzy matching only
+looked for the hint *inside* a project name, so `scribe-transcription` never
+found `scribe`; both directions are tried now, longest name first so `api`
+cannot steal `api-client`, names under four characters ignored. A real path
+nobody registered gets registered. A name matching an existing but unindexed
+directory now says where it is instead of listing every known project.
+
+**A file missing from the current index now says which project holds it.**
+
+Audit result, replaying 200 recorded calls in chronological order against a
+clean install: **192 answered correctly**, every remaining failure being one
+call to a project that no longer exists on disk. `search_codebase` 44/44,
+`replace_symbol_source` 31/31, `get_structure_summary` 22/22,
+`get_function_source` 15/15.
+
 ## v4.15.0 — Accept what we can resolve (2026-07-26)
 
 The audit that produced v4.14.1 dismissed seven of its eight failures as "not

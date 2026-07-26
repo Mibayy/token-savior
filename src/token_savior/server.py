@@ -150,13 +150,82 @@ _THIN_SCHEMAS = (
 )
 
 
-def _schema_for(s: dict) -> dict:
-    return _thin_input_schema(s["inputSchema"]) if _THIN_SCHEMAS else s["inputSchema"]
+# Le meme concept portait trois noms selon l'outil, et l'appelant devinait.
+# Mesure sur 295 appels reels : 9 utilisaient un nom d'argument inexistant, et
+# chacun etait le nom employe par un outil VOISIN pour la meme chose --
+# `query` vient de ts_search, `source` de replace_symbol_source. Ce n'est pas
+# une faute d'appelant, c'est une API incoherente, et chaque devinette ratee
+# coute un aller-retour complet.
+_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "search_codebase": {"query": "pattern", "q": "pattern", "regex": "pattern"},
+    "insert_near_symbol": {"source": "content", "new_source": "content",
+                           "code": "content", "name": "symbol_name"},
+    "replace_symbol_source": {"content": "new_source", "source": "new_source",
+                              "code": "new_source", "name": "symbol_name"},
+    "switch_project": {"project": "name", "path": "name", "root": "name"},
+    "set_project_root": {"project": "path", "name": "path", "root": "path"},
+    "get_function_source": {"symbol_name": "name", "function": "name"},
+    "get_class_source": {"symbol_name": "name", "class_name": "name"},
+    "get_full_context": {"symbol_name": "name", "symbol": "name"},
+    "get_edit_context": {"symbol_name": "name", "symbol": "name"},
+    "find_symbol": {"symbol_name": "name", "symbol": "name"},
+    "list_files": {"glob": "pattern", "query": "pattern"},
+    "ts_search": {"pattern": "query", "q": "query"},
+}
+
+
+def _normalize_arguments(name: str, arguments: dict) -> dict:
+    """Traduit les alias vers le nom canonique. Le canonique gagne toujours."""
+    table = _ARG_ALIASES.get(name)
+    if not table or not isinstance(arguments, dict):
+        return arguments
+    out = dict(arguments)
+    for alias, canonical in table.items():
+        if alias in out and canonical not in out:
+            out[canonical] = out.pop(alias)
+    return out
+
+
+def _with_aliases(name: str, schema: dict) -> dict:
+    """Declare les alias DANS le schema, pas seulement au dispatch.
+
+    Sans ca la validation du SDK refuse l'appel avant que la traduction ne
+    s'execute : un correctif qui ne tourne jamais ressemble beaucoup a un
+    correctif. C'est exactement ce qu'a fait la v4.15.0.
+    """
+    table = _ARG_ALIASES.get(name)
+    if not table or not isinstance(schema, dict):
+        return schema
+    props = schema.get("properties")
+    if not isinstance(props, dict):
+        return schema
+    out = dict(schema); out["properties"] = dict(props)
+    for alias, canonical in table.items():
+        if alias in out["properties"] or canonical not in props:
+            continue
+        spec = dict(props[canonical])
+        spec["description"] = f"Alias de `{canonical}`. " + str(spec.get("description") or "")
+        out["properties"][alias] = spec
+    required = schema.get("required")
+    if isinstance(required, list) and required:
+        alt = [list(required)]
+        for alias, canonical in table.items():
+            if canonical in required and alias in out["properties"]:
+                alt.append([alias if r == canonical else r for r in required])
+        if len(alt) > 1:
+            out.pop("required", None)
+            out["anyOf"] = [{"required": a} for a in alt]
+    return out
+
+
+def _schema_for(s: dict, name: str = "") -> dict:
+    schema = _thin_input_schema(s["inputSchema"]) if _THIN_SCHEMAS else s["inputSchema"]
+    return _with_aliases(name, schema)
 
 
 # TOOLS = liste de ToolDef (shim local). Le serveur MCP convertit en
 # mcp.types.Tool a la frontiere protocole, dans list_tools().
-TOOLS = [Tool(name=name, description=s["description"], inputSchema=_schema_for(s))
+TOOLS = [Tool(name=name, description=s["description"], inputSchema=_schema_for(s, name))
          for name, s in TOOL_SCHEMAS.items()]
 
 
@@ -883,12 +952,44 @@ def _normalize_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+def _locate_across_projects(file_hint: str) -> str:
+    """Cherche un fichier dans les AUTRES projets enregistres.
+
+    Un « file not found in index » sans piste envoie l'appelant tatonner alors
+    que le serveur sait ou est le fichier. On ne bascule pas de projet tout
+    seul : on nomme celui-ci et l'argument a ajouter.
+    """
+    if not file_hint:
+        return ""
+    cible = os.path.basename(file_hint)
+    trouves: list[tuple[str, str]] = []
+    for root, slot in list(s._slot_mgr.projects.items()):
+        index = getattr(getattr(slot, "indexer", None), "_project_index", None)
+        fichiers = getattr(index, "files", None) if index is not None else None
+        if not fichiers:
+            continue
+        for f in fichiers:
+            if f == file_hint or f.endswith("/" + file_hint) or os.path.basename(f) == cible:
+                trouves.append((os.path.basename(root), f))
+                break
+    if not trouves:
+        return ""
+    if len(trouves) == 1:
+        projet, chemin = trouves[0]
+        return (f"\n\n-> Found in project '{projet}': {chemin}\n"
+                f'  Re-call with project="{projet}".')
+    liste = ", ".join(f"{pr}:{ch}" for pr, ch in trouves[:5])
+    return f"\n\n-> Present in several projects: {liste}\n  Pick one with project=<name>."
+
+
 def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> list[types.TextContent]:
     """Dispatch a tool by name, honoring the four handler categories.
 
     Shared by `call_tool` (normal entry) and the `ts_extended` proxy so that
     hidden tools in the `ultra` profile run through the exact same path.
     """
+    arguments = _normalize_arguments(name, arguments)
+
     arguments = _normalize_arguments(name, arguments)
 
     meta_handler = _META_HANDLERS.get(name)
@@ -939,6 +1040,10 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
                 return _count_and_wrap_result(slot, name, arguments, cached)
             s._src_misses += 1
         result = qfn_handler(slot.query_fns, arguments)
+        if isinstance(result, str) and "not found in index" in result:
+            piste = _locate_across_projects(str(arguments.get("file_path") or ""))
+            if piste:
+                result += piste
         result = _maybe_compress(name, arguments, result)
         if src_key is not None:
             s._session_result_cache[src_key] = result

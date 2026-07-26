@@ -13,8 +13,39 @@ from token_savior.server_runtime import _prep
 from token_savior.slot_manager import _ProjectSlot
 
 
+def _refresh_target(slot: _ProjectSlot, args: dict) -> None:
+    """Reindexe le fichier vise AVANT de l'editer.
+
+    Les handlers ne reindexaient qu'apres coup. Des que le disque bouge
+    autrement que par Token Savior -- un `git checkout`, un script, un autre
+    outil -- les plages de lignes memorisees pointent a cote et l'ecriture tape
+    sur les mauvaises lignes. Constate plusieurs fois dans une meme session :
+    versions anterieures ressuscitees, definitions dupliquees, aucun signal.
+    Un reparse d'un fichier ne coute rien devant une corruption silencieuse.
+    """
+    index = getattr(slot.indexer, "_project_index", None)
+    chemin = args.get("file_path")
+    if not chemin and index is not None:
+        cible = args.get("symbol_name") or args.get("name")
+        try:
+            meta = index.symbols.get(cible) if hasattr(index, "symbols") else None
+            if isinstance(meta, dict):
+                chemin = meta.get("file")
+            elif isinstance(meta, list) and meta:
+                chemin = (meta[0] or {}).get("file")
+        except Exception:
+            chemin = None
+    if not chemin:
+        return
+    try:
+        slot.indexer.reindex_file(chemin)
+    except Exception:
+        pass
+
+
 def _h_replace_symbol_source(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    _refresh_target(slot, args)
     result = replace_symbol_source(
         slot.indexer._project_index,
         args["symbol_name"],
@@ -28,6 +59,7 @@ def _h_replace_symbol_source(slot: _ProjectSlot, args: dict) -> object:
 
 def _h_insert_near_symbol(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    _refresh_target(slot, args)
     result = insert_near_symbol(
         slot.indexer._project_index,
         args["symbol_name"],
@@ -42,6 +74,7 @@ def _h_insert_near_symbol(slot: _ProjectSlot, args: dict) -> object:
 
 def _h_edit_lines_in_symbol(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    _refresh_target(slot, args)
     result = edit_lines_in_symbol(
         slot.indexer._project_index,
         args["symbol_name"],
@@ -57,6 +90,7 @@ def _h_edit_lines_in_symbol(slot: _ProjectSlot, args: dict) -> object:
 
 def _h_add_field_to_model(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    _refresh_target(slot, args)
     result = add_field_to_model(
         slot.indexer._project_index,
         model=args["model"],
@@ -72,6 +106,7 @@ def _h_add_field_to_model(slot: _ProjectSlot, args: dict) -> object:
 
 def _h_move_symbol(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    _refresh_target(slot, args)
     result = move_symbol(
         slot.indexer._project_index,
         symbol_name=args["symbol"],
