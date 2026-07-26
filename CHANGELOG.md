@@ -1,5 +1,38 @@
 # Changelog
 
+## v4.12.2 — `pip install token-savior-recall` produced a server that could not start (2026-07-26)
+
+**The MCP server did not start on a default install.** `mcp` was declared as
+an *optional* dependency, so `pip install token-savior-recall` gave you a
+package whose main entry point died immediately:
+
+```
+ModuleNotFoundError: No module named 'mcp'
+```
+
+The README always said `pip install "token-savior-recall[mcp]"`, so anyone
+following it was fine. But **`server.json` — the file the MCP registry serves
+to clients for automatic installation — carried the plain identifier with no
+extra**. Every client installing from the registry got a server that could not
+run. This package is an MCP server; it now depends on `mcp` outright. The
+`[mcp]` extra is kept so published install commands keep working.
+
+Found by installing the published wheel into a clean virtualenv and speaking
+the protocol to it — initialize, tools/list, then real tool calls — rather than
+by reading the packaging. The same smoke test now passes end to end: 69 tools
+listed, `find_symbol`, `get_function_source`, `search_codebase` and
+`get_full_context` all answering on a throwaway project.
+
+**Also in this release**, the discipline guard shipped in v4.12.0 was replaced
+by its corrected version. The one published an hour earlier had a shell rule
+measured at **68.5% false positives** when replayed against 9054 real tool
+calls — `cd` alone accounted for 395 of them — because it required a reader
+*somewhere* in the command and a code file *somewhere*, without checking the
+link between them. It now splits into sub-commands and only accuses the one
+whose head is a reader and which cites an indexed source file: 0% false
+positives on the same replay, true detections preserved. A `Grep`/`Glob` rule
+was added at the same time, with the tests it was missing.
+
 ## v4.12.1 — Registry identifier names the repository (2026-07-26)
 
 `io.github.<account>/<name>` is a GitHub *repository* convention. The PyPI

@@ -22,16 +22,14 @@ HOOK = Path(__file__).resolve().parents[1] / "hooks" / "ts_discipline_guard.py"
 def lancer(payload: dict, etat: Path, env_extra: dict | None = None) -> dict | None:
     env = dict(os.environ)
     env.pop("TS_GUARD_OFF", None)
-    # Le garde-fou est opt-in : sans ce drapeau il laisse tout passer, ce qui
-    # ferait passer la suite entiere pour de mauvaises raisons.
     env["TS_DISCIPLINE_GUARD"] = "1"
     env["XDG_STATE_HOME"] = str(etat)
     if env_extra:
         env.update(env_extra)
     out = subprocess.run(
         [sys.executable, str(HOOK)],
-        input=json.dumps(payload), capture_output=True, text=True, env=env,
-        timeout=15, check=False,
+        input=json.dumps(payload), capture_output=True, text=True, env=env, timeout=15,
+        check=False,
     ).stdout.strip()
     return json.loads(out) if out else None
 
@@ -177,6 +175,99 @@ def test_laisse_passer_le_vrai_usage_de_bash(tmp_path: Path, cmd: str) -> None:
     assert lancer(payload, tmp_path / "etat") is None
 
 
+@pytest.mark.parametrize("gabarit", [
+    "cd {dossier} && python3 -m pytest -q",
+    "python3 -m pytest {fichier} -q 2>&1 | tail -20",
+    "cd {dossier} && git add -A && git commit -m 'touche a {fichier}'",
+    "echo 'je parle de {fichier}' >> notes.md",
+    "ls -la {dossier} | head -20",
+])
+def test_une_commande_qui_cite_du_code_sans_le_lire_passe(projet: Path, tmp_path: Path,
+                                                          gabarit: str) -> None:
+    """Trouve par rejeu des transcripts, pas par relecture.
+
+    La premiere version exigeait un lecteur QUELQUE PART dans la commande et
+    un fichier de code QUELQUE PART, sans verifier que le second etait
+    l'argument du premier. Mesure sur 1036 refus rejoues :
+    **68,5 % de faux positifs**, dont 395 pour le seul `cd` en tete.
+
+    Un garde-fou a ce taux se fait desactiver dans la semaine, et desactive il
+    protege moins que rien tout en donnant l'illusion du contraire. Ces cas
+    sont donc la garde rapprochee de la regle.
+    """
+    f = projet / "module.py"
+    f.write_text("x = 1\n", encoding="utf-8")
+    cmd = gabarit.format(fichier=f, dossier=projet)
+    payload = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd}}
+    assert lancer(payload, tmp_path / "etat") is None, cmd
+
+
+@pytest.mark.parametrize("gabarit", [
+    "cat {fichier}",
+    "grep -n def {fichier}",
+    "cd /tmp && grep -n def {fichier}",
+    "sed -n '1,40p' {fichier}",
+])
+def test_la_vraie_lecture_reste_refusee(projet: Path, tmp_path: Path,
+                                        gabarit: str) -> None:
+    """Le pendant du test precedent : reduire les faux positifs ne doit pas
+    avoir vide la regle de sa substance."""
+    f = projet / "module.py"
+    f.write_text("x = 1\n", encoding="utf-8")
+    cmd = gabarit.format(fichier=f)
+    payload = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd}}
+    assert lancer(payload, tmp_path / "etat") is not None, cmd
+
+
+# --- Grep / Glob ---------------------------------------------------------- #
+
+def _grep(**entree) -> dict:
+    return {"session_id": "s1", "tool_name": "Grep", "tool_input": entree}
+
+
+@pytest.mark.parametrize("glob", ["*.py", "*.ts", "*.tsx", "**/*.js"])
+def test_refuse_grep_filtre_sur_du_code_indexe(projet: Path, tmp_path: Path,
+                                               glob: str) -> None:
+    verdict = lancer(_grep(pattern="def", path=str(projet), glob=glob),
+                     tmp_path / "etat")
+    assert verdict is not None, glob
+    assert "search_codebase" in raison(verdict)
+
+
+@pytest.mark.parametrize("type_", ["py", "ts", "js"])
+def test_le_filtre_type_compte_autant_que_glob(projet: Path, tmp_path: Path,
+                                               type_: str) -> None:
+    assert lancer(_grep(pattern="def", path=str(projet), type=type_),
+                  tmp_path / "etat") is not None
+
+
+def test_refuse_grep_sur_un_fichier_de_code(projet: Path, tmp_path: Path) -> None:
+    f = projet / "module.py"
+    f.write_text("x = 1\n", encoding="utf-8")
+    assert lancer(_grep(pattern="def", path=str(f)), tmp_path / "etat") is not None
+
+
+def test_grep_sans_filtre_passe(projet: Path, tmp_path: Path) -> None:
+    """Sans filtre, Grep cherche aussi dans les .md, .json et journaux, ou
+    Token Savior n'a rien a proposer. Le refuser serait le faux positif."""
+    assert lancer(_grep(pattern="TODO", path=str(projet)), tmp_path / "etat") is None
+
+
+def test_grep_filtre_non_code_passe(projet: Path, tmp_path: Path) -> None:
+    assert lancer(_grep(pattern="TODO", path=str(projet), glob="*.md"),
+                  tmp_path / "etat") is None
+
+
+def test_grep_hors_projet_indexe_passe(tmp_path: Path) -> None:
+    assert lancer(_grep(pattern="x", path=str(tmp_path), glob="*.py"),
+                  tmp_path / "etat") is None
+
+
+def test_grep_sans_chemin_passe(projet: Path, tmp_path: Path) -> None:
+    """Sans chemin on ne sait pas si la cible est indexee : ne pas deviner."""
+    assert lancer(_grep(pattern="def", glob="*.py"), tmp_path / "etat") is None
+
+
 def test_laisse_grep_sur_un_fichier_non_code(projet: Path, tmp_path: Path) -> None:
     f = projet / "journal.log"
     f.write_text("erreur\n", encoding="utf-8")
@@ -233,11 +324,7 @@ def test_debrayage_explicite(projet: Path, tmp_path: Path) -> None:
 @pytest.mark.parametrize("brut", ["", "   ", "pas du json", '{"tool_name": 42}',
                                   '{"tool_name":"Read","tool_input":"pas un dict"}'])
 def test_fail_open_sur_entree_malformee(brut: str, tmp_path: Path) -> None:
-    """Un garde-fou ne doit jamais etre la raison d'un arret de session.
-
-    Le drapeau est mis explicitement : sans lui le hook rend la main avant
-    meme de lire stdin, et le test passerait pour la mauvaise raison.
-    """
+    """Un garde-fou ne doit jamais etre la raison d'un arret de session."""
     env = dict(os.environ, XDG_STATE_HOME=str(tmp_path), TS_DISCIPLINE_GUARD="1")
     env.pop("TS_GUARD_OFF", None)
     r = subprocess.run([sys.executable, str(HOOK)], input=brut,

@@ -11,30 +11,36 @@ Zero calls against 245 edits. The rule was written in `CLAUDE.md` from the
 start and the nudges fired twelve times a day. Compliance was zero. A written
 reminder does not constrain anything, however often it is read.
 
-Four rules, each backed by a measured waste rather than a style preference:
+Five rules, each backed by a measured waste rather than a style preference:
 
 1. **Editing a symbol without its context.** `replace_symbol_source` on a
    symbol whose context was never requested edits blind: neither the callers
    nor the impacted tests are known. This is the `edit_without_context` line.
-2. **Native `Edit`/`Write` on indexed source.** Bypasses the symbol graph
-   entirely, so the edit-impact block never fires.
+2. **Native `Edit`/`Write` on indexed source.** Bypasses the symbol graph, so
+   the edit-impact block never fires.
 3. **Native `Read` on indexed source.** Pulls a whole file where
    `get_function_source` returns the symbol.
-4. **Reading code through the shell.** `grep`/`cat`/`sed`/`awk` on an indexed
+4. **Native `Grep`/`Glob` targeting indexed code.** `search_codebase` replaces
+   it term for term and returns symbols rather than raw lines.
+5. **Reading code through the shell.** `grep`/`cat`/`sed`/`awk` on an indexed
    source file bypasses the symbol graph and costs more output.
 
-The hard part is not refusing, it is not refusing too much. A guard with false
-positives gets switched off, and a guard that is off protects less than no
-guard at all because it also grants the illusion of protection. Hence the exit
-doors below, each one covered by a test.
+**Not refusing too much is the hard part**, and it is not a theoretical
+concern. The first version of rule 5 was replayed against 9054 real tool calls
+from past transcripts (see `scripts/` in the companion tooling): it produced
+1036 denials of which **710 were false positives, 68.5%** — `cd` alone
+accounted for 395 of them. A guard at that rate gets switched off within a
+week, and a guard that is off protects less than no guard at all because it
+also grants the illusion of protection. Every exit door below is covered by a
+test.
 
 Contract: PreToolUse JSON on stdin, decision on stdout, exit 0, **fail-open**.
 Any exception lets the call through. A guard must never be the reason a
 session stops.
 
-Opt-in: the guard is inert unless `TS_DISCIPLINE_GUARD=1` is set, because it
-denies calls and enabling that by default would break existing installs on
-upgrade. Escape hatch once enabled: `TS_GUARD_OFF=1`, which wins.
+Opt-in: inert unless `TS_DISCIPLINE_GUARD=1` is set, because it denies calls
+and enabling that by default would break existing installs on upgrade. Escape
+hatch once enabled: `TS_GUARD_OFF=1`, which wins.
 """
 from __future__ import annotations
 
@@ -49,13 +55,16 @@ from pathlib import Path
 CODE_EXTENSIONS = (".py", ".ts", ".tsx", ".js", ".jsx")
 INDEX_MARKER = ".token-savior-cache.json"
 
-# The MCP server is registered as `token-savior` or `token-savior-recall`
+# The MCP server registers as `token-savior` or `token-savior-recall`
 # depending on the install, hence the loose middle.
 CONTEXT_TOOLS = re.compile(r"__(get_edit_context|get_full_context)$")
 EDIT_TOOLS = re.compile(
     r"__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol)$")
 
-SHELL_READERS = re.compile(r"\b(cat|head|tail|less|more|grep|rg|sed|awk)\b")
+SHELL_READERS = re.compile(r"^(cat|head|tail|less|more|grep|rg|sed|awk)$")
+
+# Code extensions expressed as a Grep `glob` or `type` filter.
+CODE_FILTER = re.compile(r"\b(py|ts|tsx|js|jsx|python|typescript|javascript)\b")
 
 # Vendored or generated trees: not project symbols, reading them natively is
 # the normal thing to do.
@@ -67,8 +76,8 @@ def indexed_root(path: str) -> str | None:
 
     Deliberately not reading `WORKSPACE_ROOTS`: the hook runs in the agent's
     environment, not the MCP server's, where that variable does not exist. The
-    marker file dropped at an indexed project's root is local, present exactly
-    where the question is asked, and cannot drift from a distant config.
+    marker file at an indexed project's root is local, present exactly where
+    the question is asked, and cannot drift from a distant config.
     """
     try:
         p = Path(path).resolve()
@@ -125,7 +134,7 @@ def requested_names(tool_input: dict) -> list[str]:
     return names
 
 
-# --- The four verdicts ---------------------------------------------------- #
+# --- The five verdicts ---------------------------------------------------- #
 
 def verdict_edit_without_context(tool: str, tool_input: dict, session_id: str) -> str | None:
     symbol = tool_input.get("symbol_name") or tool_input.get("name")
@@ -174,17 +183,68 @@ def verdict_native_read(tool_input: dict) -> str | None:
     )
 
 
+def verdict_native_grep(tool_input: dict) -> str | None:
+    """Native `Grep`/`Glob` on indexed code.
+
+    Only refuse when the target is explicitly code: either the path names a
+    source file, or the `glob`/`type` filter names a code extension. An
+    unfiltered Grep inside an indexed project also searches `.md`, `.json` and
+    log files, where Token Savior has nothing to offer — refusing that would
+    be the false positive that gets a guard switched off.
+    """
+    path = str(tool_input.get("path") or "")
+    if is_indexed_code(path):
+        target = os.path.basename(path)
+    else:
+        filt = f"{tool_input.get('glob') or ''} {tool_input.get('type') or ''}"
+        if not CODE_FILTER.search(filt):
+            return None
+        if not path or not indexed_root(path):
+            return None
+        target = f"{filt.strip()} in {os.path.basename(path.rstrip('/'))}"
+    return (
+        f"native Grep on indexed code ({target}).\n"
+        f"  search_codebase(pattern) searches the index and returns the "
+        f"symbol, not the raw line.\n"
+        f"  search_codebase(description, semantic=True) when you are after an "
+        f"intent rather than a pattern."
+    )
+
+
 def verdict_shell_read(command: str) -> str | None:
-    if not SHELL_READERS.search(command):
-        return None
-    for token in re.findall(r"[\w./~-]+", command):
-        if token.endswith(CODE_EXTENSIONS) and is_indexed_code(os.path.expanduser(token)):
-            return (
-                f"shell read of {os.path.basename(token)}, an indexed source "
-                f"file.\n  search_codebase(pattern) replaces grep, "
-                f"get_function_source(name) replaces cat.\n"
-                f"Bash stays the right tool for builds, tests, git and network."
-            )
+    """Shell read of code: the file must be an argument of the reader.
+
+    The first version was measured at **68.5% false positives** over 1036
+    replayed denials. It required a reader *somewhere* in the command and a
+    code file *somewhere*, without checking the link between the two. A
+    compound command such as `cd project && pytest tests/x.py | grep passed`
+    satisfied both conditions without reading a single line of code; `cd`
+    alone triggered 395 denials.
+
+    So we split into sub-commands and only accuse the one whose **head** is a
+    reader and which **cites** an indexed source file.
+
+    The split ignores quoting, which is the right trade-off here: a separator
+    inside quotes costs a missed detection, never the reverse. A false
+    negative costs one suboptimal read; a false positive costs the guard.
+    """
+    for chunk in re.split(r"&&|\|\||\||;|\n", command):
+        c = chunk.strip()
+        if not c:
+            continue
+        head = re.match(r"([\w.-]+)", c)
+        if not head or not SHELL_READERS.match(head.group(1)):
+            continue
+        for token in re.findall(r"[\w./~-]+", c):
+            if token.endswith(CODE_EXTENSIONS) and is_indexed_code(
+                    os.path.expanduser(token)):
+                return (
+                    f"shell read of {os.path.basename(token)}, an indexed "
+                    f"source file.\n  search_codebase(pattern) replaces grep, "
+                    f"get_function_source(name) replaces cat.\n"
+                    f"Bash stays the right tool for builds, tests, git and "
+                    f"network."
+                )
     return None
 
 
@@ -218,6 +278,8 @@ def main() -> int:
             reason = verdict_native_edit(tool_input)
         elif tool == "Read":
             reason = verdict_native_read(tool_input)
+        elif tool in ("Grep", "Glob"):
+            reason = verdict_native_grep(tool_input)
         elif tool == "Bash":
             reason = verdict_shell_read(str(tool_input.get("command") or ""))
 
@@ -227,7 +289,7 @@ def main() -> int:
                 "permissionDecision": "deny",
                 "permissionDecisionReason": f"[ts_discipline_guard] {reason}",
             }}))
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail-open is the documented contract
         return 0
     return 0
 

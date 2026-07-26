@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "token-savior-recall"
-version = "4.12.1"
+version = "4.12.2"
 description = "Optimized MCP server for AI coding agents. Structural codebase navigation + persistent memory engine — 97.9% accuracy at −80% tokens on tsbench."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -25,6 +25,7 @@ classifiers = [
 # Without one, an upstream release breaks existing installs with no commit
 # on our side; bumping a bound is a deliberate act, made here.
 dependencies = [
+    "mcp>=1.25,<2",
     "PyYAML>=6.0,<7",
     "tree-sitter>=0.25,<0.26",
     "tree-sitter-java>=0.23,<0.24",
@@ -33,6 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Conserve pour compatibilite : `pip install "token-savior-recall[mcp]"`
+# est publie dans le README et sur PyPI depuis la v2. `mcp` est
+# desormais une dependance de base, cet extra ne fait plus rien.
 mcp = ["mcp>=1.25,<2"]
 # ruff is pinned, not floated, so preflight and CI always agree on the rule
 # set. Moving this pin is a deliberate act: bump it together with whatever
