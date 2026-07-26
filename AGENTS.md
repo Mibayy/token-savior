@@ -16,8 +16,50 @@ le résultat de [tsbench](https://github.com/Mibayy/tsbench) : 97,9 % du score,
 | Skills (`SKILL.md`) | **16 à 32 outils** | Standard ouvert [agentskills.io](https://agentskills.io). |
 | Hooks | **Aucun standard** | Chaque agent a son format. C'est la seule couche à écrire. |
 
-`ts init --agent {claude,cursor,gemini,codex}` écrit la couche hooks pour
-vous, au bon endroit et au bon format.
+`ts init --agent {claude,cursor,gemini,codex,openclaw}` écrit la couche hooks
+pour vous, au bon endroit et au bon format.
+
+### Les trois modèles de hooks rencontrés
+
+Il n'y a pas un format à traduire, il y a trois architectures différentes.
+
+| Agent | Modèle | Emplacement |
+|---|---|---|
+| Claude Code, Codex | Commande shell par événement | `settings.json` / `hooks.json` |
+| OpenClaw | *Hook pack* : dossier `HOOK.md` + `handler.js` | `openclaw.json` → `hooks.internal.load.extraDirs` |
+| Hermes | Aucun système de hooks connu | MCP seul, `~/.hermes/config.yaml` |
+
+**OpenClaw** n'expose aucun événement d'outil : ses prédicats sont
+`isAgentBootstrapEvent`, `isGatewayStartupEvent`, `isMessageReceivedEvent`,
+`isMessagePreprocessedEvent`, `isMessageSentEvent`, `isMessageTranscribedEvent`
+et `isSessionPatchEvent`. Ni `tool_capture` ni le réécriveur Bash ne peuvent y
+fonctionner. Le moteur mémoire, lui, porte : voir
+`hooks/openclaw/token-savior-memory/`.
+
+Son injection de contexte ne passe pas par la sortie standard mais par la
+mutation de `context.bootstrapFiles` pendant `agent:bootstrap`, avec des
+entrées de forme `{ name, path, content, missing }`. Le consommateur
+déduplique par nom de fichier : ne jamais injecter sous `AGENTS.md`, cela
+écraserait le vrai fichier de l'agent.
+
+**Hermes** (Nous Research) est un client MCP, donc compatible sans rien
+écrire. Sa configuration est en YAML :
+
+```yaml
+# ~/.hermes/config.yaml
+mcp_servers:
+  token-savior:
+    command: /chemin/vers/venv/bin/python
+    args: ["-m", "token_savior.server"]
+    env:
+      WORKSPACE_ROOTS: /chemin/projet-a,/chemin/projet-b
+      TOKEN_SAVIOR_CLIENT: hermes
+```
+
+Attention au préfixe : Hermes nomme les outils `mcp_<serveur>_<outil>`
+(underscore simple) là où Claude Code et Codex utilisent
+`mcp__<serveur>__<outil>`. Tout matcher de hook écrit pour Claude rate
+silencieusement les outils Hermes.
 
 ### Pièges de portage des hooks
 

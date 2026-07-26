@@ -290,6 +290,10 @@ def test_bundles_use_running_interpreter_not_usr_bin_python3() -> None:
     for agent in SUPPORTED_AGENTS:
         for bundle in _load_hook_bundles(agent, REPO_ROOT):
             for entries in bundle["hooks"].values():
+                # OpenClaw ne cable pas de commandes : son bundle declare un
+                # dossier de hook pack, pas une liste d'entrees par evenement.
+                if not isinstance(entries, list):
+                    continue
                 for entry in entries:
                     inner = entry.get("hooks")
                     cmds = (

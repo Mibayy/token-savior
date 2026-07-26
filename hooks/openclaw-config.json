@@ -1,0 +1,16 @@
+{
+  "_comment": "Configuration OpenClaw pour le moteur memoire Token Savior. Merge dans ~/.openclaw/openclaw.json (JSON5). OpenClaw ne cable pas des commandes shell par evenement comme Claude Code ou Codex : il charge des *hook packs*, c'est a dire des dossiers contenant HOOK.md + handler.js. On declare donc le dossier parent du pack dans hooks.internal.load.extraDirs, et on active l'entree. Verifie sur openclaw 2026.4.14 : `openclaw hooks list` affiche le pack en etat ready.",
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "load": {
+        "extraDirs": ["{{TS_HOOKS_DIR}}/openclaw"]
+      },
+      "entries": {
+        "token-savior-memory": {
+          "enabled": true
+        }
+      }
+    }
+  }
+}

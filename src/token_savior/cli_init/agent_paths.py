@@ -19,7 +19,18 @@ from typing import Literal
 
 Scope = Literal["global", "local"]
 
-SUPPORTED_AGENTS: tuple[str, ...] = ("claude", "cursor", "gemini", "codex")
+SUPPORTED_AGENTS: tuple[str, ...] = ("claude", "cursor", "gemini", "codex", "openclaw")
+
+# Agents dont la compatibilite se limite au serveur MCP : ils n'exposent aucun
+# systeme de hooks connu, donc `ts init` n'a rien a y ecrire. MCP etant un
+# protocole ouvert, Token Savior y fonctionne sans adaptation. Le chemin sert
+# a la documentation et aux diagnostics, pas au merge de hooks.
+MCP_ONLY_AGENTS: dict[str, str] = {
+    # Hermes (Nous Research) : config YAML, serveurs sous la cle `mcp_servers`.
+    # Ses outils sont prefixes `mcp_<serveur>_<outil>` (simple underscore), la
+    # ou Claude Code et Codex utilisent `mcp__<serveur>__<outil>`.
+    "hermes": ".hermes/config.yaml",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -39,6 +50,9 @@ def _global_settings(agent: str, home: Path) -> Path:
         # OpenAI Codex CLI reads hook config from ~/.codex/hooks.json;
         # config.toml holds its non-hook settings.
         return home / ".codex" / "hooks.json"
+    if agent == "openclaw":
+        # OpenClaw garde hooks et serveurs MCP dans un unique fichier JSON5.
+        return home / ".openclaw" / "openclaw.json"
     raise ValueError(f"unsupported agent: {agent}")
 
 
@@ -51,6 +65,8 @@ def _local_settings(agent: str, cwd: Path) -> Path:
         return cwd / ".gemini" / "settings.json"
     if agent == "codex":
         return cwd / ".codex" / "hooks.json"
+    if agent == "openclaw":
+        return cwd / ".openclaw" / "openclaw.json"
     raise ValueError(f"unsupported agent: {agent}")
 
 
@@ -96,6 +112,9 @@ _HOOK_CONFIG_FILES = {
     "cursor": ("tool-capture-cursor.json",),
     "gemini": ("tool-capture-gemini.json",),
     "codex": ("tool-capture-codex.json", "memory-codex.json"),
+    # OpenClaw charge des hook packs (dossier HOOK.md + handler.js) au lieu de
+    # commandes par evenement : le bundle declare le dossier, pas des commandes.
+    "openclaw": ("openclaw-config.json",),
 }
 
 
