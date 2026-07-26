@@ -339,6 +339,66 @@ def autodiscover_and_register() -> list[str]:
     return roots
 
 
+_client_roots_synced = False
+
+
+def _uri_to_path(uri: str) -> str | None:
+    """`file:///home/u/proj` -> `/home/u/proj`. Anything else is not ours."""
+    if not uri:
+        return None
+    if uri.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+        return unquote(urlparse(uri).path) or None
+    return uri if uri.startswith("/") else None
+
+
+async def sync_client_roots(session: Any) -> list[str]:
+    """Ask the client which folders the user actually has open.
+
+    This is the protocol's own answer to the problem, and it is better than
+    everything around it: `roots` is declared by the client, updated when the
+    user opens or closes a workspace, and requires no action from the agent.
+    Auto-discovery guesses from the filesystem; this one is told.
+
+    Runs once per session, on the first tool call, because that is where a
+    session object exists. Clients that do not implement `roots` simply answer
+    nothing and we keep the discovered set. Never raises: a server that dies
+    because the client lacks an optional capability is worse than one that
+    guesses.
+    """
+    global _client_roots_synced
+    if _client_roots_synced or session is None:
+        return []
+    _client_roots_synced = True
+    try:
+        import mcp.types as _t
+
+        if not session.check_client_capability(
+                _t.ClientCapabilities(roots=_t.RootsCapability())):
+            return []
+        result = await session.list_roots()
+    except Exception:
+        return []
+
+    known = set(s._slot_mgr.projects)
+    fresh: list[str] = []
+    for root in getattr(result, "roots", None) or []:
+        path = _uri_to_path(str(getattr(root, "uri", "")))
+        if not path or not os.path.isdir(path):
+            continue
+        path = os.path.abspath(path)
+        # A client may hand us a subdirectory; index the project that owns it.
+        path = project_root_of(path) or path
+        if path not in known and path not in fresh:
+            fresh.append(path)
+    if not fresh:
+        return []
+    _register_roots(sorted(known | set(fresh)))
+    print(f"[token-savior] client roots: registered {len(fresh)} project(s) "
+          f"({', '.join(os.path.basename(p) for p in fresh[:5])})", file=sys.stderr)
+    return fresh
+
+
 # ---------------------------------------------------------------------------
 # Stats persistence (writer-side)
 # ---------------------------------------------------------------------------

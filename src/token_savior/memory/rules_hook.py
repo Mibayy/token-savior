@@ -2,7 +2,7 @@
 
 Fails OPEN — any error, or the kill-switch TS_RULES_DISABLE=1, yields exit 0
 with no output (the tool is allowed). A bug in enforcement must never block
-Louis; session safety outranks rule safety.
+the user; session safety outranks rule safety.
 """
 from __future__ import annotations
 

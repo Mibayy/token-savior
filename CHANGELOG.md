@@ -1,5 +1,32 @@
 # Changelog
 
+## v4.14.0 — The client tells us which projects are open (2026-07-26)
+
+v4.13.0 guessed the user's projects from the filesystem. That closed most of
+the gap but left one: a project opened *after* startup, or living outside the
+usual folders, stayed invisible until someone called `switch_project`.
+
+The protocol already answers this. **MCP `roots`** are declared by the client,
+updated when the user opens or closes a workspace, and require no action from
+the agent. Guessing is a fallback; being told is the mechanism.
+
+On the first tool call of a session the server now asks the client for its
+roots and registers any it does not already know, walking up to the owning
+project when the client hands over a subdirectory. Clients that do not
+implement the capability answer nothing and the discovered set stands — it is
+optional in the specification, and not having it is not an error.
+
+Ordering, from most to least authoritative:
+
+1. `WORKSPACE_ROOTS` / `PROJECT_ROOT` — explicit configuration always wins;
+2. MCP `roots` — what the client says the user has open;
+3. auto-discovery — the cwd's project plus the usual code folders;
+4. `switch_project("/absolute/path")` — registers and indexes on the spot.
+
+Never raises: a server that dies because a client lacks an optional capability
+is worse than one that guesses. Transport errors, malformed responses, unusable
+URIs and missing sessions are all silent no-ops, each covered by a test.
+
 ## v4.13.0 — It finds your projects by itself (2026-07-26)
 
 **A fresh install indexed nothing.** With no `WORKSPACE_ROOTS` and no
@@ -484,7 +511,7 @@ re-run `ts init`.
 
 ## v4.3.0 — Bench-driven coverage push (2026-05-19)
 
-Real-world bench against 7 days of Louis's transcripts (1130 Bash outputs)
+Real-world bench against 7 days of live transcripts (1130 Bash outputs)
 showed v4.2.0 only matched 11.9% of commands. v4.3.0 closes the gaps
 identified by the bench. Full suite: **1688 passed, 55 skipped**.
 

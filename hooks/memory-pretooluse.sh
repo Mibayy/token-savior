@@ -164,7 +164,12 @@ PATTERNS = [
     (r'systemctl\s+\w+\s+(\S+)',                       lambda m: m.group(1)),
     (r'journalctl\s+(?:-[^ ]+\s+)*(?:-u\s+)?(\S+)',    lambda m: m.group(1)),
     (r'docker\s+(?:\w+\s+)?(\S+)',                     lambda m: m.group(1)),
-    (r'(nginx|caddy|hermes|sirius|claude-telegram|vps-monitor|eclatauto)', lambda m: m.group(1)),
+    # Services nommes sans prefixe de commande. La liste ne contient que des
+    # noms universels : elle citait auparavant les services d'une seule
+    # machine, ce qui ne reconnaissait rien chez personne d'autre.
+    (r'\b([\w-]+)\.service\b',                         lambda m: m.group(1)),
+    (r'\b(nginx|caddy|apache2?|httpd|traefik|haproxy|redis|postgres\w*'
+     r'|mysql\w*|mongod?|rabbitmq|elasticsearch)\b',   lambda m: m.group(1)),
     (r'python3?\s+([\w/.-]+\.py)',                     lambda m: m.group(1)),
     (r'(?:pip|npm|apt|pnpm)\s+install\s+(\S+)',        lambda m: m.group(1)),
 ]

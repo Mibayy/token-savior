@@ -626,7 +626,8 @@ def _mh_memory_from_bash(args: dict[str, Any]) -> str:
     obs_type = args.get("type") or "command"
     ctx = args.get("context")
     if not ctx:
-        m = _re.search(r"(systemctl|docker|nginx|crontab|hermes|sirius|python3?|pip|npm|apt)\s+(\S+)", command)
+        m = _re.search(r"(systemctl|service|docker|kubectl|nginx|caddy|crontab|python3?"
+                        r"|pip3?|npm|pnpm|yarn|cargo|go|apt|dnf|brew)\s+(\S+)", command)
         ctx = m.group(0) if m else command[:60]
     title = command[:60] + ("..." if len(command) > 60 else "")
     obs_id = memory_db.observation_save(

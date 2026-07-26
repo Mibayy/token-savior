@@ -1087,6 +1087,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
     if _TRACE_REQUESTS:
         print(f"[token-savior] -> call {name}", file=sys.stderr, flush=True)
 
+    # Ask the client which folders the user has open. Once per session, here
+    # because this is the first place a session object exists. Silent no-op on
+    # clients that do not implement `roots`.
+    try:
+        from .server_runtime import sync_client_roots
+        from .server_state import get_server
+        _ctx = getattr(get_server(), "request_context", None)
+        await sync_client_roots(getattr(_ctx, "session", None))
+    except Exception:
+        pass
+
     record_symbol = _track_call(name, arguments)
     _lat_status = "ok"
     _lat_err: str | None = None

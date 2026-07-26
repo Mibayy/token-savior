@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-# Louis-editable catalog, next to the hooks.
+# User-editable catalog, next to the hooks.
 DEFAULT_RULES_PATH = Path(__file__).resolve().parents[2].parent / "hooks" / "ledger-rules.json"
 
 
