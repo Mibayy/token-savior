@@ -16,6 +16,7 @@ from typing import Any
 
 from token_savior import memory_db
 from token_savior import server_state as state
+from token_savior.query_api import format_signature
 
 _BATCH_MAX = 10
 
@@ -72,7 +73,7 @@ def _lookup_symbol_meta(slot, args: dict[str, Any]) -> tuple[str, str, str] | No
     def _check(meta, rel_path):
         for func in meta.functions:
             if func.name == name or func.qualified_name == name:
-                sig = f"def {func.name}({', '.join(func.parameters)})"
+                sig = format_signature(func, rel_path)
                 return ("function", func.body_hash, sig)
         for cls in meta.classes:
             if cls.name == name:
@@ -82,7 +83,7 @@ def _lookup_symbol_meta(slot, args: dict[str, Any]) -> tuple[str, str, str] | No
                 return ("class", cls.body_hash, sig)
             for method in cls.methods:
                 if method.qualified_name == name:
-                    sig = f"def {method.qualified_name}({', '.join(method.parameters)})"
+                    sig = format_signature(method, rel_path)
                     return ("function", method.body_hash, sig)
         return None
 

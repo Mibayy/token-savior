@@ -431,6 +431,46 @@ def _format_l1(sym: FunctionInfo | ClassInfo) -> str:
     return "\n".join(lines)
 
 
+
+# Langages ou `def` introduit une definition. Ailleurs, l'ecrire produit une
+# signature qui n'existe dans aucun fichier du projet.
+_LANGAGES_DEF = {".py", ".rb", ".pyi"}
+
+
+def format_signature(func, path: str = "") -> str:
+    """Signature lisible, dans la syntaxe du langage du fichier.
+
+    Trois endroits construisaient `def nom(params)` quel que soit le langage.
+    Sur du Java cela donnait `def totalPour(quantite)` : un mot-cle qui
+    n'existe pas dans ce langage, et surtout **les types perdus** alors que
+    `qualified_name` les porte (`boutique.Tarif.totalPour(int)`). Un agent qui
+    lit cette signature peut ecrire un appel qui ne compile pas.
+
+    Les types sont reassocies aux noms quand les deux sont disponibles ; a
+    defaut on rend les noms seuls, jamais un `def` mensonger.
+    """
+    noms = list(getattr(func, "parameters", None) or [])
+    ext = os.path.splitext(path or "")[1].lower()
+    if ext in _LANGAGES_DEF or not ext:
+        return f"def {func.name}({', '.join(noms)})"
+
+    types: list[str] = []
+    qname = getattr(func, "qualified_name", "") or ""
+    if qname.endswith(")") and "(" in qname:
+        brut = qname[qname.rindex("(") + 1:-1].strip()
+        if brut:
+            types = [t.strip() for t in brut.split(",") if t.strip()]
+
+    if types and len(types) == len(noms):
+        params = ", ".join(f"{t} {n}" for t, n in zip(types, noms))
+    else:
+        params = ", ".join(noms)
+
+    retour = getattr(func, "return_type", None)
+    prefixe = f"{retour} " if retour else ""
+    return f"{prefixe}{func.name}({params})"
+
+
 def _format_l2(sym: FunctionInfo | ClassInfo, body: str) -> str:
     """Semantic summary: raises, side effects, return hints, first doc line."""
     if isinstance(sym, ClassInfo):
@@ -2938,7 +2978,7 @@ class ProjectQueryEngine:
             "type": kind,
         }
         if level <= 1:
-            out["signature"] = f"def {func.name}({', '.join(func.parameters)})"
+            out["signature"] = format_signature(func, path)
         if level == 0:
             preview_lines = meta.lines[func.line_range.start - 1 : func.line_range.start + 19]
             out["source_preview"] = "\n".join(preview_lines)

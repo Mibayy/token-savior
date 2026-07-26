@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.16.1 — A Java signature no longer starts with `def` (2026-07-26)
+
+Three call sites built `def name(params)` regardless of language. On Java that
+produced `def totalPour(quantite)`: a keyword that does not exist in the
+language, and worse, **the parameter types dropped** even though
+`qualified_name` carries them (`boutique.Tarif.totalPour(int)`). An agent
+reading that signature can write a call that does not compile, with nothing to
+warn it.
+
+Signatures are now rendered in the file's own language:
+
+| | before | after |
+|---|---|---|
+| Java | `def totalPour(quantite)` | `int totalPour(int quantite)` |
+| TypeScript | `def totalPanier(lignes, prixUnitaire)` | `totalPanier(lignes, prixUnitaire)` |
+| Ruby, Python | `def total_pour(quantite)` | unchanged, `def` is correct there |
+
+Types are re-paired with names only when the counts match. A `(int,int)` for a
+single name means the parser was imprecise, so the names are returned alone
+rather than inventing a pairing — a wrong type is worse than a missing one.
+
 ## v4.16.0 — A class defined in two languages returned one of them, silently (2026-07-26)
 
 Found by exercising Java and Ruby for the first time. `tree-sitter-java` and
