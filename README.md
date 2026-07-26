@@ -36,6 +36,34 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 
 ## What's new
 
+### v4.11.0 -- Memory engine ships to every agent (Jul 2026)
+
+- **The memory engine is now installed by `ts init`.** It shipped in
+  `hooks/` since v4.2.0 but was referenced by no bundle, so `ts init`
+  never wired it -- for any agent, Claude included. `SessionStart`
+  carries the recall; without it the rest is decorative.
+- **OpenClaw support** (`ts init --agent openclaw`). OpenClaw loads *hook
+  packs* (a directory with `HOOK.md` + `handler.js`) rather than
+  per-event shell commands, so the bundle declares a directory. Verified
+  against openclaw 2026.4.14: `openclaw hooks list` reports it ready.
+- **Gemini CLI gets the memory engine**, not just `tool_capture`.
+- **`AGENTS.md`**, the convention read by ~30 agents.
+
+Three hook models, not one format to translate. Facts below were read
+from each binary, not from its docs -- both mistakes they prevent are
+silent, a hook on an unknown event raises nothing and simply never fires:
+
+| | Claude Code | Codex | Gemini | OpenClaw |
+|---|---|---|---|---|
+| Model | command per event | command per event | command per event | hook pack |
+| Timeouts | milliseconds | **seconds** | milliseconds | n/a |
+| Shell tool | `Bash` | `Bash` | `run_shell_command` | no tool events |
+
+Hermes (Nous Research) needs nothing written: it is a pure MCP client.
+Note its `mcp_<server>_<tool>` prefix (single underscore) against
+`mcp__<server>__<tool>` elsewhere -- a matcher written for Claude Code
+silently misses every Hermes tool.
+
 ### v4.10.0 -- Community fixes, `ts gain`, `compact-only` (Jul 2026)
 
 Every open pull request from @andrebrait applied, plus the remaining reported
@@ -178,7 +206,7 @@ ts init --agent claude --yes   # auto-merge hooks into ~/.claude/settings.json
 `ts init` is idempotent. It detects existing hook entries, dedups by
 `(matcher, command)`, prints a unified diff, and backs up `settings.json`
 to `.bak-YYYYMMDD-HHMMSS` (UTC) before writing. Supported agents:
-`claude`, `cursor`, `gemini`, `codex`. Pass `--dry-run` to preview, or
+`claude`, `cursor`, `gemini`, `codex`, `openclaw`. Pass `--dry-run` to preview, or
 `--global` to write the user-level config.
 
 Optional audit log of every rewrite:
@@ -234,6 +262,7 @@ ts init --agent claude [--global] [--dry-run] [--yes]
 ts init --agent cursor
 ts init --agent gemini
 ts init --agent codex
+ts init --agent openclaw
 ```
 
 Detects the target agent's settings location, deep-merges the Token

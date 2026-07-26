@@ -1,5 +1,57 @@
 # Changelog
 
+## v4.11.0 — Memory engine ships to every agent (2026-07-26)
+
+The memory engine has shipped in `hooks/` since v4.2.0 and `ts init` never
+installed it — for any agent, Claude Code included. `memory-hooks-config.json`
+existed but was referenced by no bundle, so every user was expected to wire it
+by hand. `SessionStart` carries the recall; without it the rest is decorative.
+
+**Added**
+
+- `ts init --agent openclaw`. OpenClaw loads *hook packs* — a directory with
+  `HOOK.md` plus `handler.js` — rather than per-event shell commands, so the
+  bundle declares a directory instead. New pack under
+  `hooks/openclaw/token-savior-memory/`. Its handler imports nothing from
+  OpenClaw: the internal modules are hash-named per version
+  (`internal-hooks-D52pUqod.js`) and would break on the next update.
+- Memory engine bundles for Codex (`memory-codex.json`) and Gemini CLI
+  (`memory-gemini.json`), and the Claude bundle now actually includes
+  `memory-hooks-config.json`.
+- `AGENTS.md`, the convention read by roughly thirty agents.
+
+**Three hook models, not one format to translate**
+
+Every fact below was read from the shipped binary rather than from its
+documentation, because both classes of mistake are silent — a hook registered
+on an unknown event raises nothing at all, it simply never fires.
+
+| | Claude Code | Codex | Gemini | OpenClaw |
+|---|---|---|---|---|
+| Model | command per event | command per event | command per event | hook pack |
+| Timeouts | milliseconds | **seconds** | milliseconds | n/a |
+| Shell tool | `Bash` | `Bash` | `run_shell_command` | no tool events |
+
+Codex exposes no `Stop`, `StopFailure` or `ConfigChange`. OpenClaw exposes no
+tool events whatsoever, so neither `tool_capture` nor the Bash rewriter can run
+there; its context injection mutates `context.bootstrapFiles` during
+`agent:bootstrap` instead of reading the hook's stdout. Gemini has neither
+`UserPromptSubmit` nor `PreCompact`, and names its shell tool
+`run_shell_command`.
+
+Hermes (Nous Research) needs nothing written — it is a pure MCP client. Note
+its `mcp_<server>_<tool>` prefix, single underscore, against
+`mcp__<server>__<tool>` everywhere else: a matcher written for Claude Code
+silently misses every Hermes tool.
+
+**Tests**
+
+`test_codex_hook_bundles.py`, `test_gemini_hook_bundles.py` and
+`test_openclaw_hook_pack.py` lock the two silent failure modes per agent:
+events absent from the binary, and timeouts carrying the wrong unit. Five
+existing tests unpacked a fixed number of bundles (`(capture, rewriter) = ...`)
+so any addition broke unrelated tests; they now select by content.
+
 ## v4.10.0 — Community fixes, `ts gain`, `compact-only` (2026-07-25)
 
 Contributor pass: every open pull request from @andrebrait applied, plus the
