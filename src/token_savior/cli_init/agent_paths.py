@@ -108,10 +108,12 @@ _HOOK_CONFIG_FILES = {
         "tool-capture-hooks-config.json",
         "bash-rewriter-config.json",
         "memory-hooks-config.json",
+        "discipline-guard-config.json",
     ),
     "cursor": ("tool-capture-cursor.json",),
     "gemini": ("tool-capture-gemini.json", "memory-gemini.json"),
-    "codex": ("tool-capture-codex.json", "memory-codex.json"),
+    "codex": ("tool-capture-codex.json", "memory-codex.json",
+              "discipline-guard-codex.json"),
     # OpenClaw charge des hook packs (dossier HOOK.md + handler.js) au lieu de
     # commandes par evenement : le bundle declare le dossier, pas des commandes.
     "openclaw": ("openclaw-config.json",),

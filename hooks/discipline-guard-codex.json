@@ -1,0 +1,17 @@
+{
+  "_comment": "Variante Codex du garde-fou de discipline. Merge dans ~/.codex/hooks.json. ATTENTION unites : les timeouts Codex sont en SECONDES, ceux de Claude Code en millisecondes -- ne pas recopier discipline-guard-config.json tel quel. Opt-in comme la variante Claude : sans TS_DISCIPLINE_GUARD=1 le hook rend la main immediatement. Codex n'expose pas d'outils Edit/Write/NotebookEdit, la regle d'edition native ne s'y applique donc pas.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Read|Bash|mcp__token-savior[\\w-]*__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol|get_edit_context|get_full_context))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:ts_discipline_guard}}",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

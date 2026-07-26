@@ -1,5 +1,51 @@
 # Changelog
 
+## v4.12.0 — Discipline guard: enforce the rules instead of documenting them (2026-07-26)
+
+Measured on this repo with `scripts/ts_audit.py`, one-day window:
+
+```
+get_edit_context: 0 vs 245 edits (GAP)
+edit_without_context: 11
+nudge edit_context: 12 fires
+```
+
+Zero calls against 245 edits. The rule had been written in `CLAUDE.md` from the
+start, and the adoption nudges fired twelve times a day. Compliance was zero. A
+written reminder does not constrain anything, however often it is read — so the
+rules are now checked where they happen rather than restated.
+
+**Added — `hooks/ts_discipline_guard.py`** (PreToolUse), four rules, each backed
+by a measured waste rather than a style preference:
+
+1. Editing a symbol whose context was never requested (`edit_without_context`).
+2. Native `Edit`/`Write` on indexed source, which bypasses the symbol graph so
+   the edit-impact block never fires.
+3. Native `Read` on indexed source, pulling a whole file where
+   `get_function_source` returns the symbol.
+4. `grep`/`cat`/`sed`/`awk` on indexed source through the shell.
+
+The non-obvious part is that requesting context unlocks **that symbol and no
+other**. A single call at session start would otherwise open every subsequent
+edit, making the guard a ceremony rather than a check.
+
+**Opt-in.** The guard denies calls, so enabling it by default would break
+existing installs on upgrade. It is inert unless `TS_DISCIPLINE_GUARD=1` is
+set — same contract as `TS_BASH_COMPACT` and `TS_BASH_REWRITE`. Once enabled,
+`TS_GUARD_OFF=1` wins, for the cases where structural editing genuinely does
+not fit (module constants, decorators).
+
+**Not refusing too much is the hard part.** A guard with false positives gets
+switched off, and a guard that is off protects less than no guard at all
+because it also grants the illusion of protection. Every exit door is covered
+by a test: non-code files, files outside any indexed project, vendored trees,
+file creation, and real Bash usage (tests, git, npm, systemctl, network).
+
+Shipped for Claude Code and Codex. Codex exposes no `Edit`/`Write` tools, so
+rule 2 does not apply there, and its bundle carries second-based timeouts.
+Gemini names its shell tool `run_shell_command` rather than `Bash`, which the
+guard does not yet recognise — not shipped there.
+
 ## v4.11.0 — Memory engine ships to every agent (2026-07-26)
 
 The memory engine has shipped in `hooks/` since v4.2.0 and `ts init` never

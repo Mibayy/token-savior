@@ -36,6 +36,25 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 
 ## What's new
 
+### v4.12.0 -- Discipline guard (Jul 2026)
+
+Measured here with `scripts/ts_audit.py`: **`get_edit_context: 0 vs 245 edits`**.
+The rule was in `CLAUDE.md` from the start and the nudges fired twelve times a
+day. Compliance was zero. A written reminder does not constrain anything.
+
+`hooks/ts_discipline_guard.py` checks four rules where they happen: editing a
+symbol without its context, native `Edit`/`Write` on indexed source, native
+`Read` on indexed source, and `grep`/`cat` on indexed source through the shell.
+Requesting context unlocks **that symbol only** — one call at session start
+would otherwise open every later edit.
+
+**Opt-in**, since it denies calls: set `TS_DISCIPLINE_GUARD=1`. `TS_GUARD_OFF=1`
+wins once enabled, for module constants and decorators where structural editing
+does not fit. Every exit door is tested — non-code files, code outside any
+indexed project, vendored trees, file creation, and real Bash usage. A guard
+with false positives gets switched off, and one that is off protects less than
+none while still granting the illusion of protection.
+
 ### v4.11.0 -- Memory engine ships to every agent (Jul 2026)
 
 - **The memory engine is now installed by `ts init`.** It shipped in

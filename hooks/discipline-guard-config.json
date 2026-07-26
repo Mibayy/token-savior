@@ -1,0 +1,17 @@
+{
+  "_comment": "Drop-in PreToolUse hook enforcing Token Savior usage. Merge into the agent settings under the existing 'hooks' key. Opt-in: it denies native reads and edits on indexed source files, which is a real behaviour change. Escape hatch is TS_GUARD_OFF=1. Claude Code timeouts are in milliseconds; the Codex variant of this file uses seconds.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Bash|Edit|Write|NotebookEdit|mcp__token-savior[\\w-]*__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol|get_edit_context|get_full_context)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:ts_discipline_guard}}",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}
