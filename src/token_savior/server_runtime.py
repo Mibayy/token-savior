@@ -169,8 +169,107 @@ _CLIENT_NAME = _detect_client_name()
 _SESSION_LABEL = os.environ.get("TOKEN_SAVIOR_SESSION_LABEL", "").strip()
 
 
+# What makes a directory a project rather than a pile of files.
+PROJECT_MARKERS = (".git", "pyproject.toml", "package.json", "Cargo.toml",
+                   "go.mod", "pom.xml", "Gemfile", "composer.json")
+
+# Where people keep their work. Scanned one level deep only: two levels turns
+# a home directory into a filesystem crawl, and the payoff is not there.
+COMMON_PARENTS = ("projects", "dev", "src", "code", "repos", "work", "git",
+                  "workspace", "Projects", "Developer")
+
+# Never auto-index these: vendored trees, build output, virtualenvs, caches.
+SKIP_DIRS = {"node_modules", ".venv", "venv", "__pycache__", "site-packages",
+             "dist", "build", ".cache", ".local", ".cargo", ".rustup", "target"}
+
+# A cap, not a limit anyone should hit. Beyond this the user has an unusual
+# layout and should configure WORKSPACE_ROOTS explicitly.
+MAX_AUTODISCOVERED = 40
+
+
+def is_project_dir(path: str) -> bool:
+    try:
+        return any(os.path.exists(os.path.join(path, m)) for m in PROJECT_MARKERS)
+    except OSError:
+        return False
+
+
+def project_root_of(path: str) -> str | None:
+    """Walk up from `path` to the nearest directory that looks like a project.
+
+    The skip check looks at **every** component, not just the current one. A
+    package inside `node_modules` usually carries its own `package.json`, so
+    checking only the directory being examined returns the vendored package as
+    a project root before the walk ever reaches `node_modules`. Caught by
+    `test_ne_remonte_pas_depuis_une_dependance_vendorisee`, not by reading.
+    """
+    try:
+        cur = os.path.abspath(path)
+    except (OSError, ValueError):
+        return None
+    if not os.path.isdir(cur):
+        cur = os.path.dirname(cur)
+    if SKIP_DIRS.intersection(cur.split(os.sep)):
+        return None
+    seen: set[str] = set()
+    while cur and cur not in seen and cur != os.path.dirname(cur):
+        seen.add(cur)
+        if is_project_dir(cur):
+            return cur
+        cur = os.path.dirname(cur)
+    return None
+
+
+def autodiscover_roots(*, cwd: str | None = None, home: str | None = None) -> list[str]:
+    """Find the user's projects without asking them to list them.
+
+    Two sources, in order of confidence:
+
+    1. the project containing the current working directory — if the server
+       was started from inside a repository, that is certainly one of them;
+    2. the direct children of the usual code folders (`~/projects`, `~/dev`,
+       `~/src`...) that carry a project marker.
+
+    Deliberately shallow. Recursing into a home directory to find every `.git`
+    is slow, surprising, and picks up vendored clones nobody wants indexed.
+    """
+    found: list[str] = []
+
+    def add(p: str | None) -> None:
+        if not p or p in found or len(found) >= MAX_AUTODISCOVERED:
+            return
+        if os.path.basename(p) in SKIP_DIRS:
+            return
+        found.append(p)
+
+    add(project_root_of(cwd or os.getcwd()))
+
+    base = home or os.path.expanduser("~")
+    for parent in COMMON_PARENTS:
+        d = os.path.join(base, parent)
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = sorted(os.scandir(d), key=lambda e: e.name)
+        except OSError:
+            continue
+        for e in entries:
+            if len(found) >= MAX_AUTODISCOVERED:
+                break
+            if e.is_dir() and not e.name.startswith(".") and is_project_dir(e.path):
+                add(e.path)
+
+    return found
+
 def _parse_workspace_roots() -> list[str]:
-    """Parse WORKSPACE_ROOTS (comma-separated) or fall back to PROJECT_ROOT."""
+    """Parse WORKSPACE_ROOTS (comma-separated) or fall back to PROJECT_ROOT.
+
+    Deliberately unchanged in contract: it reads configuration and nothing
+    else. Auto-discovery lives in `_register_roots`, on the startup path only.
+    Putting it here broke two unrelated tests, because this function is also
+    called at runtime to resolve a project and suddenly answered with whatever
+    happened to be near the current directory.
+    """
     workspace_raw = os.environ.get("WORKSPACE_ROOTS", "").strip()
     if workspace_raw:
         roots = [r.strip() for r in workspace_raw.split(",") if r.strip()]
@@ -185,6 +284,12 @@ def _parse_workspace_roots() -> list[str]:
 
 def _register_roots(roots: list[str]) -> None:
     """Create slots for each root. Index is built lazily on first use.
+
+    No discovery here. This runs at import time (`server.py` calls it at module
+    level), so guessing here would fire inside every unit test that imports the
+    server and register whatever projects sit near the test runner. That is
+    exactly what happened: two unrelated memory-viewer tests started failing.
+    Discovery belongs to `autodiscover_and_register`, called from `main()`.
 
     Honors CLAUDE_PROJECT_ROOT env: if set and the path is one of the
     registered roots, promote it to active. This lets short-lived subprocess
@@ -205,6 +310,33 @@ def _register_roots(roots: list[str]) -> None:
                 _prep(slot)
             except Exception as e:
                 print(f"[token-savior] warm-start failed for {root}: {e}", file=sys.stderr)
+
+
+def autodiscover_and_register() -> list[str]:
+    """Find the user's projects when nothing was configured. Startup only.
+
+    Starting with an empty registry was the single largest source of missed
+    adoption: a fresh install indexed nothing until the user hand-wrote every
+    project path. Measured on one real workstation, 28% of all code reads went
+    to projects that were never listed, one of them a 767-file repository that
+    had existed for months.
+
+    Called from `main()` rather than at import, so unit tests never trigger it.
+    Set `TOKEN_SAVIOR_AUTODISCOVER=0` to keep the old behaviour.
+    """
+    if s._slot_mgr.projects:
+        return []
+    if os.environ.get("TOKEN_SAVIOR_AUTODISCOVER", "1") == "0":
+        return []
+    roots = autodiscover_roots()
+    if not roots:
+        return []
+    _register_roots(roots)
+    print(f"[token-savior] auto-discovered {len(roots)} project(s): "
+          f"{', '.join(os.path.basename(r) for r in roots[:5])}"
+          f"{'...' if len(roots) > 5 else ''}. "
+          f"Set WORKSPACE_ROOTS to pin them explicitly.", file=sys.stderr)
+    return roots
 
 
 # ---------------------------------------------------------------------------

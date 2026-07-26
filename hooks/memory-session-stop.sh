@@ -6,6 +6,26 @@
 # End   → 2-section structured summary (changes + memory), Telegram push, end_type=completed
 #
 # TS_MEMORY_DISABLE=1 -> short-circuit (tsbench / clean ctx workloads).
+# --- resolution des chemins (voir scripts/deroot_hooks.py) ---
+# Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
+# fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
+TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-savior}"
+TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
+# Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
+# s'il est declare, sinon on prend le python du PATH.
+if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
+  TS_PY="$TOKEN_SAVIOR_PYTHON"
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import token_savior" 2>/dev/null; then
+  TS_PY="$(command -v python3)"
+else
+  TS_PY="${TS_PY:-python3}"
+fi
+# Checkout source : utile en developpement seulement. Apres `pip install`,
+# token_savior est importable sans rien ajouter a sys.path.
+TS_SRC="${TOKEN_SAVIOR_SRC:-}"
+TS_SCRIPTS="${TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)/scripts}"
+# --- fin --- resolution des chemins (voir scripts/deroot_hooks.py) --- fin ---
+
 if [ "$TS_MEMORY_DISABLE" = "1" ]; then
     exit 0
 fi
@@ -28,7 +48,7 @@ if [ -n "$TS_STOP_HOOK_RUNNING" ]; then
 fi
 export TS_STOP_HOOK_RUNNING=1
 
-PY=/root/.local/token-savior-venv/bin/python3
+PY=$TS_PY
 
 # -- Turn-level conversational capture ---------------------------------------
 # The rest of this script summarises *observations*, which only exist when a
@@ -46,7 +66,7 @@ if [ "$TS_TURN_CAPTURE_DISABLE" != "1" ] && [ ! -t 0 ]; then
         printf '%s' "$HOOK_INPUT" | (
             "$PY" -c "
 import sys, json
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 try:
     payload = json.load(sys.stdin)
 except Exception:
@@ -68,7 +88,7 @@ fi
 # whether the DB has any state or obs for this session. Mode is a session thing.
 "$PY" -c "
 import sys, json
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 memory_db.clear_session_override()
 # Reset activity-tracker source to 'auto' at session end
@@ -83,7 +103,7 @@ except Exception:
 # TCA — flush session co-activations into the persistent tensor.
 "$PY" -c "
 import os, sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 try:
     from pathlib import Path
     from token_savior.tca_engine import TCAEngine
@@ -99,7 +119,7 @@ except Exception:
 # 1. Resolve active session + attached observations (fallback: claim orphans <2h).
 SESSION_JSON=$("$PY" -c "
 import sys, os, json, time
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
@@ -151,7 +171,7 @@ OBS_COUNT=$(echo "$SESSION_JSON" | "$PY" -c "import sys,json; print(len(json.loa
 if [ "$OBS_COUNT" -eq 0 ]; then
     "$PY" -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 memory_db.session_end($SESSION_ID, end_type='$HOOK_MODE' == 'end' and 'completed' or 'interrupted')
 memory_db.clear_session_override()
@@ -203,7 +223,7 @@ for o in data['obs']:
 # Check mode gates session_summary
 SUMMARY_ENABLED=$("$PY" -c "
 import sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 m = memory_db.get_current_mode()
 print('1' if m.get('session_summary', True) else '0')
@@ -254,7 +274,7 @@ export SS_OBS_IDS=$(echo "$SESSION_JSON" | "$PY" -c "import sys,json; print(json
 
 "$PY" -c "
 import sys, json, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 summary = sys.stdin.read().strip() or None
@@ -294,7 +314,7 @@ except Exception:
 
 # Weekly self-consistency check (7-day interval)
 (
-    CONS_FLAG=/root/.local/share/token-savior/last_consistency_check
+    CONS_FLAG=$TS_DATA/last_consistency_check
     mkdir -p "$(dirname "$CONS_FLAG")"
     NOW_CONS=$(date +%s)
     LAST_CONS=0
@@ -303,7 +323,7 @@ except Exception:
     if [ "$AGE_CONS" -ge 604800 ]; then
         "$PY" -c "
 import sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 res = memory_db.run_consistency_check(project_root='$PROJECT' or None, limit=200, dry_run=False)
 print(f'[consistency] checked={res[\"checked\"]} failed={res[\"failed\"]} quarantined={res[\"quarantined\"]} stale={res[\"stale_suspected\"]}', file=sys.stderr)
@@ -315,7 +335,7 @@ print(f'[consistency] checked={res[\"checked\"]} failed={res[\"failed\"]} quaran
 # Save session signature for cross-session warm start (all modes)
 "$PY" -c "
 import sys, os, time
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from pathlib import Path
 from token_savior.session_warmstart import SessionWarmStart
 from token_savior import memory_db
@@ -373,7 +393,7 @@ except Exception as e:
 # Compute tokens_saved_est for session (all modes)
 "$PY" -c "
 import sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 sid = $SESSION_ID
 db = memory_db.get_db()
@@ -391,7 +411,7 @@ db.close()
 if [ "$HOOK_MODE" = "end" ]; then
     "$PY" -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 project = '$PROJECT'
 try:
@@ -410,7 +430,7 @@ fi
 if [ "$HOOK_MODE" = "end" ]; then
     "$PY" -c "
 import sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 project = '$PROJECT'
 try:
@@ -433,9 +453,9 @@ fi
 # End-of-session: backup to markdown (end mode only)
 if [ "$HOOK_MODE" = "end" ]; then
     (
-        /root/.local/token-savior-venv/bin/python3 \
-            /root/token-savior/scripts/export_markdown.py \
-            --output-dir /root/memory-backup >/dev/null 2>&1
+        $TS_PY \
+            $TS_SCRIPTS/export_markdown.py \
+            --output-dir $TS_BACKUP >/dev/null 2>&1
     ) &
 fi
 

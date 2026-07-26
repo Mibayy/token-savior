@@ -7,6 +7,26 @@
 #                          tsbench subprocesses where cross-project memory
 #                          would pollute task context.
 
+# --- resolution des chemins (voir scripts/deroot_hooks.py) ---
+# Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
+# fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
+TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-savior}"
+TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
+# Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
+# s'il est declare, sinon on prend le python du PATH.
+if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
+  TS_PY="$TOKEN_SAVIOR_PYTHON"
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import token_savior" 2>/dev/null; then
+  TS_PY="$(command -v python3)"
+else
+  TS_PY="${TS_PY:-python3}"
+fi
+# Checkout source : utile en developpement seulement. Apres `pip install`,
+# token_savior est importable sans rien ajouter a sys.path.
+TS_SRC="${TOKEN_SAVIOR_SRC:-}"
+TS_SCRIPTS="${TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)/scripts}"
+# --- fin --- resolution des chemins (voir scripts/deroot_hooks.py) --- fin ---
+
 if [ "$TS_MEMORY_DISABLE" = "1" ]; then
     exit 0
 fi
@@ -21,9 +41,9 @@ if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 20
     tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
 fi
 # -- end token-savior hook error log -----------------------------------------
-RESULT=$(/root/.local/token-savior-venv/bin/python3 -c "
+RESULT=$($TS_PY -c "
 import sys, os, json
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
@@ -94,7 +114,7 @@ def _fmt_row(r):
 if rows:
     import hashlib
     from pathlib import Path as _P
-    state_file = _P('/root/.local/share/token-savior/last_injected_state.json')
+    state_file = _P('$TS_DATA/last_injected_state.json')
     state_file.parent.mkdir(parents=True, exist_ok=True)
     last_state = {}
     if state_file.exists():
@@ -155,9 +175,9 @@ fi
 INJECTED_CHARS=$(printf '%s' "$RESULT" | wc -c)
 INJECTED_TOKENS=$((INJECTED_CHARS / 4))
 if [ "$INJECTED_TOKENS" -gt 0 ]; then
-    /root/.local/token-savior-venv/bin/python3 -c "
+    $TS_PY -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
 if not project:
@@ -183,9 +203,9 @@ if [ "$TS_HOOK_MINIMAL" = "1" ]; then
 fi
 
 # Warm start: find similar historical sessions by signature and pre-warm PPM
-WARMSTART=$(/root/.local/token-savior-venv/bin/python3 -c "
+WARMSTART=$($TS_PY -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from pathlib import Path
 from token_savior.session_warmstart import SessionWarmStart, compute_signature
 from token_savior.markov_prefetcher import PPMPrefetcher
@@ -232,9 +252,9 @@ if [ -n "$WARMSTART" ]; then
 fi
 
 # Tool Capture status — show recent sandbox count if table populated
-CAPTURELINE=$(/root/.local/token-savior-venv/bin/python3 -c "
+CAPTURELINE=$($TS_PY -c "
 import sys, os, time
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 try:
     from token_savior import db_core
     conn = db_core.get_db()
@@ -256,9 +276,9 @@ if [ -n "$CAPTURELINE" ]; then
 fi
 
 # Statusline: [mem:N obs · mode:X]
-STATUSLINE=$(/root/.local/token-savior-venv/bin/python3 -c "
+STATUSLINE=$($TS_PY -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
@@ -294,16 +314,16 @@ fi
 
 # Weekly auto-decay (fire-and-forget, background)
 (
-    FLAG=/root/.local/share/token-savior/last_decay
+    FLAG=$TS_DATA/last_decay
     mkdir -p "$(dirname "$FLAG")"
     NOW=$(date +%s)
     LAST=0
     [ -f "$FLAG" ] && LAST=$(cat "$FLAG" 2>/dev/null || echo 0)
     AGE=$((NOW - LAST))
     if [ "$AGE" -ge 604800 ]; then
-        /root/.local/token-savior-venv/bin/python3 -c "
+        $TS_PY -c "
 import sys, os
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
@@ -327,14 +347,14 @@ if project:
     fi
 
     # Monthly Token Economy ROI garbage collection (30-day interval)
-    ROI_FLAG=/root/.local/share/token-savior/last_roi_gc
+    ROI_FLAG=$TS_DATA/last_roi_gc
     LAST_ROI=0
     [ -f "$ROI_FLAG" ] && LAST_ROI=$(cat "$ROI_FLAG" 2>>"$ERR_LOG" || echo 0)
     AGE_ROI=$((NOW - LAST_ROI))
     if [ "$AGE_ROI" -ge 2592000 ]; then
-        /root/.local/token-savior-venv/bin/python3 -c "
+        $TS_PY -c "
 import sys
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 res = memory_db.run_roi_gc(dry_run=False)
 print(f'[roi-gc] archived={res.get(\"archived\",0)} kept={res.get(\"kept\",0)} threshold={res.get(\"threshold\",0)}', file=sys.stderr)
@@ -343,14 +363,14 @@ print(f'[roi-gc] archived={res.get(\"archived\",0)} kept={res.get(\"kept\",0)} t
     fi
 
     # Weekly markdown export (fire-and-forget)
-    EXPORT_FLAG=/root/.local/share/token-savior/last_md_export
+    EXPORT_FLAG=$TS_DATA/last_md_export
     LAST_EXP=0
     [ -f "$EXPORT_FLAG" ] && LAST_EXP=$(cat "$EXPORT_FLAG" 2>>"$ERR_LOG" || echo 0)
     AGE_EXP=$((NOW - LAST_EXP))
     if [ "$AGE_EXP" -ge 604800 ]; then
-        /root/.local/token-savior-venv/bin/python3 \
-            /root/token-savior/scripts/export_markdown.py \
-            --output-dir /root/memory-backup >/dev/null 2>&1
+        $TS_PY \
+            $TS_SCRIPTS/export_markdown.py \
+            --output-dir $TS_BACKUP >/dev/null 2>&1
         echo "$NOW" > "$EXPORT_FLAG"
     fi
 ) &

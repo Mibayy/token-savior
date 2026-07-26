@@ -4,6 +4,26 @@
 # - Hint de capture pour les WebFetch (research)
 #
 # TS_MEMORY_DISABLE=1 -> short-circuit (tsbench / clean ctx workloads).
+# --- resolution des chemins (voir scripts/deroot_hooks.py) ---
+# Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
+# fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
+TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-savior}"
+TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
+# Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
+# s'il est declare, sinon on prend le python du PATH.
+if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
+  TS_PY="$TOKEN_SAVIOR_PYTHON"
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import token_savior" 2>/dev/null; then
+  TS_PY="$(command -v python3)"
+else
+  TS_PY="${TS_PY:-python3}"
+fi
+# Checkout source : utile en developpement seulement. Apres `pip install`,
+# token_savior est importable sans rien ajouter a sys.path.
+TS_SRC="${TOKEN_SAVIOR_SRC:-}"
+TS_SCRIPTS="${TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)/scripts}"
+# --- fin --- resolution des chemins (voir scripts/deroot_hooks.py) --- fin ---
+
 if [ "$TS_MEMORY_DISABLE" = "1" ]; then
     exit 0
 fi
@@ -20,9 +40,9 @@ fi
 # -- end token-savior hook error log -----------------------------------------
 PAYLOAD=$(cat)
 
-/root/.local/token-savior-venv/bin/python3 -c "
+$TS_PY -c "
 import sys, json, re
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
 try:
@@ -103,7 +123,7 @@ elif tool in ('WebFetch', 'web_fetch'):
 " <<< "$PAYLOAD" 2>>"$ERR_LOG" &
 
 # === ACTIVITY TRACKER (mode auto-detection) ===
-/root/.local/token-savior-venv/bin/python3 -c "
+$TS_PY -c "
 import sys, json, os, time, re
 from pathlib import Path
 
@@ -168,7 +188,7 @@ else:
 
 current_source = tracker.get('current_mode_source', 'auto')
 if suggested != tracker.get('suggested_mode') and current_source != 'manual':
-    sys.path.insert(0, '/root/token-savior/src')
+    sys.path.insert(0, '$TS_SRC')
     from token_savior import memory_db
     memory_db.set_mode(suggested, source='auto')
     tracker['suggested_mode'] = suggested
@@ -181,9 +201,9 @@ tracker_path.write_text(json.dumps(tracker, indent=2))
 # === A3: LLM AUTO-EXTRACT (opt-in via TS_AUTO_EXTRACT=1) ===
 # Zero-cost when unset: the shell `if` short-circuits, Python is never spawned.
 if [ "${TS_AUTO_EXTRACT:-}" = "1" ]; then
-/root/.local/token-savior-venv/bin/python3 -c "
+$TS_PY -c "
 import sys, json
-sys.path.insert(0, '/root/token-savior/src')
+sys.path.insert(0, '$TS_SRC')
 
 try:
     payload = json.loads(sys.stdin.read())
@@ -209,7 +229,7 @@ fi
 # --- rules: record satisfied preconditions (e.g. preflight ran) ------------
 # Non-blocking; lets a later `require_precondition` rule pass. Kill-switch aware.
 if [ "$TS_RULES_DISABLE" != "1" ]; then
-    printf '%s' "$PAYLOAD" | /root/.local/token-savior-venv/bin/python3 \
+    printf '%s' "$PAYLOAD" | $TS_PY \
         -m token_savior.memory.precondition_hook >/dev/null 2>>"$ERR_LOG" &
 fi
 

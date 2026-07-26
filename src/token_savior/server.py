@@ -1151,6 +1151,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
 
 
 async def main():
+    # Aucun projet configure ? On en cherche, plutot que de demarrer aveugle.
+    # Ici et pas a l'import : `_register_roots` tourne au niveau module, donc
+    # deviner la-bas se declenchait dans chaque test important le serveur.
+    from .server_runtime import autodiscover_and_register
+    autodiscover_and_register()
+
     if _TRACE_REQUESTS:
         print("[token-savior] startup: running memory migrations", file=sys.stderr, flush=True)
     memory_db.run_migrations()

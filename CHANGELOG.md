@@ -1,5 +1,56 @@
 # Changelog
 
+## v4.13.0 — It finds your projects by itself (2026-07-26)
+
+**A fresh install indexed nothing.** With no `WORKSPACE_ROOTS` and no
+`PROJECT_ROOT`, the server started with an empty registry and stayed there
+until the user hand-wrote a comma-separated list of every project they own.
+Nothing failed, nothing warned — the tools simply had nothing to look at.
+
+Measured on one real workstation over 26 days: **28% of all code reads went to
+projects that were never listed**, one of them a 767-file repository that had
+existed for months. That is not a documentation problem, it is a default.
+
+Now, when nothing is configured, the server looks for projects instead of
+starting blind:
+
+1. the project containing the current working directory;
+2. the direct children of the usual code folders — `~/projects`, `~/dev`,
+   `~/src`, `~/code`, `~/repos`, `~/work`, `~/git`, `~/workspace`.
+
+A project is a directory carrying `.git`, `pyproject.toml`, `package.json`,
+`Cargo.toml`, `go.mod`, `pom.xml`, `Gemfile` or `composer.json`. Vendored
+trees, virtualenvs, build output and hidden directories are skipped, the scan
+is one level deep, and it stops at 40 projects. Set
+`TOKEN_SAVIOR_AUTODISCOVER=0` to restore the previous behaviour; an explicit
+`WORKSPACE_ROOTS` always wins and is never merged with discovery.
+
+Verified end to end on a fresh virtualenv with a throwaway `$HOME`: three
+projects found with no configuration at all, then `switch_project` and
+`find_symbol` answering on them.
+
+**Projects created later attach on demand.** `switch_project` accepts a full
+path and registers an unknown project on the spot, indexing it immediately.
+
+Two implementation notes, both learned the hard way:
+
+- Discovery runs from `main()`, not from `_register_roots`. The latter is
+  called at module import, so guessing there fired inside every unit test that
+  imported the server and registered whatever sat near the test runner — two
+  unrelated memory-viewer tests started failing.
+- `project_root_of` checks **every** path component against the skip list, not
+  just the directory being examined. A package inside `node_modules` usually
+  carries its own `package.json`, so the walk returned the vendored package as
+  a project root before it ever reached `node_modules`. Caught by a test, not
+  by reading.
+
+**Also:** the shipped hook scripts no longer contain machine-specific paths.
+61 occurrences of a single developer's virtualenv, source checkout and data
+directory were baked into eight `.sh` files that `ts init` has installed for
+everyone since v4.11.0 — they could not work on any other machine, silently.
+Paths now resolve at run time from `$HOME`, `$XDG_DATA_HOME` and the
+interpreter that can import `token_savior`.
+
 ## v4.12.2 — `pip install token-savior-recall` produced a server that could not start (2026-07-26)
 
 **The MCP server did not start on a default install.** `mcp` was declared as
