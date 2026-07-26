@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.15.2 — `move_symbol` failed every single time (2026-07-26)
+
+Found by an adversarial audit of all 69 tools against a purpose-built project,
+after 500-call audits on real recorded calls had missed it entirely: **no test
+anywhere exercised this tool.**
+
+`_h_move_symbol` called `slot.indexer.reindex()`, a method `ProjectIndexer`
+does not have. Every successful move raised `AttributeError` *after* rewriting
+both files: the work was done, the tool reported an error, and the caller
+believed it had failed.
+
+Fixing that surfaced a second defect immediately behind it. The result keys are
+`from_file` and `to_file`; reindexing anything else left the index announcing
+the symbol at its old location, so `find_symbol` lied right after a successful
+move. Both files are now reindexed, and `tests/test_move_symbol_reindex.py`
+covers the source file, the target file, and the index — the last one through
+the query API rather than the index internals, because that is what the caller
+actually sees.
+
+Audit result on the fixed build: 281/281 tool calls answered correctly, 11/11
+adversarial checks passed, **69/69 tools exercised** — including the five that
+consume an identifier produced by another call (`capture_get`,
+`capture_aggregate`, `memory_get`, `memory_delete`, `run_project_action`),
+which no generic invocation could reach.
+
 ## v4.15.1 — The alias fix that did nothing, and the edits that overwrote themselves (2026-07-26)
 
 **v4.15.0 shipped an argument-alias feature that never ran.** It translated

@@ -114,7 +114,19 @@ def _h_move_symbol(slot: _ProjectSlot, args: dict) -> object:
         create_if_missing=args.get("create_if_missing", True),
     )
     if result.get("ok"):
-        slot.indexer.reindex()
+        # `reindex()` n'existe pas sur ProjectIndexer : cet appel levait une
+        # AttributeError a chaque deplacement reussi, donc move_symbol
+        # echouait systematiquement APRES avoir modifie les deux fichiers.
+        # Les cles du resultat sont `from_file` et `to_file` : les deviner
+        # laissait l'index annoncer le symbole a son ancienne place.
+        for fichier in {result.get("from_file"), result.get("to_file"),
+                        args.get("target_file")}:
+            if not fichier:
+                continue
+            try:
+                slot.indexer.reindex_file(fichier)
+            except Exception:
+                pass
     return result
 
 
