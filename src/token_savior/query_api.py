@@ -755,6 +755,12 @@ def _spring_method_declaration_line(meta: StructuralMetadata, func) -> int:
     return func.line_range.start
 
 
+# Seuil par defaut de find_semantic_duplicates. Le plancher de bruit en
+# caracteres ne s'applique qu'a ce niveau : en dessous, l'appelant a
+# explicitement demande a voir les petites fonctions.
+_MIN_LINES_DEFAUT = 2
+
+
 class ProjectQueryEngine:
     """Query engine bound to a project-wide index.
 
@@ -803,6 +809,7 @@ class ProjectQueryEngine:
         self.index = index
         self._communities: dict[str, str] | None = None
         self._semantic_hash_cache: dict[str, str] | None = None
+        self._semantic_hash_seuil: int | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -2395,6 +2402,11 @@ class ProjectQueryEngine:
           ``search_codebase(semantic=True)``; first call triggers a
           reindex.
 
+        Au seuil par defaut, un plancher de 50 caracteres ecarte en plus
+        les corps trop courts pour qu'une collision veuille dire quelque
+        chose. Passer ``min_lines=1`` leve ce plancher : c'est une demande
+        explicite de voir les petites fonctions.
+
         *min_lines* skips trivial one-liner functions where collisions
         are noise (`return None`, getters, etc). Default 2 catches
         short utilities (slugify, start_of_day etc.) that are common
@@ -2413,7 +2425,11 @@ class ProjectQueryEngine:
                 max_groups=max_groups,
                 max_members_per_group=max_members_per_group,
             )
-        if self._semantic_hash_cache is None:
+        # Le cache etait construit une seule fois, avec le min_lines du
+        # PREMIER appel, puis reutilise tel quel. Un appel ulterieur avec un
+        # autre seuil recevait donc un resultat calcule pour l'ancien, sans
+        # rien qui le signale. On le cle par seuil.
+        if self._semantic_hash_cache is None or self._semantic_hash_seuil != min_lines:
             self._build_semantic_hash_cache(min_lines)
 
         cache = self._semantic_hash_cache
@@ -2669,6 +2685,7 @@ class ProjectQueryEngine:
 
     def _build_semantic_hash_cache(self, min_lines: int = 2) -> None:
         """Pre-compute semantic hashes for all functions in the index."""
+        self._semantic_hash_seuil = min_lines
         from token_savior.project_indexer import is_path_excluded_from_scans
         from token_savior.semantic_hasher import semantic_hash
 
@@ -2683,7 +2700,14 @@ class ProjectQueryEngine:
                     continue
                 source_lines = meta.lines[start - 1 : end]
                 source = "\n".join(source_lines)
-                if len(source) < 50:
+                # Plancher de bruit : sans lui, tout getter d'une ligne
+                # collisionne avec tous les autres. Il etait fixe a 50
+                # caracteres, non documente, et ignorait `min_lines` : un
+                # appelant qui demandait explicitement min_lines=1 voyait son
+                # parametre sans effet et concluait que l'outil ne marchait
+                # pas. Il ne s'applique donc plus que si l'appelant a garde le
+                # comportement par defaut.
+                if min_lines >= _MIN_LINES_DEFAUT and len(source) < 50:
                     continue
                 h = semantic_hash(source)
                 key = f"{func.qualified_name}  ({file_path}:{start})"

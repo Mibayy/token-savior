@@ -1,5 +1,27 @@
 # Changelog
 
+## v4.17.1 — `min_lines` looked broken, and the cache answered for another threshold (2026-07-26)
+
+Two defects in `find_semantic_duplicates`, both found by demanding a known
+answer instead of the absence of an error.
+
+**A hidden floor.** On top of `min_lines`, an undocumented `len(source) < 50`
+discarded short bodies. A caller explicitly passing `min_lines=1` saw the
+parameter do nothing and concluded, reasonably from where they stood, that the
+tool was broken. The floor still applies at the default threshold — without it
+every one-line getter collides with every other — but asking for `min_lines=1`
+now lifts it, because that is an explicit request to see small functions.
+
+**A stale cache.** The hash cache was built once, with the `min_lines` of the
+**first** call, then reused as-is. Any later call with a different threshold
+received a result computed for the old one, with nothing to signal it. That is
+the most expensive family of defect: an answer that is plausible, wrong, and
+stable across retries. The cache is now keyed by threshold.
+
+`tests/test_semantic_duplicates_seuil.py` pins both, including a test that runs
+the two thresholds in either order — a result that depends on call order is not
+a result.
+
 ## v4.17.0 — `get_routes` answered `[]` on FastAPI and Flask (2026-07-26)
 
 It knew Next.js App Router and Spring. On the two most common Python web
