@@ -841,11 +841,12 @@ class ProjectQueryEngine:
             infra_top = {"infra", "infrastructure", "deploy", "deployment", "k8s", "kubernetes",
                          "terraform", "docker", "helm", "ansible", ".github", "ci", "cicd"}
             infra_hits = [p for p in top_packages if p.lower() in infra_top]
+            infra_hits_set = set(infra_hits)
             if infra_hits:
                 infra_techs: set[str] = set()
                 for path in index.files:
                     parts_l = path.lower().split("/")
-                    if not parts_l or parts_l[0] not in infra_hits:
+                    if not parts_l or parts_l[0] not in infra_hits_set:
                         continue
                     for seg in parts_l[1:]:
                         if seg in {"docker", "k8s", "kubernetes", "terraform", "helm", "ansible"}:
