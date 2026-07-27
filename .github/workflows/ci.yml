@@ -13,6 +13,13 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
+    # Pose au niveau du JOB, pas de l'etape : le prechauffage et les tests
+    # doivent viser le meme repertoire, sinon on prechauffe un cache que
+    # personne ne lit. Verifie plutot que suppose : avec cette variable,
+    # fastembed ecrit bien ses 21 fichiers a l'endroit indique.
+    env:
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+
     steps:
       - uses: actions/checkout@v5
 
@@ -34,6 +41,32 @@ jobs:
         # sans que la CI puisse le voir, tout en faisant echouer son propre
         # test pour une raison sans rapport avec son code.
         run: pip install -e ".[dev,mcp,memory-vector]"
+
+      # Le modele d'embedding pese ~130 Mo et fastembed le telecharge a la
+      # premiere utilisation. Sans cache, ce telechargement tombe AU MILIEU
+      # des tests : le 27/07/2026, un sous-processus de test a expire a 120 s
+      # et un autre a rendu une liste de voisins vide, sur 3.13 seulement,
+      # c'est-a-dire au hasard de l'ordonnancement. andrebrait avait signale
+      # ce cout dans #91 (« at the cost of the model download on every run »)
+      # et je l'ai ignore en ajoutant l'extra.
+      #
+      # Le cache le rend telecharge une fois par cle, et l'etape de
+      # prechauffage le sort du chemin des tests : s'il echoue, il echoue la,
+      # visiblement, au lieu de faire expirer un test sans rapport.
+      - name: Cache du modele d'embedding
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-nomic-v1.5-Q-${{ runner.os }}
+
+      - name: Prechauffer le modele d'embedding
+        run: |
+          python - <<'PY'
+          from fastembed import TextEmbedding
+          m = TextEmbedding(model_name="nomic-ai/nomic-embed-text-v1.5-Q")
+          list(m.embed(["prechauffage"]))
+          print("modele pret")
+          PY
 
       - name: Lint with ruff
         # `scripts/` inclus depuis le 27/07/2026. Il n'etait linte ni ici ni
