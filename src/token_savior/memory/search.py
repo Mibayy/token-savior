@@ -55,6 +55,26 @@ def rrf_merge(
 
 
 # Seuils mesures, pas choisis : voir le commentaire dans hybrid_search.
+# Les deux valent 0,90 AUJOURD'HUI, et c'est delibere.
+#
+# Le decoupage en deux constantes nomme deux situations qui n'ont pas les
+# memes exigences : un voisin vectoriel qui vient en appui d'un resultat
+# lexical est deja cautionne par le leg lexical, tandis qu'un voisin seul est
+# l'unique signal disponible et doit convaincre a lui tout seul. FUSION peut
+# donc etre plus laxiste que SEULE ; l'inverse n'aurait pas de sens.
+#
+# Mais aucune mesure ne justifie a ce jour un ecart chiffre entre les deux, et
+# on n'en invente pas un. Souleve par andrebrait dans #79, qui a mesure puis
+# refute sa propre hypothese de depart : sur son corpus, 0,90 garde 90 % des
+# voisins pertinents pour 10 % de non-pertinents. Le seul resultat qui
+# survit est faible, et il refuse lui-meme d'agir dessus (n=20, corpus qu'il
+# a ecrit, requetes proches des observations) : entre 0,84 et 0,90 la part de
+# pertinents ne bouge pas alors que les non-pertinents passent de 2 % a 10 %.
+#
+# L'invariant FUSION >= SEULE est verifie dans
+# tests/test_vector_distance_floor.py, pour que cette intention soit
+# executable au lieu d'etre decorative, et pour qu'un futur ecart soit un
+# choix delibere et non un accident de frappe.
 _DISTANCE_MAX_FUSION = 0.90   # en appui d'un resultat lexical
 _DISTANCE_MAX_SEULE = 0.90    # seul signal disponible : exiger la confiance
 # Les deux valeurs sont egales aujourd'hui : la mesure ne montre aucune bande

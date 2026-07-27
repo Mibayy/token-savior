@@ -85,3 +85,30 @@ def test_les_seuils_restent_dans_la_bande_mesuree() -> None:
     """
     assert _DISTANCE_MAX_SEULE <= 0.95, _DISTANCE_MAX_SEULE
     assert _DISTANCE_MAX_FUSION <= 0.95, _DISTANCE_MAX_FUSION
+
+
+def test_le_seuil_en_fusion_n_est_jamais_plus_strict_que_seul() -> None:
+    """Un voisin deja cautionne par le lexical ne peut pas etre plus exige.
+
+    Les deux constantes sont egales aujourd'hui, ce qui rend la distinction
+    que leur commentaire justifie inoperante -- releve par andrebrait dans
+    #79. On ne comble pas l'ecart en inventant un chiffre : aucune mesure ne
+    justifie une valeur plutot qu'une autre, et sa propre mesure, qu'il juge
+    lui-meme trop faible pour agir dessus (n=20, corpus qu'il a ecrit), ne
+    tranche pas.
+
+    Ce qu'on peut affirmer sans mesurer, c'est le SENS de l'ecart le jour ou
+    il existera. Un voisin vectoriel qui vient en appui d'un resultat lexical
+    est deja cautionne par le leg lexical ; un voisin seul est l'unique
+    signal et doit convaincre a lui tout seul. Donc FUSION peut etre plus
+    laxiste que SEULE, jamais plus strict.
+
+    L'egalite reste autorisee : c'est l'etat actuel. Ce test interdit
+    seulement l'inversion, pour qu'un futur ecart soit un choix delibere et
+    pas une faute de frappe qu'aucune suite verte ne verrait.
+    """
+    assert _DISTANCE_MAX_FUSION >= _DISTANCE_MAX_SEULE, (
+        f"FUSION={_DISTANCE_MAX_FUSION} plus strict que SEULE="
+        f"{_DISTANCE_MAX_SEULE} : un voisin cautionne par le lexical serait "
+        "plus exige qu'un voisin sans aucune corroboration."
+    )

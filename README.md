@@ -2,14 +2,12 @@
 
 <div align="center">
 
-# Token Savior -- v4.10
+# Token Savior
 
 > One MCP server. One profile. **97.9% on tsbench at -80% tokens.**
 > Structural code navigation, persistent memory, and Bash output compaction for AI coding agents.
 
-[![Version](https://img.shields.io/badge/version-4.10.0-blue)](https://github.com/Mibayy/token-savior/releases/tag/v4.10.0)
-[![PyPI](https://img.shields.io/badge/pypi-token--savior--recall-orange)](https://pypi.org/project/token-savior-recall/)
-[![Tests](https://img.shields.io/badge/tests-2081%2F2083-brightgreen)]()
+[![PyPI](https://img.shields.io/pypi/v/token-savior-recall?color=orange&label=pypi)](https://pypi.org/project/token-savior-recall/)
 [![Benchmark](https://img.shields.io/badge/tsbench-97.9%25%20(188%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
@@ -36,142 +34,11 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 
 ## What's new
 
-### v4.12.0 -- Discipline guard (Jul 2026)
+Release notes live where they can't drift out of sync with the code:
 
-Measured here with `scripts/ts_audit.py`: **`get_edit_context: 0 vs 245 edits`**.
-The rule was in `CLAUDE.md` from the start and the nudges fired twelve times a
-day. Compliance was zero. A written reminder does not constrain anything.
-
-`hooks/ts_discipline_guard.py` checks four rules where they happen: editing a
-symbol without its context, native `Edit`/`Write` on indexed source, native
-`Read` on indexed source, and `grep`/`cat` on indexed source through the shell.
-Requesting context unlocks **that symbol only** — one call at session start
-would otherwise open every later edit.
-
-**Opt-in**, since it denies calls: set `TS_DISCIPLINE_GUARD=1`. `TS_GUARD_OFF=1`
-wins once enabled, for module constants and decorators where structural editing
-does not fit. Every exit door is tested — non-code files, code outside any
-indexed project, vendored trees, file creation, and real Bash usage. A guard
-with false positives gets switched off, and one that is off protects less than
-none while still granting the illusion of protection.
-
-### v4.11.0 -- Memory engine ships to every agent (Jul 2026)
-
-- **The memory engine is now installed by `ts init`.** It shipped in
-  `hooks/` since v4.2.0 but was referenced by no bundle, so `ts init`
-  never wired it -- for any agent, Claude included. `SessionStart`
-  carries the recall; without it the rest is decorative.
-- **OpenClaw support** (`ts init --agent openclaw`). OpenClaw loads *hook
-  packs* (a directory with `HOOK.md` + `handler.js`) rather than
-  per-event shell commands, so the bundle declares a directory. Verified
-  against openclaw 2026.4.14: `openclaw hooks list` reports it ready.
-- **Gemini CLI gets the memory engine**, not just `tool_capture`.
-- **`AGENTS.md`**, the convention read by ~30 agents.
-
-Three hook models, not one format to translate. Facts below were read
-from each binary, not from its docs -- both mistakes they prevent are
-silent, a hook on an unknown event raises nothing and simply never fires:
-
-| | Claude Code | Codex | Gemini | OpenClaw |
-|---|---|---|---|---|
-| Model | command per event | command per event | command per event | hook pack |
-| Timeouts | milliseconds | **seconds** | milliseconds | n/a |
-| Shell tool | `Bash` | `Bash` | `run_shell_command` | no tool events |
-
-Hermes (Nous Research) needs nothing written: it is a pure MCP client.
-Note its `mcp_<server>_<tool>` prefix (single underscore) against
-`mcp__<server>__<tool>` elsewhere -- a matcher written for Claude Code
-silently misses every Hermes tool.
-
-### v4.10.0 -- Community fixes, `ts gain`, `compact-only` (Jul 2026)
-
-Every open pull request from @andrebrait applied, plus the remaining reported
-bugs: list-shaped `tool_response` no longer crashes the capture hook (#48),
-`TOKEN_SAVIOR_MAX_FILES` reaches the server path again (#49), the index cache is
-keyed by the config that built it (#61), and the git compactors stop misparsing
-the Bash rewriter's own output -- with both enabled, a dirty tree was reported
-as `clean` (#46). New: `ts gain` reports savings without the dashboard (#63),
-and `TOKEN_SAVIOR_PROFILE=compact-only` suits setups that already bring their
-own symbol navigation (#42). Full detail in [CHANGELOG.md](CHANGELOG.md).
-
-### v4.9.0 -- Edit-impact block (Jul 2026)
-
-After a successful edit (`replace_symbol_source` / `insert_near_symbol` /
-`add_field_to_model` / `move_symbol`), the result now ends with a compact
-`[EDIT IMPACT]` block listing the edited symbol's callers + impacted tests --
-so you catch a broken caller you never opened. Replaces the old pre-edit nudge,
-which converted 0 times across 219 edits in 425 audited sessions. Opt out with
-`TOKEN_SAVIOR_EDIT_IMPACT=0`.
-
-### v4.7 - v4.8 -- Self-audit + observations as MCP resources (Jul 2026)
-
-- `scripts/ts_audit.py`: one-shot usage report (per-tool p50/p95, wasteful
-  chains, adoption gaps, nudge fires, ML liveness). Re-run after a deploy to
-  see whether behaviour actually moved.
-- `ts://obs/{id}` stored memories are now first-class MCP resources -- clients
-  that support resource `@`-mentions (Claude Code) pull a specific observation
-  without a tool round-trip.
-- Warm ts-daemon delegation for `ts_search`: **23 ms warm** vs ~1.5-5.7 s cold.
-
-### v4.4 - v4.6 -- Adoption-gap passes, audit-driven (Jun - Jul 2026)
-
-Chain nudges (`find -> read`, `read -> full_context`), persisted registered
-projects (kills `set_project_root` churn -- 51 redundant calls / 5.5 weeks),
-disk-cached tool embeddings, and a cold-start `ts_search` bridge over the warm
-daemon. Every change driven by an audit of real Claude Code usage, not a
-synthetic bench.
-
-### v4.3.0 -- bench-driven coverage push (May 2026)
-
-Real-world bench against 7 days of transcripts (1130 Bash outputs) drove
-this release. Cumulative savings now sit at **~20.4 K tokens/week**
-(19.3% match rate, 68.9% mean compaction) vs ~12 K/week on v4.2.0.
-
-- Fixed `pytest` regex: now matches `python3 -m pytest`, `uv run pytest`,
-  venv-prefixed forms, `poetry/hatch/pdm/rye run pytest`.
-- 5 more git compactors: `fetch`, `checkout`, `branch`, `worktree list`,
-  `stash list`.
-- 4 more gh compactors: `gh repo view`, `gh pr view`, `gh issue view`,
-  `gh pr diff`.
-- `grep`, `find`, `cat` compactors. Group hits by file, strip common
-  prefix, head/tail truncation. 83-96% savings on the fixtures.
-- Compound command splitter: `cd /root/foo && git status` now compacts
-  by picking the last meaningful segment of `&&`/`;` chains. Bails on
-  subshells, heredocs, pipes, loops, unterminated quotes.
-
-### v4.2.0 -- coverage + hybrid mode + ts init
-
-- 12 more compactors: `jest`, `vitest`, `eslint`, `biome`, `kubectl
-  get/logs`, `aws sts/ec2/lambda/logs/iam/dynamodb/s3`, `npm/yarn/pnpm
-  list`, `pip list/show`, `curl`. Peaks: 91.7% on `aws ec2`, 95% on
-  `jest` all-green.
-- Hybrid sandbox+compact mode. When a compactor matches but the compact
-  text is still bulky (> 4 KB), the hook emits the compact preview AND
-  sandboxes the full original. The agent can pull it via `capture_get`
-  if it needs the detail.
-- `ts init --agent {claude,cursor,gemini,codex}` CLI. Detects agent
-  settings, deep-merges the hook config, dedups by `(matcher, command)`,
-  prints a unified diff, backs up `settings.json`, idempotent on re-run.
-- `ts_discover` cross-project + `format="adoption"` reports TS-vs-native
-  ratios per session with first/second-half trend.
-
-### v4.1.0 -- RTK-inspired Bash compaction + discover
-
-- 14 Bash output compactors in a PostToolUse hook: `git status/diff/log/
-  push/commit/add`, `pytest`, `cargo test/build/clippy`, `tsc`, `docker
-  ps/logs`, `gh run list/view`. Median 63%, peak 100% (a green `pytest
-  -q` collapses to one line).
-- PreToolUse Bash rewriter. Bare commands get denser variants before
-  execution: `git status` -> `--porcelain=v2 --branch`, `tsc` ->
-  `--pretty false`, `pytest` -> `-q --tb=line`, etc. 10 safe rules,
-  guarded against composition operators and explicit verbose flags.
-- `get_usage_stats` v2. ASCII sparkline (30 d), daily breakdown table
-  (7 d), top-tools cumulative, `format="json"`.
-- New MCP tool `ts_discover`. Scans `~/.claude/projects/*/*.jsonl`
-  transcripts and flags missed TS opportunities (Read->Grep->Read chains,
-  sequential `find_symbol`, edits without `get_edit_context`,
-  `memory_search` without prior `memory_index`, native shell on code
-  files). 30-day scan in ~2.5 s on a 343 MB transcript dir.
+- [CHANGELOG.md](CHANGELOG.md) for the full history
+- [Releases](https://github.com/Mibayy/token-savior/releases) for the tagged builds
+- [PyPI](https://pypi.org/project/token-savior-recall/) for what `pip` will actually give you
 
 ---
 
