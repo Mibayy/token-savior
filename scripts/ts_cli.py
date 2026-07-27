@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from token_savior import memory_db  # noqa: E402
+from token_savior import memory_db
 
 
 def _resolve_project(explicit: str | None) -> str:

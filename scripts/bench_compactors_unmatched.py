@@ -9,7 +9,7 @@ import json
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -22,14 +22,14 @@ def main() -> int:
     from token_savior.compactors import compact
 
     root = Path.home() / ".claude" / "projects" / "-root"
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    cutoff = datetime.now(UTC) - timedelta(days=args.days)
 
     verbs: Counter[str] = Counter()
     total_unmatched_bytes = 0
     big_unmatched: list[tuple[int, str]] = []
 
     for path in sorted(root.glob("*.jsonl")):
-        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         if mtime < cutoff:
             continue
         pending = {}
@@ -85,7 +85,7 @@ def main() -> int:
         print(f"  {n:>4d}  {verb}")
     print()
     big_unmatched.sort(reverse=True)
-    print(f"Top 10 biggest unmatched outputs (>=500B):")
+    print("Top 10 biggest unmatched outputs (>=500B):")
     for b, cmd in big_unmatched[:10]:
         print(f"  {b:>7,d}B  {cmd}")
     return 0

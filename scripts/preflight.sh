@@ -6,8 +6,14 @@ set -euo pipefail
 VENV=/root/.local/token-savior-venv/bin
 cd "$(dirname "$0")/.."
 
-echo "==> [1/3] ruff check src/ tests/"
-"$VENV/python3" -m ruff check src/ tests/
+# `scripts/` ajoute le 27/07/2026. Il n'etait linte nulle part, ni ici ni dans
+# la CI : `ruff check scripts/` y trouvait 29 erreurs, dont une variable morte
+# portant une formule de calcul d'economies abandonnee au profit d'une autre.
+# Un repertoire du depot echappait au controle sans que rien ne le dise, et
+# c'est andrebrait qui l'a signale de biais, en notant que son propre EXE001
+# passait avant comme apres sa PR.
+echo "==> [1/3] ruff check src/ tests/ scripts/"
+"$VENV/python3" -m ruff check src/ tests/ scripts/
 
 echo "==> [2/3] pytest tests/ -q"
 # Bare `pytest`, not `python -m pytest`: the module form silently prepends the

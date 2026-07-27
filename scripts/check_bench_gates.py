@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Quality gate for retrieval benches.
 
 Reads the JSON result of a retrieval bench and exits non-zero when a
@@ -17,7 +18,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-
 
 # Thresholds calibrated on the 2026-04-23 baseline (commit bc5fad6).
 # Observed numbers: code semantic MRR 0.71 / R@3 0.77, library cold MRR

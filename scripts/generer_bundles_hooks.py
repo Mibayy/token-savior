@@ -22,7 +22,7 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RACINE / "src"))
 
-from token_savior.cli_init.vocabulaire_clients import (  # noqa: E402
+from token_savior.cli_init.vocabulaire_clients import (
     CLIENTS,
     SCRIPTS,
     Client,

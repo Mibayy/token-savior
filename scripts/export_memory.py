@@ -12,13 +12,13 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from token_savior import memory_db  # noqa: E402
+from token_savior import memory_db
 
 
 def _rows_to_dicts(rows) -> list[dict]:
@@ -52,7 +52,7 @@ def export_memory(project: str | None, output: Path) -> dict:
     conn.close()
 
     payload = {
-        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "version": "1.0",
         "project_root": project or "all",
         "stats": {

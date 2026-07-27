@@ -27,7 +27,7 @@ PAGE = ROOT / "docs" / "index.html"
 
 
 def _version() -> str:
-    m = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.MULTILINE)
     return m.group(1) if m else "?"
 
 

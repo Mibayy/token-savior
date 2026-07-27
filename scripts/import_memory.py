@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from token_savior import memory_db  # noqa: E402
+from token_savior import memory_db
 
 
 def _remap(row: dict, new_root: str | None) -> dict:

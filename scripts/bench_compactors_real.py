@@ -14,7 +14,7 @@ import argparse
 import json
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -34,7 +34,7 @@ def _pair_bash_calls(jsonl_path: Path, cutoff: datetime | None):
                 ts = None
                 if ts_raw:
                     try:
-                        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                        ts = datetime.fromisoformat(ts_raw)
                     except Exception:
                         ts = None
                 if cutoff and ts and ts < cutoff:
@@ -78,9 +78,9 @@ def main() -> int:
     args = ap.parse_args()
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-    from token_savior.compactors import registry, compact
+    from token_savior.compactors import compact, registry
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    cutoff = datetime.now(UTC) - timedelta(days=args.days)
 
     total_outputs = 0
     matched = 0
@@ -96,7 +96,7 @@ def main() -> int:
         return 1
 
     for path in jsonls:
-        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         if mtime < cutoff:
             continue
         for cmd, output in _pair_bash_calls(path, cutoff):
@@ -119,9 +119,6 @@ def main() -> int:
                         rec["examples"].append(cmd[:80])
                     break
 
-    saved = total_orig - (total_compact + (total_orig - sum(
-        v["orig"] for v in per_compactor.values()
-    )))
     saved_bytes = sum(v["orig"] - v["compact"] for v in per_compactor.values())
     saved_tokens_est = saved_bytes // 4
 
@@ -129,7 +126,7 @@ def main() -> int:
         out = {
             "window_days": args.days,
             "sessions_scanned": len([p for p in jsonls if datetime.fromtimestamp(
-                p.stat().st_mtime, tz=timezone.utc) >= cutoff]),
+                p.stat().st_mtime, tz=UTC) >= cutoff]),
             "bash_outputs_total": total_outputs,
             "bash_outputs_matched": matched,
             "match_rate_pct": round(100 * matched / max(1, total_outputs), 1),

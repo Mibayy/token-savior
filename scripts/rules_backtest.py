@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from token_savior.memory import rules  # noqa: E402
+from token_savior.memory import rules
 
 
 def extract_commands() -> list[str]:

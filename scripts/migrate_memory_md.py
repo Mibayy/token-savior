@@ -8,7 +8,7 @@ import hashlib
 import re
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MEMORY_DB_PATH = Path.home() / ".local" / "share" / "token-savior" / "memory.db"
@@ -81,7 +81,7 @@ def infer_type_from_filename(filename: str) -> str:
         return "decision"
     if name.startswith("session-"):
         return "project"
-    if name.startswith("hosting") or name.startswith("project-convention"):
+    if name.startswith(("hosting", "project-convention")):
         return "reference"
     return "project"
 
@@ -114,8 +114,8 @@ def migrate(project_root: str, memory_dir: Path, dry_run: bool = False) -> None:
     errors = 0
 
     conn = None if dry_run else get_db()
-    now = datetime.now(timezone.utc).isoformat()
-    epoch = int(datetime.now(timezone.utc).timestamp())
+    now = datetime.now(UTC).isoformat()
+    epoch = int(datetime.now(UTC).timestamp())
 
     for md_file in md_files:
         try:
