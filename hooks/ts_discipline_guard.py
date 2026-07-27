@@ -48,6 +48,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 # Extensions Token Savior can edit structurally. Everything else (.md, .json,
@@ -144,10 +145,39 @@ def seen_symbols(session_id: str) -> set[str]:
         return set()
 
 
+STATE_TTL_S = 7 * 86400
+
+
+def prune_state(dossier: Path) -> None:
+    """Drop session files nothing will read again.
+
+    One file per session accumulated forever, in a directory the user never
+    sees and no command names. Pruning on write keeps it to a handful of lines
+    and needs no new command: the directory stays small precisely because it
+    is pruned, so the scan it costs stays cheap.
+
+    Best-effort throughout — a state directory we cannot tidy must never be
+    the reason a tool call is refused.
+    """
+    limite = time.time() - STATE_TTL_S
+    try:
+        entrees = list(dossier.iterdir())
+    except OSError:
+        return
+    for entree in entrees:
+        try:
+            if entree.suffix == ".json" and entree.stat().st_mtime < limite:
+                entree.unlink()
+        except OSError:
+            pass
+
+
 def record_symbols(session_id: str, names: list[str]) -> None:
     seen = seen_symbols(session_id) | {n for n in names if n}
     try:
-        state_file(session_id).write_text(json.dumps(sorted(seen)), encoding="utf-8")
+        chemin = state_file(session_id)
+        prune_state(chemin.parent)
+        chemin.write_text(json.dumps(sorted(seen)), encoding="utf-8")
     except OSError:
         pass
 
@@ -182,11 +212,21 @@ def verdict_edit_without_context(tool: str, tool_input: dict, session_id: str) -
 
 
 def verdict_native_edit(tool_input: dict) -> str | None:
+    """Native `Edit`/`Write` on indexed source.
+
+    Goes through `is_indexed_code` like every other verdict. It used to repeat
+    the checks inline and drop `TOLERATED_PATHS` on the way, so the same file
+    was readable and not editable: `Read` on `node_modules/pkg/mod.py` passed,
+    `Edit` on it was refused. The remedy the message proposes cannot work
+    there — those trees are excluded from the index, so there is no symbol to
+    replace, and the only way out was `TS_GUARD_OFF=1`.
+
+    `is_indexed_code` also requires the file to exist, which keeps the
+    "creating a file has no symbol to replace" exit.
+    """
     path = str(tool_input.get("file_path") or "")
-    if not path.endswith(CODE_EXTENSIONS):
+    if not is_indexed_code(path):
         return None
-    if not os.path.exists(path):
-        return None  # creating a file: no symbol to replace
     root = indexed_root(path)
     if not root:
         return None
