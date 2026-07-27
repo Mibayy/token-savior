@@ -75,8 +75,40 @@ def rrf_merge(
 # tests/test_vector_distance_floor.py, pour que cette intention soit
 # executable au lieu d'etre decorative, et pour qu'un futur ecart soit un
 # choix delibere et non un accident de frappe.
-_DISTANCE_MAX_FUSION = 0.90   # en appui d'un resultat lexical
-_DISTANCE_MAX_SEULE = 0.90    # seul signal disponible : exiger la confiance
+# 0,90 -> 0,86 le 27/07/2026, parce que ce qu'on encode a change.
+#
+# La PR #91 fait entrer le TITRE de l'observation dans le vecteur, ce qui etait
+# un vrai defaut : un titre qui n'atteint jamais le vecteur est du signal jete.
+# Mais encoder plus deplace la distribution des distances, donc un seuil mesure
+# avant ce changement ne decrit plus ce code. C'est exactement le piege de #79,
+# ou une valeur avait ete jugee sur un corpus qui n'etait deja plus le bon.
+#
+# Balayage sur le corpus de tests/test_vector_distance_floor.py, titres encodes,
+# contre les attentes exactes des tests existants :
+#
+#     seuil   requetes muettes   bonne 1re reponse   sans bruit
+#     0,90        3/3                3/3               0/1   <- ancien
+#     0,89        3/3                3/3               1/1
+#     ...tout le plateau jusqu'a 0,82 est identique...
+#     0,82        3/3                3/3               1/1
+#
+# A 0,90, « certificat qui expire » ramenait « Relancer les tests » en plus.
+#
+# Le choix de 0,86 et pas de 0,89 : 0,89 est la premiere valeur qui marche,
+# donc elle est collee a la falaise. Un seuil pose au bord d'un genou casse au
+# premier changement de corpus ou de modele. 0,86 est au milieu du plateau
+# mesure, et tombe dans la zone que le balayage independant d'andrebrait dans
+# #79 signalait deja comme « free precision » : entre 0,84 et 0,90 la part de
+# voisins pertinents ne bougeait pas tandis que les non-pertinents passaient
+# de 2 % a 10 %.
+#
+# Ce que cette mesure NE dit pas : la valeur juste. Cinq observations ecrites
+# pour un test ne fondent pas un seuil de production. Elle etablit seulement
+# que 0,90 est desormais faux, ce qui suffit a justifier de bouger, et que
+# 0,86 est loin des deux bords de ce qu'on sait mesurer. Le vrai reglage
+# demande le corpus de rappel reel, cf. #79.
+_DISTANCE_MAX_FUSION = 0.86   # en appui d'un resultat lexical
+_DISTANCE_MAX_SEULE = 0.86    # seul signal disponible : exiger la confiance
 # Les deux valeurs sont egales aujourd'hui : la mesure ne montre aucune bande
 # ou le vecteur serait fiable en appui mais pas seul. Elles restent distinctes
 # parce que ce sont deux decisions differentes, et qu'un modele d'embedding
