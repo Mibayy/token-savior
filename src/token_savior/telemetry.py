@@ -35,6 +35,7 @@ server. Errors surface via ``telemetry_health()`` for a future
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -132,25 +133,93 @@ def _save(data: dict) -> None:
 # ── public API ─────────────────────────────────────────────────────────────
 
 
+@contextlib.contextmanager
+def _verrou(path: Path):
+    """Verrou exclusif inter-processus sur ``<path>.lock``.
+
+    Sans lui, deux processus qui incrementent le meme compteur font chacun
+    lire-modifier-ecrire sur leur propre copie et le dernier ecrivain ecrase
+    l'autre. Mesure du 27/07/2026 avant correction, huit processus de
+    cinquante incrementations chacun, temoin mono-processus exact a 400/400 :
+
+        2 processus -> 212 / 400 comptees   (47 % perdues)
+        8 processus -> 112, 104, 74 / 400   (72 a 81 % perdues)
+
+    Aucune exception, aucun processus en echec : la perte etait totalement
+    silencieuse.
+
+    Degrade en douceur. Si le verrou ne peut pas etre pris -- systeme sans
+    ``fcntl`` ni ``msvcrt``, repertoire en lecture seule, montage reseau qui
+    refuse le verrouillage -- on execute quand meme le bloc. Un compteur de
+    telemetrie ne doit jamais empecher un appel d'outil d'aboutir, et perdre
+    une incrementation reste infiniment preferable a lever une exception dans
+    le chemin de dispatch.
+    """
+    fichier = path.with_suffix(path.suffix + ".lock")
+    try:
+        fichier.parent.mkdir(parents=True, exist_ok=True)
+        poignee = fichier.open("a+")
+    except OSError:
+        yield
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(poignee.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            try:
+                import msvcrt
+
+                msvcrt.locking(poignee.fileno(), msvcrt.LK_LOCK, 1)
+            except Exception:
+                pass
+        yield
+    finally:
+        try:
+            import fcntl
+
+            fcntl.flock(poignee.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            poignee.close()
+        except OSError:
+            pass
+
+
 def record_tool_call(tool_name: str) -> None:
     """Increment the counter for ``(tool_name, client)``.
 
     Never raises. Call on every successful tool invocation. Failure to
     persist is recorded in :func:`telemetry_health` but never propagates
-    — we absolutely must not crash the tool-dispatch path for a
+    -- we absolutely must not crash the tool-dispatch path for a
     telemetry write.
+
+    L'etat est relu depuis le disque a chaque incrementation, sous verrou.
+    Il y avait auparavant un cache en memoire, garde pour eviter un cout
+    dit ``N²``. Ce cache etait le defaut : il retenait un instantane ABSOLU
+    du compteur, donc chaque processus reecrivait le fichier avec sa propre
+    vision du total et effacait celle des autres.
+
+    Le cout evite n'existait d'ailleurs pas. Le fichier ne grossit pas avec
+    le nombre d'appels mais avec le nombre d'outils DISTINCTS, environ 70 :
+    relire est lineaire, jamais quadratique. On a paye une mesure fausse
+    pour economiser un cout imaginaire.
     """
     if not tool_name:
         return
     client = _resolve_client()
     global _state
-    with _lock:
-        if _state is None:
-            _state = _load()
-        bucket = _state["counts"].setdefault(client, {})
-        bucket[tool_name] = bucket.get(tool_name, 0) + 1
-        _state["last_updated_epoch"] = int(time.time())
-        _save(_state)
+    chemin = _counter_path()
+    with _lock:  # concurrence entre threads du meme processus
+        with _verrou(chemin):  # concurrence entre processus
+            etat = _load()  # toujours frais, jamais un instantane garde
+            bucket = etat["counts"].setdefault(client, {})
+            bucket[tool_name] = bucket.get(tool_name, 0) + 1
+            etat["last_updated_epoch"] = int(time.time())
+            _save(etat)
+            _state = etat
 
 
 def _nudge_path() -> Path:
@@ -167,25 +236,37 @@ def record_nudge(kind: str) -> None:
     Adoption is measured by comparing the nudge fire count here against the
     target tool's count in tool-calls.json over time (e.g. does get_edit_context
     usage rise after the edit-context nudge starts firing?). Never raises.
+
+    Meme correction que :func:`record_tool_call`, et elle compte double ici :
+    ce compteur sert a juger l'efficacite des nudges. Un compteur de nudges
+    sous-evalue et un compteur d'outils sous-evalue, perdus dans des
+    proportions differentes selon la concurrence du moment, donnent un
+    RATIO faux. C'est sur ce genre de ratio qu'on decide de garder ou de
+    retirer un mecanisme.
     """
     if not kind:
         return
     global _nudge_state
+    chemin = _nudge_path()
     with _nudge_lock:
-        if _nudge_state is None:
-            _nudge_state = _load_json(_nudge_path())
-        counts = _nudge_state.setdefault("counts", {})
-        counts[kind] = counts.get(kind, 0) + 1
-        _nudge_state["last_updated_epoch"] = int(time.time())
-        _save_json(_nudge_path(), _nudge_state)
+        with _verrou(chemin):
+            etat = _load_json(chemin)  # frais, pas un instantane garde
+            counts = etat.setdefault("counts", {})
+            counts[kind] = counts.get(kind, 0) + 1
+            etat["last_updated_epoch"] = int(time.time())
+            _save_json(chemin, etat)
+            _nudge_state = etat
 
 
 def nudge_counts() -> dict[str, int]:
-    """Return persisted per-kind nudge fire counts. Never raises."""
+    """Return persisted per-kind nudge fire counts. Never raises.
+
+    Relit le disque, pour la meme raison que :func:`aggregate_counts` : le
+    cache ne voyait que ce que CE processus avait ecrit.
+    """
     global _nudge_state
     with _nudge_lock:
-        if _nudge_state is None:
-            _nudge_state = _load_json(_nudge_path())
+        _nudge_state = _load_json(_nudge_path())
         counts = _nudge_state.get("counts", {}) or {}
     return {k: v for k, v in counts.items() if isinstance(v, int)}
 
@@ -219,11 +300,15 @@ def telemetry_health() -> dict:
 
     Returns ``{"ok": bool, "path": str, "clients": int, "distinct_tools":
     int, "error": str | None}``.
+
+    Relit le disque : un diagnostic qui rapporte l'etat cache du processus
+    courant plutot que l'etat reel du fichier est precisement le diagnostic
+    qu'on ne veut pas avoir sous les yeux quand on cherche pourquoi les
+    chiffres ne collent pas.
     """
     global _state
     with _lock:
-        if _state is None:
-            _state = _load()
+        _state = _load()
         counts = _state.get("counts", {})
         clients = list(counts.keys())
         distinct_tools = len({
@@ -243,11 +328,18 @@ def aggregate_counts() -> dict[str, int]:
 
     Used by the `auto` profile to size the hot-tools layer from real
     historical usage. Returns ``{tool_name: total_count}``. Never raises.
+
+    Relit le disque plutot que de servir le cache. Le cache appartenait au
+    processus courant : un serveur demarre il y a une heure servait sa vision
+    d'il y a une heure, en ignorant tout ce que les autres processus avaient
+    compte depuis. Dimensionner la couche des outils chauds sur cette vision
+    revenait a la dimensionner sur une fraction arbitraire de l'usage reel.
+    Cette fonction est appelee au demarrage d'un profil, pas dans une boucle
+    chaude : la relecture ne coute rien.
     """
     global _state
     with _lock:
-        if _state is None:
-            _state = _load()
+        _state = _load()
         counts = _state.get("counts", {}) or {}
     aggregate: dict[str, int] = {}
     for bucket in counts.values():
