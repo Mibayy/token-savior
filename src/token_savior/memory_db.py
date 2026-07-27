@@ -33,16 +33,28 @@ from .db_core import (  # noqa: F401
 )
 
 
+def _surcharge() -> Path | None:
+    """Le chemin impose ici, ou None pour laisser `db_core` resoudre.
+
+    Ce module garde une copie de `MEMORY_DB_PATH` prise a l'import, et la
+    passait toujours explicitement : `db_core` recevait donc une valeur figee
+    et ne pouvait jamais consulter l'environnement. Tant que personne n'a
+    rebinde cette copie, on ne passe rien et la resolution revient a
+    `db_core.chemin_memoire()`.
+    """
+    return None if MEMORY_DB_PATH == db_core._CHEMIN_INITIAL else Path(MEMORY_DB_PATH)
+
+
 def get_db(db_path: Path | str | None = None) -> sqlite3.Connection:
-    return db_core.get_db(db_path or MEMORY_DB_PATH)
+    return db_core.get_db(db_path or _surcharge())
 
 
 def db_session(db_path: Path | str | None = None) -> AbstractContextManager[sqlite3.Connection]:
-    return db_core.db_session(db_path or MEMORY_DB_PATH)
+    return db_core.db_session(db_path or _surcharge())
 
 
 def run_migrations(db_path: Path | str | None = None) -> None:
-    return db_core.run_migrations(db_path or MEMORY_DB_PATH)
+    return db_core.run_migrations(db_path or _surcharge())
 
 
 # ---- memory/ subpackage re-exports (public surface) ----------------------
