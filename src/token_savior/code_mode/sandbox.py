@@ -399,10 +399,26 @@ def _balayer_transports_morts() -> None:
     Le processus derriere un tel transport est inutilisable : ses tuyaux sont
     rattaches a une boucle qui ne tournera plus. On le tue au passage, sinon
     chaque boucle abandonnee laisse un worker Node orphelin.
-    """
-    import os as _os
-    import signal as _signal
 
+    On le tue par son objet `Popen`, pas par son PID brut. Depuis la
+    disparition des child watchers, asyncio moissonne ses sous-processus dans
+    un fil, independamment de la duree de vie de la boucle. Mesure du
+    27/07/2026 sur 3.14.6, une seconde apres `loop.close()` :
+
+        processus deja termine  -> os.waitpid leve ECHILD (moissonne, PID libre)
+        worker de longue duree  -> tourne toujours, toujours a nous
+
+    Dans le premier cas le PID est retourne au pot commun du systeme et le
+    SIGKILL peut atteindre ce qui l'a recupere depuis : un processus
+    quelconque de l'utilisateur, tue par un balayage declenche par un appel
+    sans rapport, sans rien qui relie les deux. Attraper ProcessLookupError
+    n'y change rien : le mode de defaillance est l'appel qui *reussit*, contre
+    le mauvais processus.
+
+    `Popen.poll()` repond exactement a la bonne question -- il rend un code de
+    retour des que le processus a ete moissonne -- et `Popen.kill()` refuse de
+    signaler un processus qu'il a deja enterre.
+    """
     encore_vivants = []
     for reference in _TRANSPORTS_SUIVIS:
         transport = reference()
@@ -412,11 +428,12 @@ def _balayer_transports_morts() -> None:
         if boucle is None or not boucle.is_closed():
             encore_vivants.append(reference)
             continue
-        pid = getattr(transport, "_pid", None)
-        if pid:
+        processus = getattr(transport, "_proc", None)
+        if processus is not None:
             try:
-                _os.kill(pid, _signal.SIGKILL)
-            except (ProcessLookupError, OSError, TypeError):
+                if processus.poll() is None:
+                    processus.kill()
+            except (OSError, ValueError, AttributeError):
                 pass
         try:
             transport._closed = True
