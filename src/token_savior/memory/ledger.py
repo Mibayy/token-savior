@@ -190,7 +190,7 @@ def classify_miss(
         # Resolve via the fully-formed memory_db module (its observation_search
         # attribute) rather than importing observations directly, which would
         # trip the observations<->memory_db import cycle.
-        from token_savior import memory_db
+        from token_savior.memory._facade import memory_db
         search_fn = memory_db.observation_search
 
     query = " OR ".join(f'"{t}"' for t in tokens)

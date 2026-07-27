@@ -11,8 +11,8 @@ import sys
 import time
 from typing import Any
 
-from token_savior import memory_db
 from token_savior.db_core import _now_iso
+from token_savior.memory._facade import memory_db
 
 _PROMOTION_TYPE_RANK = {
     "note": 1, "bugfix": 2, "decision": 2,

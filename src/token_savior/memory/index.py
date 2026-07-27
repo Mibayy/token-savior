@@ -11,8 +11,8 @@ import sys
 import time
 from typing import Any
 
-from token_savior import memory_db
 from token_savior.db_core import relative_age
+from token_savior.memory._facade import memory_db
 
 _TYPE_SCORES = {
     "guardrail": 1.0, "ruled_out": 0.95, "convention": 0.9, "warning": 0.8,

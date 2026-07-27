@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from typing import Any
 
-from token_savior import memory_db
+from token_savior.memory._facade import memory_db
 
 
 def get_stats(project_root: str | None = None) -> dict[str, Any]:

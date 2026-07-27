@@ -206,8 +206,8 @@ def reindex_project_symbols(
       * elapsed_s  : wall clock
       * reason     : filled when status != "ok"
     """
-    from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    from token_savior.memory._facade import memory_db
     from token_savior.memory.embeddings import is_available
 
     if not VECTOR_SEARCH_AVAILABLE:
@@ -352,8 +352,8 @@ def search_symbols_semantic(
     contract still holds via the read-only schema + ``find_symbol``
     verification gate before any destructive operation on a hit.
     """
-    from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    from token_savior.memory._facade import memory_db
     from token_savior.memory.embeddings import embed
 
     if not VECTOR_SEARCH_AVAILABLE:

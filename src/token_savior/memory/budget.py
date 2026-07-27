@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from typing import Any
 
-from token_savior import memory_db
+from token_savior.memory._facade import memory_db
 
 # Claude Max effective context window. Treat as a soft ceiling for budgeting;
 # we measure observable consumption only (tokens we injected via hooks).

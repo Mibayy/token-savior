@@ -10,7 +10,6 @@ import sqlite3
 import sys
 from typing import Any
 
-from token_savior import memory_db
 from token_savior.db_core import (
     _json_dumps,
     _now_epoch,
@@ -19,6 +18,7 @@ from token_savior.db_core import (
     relative_age,
     strip_private,
 )
+from token_savior.memory._facade import memory_db
 from token_savior.memory.bus import DEFAULT_VOLATILE_TTL_DAYS
 from token_savior.memory.consistency import check_symbol_staleness
 from token_savior.memory.decay import (

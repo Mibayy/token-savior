@@ -13,7 +13,7 @@ import sys
 import time
 from typing import Any
 
-from token_savior import memory_db
+from token_savior.memory._facade import memory_db
 
 _ROI_LAMBDA = 0.05  # exponential decay per day since last access
 _ROI_HORIZON_DAYS = 30

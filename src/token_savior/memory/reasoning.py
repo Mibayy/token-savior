@@ -10,7 +10,6 @@ import sqlite3
 import sys
 from typing import Any
 
-from token_savior import memory_db
 from token_savior.db_core import (
     _fts5_safe_query,
     _json_dumps,
@@ -19,6 +18,7 @@ from token_savior.db_core import (
     observation_hash,
     relative_age,
 )
+from token_savior.memory._facade import memory_db
 from token_savior.memory._text_utils import _jaccard
 
 
