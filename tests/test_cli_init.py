@@ -17,6 +17,7 @@ from token_savior.cli_init import (
 )
 from token_savior.cli_init.agent_paths import (
     SUPPORTED_AGENTS,
+    detection_path,
     hook_config_paths,
     settings_path,
 )
@@ -171,6 +172,113 @@ def test_settings_path_explicit_home_wins_over_claude_config_dir(
 ) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
     assert settings_path("claude", "global", home=tmp_path) == tmp_path / ".claude" / "settings.json"
+
+
+# --- Config-root environment variables ----------------------------------- #
+#
+# Claude Code and Codex both let the user move their whole config root:
+# CLAUDE_CONFIG_DIR and CODEX_HOME. Probed against codex-cli 0.145.0 -- with
+# CODEX_HOME set, `codex doctor` reports that directory as CODEX_HOME and loads
+# `config.toml` from it.
+#
+# Token Savior read CODEX_HOME in exactly one place, as a "which client am I"
+# signal for stats, and hardcoded ~/.codex for every path. CLAUDE_CONFIG_DIR was
+# honoured in `settings_path`, but only on the `home is None` branch, which
+# `run()` never took because it resolved `Path.home()` before calling. So
+# `ts init` wrote hooks where neither agent would ever read them, and reported
+# a relocated agent as not installed.
+
+
+def test_settings_path_codex_global_honors_codex_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex2"))
+    assert settings_path("codex", "global") == tmp_path / "codex2" / "hooks.json"
+
+
+def test_settings_path_claude_global_still_honors_claude_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
+    assert settings_path("claude", "global") == tmp_path / "claude2" / "settings.json"
+
+
+def test_detection_path_codex_honors_codex_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otherwise a relocated Codex reads as "not installed"."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex2"))
+    assert detection_path("codex") == tmp_path / "codex2" / "config.toml"
+
+
+def test_detection_path_claude_honors_claude_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude2"))
+    assert detection_path("claude") == tmp_path / "claude2" / "settings.json"
+
+
+@pytest.mark.parametrize(
+    ("agent", "variable", "attendu"),
+    [("codex", "CODEX_HOME", ".codex"), ("claude", "CLAUDE_CONFIG_DIR", ".claude")],
+)
+def test_an_explicit_home_ignores_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    agent: str, variable: str, attendu: str,
+) -> None:
+    """An explicit `home` pins the answer, so tests stay environment-independent.
+
+    Without this rule, `_detect_agent(tmp_path)` would start seeing the
+    developer's own relocated agent and the suite would pass or fail depending
+    on who ran it.
+    """
+    monkeypatch.setenv(variable, str(tmp_path / "ailleurs"))
+    assert settings_path(agent, "global", home=tmp_path).is_relative_to(tmp_path / attendu)
+    assert detection_path(agent, tmp_path).is_relative_to(tmp_path / attendu)
+
+
+def test_settings_path_codex_local_ignores_codex_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Project scope stays project-relative: CODEX_HOME is a *user* config root."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex2"))
+    assert settings_path("codex", "local", cwd=tmp_path) == tmp_path / ".codex" / "hooks.json"
+
+
+@pytest.mark.parametrize(
+    ("agent", "variable", "fichier"),
+    [("codex", "CODEX_HOME", "hooks.json"),
+     ("claude", "CLAUDE_CONFIG_DIR", "settings.json")],
+)
+def test_ts_init_targets_the_relocated_config_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+    agent: str, variable: str, fichier: str,
+) -> None:
+    """The end-to-end gap: `run()` resolved Path.home() before asking.
+
+    This is the case the unit tests above could not catch, and the reason
+    CLAUDE_CONFIG_DIR support has been inert since it was added.
+    """
+    racine = tmp_path / "racine"
+    racine.mkdir()
+    monkeypatch.setenv(variable, str(racine))
+    rc = run(["--agent", agent, "--global", "--dry-run", "--ts-root", str(REPO_ROOT)])
+    assert rc == 0
+    sortie = capsys.readouterr().out
+    assert f"Target: {racine / fichier}" in sortie, sortie[:400]
+
+
+def test_ts_init_home_flag_wins_over_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ailleurs"))
+    fake_home = tmp_path / "maison"
+    fake_home.mkdir()
+    rc = run(["--agent", "claude", "--global", "--dry-run",
+              "--home", str(fake_home), "--ts-root", str(REPO_ROOT)])
+    assert rc == 0
+    sortie = capsys.readouterr().out
+    assert f"Target: {fake_home / '.claude' / 'settings.json'}" in sortie, sortie[:400]
 
 
 def test_hook_config_paths_claude_has_both() -> None:

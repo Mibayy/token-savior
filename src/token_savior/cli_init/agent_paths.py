@@ -70,12 +70,54 @@ def _local_settings(agent: str, cwd: Path) -> Path:
     raise ValueError(f"unsupported agent: {agent}")
 
 
-def detection_path(agent: str, home: Path) -> Path:
+# --------------------------------------------------------------------------- #
+# Relocatable config roots                                                    #
+# --------------------------------------------------------------------------- #
+# Claude Code and Codex both let the user move their entire config root. Probed
+# against codex-cli 0.145.0: with CODEX_HOME set, `codex doctor` reports that
+# directory as CODEX_HOME and loads its `config.toml` from it.
+#
+# CODEX_HOME was read in exactly one place in this codebase -- as a "which
+# client am I" signal for stats -- and every Codex path was hardcoded to
+# ~/.codex, so `ts init --agent codex` wrote hooks.json where Codex never looks
+# and the hooks silently did nothing.
+_VARIABLE_RACINE = {
+    "claude": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+}
+# Name of the settings file directly under a relocated root (no dot-directory:
+# the variable already points at the config root itself).
+_FICHIER_SOUS_RACINE = {"claude": "settings.json", "codex": "hooks.json"}
+# Name of the install marker under that same root. Codex's hooks.json only
+# exists once `ts init` has run, so its marker is config.toml.
+_MARQUEUR_SOUS_RACINE = {"claude": "settings.json", "codex": "config.toml"}
+
+
+def _config_root(agent: str) -> Path | None:
+    """The agent's own config-root override, when the environment sets one."""
+    variable = _VARIABLE_RACINE.get(agent)
+    if not variable:
+        return None
+    valeur = os.environ.get(variable, "").strip()
+    return Path(valeur) if valeur else None
+
+
+def detection_path(agent: str, home: Path | None = None) -> Path:
     """Return the file whose existence marks an installed agent.
 
     Usually the global settings file itself — except Codex, whose hooks.json
     only exists after `ts init` has run; its install marker is config.toml.
+
+    Honors the agent's config-root variable when `home` is not pinned, like
+    `settings_path`. Without it a relocated agent reads as *not installed*: the
+    marker lives under the moved root, and looking for it under `~` finds
+    nothing, so `ts init` skips an agent that is installed and configured.
     """
+    if home is None:
+        racine = _config_root(agent)
+        if racine is not None:
+            return racine / _MARQUEUR_SOUS_RACINE[agent]
+    home = home or Path.home()
     if agent == "codex":
         return home / ".codex" / "config.toml"
     return _global_settings(agent, home)
@@ -86,13 +128,13 @@ def settings_path(agent: str, scope: Scope = "global", *, home: Path | None = No
     """Return the settings.json path for the given agent and scope.
 
     `home` and `cwd` overrides are exposed for tests so we never touch the
-    real user filesystem. Claude Code honors the CLAUDE_CONFIG_DIR environment
-    variable for its global config root; an explicit `home` override wins.
+    real user filesystem; an explicit `home` wins over the environment, which
+    is what keeps the suite from depending on the developer's own setup.
     """
-    if scope == "global" and agent == "claude" and home is None:
-        config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-        if config_dir:
-            return Path(config_dir) / "settings.json"
+    if scope == "global" and home is None:
+        racine = _config_root(agent)
+        if racine is not None:
+            return racine / _FICHIER_SOUS_RACINE[agent]
     home = home or Path.home()
     cwd = cwd or Path.cwd()
     if scope == "global":

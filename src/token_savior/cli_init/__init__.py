@@ -42,8 +42,12 @@ else:
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
-def _detect_agent(home: Path) -> str | None:
-    """Return the first agent whose install marker already exists."""
+def _detect_agent(home: Path | None = None) -> str | None:
+    """Return the first agent whose install marker already exists.
+
+    `home` stays optional so that, unpinned, `detection_path` may consult the
+    agent's own config-root variable (CLAUDE_CONFIG_DIR, CODEX_HOME).
+    """
     for agent in SUPPORTED_AGENTS:
         try:
             if detection_path(agent, home).exists():
@@ -205,7 +209,13 @@ def run(argv: list[str] | None = None, *,
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    home = Path(args.home) if args.home else Path.home()
+    # Left as None when unset, deliberately. Resolving Path.home() here and
+    # passing it down pinned the answer before anyone could ask about
+    # CLAUDE_CONFIG_DIR or CODEX_HOME, so the support added for the former was
+    # never reachable through this command -- `ts init` reported
+    # `Target: ~/.claude/settings.json` with CLAUDE_CONFIG_DIR pointing
+    # elsewhere. The path helpers fall back to Path.home() themselves.
+    home = Path(args.home) if args.home else None
     cwd = Path(args.cwd) if args.cwd else Path.cwd()
     ts_root = Path(args.ts_root) if args.ts_root else _REPO_ROOT
 
