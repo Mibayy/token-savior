@@ -186,3 +186,86 @@ def test_meta_persists_as_json():
     )
     got = tool_capture.capture_get(res["id"])
     assert "exit_code" in (got["meta_json"] or "")
+
+
+def test_put_dedups_identical_output_within_window():
+    """Same output + args + session shortly after: same id, one row (#96)."""
+    out = "identical payload\n" * 50
+    first = tool_capture.capture_put(
+        tool_name="Bash", output=out, args_summary="ls", session_id="s1")
+    second = tool_capture.capture_put(
+        tool_name="Bash", output=out, args_summary="ls", session_id="s1")
+    assert second["id"] == first["id"]
+    assert second.get("deduped") is True
+    conn = db_core.get_db()
+    n = conn.execute("SELECT COUNT(*) FROM tool_captures").fetchone()[0]
+    conn.close()
+    assert n == 1
+
+
+def test_put_no_dedup_across_sessions_or_content():
+    out = "payload\n" * 50
+    a = tool_capture.capture_put(tool_name="Bash", output=out, session_id="s1")
+    b = tool_capture.capture_put(tool_name="Bash", output=out, session_id="s2")
+    c = tool_capture.capture_put(tool_name="Bash", output=out + "x", session_id="s1")
+    assert len({a["id"], b["id"], c["id"]}) == 3
+
+
+def test_put_purges_rows_older_than_ttl(monkeypatch):
+    """capture_put garbage-collects rows beyond TS_CAPTURE_TTL_DAYS (#96)."""
+    monkeypatch.setenv("TS_CAPTURE_TTL_DAYS", "7")
+    old = tool_capture.capture_put(tool_name="Bash", output="ancient", session_id="s1")
+    conn = db_core.get_db()
+    conn.execute(
+        "UPDATE tool_captures SET created_at_epoch = created_at_epoch - 8 * 86400 "
+        "WHERE id = ?", (old["id"],))
+    conn.commit()
+    conn.close()
+    tool_capture.capture_put(tool_name="Bash", output="fresh", session_id="s1")
+    conn = db_core.get_db()
+    ids = [r[0] for r in conn.execute("SELECT id FROM tool_captures").fetchall()]
+    conn.close()
+    assert old["id"] not in ids
+
+
+def test_put_ttl_zero_disables_purge(monkeypatch):
+    monkeypatch.setenv("TS_CAPTURE_TTL_DAYS", "0")
+    old = tool_capture.capture_put(tool_name="Bash", output="ancient", session_id="s1")
+    conn = db_core.get_db()
+    conn.execute(
+        "UPDATE tool_captures SET created_at_epoch = created_at_epoch - 400 * 86400 "
+        "WHERE id = ?", (old["id"],))
+    conn.commit()
+    conn.close()
+    tool_capture.capture_put(tool_name="Bash", output="fresh", session_id="s1")
+    conn = db_core.get_db()
+    n = conn.execute("SELECT COUNT(*) FROM tool_captures").fetchone()[0]
+    conn.close()
+    assert n == 2
+
+
+def test_migration_adds_output_hash_to_predating_db(monkeypatch, tmp_path):
+    """A database created before output_hash existed gains the column (#96)."""
+    import sqlite3 as _sq
+
+    db_path = tmp_path / "old.sqlite"
+    conn = _sq.connect(db_path)
+    conn.execute(
+        "CREATE TABLE tool_captures ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,"
+        " project_root TEXT, tool_name TEXT NOT NULL, args_hash TEXT,"
+        " args_summary TEXT, output_full TEXT NOT NULL, output_preview TEXT,"
+        " output_bytes INTEGER NOT NULL, output_lines INTEGER NOT NULL DEFAULT 0,"
+        " created_at_epoch INTEGER NOT NULL, meta_json TEXT)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db_core, "MEMORY_DB_PATH", db_path)
+    db_core._migrated_paths.clear()
+    db_core.run_migrations(db_path)
+    res = tool_capture.capture_put(tool_name="Bash", output="migrated ok")
+    assert res["id"] is not None
+    conn = db_core.get_db()
+    h = conn.execute(
+        "SELECT output_hash FROM tool_captures WHERE id = ?", (res["id"],)).fetchone()[0]
+    conn.close()
+    assert h

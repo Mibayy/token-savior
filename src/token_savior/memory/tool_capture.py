@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -24,6 +25,35 @@ from token_savior import db_core
 _DEFAULT_PREVIEW_BYTES = 800
 _DEFAULT_PREVIEW_LINES = 8
 _MAX_OUTPUT_BYTES = 8 * 1024 * 1024  # 8 MiB hard cap; truncate beyond
+_DEDUP_WINDOW_S = 120  # identical put within this window returns the same row
+_DEFAULT_TTL_DAYS = 30  # rows older than this are purged on the next put
+
+
+def _ttl_seconds() -> int | None:
+    """TTL from TS_CAPTURE_TTL_DAYS (default 30 days); 0 or invalid disables."""
+    raw = os.environ.get("TS_CAPTURE_TTL_DAYS", str(_DEFAULT_TTL_DAYS))
+    try:
+        days = int(raw)
+    except ValueError:
+        days = _DEFAULT_TTL_DAYS
+    if days <= 0:
+        return None
+    return days * 86400
+
+
+def _purge_expired(conn: sqlite3.Connection, now: int) -> int:
+    """Delete captures older than the TTL. Cheap when there is nothing to do:
+    one MIN() probe on the created_at index before any DELETE."""
+    ttl = _ttl_seconds()
+    if ttl is None:
+        return 0
+    cutoff = now - ttl
+    oldest = conn.execute("SELECT MIN(created_at_epoch) FROM tool_captures").fetchone()[0]
+    if oldest is None or oldest >= cutoff:
+        return 0
+    return conn.execute(
+        "DELETE FROM tool_captures WHERE created_at_epoch < ?", (cutoff,)
+    ).rowcount
 
 
 def _hash_args(args: Any) -> str:
@@ -79,23 +109,46 @@ def capture_put(
         output = output[:_MAX_OUTPUT_BYTES] + "\n…[truncated to 8MiB cap]"
     preview = _make_preview(output)
     args_hash = _hash_args({"tool": tool_name, "args": args_summary})
+    output_hash = hashlib.sha256(output.encode("utf-8", errors="replace")).hexdigest()[:32]
     epoch = int(time.time())
     n_lines = output.count("\n") + (0 if output.endswith("\n") or not output else 1)
     try:
         conn = db_core.get_db()
+        # Dedup: an identical output for the same tool/args/session within the
+        # window (e.g. the hook registered in two settings scopes firing twice)
+        # returns the existing handle instead of storing the bytes again.
+        row = conn.execute(
+            "SELECT id FROM tool_captures "
+            "WHERE output_hash = ? AND args_hash = ? "
+            "  AND ifnull(session_id, '') = ifnull(?, '') "
+            "  AND created_at_epoch >= ? "
+            "ORDER BY id DESC LIMIT 1",
+            (output_hash, args_hash, session_id, epoch - _DEDUP_WINDOW_S),
+        ).fetchone()
+        if row:
+            conn.close()
+            return {
+                "id": row["id"],
+                "uri": f"ts://capture/{row['id']}",
+                "preview": preview,
+                "bytes": len(output),
+                "lines": n_lines,
+                "deduped": True,
+            }
         cur = conn.execute(
             "INSERT INTO tool_captures "
             "(session_id, project_root, tool_name, args_hash, args_summary, "
-            " output_full, output_preview, output_bytes, output_lines, "
+            " output_full, output_hash, output_preview, output_bytes, output_lines, "
             " created_at_epoch, meta_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id, project_root, tool_name, args_hash, args_summary,
-                output, preview, len(output), n_lines, epoch,
+                output, output_hash, preview, len(output), n_lines, epoch,
                 json.dumps(meta) if meta else None,
             ),
         )
         cap_id = cur.lastrowid
+        _purge_expired(conn, epoch)
         conn.commit()
         conn.close()
     except sqlite3.Error as exc:

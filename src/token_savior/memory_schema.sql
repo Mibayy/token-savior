@@ -326,6 +326,7 @@ CREATE TABLE IF NOT EXISTS tool_captures (
     args_hash         TEXT,
     args_summary      TEXT,
     output_full       TEXT NOT NULL,
+    output_hash       TEXT,
     output_preview    TEXT,
     output_bytes      INTEGER NOT NULL,
     output_lines      INTEGER NOT NULL DEFAULT 0,
@@ -334,6 +335,7 @@ CREATE TABLE IF NOT EXISTS tool_captures (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_captures_session ON tool_captures(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_captures_hash    ON tool_captures(output_hash);
 CREATE INDEX IF NOT EXISTS idx_tool_captures_created ON tool_captures(created_at_epoch DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_captures_tool    ON tool_captures(tool_name);
 CREATE INDEX IF NOT EXISTS idx_tool_captures_project ON tool_captures(project_root);
