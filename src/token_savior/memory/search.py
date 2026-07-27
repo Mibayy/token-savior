@@ -32,46 +32,47 @@ def rrf_merge(
     """Fuse N rank-ordered result lists into a single list using RRF.
 
     Score per obs = Σ 1/(k + rank_i), where rank is 1-based within each
-    individual list. The highest-scoring rows survive. Metadata is taken
-    from the first list the id appears in (stable for debuggability).
+    individual list. Metadata is taken from the first list the id appears in
+    (stable for debuggability).
 
-    En plus du score, la TETE de chaque liste est garantie PRESENTE dans la
-    sortie. Elle n'est pas remontee en tete du resultat : le score continue
-    de decider de l'ordre, la garantie ne fait qu'interdire la disparition.
+    La TETE de chaque liste est ensuite remontee devant, dans l'ordre des
+    listes. Le score continue de classer tout le reste.
 
-    Le defaut corrige est arithmetique, pas accidentel. Avec k = 60 :
+    Pourquoi. RRF sans garde laisse un resultat mediocre partout battre un
+    resultat excellent quelque part. Avec k = 60 :
 
         classe 1 dans UNE liste   -> 1/61 = 0,0164
         classe 3 dans DEUX listes -> 2/63 = 0,0317
 
-    Le mediocre partout bat l'excellent quelque part, et avec une fenetre
-    etroite il ne le devance pas seulement : il l'evince. Mesure du
-    27/07/2026 en instrumentant les deux jambes SEPAREMENT sur la vraie
-    base, la jambe lexicale placait 11 cibles sur 12 au rang 1 et la fusion
-    en faisait tomber trois, dont une hors de la sortie.
+    Diagnostic pose en instrumentant les deux jambes SEPAREMENT plutot qu'en
+    lisant le resultat fusionne : la jambe lexicale placait 11 cibles sur 12
+    au rang 1, la fusion en faisait tomber trois.
 
-    Mesure sur 38 observations reelles, requetes en forme longue :
+    Mesure sur 45 observations reelles, requetes en forme longue. Le jeu est
+    NEUTRE : chaque requete est batie sur des mots presents dans le contenu
+    de la cible et ABSENTS de son titre, pour qu'aucune jambe ne parte avec
+    un avantage offert.
 
-        RRF nu                 37/38 trouvees, rang moyen 2,51
-        garantie de presence   38/38 trouvees, rang moyen 2,71
-        garantie de position   38/38 trouvees, rang moyen 1,08
+        RRF nu                 39/45 trouvees, rang moyen 2,08
+        garantie de presence   39/45 trouvees, rang moyen 2,08
+        garantie de position   39/45 trouvees, rang moyen 1,26
 
-    **La position mesure mieux et n'a pas ete retenue.** Les requetes du
-    jeu d'evaluation sont fabriquees a partir des titres des observations
-    cibles : elles partagent donc des mots exacts avec la bonne reponse, ce
-    qui avantage mecaniquement la jambe lexicale. Un utilisateur ne cite pas
-    le titre qu'il cherche. Le gain de rang est vraisemblablement ce biais,
-    pas une propriete du moteur, et le graver reviendrait a decider que le
-    lexical prime sur la foi d'une mesure qui lui donne l'avantage.
+    Historique de la decision, parce qu'elle a change. Un premier jeu, dont
+    les requetes venaient des TITRES, donnait a la position un avantage
+    suspect (rang 1,08 contre 2,71) et la garantie de presence avait ete
+    retenue par prudence. Refaite sans ce biais, la mesure montre que la
+    presence n'apporte rien du tout -- exactement le meme resultat que RRF nu
+    -- tandis que la position tient. La prudence etait de la timidite : elle
+    a coute une version qui ne corrigeait rien.
 
-    Ce qui est indefendable independamment du biais, c'est qu'un resultat
-    juge meilleur par une jambe DISPARAISSE. C'est cela, et cela seul, que
-    la garantie corrige. Elle cede la derniere place de la fenetre, donc
-    elle coute 0,2 de rang moyen ici : c'est le prix de ne pas trancher un
-    arbitrage qu'on n'a pas les moyens de mesurer proprement.
+    Ce qui n'est PAS corrige ici : six cibles restent hors du top 10 quelle
+    que soit la fusion. Elles sont toutes trouvees au rang 1 avec une requete
+    courte. C'est la dilution de la requete longue, un probleme distinct qui
+    se traite du cote de la construction de la requete, pas de la fusion.
 
-    Refaire la mesure avec des requetes independantes des titres est ce qui
-    permettrait de trancher entre presence et position.
+    Elargir la fenetre de recuperation ne sert a rien : mesure a x2, x5 et
+    x8, resultat identique. Les cibles manquantes sont recuperees puis
+    tronquees au classement, pas absentes de la recuperation.
     """
     scores: dict[int, float] = {}
     metadata: dict[int, dict[str, Any]] = {}
@@ -85,20 +86,18 @@ def rrf_merge(
                 metadata[oid] = row
 
     classement = [oid for oid, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)]
-    retenus = classement[:limit]
 
-    # Chaque tete de liste doit figurer quelque part. On cede la derniere
-    # place plutot que la premiere : le score garde la main sur l'ordre.
-    for rows in ranked_lists:
-        if not rows:
-            continue
-        tete = rows[0].get("id")
-        if tete is None or tete not in scores or tete in retenus:
-            continue
-        retenus = retenus[: max(limit - 1, 0)] + [tete]
+    # `reversed` parce que chaque insertion se fait en position 0 : la tete de
+    # la premiere liste finit donc bien devant celle de la seconde.
+    tetes = [rows[0].get("id") for rows in ranked_lists
+             if rows and rows[0].get("id") is not None]
+    for tete in reversed(tetes):
+        if tete in classement:
+            classement.remove(tete)
+            classement.insert(0, tete)
 
     out: list[dict[str, Any]] = []
-    for oid in retenus[:limit]:
+    for oid in classement[:limit]:
         row = dict(metadata[oid])
         row["_rrf_score"] = round(scores[oid], 6)
         out.append(row)

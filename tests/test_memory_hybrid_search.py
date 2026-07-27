@@ -114,12 +114,31 @@ class TestHybridSearchFallback:
 
 class TestHybridSearchFused:
     def test_rrf_reorders_when_vec_available(self, monkeypatch):
-        """Simulate vec availability and verify RRF fusion promotes overlap."""
+        """RRF favorise le recouvrement, MAIS les tetes de liste passent devant.
+
+        Ce test affirmait `ids[0] == 7`, c'est-a-dire que l'element moyen dans
+        les deux jambes devait etre premier. L'assertion a change le 27/07/2026
+        parce que la mesure a contredit l'hypothese, pas parce qu'elle genait.
+
+        Sur 45 observations reelles, avec un jeu neutre dont les requetes sont
+        baties sur des mots du contenu absents du titre :
+
+            RRF nu               39/45 trouvees, rang moyen 2,08
+            garantie de position 39/45 trouvees, rang moyen 1,26
+
+        Ce qui pousse le consensus devant pousse aussi, mecaniquement, le
+        meilleur resultat d'une jambe vers le bas voire hors de la fenetre :
+        avec k = 60, un classe 1 dans une seule liste marque 1/61 quand un
+        classe 3 dans les deux marque 2/63.
+
+        Ce que le test verifie toujours, et qui reste l'intention d'origine :
+        le recouvrement compte. Une fois les tetes placees, #7 -- present dans
+        les deux jambes -- devance les elements qu'une seule a vus.
+        """
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         from token_savior.memory import embeddings
         monkeypatch.setattr(embeddings, "embed", lambda text, **kw: [0.1] * 768)
 
-        # #7 is mid-rank in FTS but also mid-rank in vec → highest fused.
         fts = [{"id": 1}, {"id": 2}, {"id": 7}, {"id": 3}, {"id": 4}]
         vec = [{"id": 9}, {"id": 10}, {"id": 7}, {"id": 11}, {"id": 12}]
         monkeypatch.setattr(search_mod, "vec_search_rows",
@@ -127,9 +146,12 @@ class TestHybridSearchFused:
 
         out = hybrid_search(None, fts, "q", PROJECT, limit=5)
         ids = [r["id"] for r in out]
-        assert ids[0] == 7
-        # Singletons from both lists also appear in top-5.
-        assert 1 in ids or 9 in ids
+
+        # Les deux tetes d'abord, dans l'ordre des listes.
+        assert ids[:2] == [1, 9], ids
+        # Puis le recouvrement, devant les elements vus par une seule jambe.
+        assert 7 in ids, ids
+        assert ids.index(7) < ids.index(2), f"#7 est partage, #2 non : {ids}"
 
 
 class TestObservationSearchIntegration:
