@@ -38,7 +38,30 @@ def _resoudre_repertoire_donnees() -> Path:
     return base / "token-savior"
 
 
-MEMORY_DB_PATH = _resoudre_repertoire_donnees() / "memory.db"
+# Point de surcharge : la suite de tests le rebinde pour toute la session, et
+# 31 modules de test le rebindent au cas par cas. C'est le mecanisme documente
+# en tete de `memory_db`, il doit continuer de gagner.
+_CHEMIN_INITIAL = _resoudre_repertoire_donnees() / "memory.db"
+MEMORY_DB_PATH = _CHEMIN_INITIAL
+
+
+def chemin_memoire() -> Path:
+    """Ou vit la base memoire, demande au moment ou on l'ouvre.
+
+    `TOKEN_SAVIOR_DATA_DIR` et `XDG_DATA_HOME` etaient lus une fois, a
+    l'import. Ils ne comptaient donc que s'ils etaient deja poses avant le
+    premier `import token_savior.db_core` : un script d'enrobage qui configure
+    l'environnement apres avoir importe le paquet, un hote qui le fait par
+    projet, etaient ignores en silence et la memoire partait dans
+    `~/.local/share/token-savior`. Meme forme que le defaut corrige en 4.20.0 :
+    la valeur est lisible, et pas lue au moment ou elle compte.
+
+    Une surcharge explicite l'emporte ; a defaut on redemande a
+    l'environnement plutot que de rejouer une reponse datee de l'import.
+    """
+    if MEMORY_DB_PATH != _CHEMIN_INITIAL:
+        return Path(MEMORY_DB_PATH)
+    return _resoudre_repertoire_donnees() / "memory.db"
 
 _SCHEMA_PATH = Path(__file__).parent / "memory_schema.sql"
 
@@ -104,7 +127,7 @@ def run_migrations(db_path: Path | str | None = None) -> None:
     free of schema inspection; also invoked lazily from get_db() as a
     safety net (e.g. for tests that patch MEMORY_DB_PATH).
     """
-    path = Path(db_path) if db_path else MEMORY_DB_PATH
+    path = Path(db_path) if db_path else chemin_memoire()
     path_str = str(path)
     if path_str in _migrated_paths:
         return
@@ -332,7 +355,7 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     connection so that the obs_vectors vec0 table is queryable. Missing
     extension is silent (warning emitted once, see _maybe_load_sqlite_vec).
     """
-    path = db_path or MEMORY_DB_PATH
+    path = db_path or chemin_memoire()
     run_migrations(path)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row

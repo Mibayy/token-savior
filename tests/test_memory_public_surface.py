@@ -69,6 +69,7 @@ EXPECTED_PUBLIC = [
     "_read_activity_tracker",
     "_read_session_override",
     "_recalculate_relevance_scores",
+    "_surcharge",
     "_write_activity_tracker",
     "analyze_prompt_patterns",
     "annotations",
