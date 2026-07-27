@@ -13,6 +13,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+from token_savior import telemetry
 from token_savior.cache_ops import CacheManager, compute_config_key
 from token_savior.git_tracker import get_changed_files, get_head_commit, is_git_repo
 from token_savior.project_indexer import ProjectIndexer, _rebuild_path_indexes
@@ -28,9 +29,14 @@ if TYPE_CHECKING:
 # Per-project slot dataclass
 # ---------------------------------------------------------------------------
 
-_STATS_DIR = os.path.expanduser(
-    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
-)
+def _stats_dir() -> str:
+    """Ou ce module ecrit, demande au moment ou il ecrit (#90).
+
+    `_STATS_DIR` etait fige a l'import, donc `TOKEN_SAVIOR_STATS_DIR` pose
+    apres ce premier import ne comptait plus ici alors qu'il comptait dans
+    `telemetry` : le meme processus ecrivait a deux endroits.
+    """
+    return str(telemetry.stats_dir())
 
 
 @dataclasses.dataclass
@@ -87,7 +93,7 @@ def _get_stats_file(project_root: str) -> str:
     """Return path to the stats JSON file for this project."""
     slug = hashlib.md5(project_root.encode()).hexdigest()[:8]
     name = os.path.basename(project_root.rstrip("/"))
-    return os.path.join(_STATS_DIR, f"{name}-{slug}.json")
+    return os.path.join(_stats_dir(), f"{name}-{slug}.json")
 
 
 # --- Registered-project persistence ---------------------------------------
@@ -98,14 +104,30 @@ def _get_stats_file(project_root: str) -> str:
 # collector-crypt-scanner reindexed 20x. Persisting the registry here lets
 # switch_project reach those projects across restarts (cache-aware, no rebuild).
 
-_REGISTERED_ROOTS_FILE = os.path.join(_STATS_DIR, "registered_projects.json")
+# Point de surcharge : `test_registered_persistence` le rebinde par cas. Compare
+# a sa valeur d'import pour distinguer « personne n'a rien impose, redemande a
+# l'environnement » de « quelqu'un a impose un chemin, il gagne » -- meme forme
+# que `db_core.chemin_memoire()`.
+_REGISTERED_ROOTS_INITIAL = os.path.join(
+    os.path.expanduser(
+        os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+    ),
+    "registered_projects.json",
+)
+_REGISTERED_ROOTS_FILE = _REGISTERED_ROOTS_INITIAL
+
+
+def _registered_roots_file() -> str:
+    if _REGISTERED_ROOTS_FILE != _REGISTERED_ROOTS_INITIAL:
+        return _REGISTERED_ROOTS_FILE
+    return os.path.join(_stats_dir(), "registered_projects.json")
 
 
 def _load_registered_roots() -> list[str]:
     """Return persisted project roots that still exist on disk (best-effort)."""
     import json
     try:
-        with open(_REGISTERED_ROOTS_FILE, encoding="utf-8") as f:
+        with open(_registered_roots_file(), encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         return []
@@ -123,11 +145,12 @@ def _persist_registered_root(root: str) -> None:
         if root in existing:
             return
         existing.append(root)
-        os.makedirs(_STATS_DIR, exist_ok=True)
-        tmp = _REGISTERED_ROOTS_FILE + ".tmp"
+        cible = _registered_roots_file()
+        os.makedirs(os.path.dirname(cible), exist_ok=True)
+        tmp = cible + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(existing, f)
-        os.replace(tmp, _REGISTERED_ROOTS_FILE)
+        os.replace(tmp, cible)
     except OSError:
         pass
 

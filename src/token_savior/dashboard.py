@@ -7,9 +7,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_STATS_DIR = Path(
-    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
-).expanduser()
+from token_savior.telemetry import stats_dir as _stats_dir
+
+# `DEFAULT_STATS_DIR` etait une constante calculee a l'import ET une valeur par
+# defaut d'argument, donc figee deux fois. Les deux fonctions qui l'utilisaient
+# prennent desormais `None` et demandent le repertoire au moment de lire (#90).
 HOST = os.environ.get("TOKEN_SAVIOR_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TOKEN_SAVIOR_DASHBOARD_PORT", "8921"))
 INCLUDE_TMP_PROJECTS = os.environ.get("TOKEN_SAVIOR_INCLUDE_TMP_PROJECTS", "").lower() in {
@@ -254,7 +256,8 @@ def collect_memory_engine_data() -> dict:
     }
 
 
-def collect_dashboard_data(stats_dir: Path = DEFAULT_STATS_DIR) -> dict:
+def collect_dashboard_data(stats_dir: Path | None = None) -> dict:
+    stats_dir = _stats_dir() if stats_dir is None else stats_dir
     files = sorted(stats_dir.glob("*.json")) if stats_dir.exists() else []
     projects = []
     recent_sessions = []
@@ -986,7 +989,7 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 
 
-def gain_report(stats_dir: Path = DEFAULT_STATS_DIR, project: str | None = None) -> dict:
+def gain_report(stats_dir: Path | None = None, project: str | None = None) -> dict:
     """Savings for every project, or for one, reusing the dashboard collector.
 
     Scripts wanting these numbers previously had to run the dashboard or parse

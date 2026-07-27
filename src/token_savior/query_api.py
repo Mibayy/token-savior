@@ -2772,16 +2772,12 @@ class ProjectQueryEngine:
         tca_scores: dict[str, float] = {}
         tca_used = False
         try:
-            import os
-            from pathlib import Path
-
             from token_savior.tca_engine import TCAEngine
+            from token_savior.telemetry import stats_dir as _stats_dir
 
-            stats_dir = Path(
-                os.path.expanduser(
-                    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
-                )
-            )
+            # Deja resolu a l'usage avant #90 ; passe par la reference unique
+            # pour que les six sites ne puissent plus diverger.
+            stats_dir = _stats_dir()
             if (stats_dir / "tca_coactivation.json").exists():
                 engine = TCAEngine(stats_dir)
                 co = engine.get_coactive_symbols(name, top_k=200, min_coactivation=1)

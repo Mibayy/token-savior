@@ -16,7 +16,6 @@ from token_savior import slot_manager as sm
 
 def test_persist_and_load_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, "_REGISTERED_ROOTS_FILE", str(tmp_path / "reg.json"))
-    monkeypatch.setattr(sm, "_STATS_DIR", str(tmp_path))
     proj = tmp_path / "proj"
     proj.mkdir()
 
@@ -28,7 +27,6 @@ def test_persist_and_load_roundtrip(tmp_path, monkeypatch):
 
 def test_load_filters_missing_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, "_REGISTERED_ROOTS_FILE", str(tmp_path / "reg.json"))
-    monkeypatch.setattr(sm, "_STATS_DIR", str(tmp_path))
     live = tmp_path / "live"
     live.mkdir()
     (tmp_path / "reg.json").write_text(
@@ -39,13 +37,11 @@ def test_load_filters_missing_dirs(tmp_path, monkeypatch):
 
 def test_load_missing_file_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, "_REGISTERED_ROOTS_FILE", str(tmp_path / "absent.json"))
-    monkeypatch.setattr(sm, "_STATS_DIR", str(tmp_path))
     assert sm._load_registered_roots() == []
 
 
 def test_load_corrupt_file_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(sm, "_REGISTERED_ROOTS_FILE", str(tmp_path / "reg.json"))
-    monkeypatch.setattr(sm, "_STATS_DIR", str(tmp_path))
     (tmp_path / "reg.json").write_text("{not json", encoding="utf-8")
     assert sm._load_registered_roots() == []
 
@@ -56,7 +52,6 @@ def test_resolve_unregistered_by_path_and_basename(tmp_path, monkeypatch):
     from token_savior.server_handlers import project as proj
 
     monkeypatch.setattr(sm, "_REGISTERED_ROOTS_FILE", str(tmp_path / "reg.json"))
-    monkeypatch.setattr(sm, "_STATS_DIR", str(tmp_path))
     d = tmp_path / "myproj"
     d.mkdir()
 

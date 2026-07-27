@@ -408,7 +408,7 @@ def _get_stats_file(project_root: str) -> str:
     """Return path to the stats JSON file for this project."""
     slug = hashlib.md5(project_root.encode()).hexdigest()[:8]
     name = os.path.basename(project_root.rstrip("/"))
-    return os.path.join(s._STATS_DIR, f"{name}-{slug}.json")
+    return os.path.join(s.stats_dir(), f"{name}-{slug}.json")
 
 
 def _load_cumulative_stats(stats_file: str) -> dict[str, Any]:
@@ -448,7 +448,7 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
     if not slot.stats_file:
         return
     try:
-        os.makedirs(s._STATS_DIR, exist_ok=True)
+        os.makedirs(s.stats_dir(), exist_ok=True)
         cum = _load_cumulative_stats(slot.stats_file)
         session_calls = sum(s._tool_call_counts.values()) - s._tool_call_counts.get(
             "get_stats", 0
