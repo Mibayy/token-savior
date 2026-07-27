@@ -1219,6 +1219,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 "project_root": {"type": "string", "description": "Filter by project (where applicable)."},
                 "limit": {"type": "integer", "description": "Pagination/limit (where applicable)."},
                 "dry_run": {"type": "boolean", "description": "Preview-only mode for sweeps/garbage collectors."},
+                "rebuild": {"type": "boolean", "description": "vector_reindex: re-embed rows that already have a vector, not just the missing ones."},
             },
             "additionalProperties": True,
         },

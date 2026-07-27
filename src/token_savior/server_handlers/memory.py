@@ -472,7 +472,8 @@ def _mh_memory_vector_reindex(args: dict[str, Any]) -> str:
     from token_savior.memory.embeddings import backfill_obs_vectors
     root = _resolve_memory_project(args)
     limit = int(args.get("limit", 500))
-    res = backfill_obs_vectors(project_root=root, limit=limit)
+    rebuild = bool(args.get("rebuild", False))
+    res = backfill_obs_vectors(project_root=root, limit=limit, rebuild=rebuild)
     status = res.get("status", "?")
     if status != "ok":
         reason = res.get("reason", "unknown")

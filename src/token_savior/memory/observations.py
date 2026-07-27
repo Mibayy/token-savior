@@ -237,8 +237,13 @@ def observation_save(
             obs_id = cur.lastrowid
             _supersede_stale(conn, semantic, obs_id, now)
             try:
-                from token_savior.memory.embeddings import maybe_index_obs
-                maybe_index_obs(obs_id, narrative or content, conn)
+                from token_savior.memory.embeddings import (
+                    maybe_index_obs,
+                    texte_indexable,
+                )
+                maybe_index_obs(
+                    obs_id, texte_indexable(title, narrative or content), conn,
+                )
             except Exception:
                 pass
             conn.commit()
@@ -725,14 +730,19 @@ def observation_update(
             from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
             if VECTOR_SEARCH_AVAILABLE:
                 try:
-                    from token_savior.memory.embeddings import maybe_index_obs
+                    from token_savior.memory.embeddings import (
+                        maybe_index_obs,
+                        texte_indexable,
+                    )
                     row = conn.execute(
-                        "SELECT COALESCE(narrative, content) AS text "
+                        "SELECT title, COALESCE(narrative, content) AS text "
                         "FROM observations WHERE id=?",
                         (obs_id,),
                     ).fetchone()
                     if row is not None:
-                        maybe_index_obs(obs_id, row["text"], conn)
+                        maybe_index_obs(
+                            obs_id, texte_indexable(row["title"], row["text"]), conn,
+                        )
                 except Exception as exc:
                     print(
                         f"[token-savior:memory] obs_vectors refresh on "
