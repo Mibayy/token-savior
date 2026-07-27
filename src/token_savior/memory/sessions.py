@@ -8,8 +8,8 @@ from __future__ import annotations
 import sqlite3
 import sys
 
-from token_savior import memory_db
 from token_savior.db_core import _json_dumps, _now_epoch, _now_iso
+from token_savior.memory._facade import memory_db
 
 
 def session_start(project_root: str) -> int:

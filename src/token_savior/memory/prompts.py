@@ -9,8 +9,8 @@ import sqlite3
 import sys
 import time
 
-from token_savior import memory_db
 from token_savior.db_core import _now_epoch, _now_iso, strip_private
+from token_savior.memory._facade import memory_db
 from token_savior.memory._text_utils import _STOPWORDS, _TOKEN_RE
 
 

@@ -184,7 +184,7 @@ def _save_extracted(items: list[dict], project_root: str) -> int:
     if not items or not project_root:
         return 0
     try:
-        from token_savior import memory_db
+        from token_savior.memory._facade import memory_db
     except Exception:
         return 0
     saved = 0
@@ -213,7 +213,7 @@ def _save_extracted(items: list[dict], project_root: str) -> int:
 def _resolve_project_root() -> str:
     """Fallback project resolution: pick the most-observed project_root."""
     try:
-        from token_savior import memory_db
+        from token_savior.memory._facade import memory_db
         db = memory_db.get_db()
         row = db.execute(
             "SELECT project_root FROM observations "

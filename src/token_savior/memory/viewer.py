@@ -249,7 +249,7 @@ def _active_project_root() -> str:
     except Exception:
         pass
     try:
-        from token_savior import memory_db
+        from token_savior.memory._facade import memory_db
         with memory_db.db_session() as conn:
             row = conn.execute(
                 "SELECT project_root FROM observations "
@@ -572,7 +572,7 @@ def _build_handler() -> type:
         # ── route handlers ────────────────────────────────────────────────
 
         def _handle_obs(self, obs_id: int, fmt: str = "") -> None:
-            from token_savior import memory_db
+            from token_savior.memory._facade import memory_db
             rows = memory_db.observation_get([obs_id])
             if not rows:
                 if fmt == "html":
@@ -591,7 +591,7 @@ def _build_handler() -> type:
                 self._send_json(200, obs)
 
         def _handle_search(self, q: str, limit: int, fmt: str = "") -> None:
-            from token_savior import memory_db
+            from token_savior.memory._facade import memory_db
             project = _active_project_root()
             if q:
                 rows = memory_db.observation_search(
@@ -613,7 +613,7 @@ def _build_handler() -> type:
                 })
 
         def _handle_status(self, fmt: str = "") -> None:
-            from token_savior import memory_db
+            from token_savior.memory._facade import memory_db
             project = _active_project_root()
             db = memory_db.get_db()
             try:

@@ -11,8 +11,8 @@ import sys
 import time
 from typing import Any
 
-from token_savior import memory_db
 from token_savior.db_core import relative_age
+from token_savior.memory._facade import memory_db
 
 #: Validity below this threshold quarantines the observation.
 CONSISTENCY_QUARANTINE_THRESHOLD = 0.40

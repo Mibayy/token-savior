@@ -202,8 +202,8 @@ def backfill_obs_vectors(
       * pending  : total - (previously_indexed + indexed_this_run)
       * reason   : filled when status != "ok"
     """
-    from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    from token_savior.memory._facade import memory_db
 
     if not VECTOR_SEARCH_AVAILABLE:
         return {
@@ -269,8 +269,8 @@ def backfill_obs_vectors(
 
 def vector_coverage(project_root: str) -> dict[str, Any]:
     """Return {total, indexed, percent, available} for a project."""
-    from token_savior import memory_db
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    from token_savior.memory._facade import memory_db
 
     result: dict[str, Any] = {
         "total": 0, "indexed": 0, "percent": 0.0,

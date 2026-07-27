@@ -218,7 +218,7 @@ def capture_turn(transcript_path: str, project_root: str) -> list[dict]:
     if not raw:
         return []
 
-    from token_savior import memory_db
+    from token_savior.memory._facade import memory_db
 
     saved = []
     for item in _parse_items(raw):
