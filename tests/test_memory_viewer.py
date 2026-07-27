@@ -448,3 +448,79 @@ class TestStatusHtmlFragment:
         # A2-2 adds continuity to the JSON payload too.
         assert "continuity" in data
         assert "score" in data["continuity"]
+
+
+class TestArchivedObservations:
+    """The viewer is the audit surface, so it must show what memory retires.
+
+    v4.20.0 made `observation_get` exclude archived rows by default -- right
+    for an agent reading memory, which must not be served retired facts -- and
+    added `superseded_by` so an observation made false by a newer one is
+    *archived, never deleted*, explicitly so that "what was true in April" can
+    still be answered and a wrong supersession can be undone.
+
+    `_handle_obs` was not updated, so it answered 404 for exactly those rows:
+    the link exists in the data and dead-ends in the only UI that could follow
+    it, and undoing a supersession meant opening SQLite by hand.
+    """
+
+    def test_deleted_observation_is_still_served(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        oid = memory_db.observation_save(
+            sid, PROJECT, "convention", "retiree", "body content",
+        )
+        assert oid is not None
+        assert memory_db.observation_delete(oid) is True
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/obs/{oid}") as r:
+            data = json.loads(r.read())
+        assert data["id"] == oid
+        assert data["title"] == "retiree"
+        assert data["archived"] == 1
+
+    def test_superseded_observation_is_still_served(self, _viewer_running):
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        ancienne = memory_db.observation_save(
+            sid, PROJECT, "insight", "ancienne", "body content",
+        )
+        nouvelle = memory_db.observation_save(
+            sid, PROJECT, "insight", "nouvelle", "other body",
+        )
+        assert ancienne is not None and nouvelle is not None
+        conn = memory_db.get_db()
+        try:
+            conn.execute(
+                "UPDATE observations SET archived=1, superseded_by=? WHERE id=?",
+                (nouvelle, ancienne),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/obs/{ancienne}") as r:
+            data = json.loads(r.read())
+        assert data["id"] == ancienne
+        assert data["superseded_by"] == nouvelle, data
+
+    def test_html_detail_marks_the_row_as_retired(self, _viewer_running):
+        """A retired row served as if current would be worse than a 404."""
+        port = _viewer_running
+        sid = memory_db.session_start(PROJECT)
+        oid = memory_db.observation_save(
+            sid, PROJECT, "convention", "retiree-html", "body content",
+        )
+        assert oid is not None
+        assert memory_db.observation_delete(oid) is True
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/obs/{oid}?fmt=html") as r:
+            page = r.read().decode("utf-8")
+        assert "retiree-html" in page
+        assert "archived" in page.lower(), page[:400]
+
+    def test_absent_observation_is_still_a_404(self, _viewer_running):
+        port = _viewer_running
+        with pytest.raises(Exception) as exc_info:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/obs/999999")
+        assert "404" in str(exc_info.value)

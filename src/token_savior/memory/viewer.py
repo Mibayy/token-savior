@@ -529,6 +529,18 @@ def _build_handler() -> type:
             content = str(obs.get("content") or "")
             body = narrative or content
             meta_bits = [b for b in [obs_type, project, created] if b]
+            # Une observation retiree servie comme si elle etait courante
+            # serait pire que le 404 qu'elle rendait : c'est precisement
+            # l'echec que la peremption existe pour eviter. On la sert, et on
+            # dit qu'elle est retiree.
+            if obs.get("archived"):
+                remplacant = obs.get("superseded_by")
+                etat = (
+                    f"archived · superseded by #{int(remplacant)}"
+                    if remplacant
+                    else "archived"
+                )
+                meta_bits.insert(0, etat)
             return (
                 f'<div class="detail" id="d-{obs_id}">'
                 f'<div class="meta">{e(" · ".join(meta_bits))}</div>'
@@ -573,7 +585,13 @@ def _build_handler() -> type:
 
         def _handle_obs(self, obs_id: int, fmt: str = "") -> None:
             from token_savior import memory_db
-            rows = memory_db.observation_get([obs_id])
+            # `include_archived` : le defaut de `observation_get` est le bon
+            # pour un agent qui lit la memoire -- on ne lui sert pas un fait
+            # perime. Le visualiseur est l'inverse : c'est la surface d'audit,
+            # et une observation archivee ou remplacee y repondait 404. Le
+            # lien `superseded_by` existait donc dans les donnees et ne menait
+            # nulle part dans la seule interface capable de le suivre.
+            rows = memory_db.observation_get([obs_id], include_archived=True)
             if not rows:
                 if fmt == "html":
                     self._send_html(
