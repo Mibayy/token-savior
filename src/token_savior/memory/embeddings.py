@@ -155,6 +155,25 @@ def _serialize_vec(vec: list[float]) -> Any | None:
         return None
 
 
+def texte_indexable(titre: str | None, corps: str | None) -> str | None:
+    """Texte reellement embarque pour une observation : titre PUIS corps.
+
+    Le titre porte la formulation courte -- « Redemarrer nginx » -- pendant que
+    le corps porte la commande -- « systemctl restart nginx apres modification
+    du vhost ». Les indexer separement n'a pas de sens : une requete formulee
+    comme un titre (« redemarrer le serveur web ») est alors comparee a un
+    texte d'ou le mot qu'elle demande est absent, et le voisin correct sort
+    derriere des observations sans rapport.
+
+    Recette unique, appelee par les trois sites qui indexent (save, update,
+    backfill), pour qu'elle ne puisse pas diverger de l'un a l'autre. Un
+    changement ICI change ce que veulent dire les vecteurs deja stockes : voir
+    ``backfill_obs_vectors(rebuild=True)``.
+    """
+    morceaux = [m.strip() for m in (titre, corps) if m and m.strip()]
+    return "\n".join(morceaux) or None
+
+
 def maybe_index_obs(obs_id: int, text: str | None, conn: Any) -> bool:
     """Embed ``text`` and upsert an obs_vectors row using ``conn``.
 
@@ -174,8 +193,15 @@ def maybe_index_obs(obs_id: int, text: str | None, conn: Any) -> bool:
     if blob is None:
         return False
     try:
+        # vec0 refuse `INSERT OR REPLACE` sur sa cle primaire -- il leve
+        # « UNIQUE constraint failed on obs_vectors primary key » au lieu de
+        # remplacer. Le DELETE prealable est donc la seule forme d'upsert
+        # disponible, et sans lui toute reindexation (rafraichissement apres
+        # une mise a jour de contenu, backfill(rebuild=True)) echouait en
+        # silence : l'exception etait avalee et l'ancien vecteur restait.
+        conn.execute("DELETE FROM obs_vectors WHERE obs_id = ?", (obs_id,))
         conn.execute(
-            "INSERT OR REPLACE INTO obs_vectors(obs_id, embedding) VALUES (?, ?)",
+            "INSERT INTO obs_vectors(obs_id, embedding) VALUES (?, ?)",
             (obs_id, blob),
         )
         return True
@@ -191,6 +217,7 @@ def backfill_obs_vectors(
     project_root: str | None = None,
     *,
     limit: int = 500,
+    rebuild: bool = False,
 ) -> dict[str, Any]:
     """Backfill obs_vectors for observations that lack a vector row.
 
@@ -201,6 +228,14 @@ def backfill_obs_vectors(
       * total    : total eligible obs
       * pending  : total - (previously_indexed + indexed_this_run)
       * reason   : filled when status != "ok"
+
+    ``rebuild=True`` re-embeds rows that ALREADY have a vector, instead of
+    only filling the gaps. A vector is only comparable to vectors built from
+    the same text recipe (:func:`texte_indexable`); a row indexed before the
+    recipe changed keeps answering with the old meaning, and nothing in the
+    schema records which recipe produced it. There is no automatic migration
+    on purpose -- dropping the stale rows at startup would leave vector
+    recall dead until someone ran this by hand.
     """
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
     from token_savior.memory._facade import memory_db
@@ -241,21 +276,25 @@ def backfill_obs_vectors(
                     "reason": "obs_vectors table missing (extension not loaded)",
                 }
 
+            deja_indexes = "" if rebuild else \
+                "  AND id NOT IN (SELECT obs_id FROM obs_vectors) "
             rows = conn.execute(
-                f"SELECT id, COALESCE(narrative, content) AS text "
+                f"SELECT id, title, COALESCE(narrative, content) AS text "
                 f"FROM observations WHERE archived=0 {where_proj} "
-                f"  AND id NOT IN (SELECT obs_id FROM obs_vectors) "
+                f"{deja_indexes}"
                 f"ORDER BY id DESC LIMIT ?",
                 base_params + [int(limit)],
             ).fetchall()
 
             indexed = 0
             for r in rows:
-                if maybe_index_obs(r["id"], r["text"], conn):
+                if maybe_index_obs(r["id"], texte_indexable(r["title"], r["text"]), conn):
                     indexed += 1
             conn.commit()
 
-        pending = max(0, total - prev_indexed - indexed)
+        # En rebuild les lignes re-indexees etaient deja comptees dans
+        # prev_indexed : les additionner ferait disparaitre le reste a faire.
+        pending = max(0, total - (prev_indexed if rebuild else prev_indexed + indexed))
         return {
             "status": "ok", "indexed": indexed, "total": total,
             "pending": pending, "previously_indexed": prev_indexed,

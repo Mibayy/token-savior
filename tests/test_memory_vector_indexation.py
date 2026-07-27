@@ -9,6 +9,7 @@ table (no vec0 extension required).
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 from unittest.mock import patch
 
@@ -104,7 +105,13 @@ class TestObservationSaveVectorHookSimulatedAvailable:
         assert row["obs_id"] == oid
         assert row["n"] == 3072
 
-    def test_embed_receives_narrative_preferred_over_content(self, monkeypatch):
+    def test_embed_receives_title_then_narrative_preferred_over_content(self, monkeypatch):
+        """The title is part of the indexed text; narrative still wins over content.
+
+        Indexing the body alone leaves the short formulation out of the vector,
+        so a query phrased like a title is compared against a text that does
+        not contain what it asks for (see tests/test_vector_distance_floor.py).
+        """
         monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
         captured: dict[str, str] = {}
 
@@ -117,10 +124,16 @@ class TestObservationSaveVectorHookSimulatedAvailable:
         _create_plain_obs_vectors_table()
 
         _save(title="t", content="CONTENT", narrative="NARRATIVE")
-        assert captured["text"] == "NARRATIVE"
+        assert captured["text"] == "t\nNARRATIVE"
 
         _save(title="t2", content="CONTENT2", narrative=None)
-        assert captured["text"] == "CONTENT2"
+        assert captured["text"] == "t2\nCONTENT2"
+
+    def test_texte_indexable_tolerates_missing_parts(self):
+        assert embeddings.texte_indexable("titre", "corps") == "titre\ncorps"
+        assert embeddings.texte_indexable(None, "corps") == "corps"
+        assert embeddings.texte_indexable("titre", None) == "titre"
+        assert embeddings.texte_indexable("  ", "") is None
 
 
 class TestBackfillFunction:
@@ -187,6 +200,79 @@ class TestBackfillFunction:
         assert n == 3
         # Sanity: the ids match.
         assert {o1, o2, o3} == set(range(min(o1, o2, o3), max(o1, o2, o3) + 1))
+
+    def test_rebuild_reindexes_rows_that_already_have_a_vector(self, monkeypatch):
+        """Without rebuild, a row indexed under an older text recipe is skipped.
+
+        Nothing in the schema records which recipe produced a stored vector, so
+        the only way to bring old rows onto the current one is to re-embed them
+        on demand.
+        """
+        monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
+        monkeypatch.setattr(embeddings, "_load_model", lambda: object())
+        seen: list[str] = []
+        monkeypatch.setattr(
+            embeddings, "embed", lambda text, **kw: seen.append(text or "") or [0.0] * 768
+        )
+        monkeypatch.setattr(embeddings, "_serialize_vec", lambda vec: b"\x00" * 3072)
+        _create_plain_obs_vectors_table()
+
+        _save(title="a", content="aa")
+        _save(title="b", content="bb")
+
+        seen.clear()
+        res = embeddings.backfill_obs_vectors(project_root=PROJECT, limit=10)
+        assert res["indexed"] == 0, "les deux lignes ont deja un vecteur"
+        assert seen == []
+
+        res = embeddings.backfill_obs_vectors(project_root=PROJECT, limit=10, rebuild=True)
+        assert res["status"] == "ok"
+        assert res["indexed"] == 2
+        assert res["pending"] == 0
+        assert sorted(seen) == ["a\naa", "b\nbb"]
+
+
+class TestReindexationSurUneVraieTableVec0:
+    """Les autres tests de ce fichier utilisent une table obs_vectors ORDINAIRE.
+
+    C'est ce qui rend la suite executable sur un hote sans sqlite-vec, mais une
+    table ordinaire accepte `INSERT OR REPLACE` -- vec0 le refuse. Le cas
+    « ce vecteur existe deja, remplace-le » n'etait donc couvert nulle part.
+    """
+
+    def test_maybe_index_obs_remplace_un_vecteur_existant(self, monkeypatch):
+        """Reindexer une observation deja indexee doit reussir, pas echouer.
+
+        observation_update() rafraichit le vecteur quand le contenu change, et
+        backfill_obs_vectors(rebuild=True) reindexe tout le monde : les deux
+        passent par ce chemin, et tous deux echouaient en silence sur une vraie
+        table vec0 (`UNIQUE constraint failed on obs_vectors primary key`),
+        maybe_index_obs avalant l'exception pour rendre False.
+        """
+        pytest.importorskip("sqlite_vec")
+        monkeypatch.setattr(db_core, "VECTOR_SEARCH_AVAILABLE", True)
+        # Un vecteur distinct par appel : _save() en consomme deja un.
+        appels = itertools.count()
+        monkeypatch.setattr(
+            embeddings, "embed",
+            lambda text, **kw: [float(next(appels))] + [0.0] * 767,
+        )
+
+        oid = _save(title="cible", content="corps")
+        with memory_db.db_session() as conn:
+            if not conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='obs_vectors' AND sql LIKE '%vec0%'"
+            ).fetchone():
+                pytest.skip("obs_vectors n'est pas une table vec0 sur cet hote")
+            assert embeddings.maybe_index_obs(oid, "premiere version", conn) is True
+            avant = conn.execute(
+                "SELECT embedding FROM obs_vectors WHERE obs_id=?", (oid,)
+            ).fetchone()[0]
+            assert embeddings.maybe_index_obs(oid, "seconde version", conn) is True
+            apres = conn.execute(
+                "SELECT embedding FROM obs_vectors WHERE obs_id=?", (oid,)
+            ).fetchone()[0]
+        assert avant != apres, "le vecteur stocke n'a pas ete remplace"
 
 
 class TestVectorReindexHandler:

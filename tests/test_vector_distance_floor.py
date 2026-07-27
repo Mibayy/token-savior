@@ -112,3 +112,47 @@ def test_le_seuil_en_fusion_n_est_jamais_plus_strict_que_seul() -> None:
         f"{_DISTANCE_MAX_SEULE} : un voisin cautionne par le lexical serait "
         "plus exige qu'un voisin sans aucune corroboration."
     )
+
+
+def test_le_titre_de_l_observation_atteint_le_vecteur(base) -> None:
+    """L'exemple pathologique du docstring, mesure sur le leg vectoriel seul.
+
+    « redemarrer le serveur web » classait `Certificat SSL expire` DEVANT
+    `Redemarrer nginx`. Le classement n'est pas arbitraire : le vecteur d'une
+    observation est calcule sur `narrative or content`, donc sur
+    « systemctl restart nginx apres modification du vhost » -- le titre, ou
+    le mot « redemarrer » figure en toutes lettres, n'atteint jamais
+    l'embedding. La requete est comparee a un texte qui ne contient pas ce
+    qu'elle demande.
+
+    Le leg lexical masque le defaut de bout en bout (observations_fts indexe
+    le titre, lui), donc la mesure se fait ici sur `vec_search_rows`, ou le
+    vecteur est le seul signal -- exactement le cas que _DISTANCE_MAX_SEULE
+    est cense servir.
+
+    Seul test du fichier qui exige vraiment la pile vectorielle : la CI
+    installe `[dev,mcp]`, sans `memory-vector`, donc sqlite-vec et fastembed y
+    sont absents et les autres tests d'ici passent par le seul leg lexical.
+    """
+    from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    from token_savior.memory.embeddings import embed, is_available
+    from token_savior.memory.search import vec_search_rows
+
+    if not (VECTOR_SEARCH_AVAILABLE and is_available()):
+        pytest.skip("pile vectorielle absente (sqlite-vec / fastembed)")
+
+    with memory_db.db_session() as conn:
+        voisins = vec_search_rows(
+            conn, embed("redemarrer le serveur web", as_query=True), base, limit=5,
+        )
+    par_titre = {v["title"]: v["distance"] for v in voisins}
+
+    assert voisins[0]["title"] == "Redemarrer nginx", (
+        "le voisin le plus proche de « redemarrer le serveur web » devrait "
+        f"etre `Redemarrer nginx` : {[(v['title'], round(v['distance'], 4)) for v in voisins]}"
+    )
+    assert par_titre["Redemarrer nginx"] <= _DISTANCE_MAX_SEULE, (
+        f"la bonne reponse sort a {par_titre['Redemarrer nginx']:.4f}, au-dela "
+        f"du plancher {_DISTANCE_MAX_SEULE} : le plancher ecarte la reponse "
+        "correcte en meme temps que le bruit."
+    )
