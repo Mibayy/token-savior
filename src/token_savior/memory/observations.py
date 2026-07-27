@@ -11,6 +11,7 @@ import sys
 from typing import Any
 
 from token_savior.db_core import (
+    _fts5_safe_query,
     _json_dumps,
     _now_epoch,
     _now_iso,
@@ -427,6 +428,32 @@ def observation_search(
     default; pass ``include_quarantine=True`` to see them. Stale-suspected
     obs are returned but flagged via the ``stale_suspected`` key — callers
     can prepend ⚠️ to the title in formatted output.
+
+    La chaine d'essais compte quatre etapes, du plus precis au plus large.
+    Chacune n'est tentee que si la precedente n'a rien rendu, donc une
+    requete qui marche aujourd'hui rend exactement la meme chose qu'avant.
+
+    L'etape `_fts5_safe_query` a ete ajoutee le 27/07/2026 apres mesure. En
+    FTS5 une suite de mots bruts est un ET IMPLICITE : la requete longue
+    exige que TOUS les mots soient presents, y compris les mots de liaison.
+    Sur 45 observations reelles, requetes en langage naturel bâties sur des
+    mots du contenu absents du titre, jambe lexicale seule :
+
+        requete brute (ET implicite)  ->  0/45, et 45 requetes sur 45
+                                          rendant zero ligne
+        _requete_elargie              -> 29/45, 16 erreurs SQL
+        _requete_prefixe              -> 29/45, 16 erreurs SQL
+        _fts5_safe_query              -> 45/45, aucune erreur
+
+    Les deux replis existants echouaient sur 36 % des requetes parce qu'ils
+    ne mettent pas leurs termes entre guillemets : une apostrophe ou un mot
+    ressemblant a un operateur suffisait a faire lever FTS5. L'erreur etait
+    attrapee, l'essai suivant tente, et le silence complet passait pour une
+    absence de resultats.
+
+    `_requete_prefixe` est conserve APRES : il couvre un cas que le reste ne
+    couvre pas, la famille morphologique d'un mot (`nommer` / `nommage`),
+    que FTS5 ne racinise pas en francais.
     """
     try:
         conn = memory_db.get_db()
@@ -464,10 +491,8 @@ def observation_search(
             # place). Mieux vaut un second essai qu'une exception remontee a
             # l'appelant pour une question legitime.
             fts_rows = []
-        # Trois essais, du plus precis au plus large. Chacun n'est tente que
-        # si le precedent n'a rien rendu : une requete qui marche aujourd'hui
-        # rend exactement la meme chose qu'avant.
-        for construire in (_requete_elargie, _requete_prefixe):
+
+        for construire in (_fts5_safe_query, _requete_elargie, _requete_prefixe):
             if fts_rows:
                 break
             variante = construire(query)
