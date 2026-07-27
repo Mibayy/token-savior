@@ -73,7 +73,11 @@ jobs:
         # dans le preflight local : 29 erreurs y dormaient, dont une variable
         # morte portant une formule d'economies abandonnee. Deux garde-fous
         # regardant le meme sous-ensemble ne font pas deux garde-fous.
-        run: ruff check src/ tests/ scripts/
+        # Depuis le 27/07/2026 au soir : tout le depot. Enumerer les
+        # repertoires refait le meme trou a chaque nouveau dossier —
+        # `hooks/` et `benchmarks/` dormaient hors du perimetre avec deux
+        # erreurs (EXE001, I001).
+        run: ruff check .
 
       - name: Run tests
         run: pytest tests/ -v
