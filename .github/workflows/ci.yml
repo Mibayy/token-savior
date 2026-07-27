@@ -22,7 +22,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e ".[dev,mcp]"
+        # `memory-vector` ajoute sqlite-vec et fastembed. Sans lui, 53 tests
+        # se sautaient en silence : toute la recherche vectorielle n'etait
+        # testee nulle part. Mesure du 27/07/2026, meme suite, meme machine :
+        #
+        #     avec sqlite-vec : 2822 passed,  5 skipped
+        #     sans            : 2768 passed, 58 skipped, 5 failed
+        #
+        # Un test saute ne rend pas la CI rouge, donc le trou etait invisible.
+        # C'est ainsi que la PR #91 a pu casser un test de qualite de rappel
+        # sans que la CI puisse le voir, tout en faisant echouer son propre
+        # test pour une raison sans rapport avec son code.
+        run: pip install -e ".[dev,mcp,memory-vector]"
 
       - name: Lint with ruff
         run: ruff check src/ tests/
