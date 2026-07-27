@@ -206,20 +206,23 @@ def record_tool_call(tool_name: str) -> None:
     le nombre d'appels mais avec le nombre d'outils DISTINCTS, environ 70 :
     relire est lineaire, jamais quadratique. On a paye une mesure fausse
     pour economiser un cout imaginaire.
+
+    Les deux verrous sont necessaires et ne font pas le meme travail :
+    ``_lock`` serialise les threads du processus courant, ``_verrou``
+    serialise les processus entre eux.
     """
     if not tool_name:
         return
     client = _resolve_client()
     global _state
     chemin = _counter_path()
-    with _lock:  # concurrence entre threads du meme processus
-        with _verrou(chemin):  # concurrence entre processus
-            etat = _load()  # toujours frais, jamais un instantane garde
-            bucket = etat["counts"].setdefault(client, {})
-            bucket[tool_name] = bucket.get(tool_name, 0) + 1
-            etat["last_updated_epoch"] = int(time.time())
-            _save(etat)
-            _state = etat
+    with _lock, _verrou(chemin):
+        etat = _load()  # toujours frais, jamais un instantane garde
+        bucket = etat["counts"].setdefault(client, {})
+        bucket[tool_name] = bucket.get(tool_name, 0) + 1
+        etat["last_updated_epoch"] = int(time.time())
+        _save(etat)
+        _state = etat
 
 
 def _nudge_path() -> Path:
@@ -248,14 +251,13 @@ def record_nudge(kind: str) -> None:
         return
     global _nudge_state
     chemin = _nudge_path()
-    with _nudge_lock:
-        with _verrou(chemin):
-            etat = _load_json(chemin)  # frais, pas un instantane garde
-            counts = etat.setdefault("counts", {})
-            counts[kind] = counts.get(kind, 0) + 1
-            etat["last_updated_epoch"] = int(time.time())
-            _save_json(chemin, etat)
-            _nudge_state = etat
+    with _nudge_lock, _verrou(chemin):
+        etat = _load_json(chemin)  # frais, pas un instantane garde
+        counts = etat.setdefault("counts", {})
+        counts[kind] = counts.get(kind, 0) + 1
+        etat["last_updated_epoch"] = int(time.time())
+        _save_json(chemin, etat)
+        _nudge_state = etat
 
 
 def nudge_counts() -> dict[str, int]:
