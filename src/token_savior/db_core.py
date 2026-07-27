@@ -97,6 +97,71 @@ def _maybe_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
         return False
 
 
+def _activer_wal(conn: sqlite3.Connection, *, patience_s: float = 5.0) -> None:
+    """Put the connection in WAL mode, waiting out a concurrent writer.
+
+    Changing the journal mode needs an exclusive lock, and SQLite refuses it
+    with SQLITE_BUSY **without calling the busy handler** when another
+    connection holds a write lock. The connection ``timeout=`` is therefore
+    never consulted and the refusal is instantaneous. Measured on 3.14.6:
+
+        another connection holds a read lock   -> BUSY after the full timeout
+        another connection holds a write lock  -> BUSY after 0.00s
+
+    Two clients starting on a *fresh* database hit the second case: the one
+    that reaches the pragma while the other is inside its migration
+    transaction is refused outright, the exception escapes ``get_db`` and that
+    client cannot start. Six processes on a barrier, fresh data dir: three
+    failed, each after 0.00s, and raising the timeout from 5s to 60s changed
+    nothing.
+
+    Retrying is the whole fix. As soon as any one client completes the switch
+    the database is already in WAL, so the pragma stops being a transition,
+    stops needing the exclusive lock, and succeeds for everyone else. That is
+    also why a warm database never showed this.
+
+    The last attempt is left to raise: a database we cannot put in WAL is a
+    real problem, not something to swallow.
+    """
+    limite = time.monotonic() + patience_s
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError:
+            if time.monotonic() >= limite:
+                raise
+            time.sleep(0.02)
+
+
+def _ajouter_colonne(conn: sqlite3.Connection, table: str, colonne: str, decl: str) -> bool:
+    """Add a column unless it is already there. True if this call added it.
+
+    Asking ``PRAGMA table_info`` first and issuing ``ALTER TABLE`` second is a
+    check that goes stale between the question and the answer: two clients
+    both read "missing", both add, and the loser gets
+
+        sqlite3.OperationalError: duplicate column name: decay_immune
+
+    which nothing caught, so the exception escaped ``run_migrations`` and that
+    client could not start. Measured with twelve processes released on a
+    barrier against a fresh data dir -- rare enough to read as a flake (2 runs
+    out of 10), certain enough to happen on someone's first day.
+
+    Letting SQLite arbitrate is the only check that cannot be stale by the
+    time it is acted on. A missing table is treated the same way: the schema
+    script that follows creates it with the column already declared.
+    """
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {decl}")
+        return True
+    except sqlite3.OperationalError as exc:
+        message = str(exc).lower()
+        if "duplicate column name" in message or "no such table" in message:
+            return False
+        raise
+
+
 def run_migrations(db_path: Path | str | None = None) -> None:
     """Apply schema + ALTER TABLE migrations once per database path.
 
@@ -112,54 +177,49 @@ def run_migrations(db_path: Path | str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path_str)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    _activer_wal(conn)
     conn.execute("PRAGMA foreign_keys = ON")
 
     try:
-        pre_cols = [r[1] for r in conn.execute("PRAGMA table_info(user_prompts)").fetchall()]
-        if pre_cols and "project_root" not in pre_cols:
-            conn.execute("ALTER TABLE user_prompts ADD COLUMN project_root TEXT")
+        _ajouter_colonne(conn, "user_prompts", "project_root", "TEXT")
 
         schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
         conn.executescript(schema_sql)
 
-        sess_cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
-        if "end_type" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN end_type TEXT")
-        if "tokens_injected" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_injected INTEGER DEFAULT 0")
-        if "tokens_saved_est" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN tokens_saved_est INTEGER DEFAULT 0")
+        _ajouter_colonne(conn, "sessions", "end_type", "TEXT")
+        _ajouter_colonne(conn, "sessions", "tokens_injected", "INTEGER DEFAULT 0")
+        _ajouter_colonne(conn, "sessions", "tokens_saved_est", "INTEGER DEFAULT 0")
 
-        obs_cols = [r[1] for r in conn.execute("PRAGMA table_info(observations)").fetchall()]
-        if "decay_immune" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN decay_immune INTEGER NOT NULL DEFAULT 0")
-        if "last_accessed_epoch" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN last_accessed_epoch INTEGER")
-        if "is_global" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_global ON observations(is_global)")
-        if "context" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN context TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_context ON observations(context)")
-        if "expires_at_epoch" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN expires_at_epoch INTEGER")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
-        if "agent_id" not in obs_cols:
-            conn.execute("ALTER TABLE observations ADD COLUMN agent_id TEXT")
-        if "superseded_by" not in obs_cols:
-            # Peremption. Une observation rendue fausse par une plus recente est
-            # archivee, jamais supprimee, et garde le lien vers celle qui la
-            # remplace : on peut repondre "qu'est-ce qui etait vrai en avril" et
-            # defaire un remplacement errone.
-            conn.execute("ALTER TABLE observations ADD COLUMN superseded_by INTEGER")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id)")
+        _ajouter_colonne(conn, "observations", "decay_immune", "INTEGER NOT NULL DEFAULT 0")
+        _ajouter_colonne(conn, "observations", "last_accessed_epoch", "INTEGER")
+        _ajouter_colonne(conn, "observations", "is_global", "INTEGER NOT NULL DEFAULT 0")
+        _ajouter_colonne(conn, "observations", "context", "TEXT")
+        _ajouter_colonne(conn, "observations", "expires_at_epoch", "INTEGER")
+        _ajouter_colonne(conn, "observations", "agent_id", "TEXT")
+        # Peremption. Une observation rendue fausse par une plus recente est
+        # archivee, jamais supprimee, et garde le lien vers celle qui la
+        # remplace : on peut repondre "qu'est-ce qui etait vrai en avril" et
+        # defaire un remplacement errone.
+        _ajouter_colonne(conn, "observations", "superseded_by", "INTEGER")
         # A5: narrative/facts/concepts — non-destructive column adds.
         # The FTS5 virtual table rebuild below picks them up.
-        obs_cols_a5 = {"narrative", "facts", "concepts"} - set(obs_cols)
         for col in ("narrative", "facts", "concepts"):
-            if col in obs_cols_a5:
-                conn.execute(f"ALTER TABLE observations ADD COLUMN {col} TEXT")
+            _ajouter_colonne(conn, "observations", col, "TEXT")
+
+        # Un index par colonne, hors de toute condition. `IF NOT EXISTS` est
+        # deja la bonne question, et la poser sans condition supprime la
+        # derniere facon pour un index de manquer : `idx_obs_agent` etait cree
+        # dans la branche de `superseded_by`, donc plus du tout le jour ou
+        # cette colonne rejoindrait memory_schema.sql.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_global ON observations(is_global)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_context ON observations(context)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_obs_expires ON observations(expires_at_epoch)")
+        # Partiel, comme dans memory_schema.sql : les deux definitions se
+        # contredisaient, et laquelle gagnait dependait de l'age de la base.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_id) "
+            "WHERE agent_id IS NOT NULL")
 
         # A5: observations_fts doesn't support ALTER to add columns. If the
         # existing virtual table is missing the new columns, rebuild it +
@@ -336,7 +396,7 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     run_migrations(path)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    _activer_wal(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
     if VECTOR_SEARCH_AVAILABLE:
