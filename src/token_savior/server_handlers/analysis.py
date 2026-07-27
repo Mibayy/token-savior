@@ -85,9 +85,24 @@ def _h_find_hotspots(slot: _ProjectSlot, args: dict) -> object:
 
 def _h_detect_breaking_changes(slot: _ProjectSlot, args: dict) -> object:
     _prep(slot)
+    # Le schema public expose "ref" (cf. tool_schemas, la CLI qui envoie
+    # {"ref": ...}, et CLAUDE.md/AGENTS.md/README qui documentent tous
+    # detect_breaking_changes(ref="v1")). Ce handler ne lisait que
+    # "since_ref", le nom interne, que personne n'envoie jamais : la valeur
+    # demandee etait silencieusement jetee et l'analyse repartait toujours de
+    # HEAD~1. Verifie le 27/07/2026 avec HEAD~1, HEAD~3, HEAD~6 et le tag
+    # v4.18.0 -- les quatre rendaient "HEAD~1..working tree".
+    #
+    # C'est le pire endroit ou perdre un argument : la regle du depot est
+    # "avant un commit/PR, detect_breaking_changes pour verifier qu'on ne
+    # casse pas l'API". Toute verification contre un tag de release ne
+    # comparait en fait que le dernier commit.
+    #
+    # Meme motif que server_handlers/git.py, qui le faisait deja correctement.
+    since = args.get("ref") or args.get("since_ref") or "HEAD~1"
     result = run_breaking_changes(
         slot.indexer._project_index,
-        since_ref=args.get("since_ref", "HEAD~1"),
+        since_ref=since,
     )
     try:
         if "no breaking changes" not in result:

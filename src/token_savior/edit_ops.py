@@ -14,7 +14,24 @@ def replace_symbol_source(
     new_source: str,
     file_path: str | None = None,
 ) -> dict:
-    """Replace an indexed symbol's full source block without editing the whole file."""
+    """Replace an indexed symbol's full source block without editing the whole file.
+
+    Les decorateurs sont preserves. La plage indexee d'un symbole commence a la
+    premiere ligne de son bloc, decorateurs compris, alors que
+    `get_function_source` ne les montre jamais. Un appelant qui relit un
+    symbole puis le remplace ne peut donc pas les restituer : ils etaient
+    silencieusement supprimes.
+
+    Mesure du 27/07/2026 : sur un `@functools.cache` en ligne 4 suivi du
+    `def` en ligne 5, `find_symbol` rend `@L:4-7` et le remplacement effacait
+    le decorateur. Le meme defaut a mange un `@pytest.fixture` et un
+    `@pytest.mark.parametrize` pendant l'ecriture de la serie de tests
+    maison, cassant 73 tests d'un coup -- et il ne se voit pas a la relecture
+    du symbole remplace, puisque ce qui manque est *au-dessus* du `def`.
+
+    On avance donc le debut du remplacement jusqu'a la ligne de definition,
+    sauf si la nouvelle source apporte elle-meme ses decorateurs.
+    """
     location = resolve_symbol_location(index, symbol_name, file_path=file_path)
     if "error" in location:
         return location
@@ -24,9 +41,13 @@ def replace_symbol_source(
         index.root_path
     ):
         return {"error": f"Unsafe file path: {location['file']}"}
+
+    debut = _debut_sans_decorateurs(
+        target_file, location["line"], location["end_line"], new_source,
+    )
     file_result = _replace_line_range(
         target_file,
-        location["line"],
+        debut,
         location["end_line"],
         new_source,
     )
@@ -36,10 +57,38 @@ def replace_symbol_source(
         "symbol": location["name"],
         "type": location["type"],
         "file": location["file"],
-        "old_lines": [location["line"], location["end_line"]],
+        "old_lines": [debut, location["end_line"]],
         "new_line_count": file_result["inserted_lines"],
         "delta_lines": file_result["delta_lines"],
     }
+
+
+def _debut_sans_decorateurs(
+    chemin: str, debut: int, fin: int, nouvelle_source: str,
+) -> int:
+    """Premiere ligne de definition du bloc, decorateurs exclus.
+
+    Rend `debut` inchange si le bloc ne commence pas par un decorateur, ou si
+    la nouvelle source en apporte deja : dans ce cas l'appelant a decide
+    lui-meme de ce qui surmonte la definition, on ne lui force rien.
+
+    Ecrit en defensif : toute lecture qui echoue rend `debut`, c'est-a-dire
+    l'ancien comportement. Un remplacement doit rater plutot que de deplacer
+    ses lignes au hasard.
+    """
+    if nouvelle_source.lstrip().startswith("@"):
+        return debut
+    try:
+        lignes, _ = _read_lines(chemin)
+    except OSError:
+        return debut
+    if debut - 1 >= len(lignes) or not lignes[debut - 1].lstrip().startswith("@"):
+        return debut
+    for numero in range(debut - 1, min(fin, len(lignes))):
+        depouillee = lignes[numero].lstrip()
+        if depouillee.startswith(("def ", "async def ", "class ")):
+            return numero + 1
+    return debut
 
 
 def edit_lines_in_symbol(

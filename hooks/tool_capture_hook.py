@@ -64,6 +64,13 @@ COMPACT_INLINE_THRESHOLD = int(os.environ.get("TS_COMPACT_INLINE_THRESHOLD", "40
 COMPACT_TINY_THRESHOLD = int(os.environ.get("TS_COMPACT_TINY_THRESHOLD", "256"))
 
 
+# Le nom de l'outil shell change selon le client : Bash chez Claude Code,
+# run_shell_command chez Gemini. Une egalite stricte rendait la capture
+# aveugle partout ailleurs.
+_OUTILS_SHELL = {"Bash", "run_shell_command", "shell", "local_shell",
+                 "execute_command", "terminal", "RunCommand"}
+
+
 def _empty_pass() -> None:
     """Allow Claude Code to keep the original tool output untouched."""
     print(json.dumps({"continue": True}))
@@ -107,7 +114,7 @@ def main() -> None:
     # output BEFORE the sandbox path. If a known compactor matches we emit the
     # compact text inline and skip the sandbox entirely.
     if (
-        tool_name == "Bash"
+        tool_name in _OUTILS_SHELL
         and os.environ.get("TS_BASH_COMPACT") == "1"
         and content
     ):

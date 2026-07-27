@@ -12,12 +12,33 @@ TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-sav
 TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
 # Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
 # s'il est declare, sinon on prend le python du PATH.
+# La sonde `python3 -c "import token_savior"` demarre un interpreteur complet,
+# mesure a ~127 ms sur ce VPS, et elle etait payee a CHAQUE appel de hook, donc
+# a chaque outil utilise par l'agent. Le resultat est desormais memorise, et
+# invalide des que le binaire python change (chemin + mtime + taille).
 if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
   TS_PY="$TOKEN_SAVIOR_PYTHON"
-elif command -v python3 >/dev/null 2>&1 && python3 -c "import token_savior" 2>/dev/null; then
-  TS_PY="$(command -v python3)"
 else
-  TS_PY="${TS_PY:-python3}"
+  _ts_py_bin="$(command -v python3 2>/dev/null)"
+  if [ -z "$_ts_py_bin" ]; then
+    TS_PY="${TS_PY:-python3}"
+  else
+    _ts_cache="${XDG_CACHE_HOME:-$HOME/.cache}/token-savior/interpreteur"
+    _ts_sig="$_ts_py_bin:$(stat -c '%Y:%s' "$_ts_py_bin" 2>/dev/null || echo 0)"
+    if [ -r "$_ts_cache" ] && IFS='|' read -r _c_sig _c_py < "$_ts_cache" 2>/dev/null \
+       && [ "$_c_sig" = "$_ts_sig" ] && [ -n "$_c_py" ]; then
+      TS_PY="$_c_py"
+    else
+      if "$_ts_py_bin" -c "import token_savior" 2>/dev/null; then
+        TS_PY="$_ts_py_bin"
+      else
+        TS_PY="${TS_PY:-python3}"
+      fi
+      mkdir -p "$(dirname "$_ts_cache")" 2>/dev/null \
+        && printf '%s|%s\n' "$_ts_sig" "$TS_PY" > "$_ts_cache" 2>/dev/null || true
+    fi
+    unset _ts_py_bin _ts_cache _ts_sig _c_sig _c_py
+  fi
 fi
 # Checkout source : utile en developpement seulement. Apres `pip install`,
 # token_savior est importable sans rien ajouter a sys.path.
@@ -41,7 +62,29 @@ fi
 # -- end token-savior hook error log -----------------------------------------
 PAYLOAD=$(cat)
 
-TOOL=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>>"$ERR_LOG")
+# Noms de l'outil shell selon le client MCP. Une egalite stricte sur "Bash"
+# rendait ce rappel muet partout ailleurs : sous Gemini l'outil s'appelle
+# run_shell_command, et le hook livre en v4.11.0 ne se declenchait donc jamais.
+# Meme chose pour l'edition, dont les noms varient autant.
+OUTILS_SHELL_RE='^(Bash|run_shell_command|shell|local_shell|execute_command|terminal|RunCommand)$'
+OUTILS_EDIT_RE='^(Edit|Write|MultiEdit|NotebookEdit|replace|write_file|edit_file|create_file|apply_patch)$'
+
+# Extraction du nom d'outil sans demarrer Python : c'etait le troisieme
+# interpreteur lance par appel de hook (sonde + extraction + travail utile),
+# alors que la majorite des appels sortent juste apres, sans rien avoir a faire.
+# grep suffit tant que la charge ne contient qu'une valeur de tool_name ; si
+# elle en contient plusieurs -- une chaine imbriquee qui imite la cle -- on ne
+# devine pas, on repasse par un vrai parseur JSON.
+_ts_noms=$(printf '%s' "$PAYLOAD" \
+  | grep -oE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+  | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/')
+_ts_uniques=$(printf '%s\n' "$_ts_noms" | sort -u | grep -c . || true)
+if [ "$_ts_uniques" = "1" ]; then
+  TOOL=$(printf '%s\n' "$_ts_noms" | head -1)
+else
+  TOOL=$(printf '%s' "$PAYLOAD" | $TS_PY -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>>"$ERR_LOG")
+fi
+unset _ts_noms _ts_uniques
 
 # Strip the mcp__<server>__ prefix so we can match plain names.
 SHORT_TOOL="${TOOL##*__}"
@@ -52,11 +95,11 @@ READ_TOOLS_RE='^(Read|View|NotebookRead)$'
 
 if [[ "$SHORT_TOOL" =~ $CODE_TOOLS_RE ]]; then
     MODE=code
-elif [[ "$SHORT_TOOL" =~ $EDIT_TOOLS_RE ]] || [[ "$TOOL" == "Edit" ]] || [[ "$TOOL" == "Write" ]] || [[ "$TOOL" == "MultiEdit" ]]; then
+elif [[ "$SHORT_TOOL" =~ $EDIT_TOOLS_RE ]] || [[ "$TOOL" =~ $OUTILS_EDIT_RE ]]; then
     MODE=edit
 elif [[ "$TOOL" =~ $READ_TOOLS_RE ]]; then
     MODE=read
-elif [[ "$TOOL" == "Bash" ]]; then
+elif [[ "$TOOL" =~ $OUTILS_SHELL_RE ]]; then
     MODE=bash
 else
     exit 0

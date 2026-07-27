@@ -1,5 +1,7 @@
 {
-  "_comment": "Moteur memoire Token Savior pour OpenAI Codex CLI. Merge dans ~/.codex/hooks.json (ou <projet>/.codex/hooks.json). ATTENTION unites: les timeouts Codex sont en SECONDES, ceux de Claude Code en millisecondes -- ne pas recopier memory-hooks-config.json tel quel. Les six evenements ci-dessous ont ete extraits du binaire codex 0.145.0 (strings), qui expose exactement: SessionStart, SessionEnd, PreToolUse, PostToolUse, UserPromptSubmit, PreCompact, Notification, SubagentStop. Sans equivalent Codex donc non portes: Stop, StopFailure, ConfigChange.",
+  "_comment": "Moteur memoire Token Savior pour OpenAI Codex CLI. Fusionner dans ~/.codex/hooks.json (ou <projet>/.codex/hooks.json). ATTENTION unites : les delais Codex sont en SECONDES, ceux de Claude Code en millisecondes -- ne pas recopier memory-hooks-config.json tel quel. Evenements extraits du binaire codex 0.145.0, qui expose exactement SessionStart, SessionEnd, PreToolUse, PostToolUse, UserPromptSubmit, PreCompact, Notification, SubagentStop. Sans equivalent donc non portes : Stop, StopFailure, ConfigChange. Parmi les noms d'outils, seul Bash est verifie ; les autres sont defensifs, le binaire etant compresse.",
+  "_genere_par": "scripts/generer_bundles_hooks.py depuis token_savior/cli_init/vocabulaire_clients.py -- ne pas editer a la main, la preflight le detecte",
+  "_mode_lecture": "Le mode lecture du hook pre-outil n'est pas cable par defaut : un appel coute ~197 ms et une session lit des fichiers en continu. Pour l'activer, ajouter les outils de lecture de ce client au matcher pre-outil (Read|read_file).",
   "hooks": {
     "SessionStart": [
       {
@@ -23,6 +25,30 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "^(mcp__token-savior[\\w-]*__get_function_source|mcp__token-savior[\\w-]*__get_class_source|mcp__token-savior[\\w-]*__get_edit_context|mcp__token-savior[\\w-]*__find_symbol|mcp__token-savior[\\w-]*__get_file_dependencies|mcp__token-savior[\\w-]*__replace_symbol_source|mcp__token-savior[\\w-]*__insert_near_symbol|mcp__token-savior[\\w-]*__apply_symbol_change_and_validate|mcp__token-savior[\\w-]*__apply_symbol_change_validate_with_rollback|Bash|shell|local_shell|Edit|Write|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|shell|local_shell|WebFetch|web_fetch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "hooks": [
@@ -41,30 +67,6 @@
             "type": "command",
             "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh end",
             "timeout": 120
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "^(Bash|mcp__token-savior[\\w-]*__(get_function_source|get_class_source|get_edit_context|find_symbol))$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
-            "timeout": 2
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "^(Bash|WebFetch|web_fetch)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
-            "timeout": 3
           }
         ]
       }

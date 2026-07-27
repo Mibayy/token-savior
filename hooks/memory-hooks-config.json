@@ -1,4 +1,7 @@
 {
+  "_comment": "Moteur memoire Token Savior pour Claude Code. Fusionner sous la cle 'hooks' de ~/.claude/settings.json. Delais en millisecondes. Ce bundle ne cablait que SessionStart et Stop jusqu'a la v4.19.0 : les cinq autres scripts etaient livres et branches nulle part.",
+  "_genere_par": "scripts/generer_bundles_hooks.py depuis token_savior/cli_init/vocabulaire_clients.py -- ne pas editer a la main, la preflight le detecte",
+  "_mode_lecture": "Le mode lecture du hook pre-outil n'est pas cable par defaut : un appel coute ~197 ms et une session lit des fichiers en continu. Pour l'activer, ajouter les outils de lecture de ce client au matcher pre-outil (Read|NotebookRead).",
   "hooks": {
     "SessionStart": [
       {
@@ -11,13 +14,70 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-userprompt.sh",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__token-savior[\\w-]*__get_function_source|mcp__token-savior[\\w-]*__get_class_source|mcp__token-savior[\\w-]*__get_edit_context|mcp__token-savior[\\w-]*__find_symbol|mcp__token-savior[\\w-]*__get_file_dependencies|mcp__token-savior[\\w-]*__replace_symbol_source|mcp__token-savior[\\w-]*__insert_near_symbol|mcp__token-savior[\\w-]*__apply_symbol_change_and_validate|mcp__token-savior[\\w-]*__apply_symbol_change_validate_with_rollback|Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-precompact.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh",
-            "timeout": 5000
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh stop",
+            "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh end",
+            "timeout": 120000
           }
         ]
       }

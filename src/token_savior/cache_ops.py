@@ -99,7 +99,29 @@ class CacheManager:
             if "symbol_hashes" not in raw_index:
                 print("[token-savior] Cache missing symbol_hashes, invalidating", file=sys.stderr)
                 return None
-            return self.index_from_dict(raw_index)
+            index = self.index_from_dict(raw_index)
+            # Un cache ne vaut que pour le repertoire qui l'a produit.
+            #
+            # L'index serialise porte les chemins absolus de sa racine. Copier
+            # un projet deja indexe (`cp -r`, une copie de sauvegarde, un
+            # dossier duplique) emporte le fichier de cache avec lui. Charge
+            # depuis la copie, il "matchait" sur la ref git et rendait un index
+            # dont la racine est l'ORIGINAL : une edition demandee sur la copie
+            # etait ecrite dans l'original, avec un `ok: true` et un chemin
+            # relatif en retour, donc sans que rien ne paraisse anormal.
+            #
+            # Mesure du 27/07/2026 : `replace_symbol_source(project=<copie>)`
+            # modifiait le fichier de l'original et laissait la copie intacte.
+            cache_root = os.path.realpath(getattr(index, "root_path", "") or "")
+            racine_reelle = os.path.realpath(self.root_path)
+            if cache_root and cache_root != racine_reelle:
+                print(
+                    "[token-savior] Cache produit pour "
+                    f"{cache_root}, charge depuis {racine_reelle} -- ignore",
+                    file=sys.stderr,
+                )
+                return None
+            return index
         except Exception as exc:
             print(f"[token-savior] Cache load failed: {exc}", file=sys.stderr)
             return None

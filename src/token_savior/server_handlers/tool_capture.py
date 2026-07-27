@@ -20,9 +20,21 @@ def _text(s: Any) -> list[types.TextContent]:
 
 
 def _ts_capture_put(arguments: dict[str, Any]) -> list[types.TextContent]:
-    """Manual capture entrypoint — used by hooks and rare manual calls."""
-    tool_name = arguments.get("tool_name") or "unknown"
-    output = arguments.get("output") or ""
+    """Manual capture entrypoint -- used by hooks and rare manual calls.
+
+    `tool_name` et `output` sont declares obligatoires dans le schema. Ils
+    etaient lus en `.get(...) or <defaut>` : un appel sans aucun argument
+    ecrivait une capture vide attribuee a "unknown" et repondait succes, avec
+    un identifiant a la cle. Meme classe de defaut que le
+    `capture_get(range=...)` corrige en v4.19.0 : un repli silencieux dans un
+    outil dont le metier est justement de ne pas gaspiller.
+
+    L'acces direct fait remonter une KeyError, que le dispatch traduit en
+    message nommant l'argument manquant. C'est volontaire : un seul endroit
+    formule ce message, pour tous les outils.
+    """
+    tool_name = arguments["tool_name"]
+    output = arguments["output"]
     res = tool_capture.capture_put(
         tool_name=tool_name,
         output=output,
@@ -35,8 +47,15 @@ def _ts_capture_put(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 
 def _ts_capture_search(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Recherche dans les captures.
+
+    `query` est declare obligatoire. Il etait lu en `.get("query") or ""` :
+    un appel sans requete rendait `{"count": 0, "results": []}`, c'est-a-dire
+    une reponse d'apparence normale a une question qui n'a jamais ete posee.
+    Pour lister sans filtrer, `capture_list` existe.
+    """
     rows = tool_capture.capture_search(
-        query=arguments.get("query") or "",
+        query=arguments["query"],
         limit=int(arguments.get("limit", 20)),
         session_id=arguments.get("session_id"),
         project_root=arguments.get("project_root"),
@@ -74,13 +93,40 @@ def _ts_capture_aggregate(arguments: dict[str, Any]) -> list[types.TextContent]:
 
 
 def _ts_capture_list(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Liste les captures. Une ligne doit identifier, pas restituer.
+
+    Mesure du 27/07/2026 : par defaut, cet outil rendait 29 836 caracteres --
+    vingt-quatre fois tout le code source du projet audite. Chaque entree
+    pesait ~677 caracteres, dont ~310 pour la commande complete et ~205 pour
+    un apercu, multiplies par une limite par defaut de 50.
+
+    Dans un paquet dont le metier est d'economiser des tokens, un listage qui
+    deverse 30 Ko sans qu'on ait rien demande est un defaut a lui seul. Le
+    contenu reste integralement accessible : chaque ligne porte son `uri`,
+    que `capture_get` prend directement.
+    """
     rows = tool_capture.capture_list(
         session_id=arguments.get("session_id"),
         project_root=arguments.get("project_root"),
         tool_name=arguments.get("tool_name"),
-        limit=int(arguments.get("limit", 50)),
+        limit=int(arguments.get("limit", 20)),
     )
-    return _text({"count": len(rows), "captures": rows})
+    return _text({"count": len(rows), "captures": [_ligne_de_liste(r) for r in rows]})
+
+
+def _ligne_de_liste(ligne: dict, borne: int = 60) -> dict:
+    """Raccourcit les deux champs longs d'une entree de liste.
+
+    On ne retire rien : on borne. `args_summary` et `preview` servent a
+    reconnaitre une capture parmi d'autres, 60 caracteres y suffisent. Pour la
+    lire, il y a `capture_get(uri)`.
+    """
+    compacte = dict(ligne)
+    for champ in ("args_summary", "preview"):
+        valeur = compacte.get(champ)
+        if isinstance(valeur, str) and len(valeur) > borne:
+            compacte[champ] = valeur[:borne] + "..."
+    return compacte
 
 
 def _ts_capture_purge(arguments: dict[str, Any]) -> list[types.TextContent]:

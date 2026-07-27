@@ -177,6 +177,27 @@ def reindex_project_symbols(
     row is skipped (no re-embed). This makes re-running the indexer cheap
     when only a handful of files changed.
 
+    Le lot est valide des qu'il est ecrit, et jamais pendant que le lot
+    suivant s'embedde. Ce n'est pas la connexion qui verrouille la base,
+    c'est la transaction : sqlite3 en ouvre une au premier INSERT et la
+    garde jusqu'au commit. Sans commit par lot, le premier INSERT posait
+    un verrou d'ecriture tenu pendant toute la boucle d'embedding, soit
+    ~100 ms par symbole en sequentiel (voir _embed_batch, sequentiel par
+    choix pour ne pas declencher l'OOM killer).
+
+    Mesure du 26/07/2026 sur ce VPS : un `search_codebase(semantic=True)`
+    a tenu la base memoire verrouillee plus de 25 minutes. Pendant ce
+    temps aucun autre processus ne pouvait ecrire, un second client Token
+    Savior ne pouvait plus demarrer du tout (run_migrations echouait sur
+    "database is locked"), et le WAL est passe de 8 a 15 Mo sans jamais
+    pouvoir etre resorbe. C'est le scenario multi-clients de la v4.11 qui
+    tombait des qu'une recherche semantique tournait.
+
+    Consequence assumee d'un commit par lot : une interruption en cours de
+    route laisse l'index partiellement ecrit. C'est sans danger, le
+    prochain passage repart du content_hash et ne re-embedde que ce qui
+    manque -- l'alternative, tout perdre au rollback, etait pire.
+
     Returns a summary dict:
       * status     : "ok" | "unavailable"
       * total      : symbols seen
@@ -219,6 +240,7 @@ def reindex_project_symbols(
 
         for i in range(0, len(to_embed), batch_size):
             chunk = to_embed[i:i + batch_size]
+            # Hors transaction : aucun verrou n'est tenu pendant l'embedding.
             vecs = _embed_batch([s["embed_doc"] for s in chunk])
             for sym, vec in zip(chunk, vecs, strict=False):
                 if vec is None:
@@ -251,12 +273,25 @@ def reindex_project_symbols(
                 if row is None:
                     continue
                 symbol_id = row[0]
+                # DELETE puis INSERT, et non "INSERT OR REPLACE".
+                # symbol_vectors est une table virtuelle vec0 : le REPLACE ne
+                # passait que tant que la ligne visee venait d'etre inseree
+                # dans la meme transaction non validee. Des qu'on valide par
+                # lot, la ligne est committee et vec0 rend
+                # "UNIQUE constraint failed on symbol_vectors primary key"
+                # au reindex d'un symbole modifie. Le bench code_retrieval a
+                # attrape exactement ca en CI le 26/07/2026.
                 conn.execute(
-                    "INSERT OR REPLACE INTO symbol_vectors(symbol_id, embedding) "
+                    "DELETE FROM symbol_vectors WHERE symbol_id=?", (symbol_id,),
+                )
+                conn.execute(
+                    "INSERT INTO symbol_vectors(symbol_id, embedding) "
                     "VALUES (?, ?)",
                     (symbol_id, blob),
                 )
                 indexed += 1
+            # Le verrou d'ecriture s'arrete ici, pas a la fin de la boucle.
+            conn.commit()
         # Prune rows for symbols that vanished from the project tree.
         live_keys = {s["symbol_key"] for s in symbols}
         stale_keys = [k for k in existing if k not in live_keys]

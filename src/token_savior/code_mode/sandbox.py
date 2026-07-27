@@ -29,6 +29,21 @@ _WORKER_PATH = Path(__file__).parent / "worker.mjs"
 _NODE_BIN = os.environ.get("TS_CODE_MODE_NODE", "node")
 
 
+
+
+def _noter_appel(trace: list, outil: str, ok: bool, valeur) -> None:
+    """Garde une trace compacte d'un appel deja servi.
+
+    Bornee des deux cotes : les 25 derniers appels, 240 caracteres chacun. Une
+    trace de secours qui ferait exploser la reponse serait pire que pas de
+    trace du tout -- ce paquet existe pour economiser des tokens.
+    """
+    apercu = valeur if isinstance(valeur, str) else repr(valeur)
+    if len(apercu) > 240:
+        apercu = apercu[:240] + "..."
+    trace.append({"tool": outil, "ok": ok, "apercu": apercu})
+    if len(trace) > 25:
+        del trace[0]
 class _Worker:
     """Long-lived Node worker. One exec at a time."""
 
@@ -53,6 +68,9 @@ class _Worker:
 
     async def ensure_alive(self) -> None:
         loop = asyncio.get_event_loop()
+        # Chaque passage ici est l'occasion de solder les transports laisses
+        # par des boucles deja fermees, y compris ceux d'autres workers.
+        _balayer_transports_morts()
         # asyncio.subprocess pipes are bound to the loop that spawned them.
         # If the loop changed (test harness re-runs `asyncio.run()`), the
         # existing proc handle is unusable — respawn.
@@ -71,10 +89,45 @@ class _Worker:
                 _os.kill(self.proc.pid, _signal.SIGKILL)
             except (ProcessLookupError, OSError):
                 pass
+            self._neutraliser_transport(self.proc)
             self.proc = None
         await self.spawn()
 
+    @staticmethod
+    def _neutraliser_transport(proc) -> None:
+        """Empeche le transport d'une boucle morte de se fermer au GC.
+
+        Tuer le processus ne suffit pas : l'objet transport survit et reste
+        rattache a la boucle qui l'a cree. Quand le ramasse-miettes finit par
+        le collecter, `BaseSubprocessTransport.__del__` voit un transport non
+        ferme et rappelle `close()`, qui descend jusqu'a
+        `loop.call_soon()` sur une boucle deja fermee et leve
+
+            RuntimeError: Event loop is closed
+
+        a un moment arbitraire, imputee a un test qui n'y est pour rien. C'est
+        le bruit qui remontait en annotation sur chaque run de CI.
+
+        `__del__` ne fait rien si le transport se declare deja ferme. On pose
+        donc ce drapeau nous-memes, apres le SIGKILL : il n'y a plus rien a
+        fermer proprement. Ecrit en defensif, l'attribut est un detail
+        d'implementation de CPython et son absence ne doit rien casser.
+        """
+        transport = getattr(proc, "_transport", None)
+        if transport is None:
+            return
+        try:
+            transport._closed = True
+        except (AttributeError, TypeError):
+            pass
+
     async def spawn(self) -> None:
+        # Point de passage oblige : toute nouvelle instance remplace ici la
+        # precedente. Le cas manquant etait un worker mort sur la *meme*
+        # boucle -- ensure_alive ne prend alors ni la branche "vivant", ni la
+        # branche "boucle changee", et arrivait directement ici en ecrasant
+        # self.proc. Le transport orphelin se plaignait plus tard au GC.
+        self._neutraliser_transport(self.proc)
         self.proc = await asyncio.create_subprocess_exec(
             _NODE_BIN,
             str(_WORKER_PATH),
@@ -83,6 +136,7 @@ class _Worker:
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "NODE_OPTIONS": "--no-warnings"},
         )
+        _suivre_transport(self.proc)
         self._proc_loop = asyncio.get_event_loop()
         self.spawn_count += 1
         # Wait for the {"type":"ready"} handshake so the first exec doesn't
@@ -117,6 +171,10 @@ class _Worker:
                 await asyncio.wait_for(self.proc.wait(), timeout=2)
             except TimeoutError:
                 pass
+        # La boucle est encore vivante ici, mais le ramasse-miettes peut ne
+        # collecter ce transport que bien plus tard, quand elle sera fermee.
+        # Voir _neutraliser_transport.
+        self._neutraliser_transport(self.proc)
         self.proc = None
 
     async def run(
@@ -166,6 +224,13 @@ class _Worker:
         final_value: Any = None
         error: dict | None = None
         tool_calls = 0
+        # Trace des appels deja servis. Un script qui expire rendait `value:
+        # null` et rien d'autre : tout le travail accompli avant le delai etait
+        # perdu, alors que le cote Python avait servi chaque resultat et les
+        # jetait. Sur une batterie de 15 outils expiree au 9e, cela veut dire
+        # 8 resultats a refaire. Constate deux fois le 27/07/2026, dont une
+        # sur une batterie qui a du etre relancee en trois morceaux.
+        appels_servis: list[dict] = []
         allowed_set = set(allowed_tools)
         loop = asyncio.get_event_loop()
         started = loop.time()
@@ -212,16 +277,19 @@ class _Worker:
                             "id": call_id,
                             "error": f"tool '{tool}' not in code-mode allowlist",
                         }
+                        _noter_appel(appels_servis, tool, False, resp["error"])
                     else:
                         try:
                             result = await asyncio.to_thread(dispatch, tool, args)
                             resp = {"type": "result", "id": call_id, "value": result}
+                            _noter_appel(appels_servis, tool, True, result)
                         except Exception as e:
                             resp = {
                                 "type": "error",
                                 "id": call_id,
                                 "error": f"{type(e).__name__}: {e}",
                             }
+                            _noter_appel(appels_servis, tool, False, resp["error"])
                     try:
                         self.proc.stdin.write((json.dumps(resp) + "\n").encode("utf-8"))
                         await self.proc.stdin.drain()
@@ -260,13 +328,19 @@ class _Worker:
 
         duration_ms = int((loop.time() - started) * 1000)
 
-        return {
+        sortie = {
             "value": final_value,
             "logs": logs,
             "error": error,
             "tool_calls": tool_calls,
             "duration_ms": duration_ms,
         }
+        # Seulement quand ca s'est mal passe : dans le cas nominal le script a
+        # deja rendu ce qu'il voulait, et repeter chaque appel doublerait la
+        # reponse pour rien.
+        if error is not None and appels_servis:
+            sortie["partial_results"] = appels_servis
+        return sortie
 
     async def shutdown(self) -> None:
         if self.proc is None:
@@ -283,12 +357,72 @@ class _Worker:
                 await asyncio.wait_for(self.proc.wait(), timeout=2)
             except TimeoutError:
                 await self._force_kill()
+        self._neutraliser_transport(self.proc)
         self.proc = None
 
 
 # Module-level singleton. Lazy: first ensure_alive() spawns the process.
 _POOL: _Worker | None = None
 
+
+
+# Transports de sous-processus crees par ce module, suivis en references
+# faibles. On ne veut rien maintenir en vie, seulement pouvoir neutraliser
+# ceux dont la boucle est morte AVANT que le ramasse-miettes ne les touche.
+#
+# Pourquoi un registre plutot que de neutraliser a chaque abandon : un worker
+# reste volontairement chaud entre deux appels, donc son transport survit a la
+# fermeture de la boucle qui l'a cree. Il n'est revisite que si un appel
+# suivant passe par ensure_alive. Le dernier worker de chaque boucle, lui,
+# n'est jamais revisite -- mesure sur tests/test_code_mode.py : 4 transports
+# orphelins sur 10 crees. Chacun leve "RuntimeError: Event loop is closed" au
+# GC, a un moment arbitraire, impute a un test qui n'y est pour rien.
+_TRANSPORTS_SUIVIS: list = []
+
+
+def _suivre_transport(proc) -> None:
+    """Enregistre le transport d'un processus fraichement cree."""
+    import weakref
+
+    transport = getattr(proc, "_transport", None)
+    if transport is None:
+        return
+    try:
+        _TRANSPORTS_SUIVIS.append(weakref.ref(transport))
+    except TypeError:
+        pass
+
+
+def _balayer_transports_morts() -> None:
+    """Neutralise tout transport suivi dont la boucle est fermee.
+
+    Le processus derriere un tel transport est inutilisable : ses tuyaux sont
+    rattaches a une boucle qui ne tournera plus. On le tue au passage, sinon
+    chaque boucle abandonnee laisse un worker Node orphelin.
+    """
+    import os as _os
+    import signal as _signal
+
+    encore_vivants = []
+    for reference in _TRANSPORTS_SUIVIS:
+        transport = reference()
+        if transport is None:
+            continue  # deja collecte
+        boucle = getattr(transport, "_loop", None)
+        if boucle is None or not boucle.is_closed():
+            encore_vivants.append(reference)
+            continue
+        pid = getattr(transport, "_pid", None)
+        if pid:
+            try:
+                _os.kill(pid, _signal.SIGKILL)
+            except (ProcessLookupError, OSError, TypeError):
+                pass
+        try:
+            transport._closed = True
+        except (AttributeError, TypeError):
+            pass
+    _TRANSPORTS_SUIVIS[:] = encore_vivants
 
 def _get_pool() -> _Worker:
     global _POOL
@@ -307,6 +441,9 @@ async def shutdown() -> None:
 
 def _atexit_shutdown() -> None:
     """Best-effort sync shutdown at interpreter exit."""
+    # Dernier filet : tout transport dont la boucle est fermee est solde ici,
+    # y compris ceux de workers qui ne sont plus le pool courant.
+    _balayer_transports_morts()
     if _POOL is None or _POOL.proc is None:
         return
     proc = _POOL.proc
@@ -315,6 +452,11 @@ def _atexit_shutdown() -> None:
             proc.kill()
         except Exception:
             pass
+    # A ce stade la boucle qui portait ce transport est fermee depuis
+    # longtemps. Le laisser vivant garantit un
+    # "RuntimeError: Event loop is closed" au ramasse-miettes de sortie.
+    _Worker._neutraliser_transport(proc)
+    _POOL.proc = None
 
 
 atexit.register(_atexit_shutdown)

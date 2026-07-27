@@ -28,6 +28,7 @@ import logging
 import os
 import sys
 import threading
+import weakref
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,50 @@ def _build_pattern_filter(root: Path, exclude_patterns: list[str]):
     return _PatternFilter()
 
 
+
+
+# Surveillances vivantes du processus, en references faibles.
+#
+# Le fil de `watchfiles` est un fil natif (backend Rust). Laisse tourner
+# pendant la finalisation de l'interpreteur, il touche des objets Python deja
+# demontes : segfault sans aucune trame Python, apres que tout le travail
+# utile a ete rendu.
+#
+# Mesure du 27/07/2026 : 8 plantages sur 8 des qu'un SECOND projet est
+# enregistre, donc des qu'un second watcher demarre. Un seul projet ne
+# plantait pas, ce qui rendait le defaut invisible en usage courant et l'a
+# fait passer pour non reproductible au premier examen. Watcher desactive,
+# le meme scenario sort proprement.
+_SURVEILLANCES: weakref.WeakSet | None = None  # initialise plus bas
+
+
+def _enregistrer_surveillance(surveillance) -> None:
+    """Suit une surveillance pour pouvoir l'arreter a la sortie."""
+    global _SURVEILLANCES
+
+    if _SURVEILLANCES is None:
+        _SURVEILLANCES = weakref.WeakSet()
+        import atexit
+
+        atexit.register(_arreter_les_surveillances)
+    _SURVEILLANCES.add(surveillance)
+
+
+def _arreter_les_surveillances() -> None:
+    """Arrete tout fil de surveillance encore vivant, avant la finalisation.
+
+    Ecrit en defensif : une surveillance qui refuse de s'arreter ne doit pas
+    empecher les autres de le faire, ni transformer une sortie normale en
+    trace d'erreur.
+    """
+    if not _SURVEILLANCES:
+        return
+    for surveillance in list(_SURVEILLANCES):
+        try:
+            surveillance.stop()
+        except Exception:
+            pass
+
 class SlotWatcher:
     """Wraps a ``watchfiles`` thread and exposes a drain() API.
 
@@ -172,6 +217,9 @@ class SlotWatcher:
             name=f"ts-watcher-{self.root_path.name}",
         )
         self._thread.start()
+        # Suivi pour l'arret a la sortie : un fil natif encore vivant pendant
+        # la finalisation de l'interpreteur provoque un segfault.
+        _enregistrer_surveillance(self)
         return True
 
     def stop(self) -> None:

@@ -91,9 +91,38 @@ def indexed_root(path: str) -> str | None:
 
 
 def is_indexed_code(path: str) -> bool:
+    """Does this path name a real source file of an indexed project?
+
+    Two conditions were added on 2026-07-27, each on a measured false
+    positive that blocked real work:
+
+    1. **The name must have a stem.** The shell tokeniser knows nothing about
+       globs: `ls dist/index-*.js` splits into `dist/index-` and `.js`. That
+       bare `.js` fragment, resolved against the current directory, walked up
+       to the indexed project root and got a whole command refused — a command
+       that read no source at all. No file is ever literally named `.js`, so
+       requiring a stem costs zero detections.
+
+    2. **The file must exist.** A path that names nothing cannot be a read of
+       code. This also discards glob fragments, format strings and paths
+       merely quoted as examples inside a command.
+
+    The guard exists to make Token Savior the default, not to stop people
+    working. An unjustified denial gets the guard switched off, and a guard
+    that is switched off protects nothing — that trade-off decides every rule
+    in this file.
+    """
     if not path or not path.endswith(CODE_EXTENSIONS):
         return False
     if TOLERATED_PATHS.search(path):
+        return False
+    base = os.path.basename(path)
+    if not os.path.splitext(base)[0].strip("."):
+        return False
+    try:
+        if not os.path.isfile(os.path.expanduser(path)):
+            return False
+    except OSError:
         return False
     return indexed_root(path) is not None
 
@@ -289,7 +318,7 @@ def main() -> int:
                 "permissionDecision": "deny",
                 "permissionDecisionReason": f"[ts_discipline_guard] {reason}",
             }}))
-    except Exception:  # noqa: BLE001 - fail-open is the documented contract
+    except Exception:
         return 0
     return 0
 

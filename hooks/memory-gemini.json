@@ -1,5 +1,7 @@
 {
-  "_comment": "Moteur memoire Token Savior pour Gemini CLI. Merge sous la cle 'hooks' de ~/.gemini/settings.json. Evenements extraits du paquet @google/gemini-cli 0.38.1 : SessionStart, SessionEnd, Stop, BeforeTool, AfterTool, Notification. Absents cote Gemini donc non portes : UserPromptSubmit et PreCompact. Unite des timeouts : MILLISECONDES (DEFAULT_HOOK_TIMEOUT = 6e4 dans le paquet), comme Claude Code et contrairement a Codex. Les noms d'outils sont ceux de Gemini (run_shell_command, read_file, ...), pas ceux de Claude.",
+  "_comment": "Moteur memoire Token Savior pour Gemini CLI. Fusionner sous la cle 'hooks' de ~/.gemini/settings.json. Evenements du paquet @google/gemini-cli 0.38.1 : SessionStart, SessionEnd, Stop, BeforeTool, AfterTool, Notification. Absents cote Gemini donc non portes : UserPromptSubmit et PreCompact. Delais en MILLISECONDES (DEFAULT_HOOK_TIMEOUT = 6e4), comme Claude Code et contrairement a Codex. Noms d'outils releves dans le paquet installe : run_shell_command, read_file, read_many_files, write_file, replace, glob, search_file_content, web_fetch.",
+  "_genere_par": "scripts/generer_bundles_hooks.py depuis token_savior/cli_init/vocabulaire_clients.py -- ne pas editer a la main, la preflight le detecte",
+  "_mode_lecture": "Le mode lecture du hook pre-outil n'est pas cable par defaut : un appel coute ~197 ms et une session lit des fichiers en continu. Pour l'activer, ajouter les outils de lecture de ce client au matcher pre-outil (read_file|read_many_files).",
   "hooks": {
     "SessionStart": [
       {
@@ -12,13 +14,26 @@
         ]
       }
     ],
-    "SessionEnd": [
+    "BeforeTool": [
       {
+        "matcher": "mcp__plugin_token-saviorget_function_source|mcp__plugin_token-saviorget_class_source|mcp__plugin_token-saviorget_edit_context|mcp__plugin_token-saviorfind_symbol|mcp__plugin_token-saviorget_file_dependencies|mcp__plugin_token-saviorreplace_symbol_source|mcp__plugin_token-saviorinsert_near_symbol|mcp__plugin_token-saviorapply_symbol_change_and_validate|mcp__plugin_token-saviorapply_symbol_change_validate_with_rollback|run_shell_command|replace|write_file",
         "hooks": [
           {
             "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh end",
-            "timeout": 120000
+            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command|web_fetch|google_web_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
+            "timeout": 3000
           }
         ]
       }
@@ -34,26 +49,13 @@
         ]
       }
     ],
-    "BeforeTool": [
+    "SessionEnd": [
       {
-        "matcher": "run_shell_command|mcp__plugin_token-savior",
         "hooks": [
           {
             "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-pretooluse.sh",
-            "timeout": 2000
-          }
-        ]
-      }
-    ],
-    "AfterTool": [
-      {
-        "matcher": "run_shell_command|web_fetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash {{TS_HOOKS_DIR}}/memory-posttooluse.sh",
-            "timeout": 3000
+            "command": "bash {{TS_HOOKS_DIR}}/memory-session-stop.sh end",
+            "timeout": 120000
           }
         ]
       }

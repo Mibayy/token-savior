@@ -1,5 +1,86 @@
 # Changelog
 
+## v4.20.0 — What the tools promise, now measured (2026-07-27)
+
+Fourteen defects, found by exercising all 69 tools on a real machine rather
+than by running the suite again — the suite was green at 2369 tests while
+every one of them was live. They shipped as four hurried patch releases the
+same night; this single release replaces them, and 4.19.1 through 4.19.3 are
+yanked.
+
+**Two of them made the product unusable for its own stated purpose.**
+
+- A `search_codebase(semantic=True)` held a write lock on the shared memory
+  database for **more than 25 minutes**: the reindex runs inside the request,
+  embedding is sequential by design, and the commit only came at the end of
+  the loop. While it ran, nothing else could write, the WAL grew from 8 to
+  15 MB, and **a second client could not start at all** — `run_migrations()`
+  failed on `database is locked`. The multi-client story shipped in v4.11
+  collapsed the moment a semantic search was running. A longer busy timeout
+  fixed nothing, verified at 30 s. Committing per batch does.
+- `detect_breaking_changes(ref=...)` **silently discarded the ref**. The
+  schema exposes `ref`, the CLI sends `ref`, the docs say `ref="v1"` — the
+  handler only read `since_ref`, which nobody sends. `HEAD~1`, `HEAD~3`,
+  `HEAD~6` and a release tag all analysed `HEAD~1`. The project's own rule is
+  "run it before a commit or PR": every check against a tag was comparing the
+  last commit, and answering reassuringly.
+
+**Two silent data-integrity defects, both answering `ok: true`.**
+
+- **A project copied after indexing had its edits written into the original.**
+  `cp -r` carries `.token-savior-cache.json`, which holds the original's
+  absolute paths; loaded from the copy it matched on the git ref, so
+  `replace_symbol_source(project=<copy>)` modified the *original* file and
+  left the copy untouched. A cache whose recorded root does not match where it
+  was loaded from is now ignored.
+- **`replace_symbol_source` deleted decorators.** A symbol's indexed range
+  starts at the first line of its block, decorators included, while
+  `get_function_source` never shows them — so a caller who reads then replaces
+  cannot restore them. The same defect ate a `@pytest.fixture` and a
+  `@pytest.mark.parametrize` while this release was being written, breaking 73
+  tests at once.
+
+**Four tools cost more than they saved.** The claim this project rests on was
+verified nowhere, so it was measured across 43 of the 69 tools:
+
+- `get_function_source` on a three-line function returned 131 characters where
+  reading the whole file cost 76 — the gap was exactly the
+  `→ get_full_context(...)` hint, appended to *every* response regardless of
+  size. Now proportionate: 54 characters.
+- `get_edit_context` shipped the source twice, in full under `source` and
+  again as `location.source_preview`. 459 characters against 216 for the chain
+  it replaces; now 375.
+- The cache acknowledgement was longer than the source it replaced on small
+  symbols — 317 against 232 — and the code knew it, computing a saving of zero
+  through a `max(0, ...)` without drawing the consequence.
+- `capture_list` returned **29 836 characters** by default, twenty-four times
+  the entire source of the audited project. Rows are bounded and the default
+  limit is 20: 6 860 characters, down 77%.
+
+**And six smaller ones**: `ts_execute` discarded every tool result already
+served when a script timed out; `capture_put` with no arguments wrote an empty
+capture attributed to "unknown"; `capture_search` without a query answered
+`{"count": 0}`; a missing required argument returned a raw `KeyError`; an
+abstract picked by the sampling bandit was cached as if it were the body; and
+subprocess transports outlived their event loop, killing the process with
+SIGSEGV at exit — 8 times out of 8 as soon as a second project was registered.
+
+**The discipline guard no longer blocks legitimate work.** `ls dist/index-*.js`
+splits into `dist/index-` and `.js`; that bare fragment resolved against the
+current directory, walked up to the project root, and got the whole command
+refused. A path must now have a stem and name a file that exists. The guard
+still refuses native reads of indexed code — it is the noise that went, not
+the rule. It remains opt-in via `TS_DISCIPLINE_GUARD=1`, so no install is
+affected on upgrade.
+
+**Verification is now part of the suite.** `tests/maison/` holds 320 tests
+that exercise all 69 tools the way an agent calls them, on a project built to
+contain what the tools claim to find. A coverage test fails if any tool in
+`TOOL_SCHEMAS` is never exercised, and an economy test fails if any tool
+starts costing more than reading the file it answers about.
+
+2728 tests, ruff clean, zero warnings.
+
 ## v4.19.0 — A memory that always answers is not a memory (2026-07-26)
 
 **Vector search had no distance floor.** A k-NN always returns k results, however

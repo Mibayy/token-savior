@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Cache fastembed model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/fastembed
           key: fastembed-nomic-v1.5-Q
@@ -60,7 +60,7 @@ jobs:
       - name: Gate library_retrieval
         run: python scripts/check_bench_gates.py library "$LIB_RESULT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-results

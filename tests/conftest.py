@@ -90,3 +90,35 @@ def _isole_base_memoire():
     finally:
         db_core.MEMORY_DB_PATH = originale
         memory_db.MEMORY_DB_PATH = originale_alias
+
+
+@pytest.fixture(autouse=True)
+def _solde_les_transports_de_boucles_mortes():
+    """Neutralise apres chaque test les transports dont la boucle est fermee.
+
+    Le bac a sable Code Mode garde volontairement un worker Node chaud entre
+    deux appels. Chaque `asyncio.run()` de la suite cree pourtant une boucle
+    neuve, donc le transport du worker precedent survit a la fermeture de la
+    sienne. `sandbox.ensure_alive()` les solde, mais seulement si un appel
+    suivant a lieu : un fichier de tests qui touche le bac a sable une fois et
+    plus jamais laisse un transport orphelin derriere lui.
+
+    Le ramasse-miettes finit alors par le collecter, a un instant arbitraire,
+    et `BaseSubprocessTransport.__del__` leve "RuntimeError: Event loop is
+    closed" -- impute a un test sans rapport, ce qui rendait l'avertissement
+    a la fois bruyant et trompeur (vu tour a tour sur test_config_dispatch,
+    test_community et test_compactors).
+
+    Ce balayage ne masque pas un defaut du produit : le serveur MCP vit sur
+    une seule boucle et le chemin de neutralisation est corrige dans
+    `sandbox`. Il rend seulement deterministe ce que le harnais multi-boucles
+    laissait au hasard du GC.
+    """
+    yield
+    try:
+        from token_savior.code_mode import sandbox
+    except Exception:
+        return
+    balayer = getattr(sandbox, "_balayer_transports_morts", None)
+    if balayer is not None:
+        balayer()

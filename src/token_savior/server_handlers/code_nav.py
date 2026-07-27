@@ -162,16 +162,40 @@ def _csc_maybe_serve(
     kind: str,
     args: dict[str, Any],
     produce_full,
+    effective_level: int | None = None,
 ) -> str:
     """Entry point for get_function_source / get_class_source with CSC.
 
     `produce_full` is a zero-arg callable returning the full formatted source.
     Returns either the compact stub (cache hit, body unchanged) or the full
     source (miss / force_full / modified).
+
+    `effective_level` est le niveau reellement servi par l'appelant. Il doit
+    etre passe des que ce niveau n'est pas celui des arguments : quand le
+    client ne precise pas `level`, les handlers le tirent au sort via le
+    bandit (`thompson_sample_level`), et ce tirage peut rendre 2.
+
+    Sans ce parametre, on lisait `args["level"]`, absent donc 0, et on
+    enregistrait au cache un abrege L2 comme s'il s'agissait du corps. Le
+    rappel suivant, meme avec `level=0` explicite, recevait alors
+    "body unchanged since last view - reuse the body you already have"
+    alors que l'appelant n'avait jamais recu de corps, et devait passer par
+    `force_full=true` pour s'en sortir. Constate le 26/07/2026, deux
+    allers-retours perdus par edition.
+
+    L'accuse n'est servi que s'il est reellement plus court que la source.
+    Mesure du 27/07/2026 sur `compter_articles`, trois lignes : la source
+    faisait 232 caracteres, l'accuse 317. Le mecanisme cense economiser des
+    tokens en coutait 85 de plus, et le savait -- `saved` tombait a 0 par le
+    `max(0, ...)` ci-dessous, sans que personne n'en tire la consequence. Sur
+    un petit symbole, la reponse la moins chere est la source elle-meme.
     """
 
     force_full = bool(args.get("force_full", False))
-    level = int(args.get("level", 0) or 0)
+    if effective_level is not None:
+        level = int(effective_level)
+    else:
+        level = int(args.get("level", 0) or 0)
 
     full = produce_full()
     # Skip cache when:
@@ -218,7 +242,9 @@ def _csc_maybe_serve(
             view_count=entry["view_count"],
             modified=False,
         )
-        saved = max(0, len(full) - len(compact))
+        if len(compact) >= len(full):
+            return full
+        saved = len(full) - len(compact)
         state._csc_hits += 1
         state._csc_tokens_saved += saved // 4
         return compact
@@ -233,9 +259,6 @@ def _csc_maybe_serve(
         modified=True,
         diff_preview=diff_preview,
     )
-    saved = max(0, len(full) - len(compact))
-    state._csc_hits += 1
-    state._csc_tokens_saved += saved // 4
     entry.update(
         {
             "cache_token": tok,
@@ -244,6 +267,11 @@ def _csc_maybe_serve(
             "signature": signature,
         }
     )
+    if len(compact) >= len(full):
+        return full
+    saved = len(full) - len(compact)
+    state._csc_hits += 1
+    state._csc_tokens_saved += saved // 4
     return compact
 
 
@@ -300,6 +328,7 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
             max_lines=args.get("max_lines", 0),
             level=chosen_level,
         ),
+        effective_level=chosen_level,
     )
     if ctx_type is not None:
         try:
@@ -311,10 +340,12 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
             result += f"\n\n{_stop_hint()}"
         else:
-            result += (
+            indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
                 "for source + callers + dependencies in one call"
             )
+            if _indice_supportable(result, indice):
+                result += indice
     return result
 
 
@@ -345,6 +376,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
             max_lines=args.get("max_lines", 0),
             level=chosen_level,
         ),
+        effective_level=chosen_level,
     )
     if ctx_type is not None:
         # Optimistic feedback: a non-empty result at the sampled level counts as
@@ -396,10 +428,12 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
             result += f"\n\n{_stop_hint()}"
         else:
-            result += (
+            indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
                 "for source + callers + dependencies in one call"
             )
+            if _indice_supportable(result, indice):
+                result += indice
     return result
 
 
@@ -427,6 +461,15 @@ def _q_get_edit_context(qfns, args):
                 ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
         except Exception:
             ctx["source"] = None
+    # La source complete est deja dans ctx["source"]. Reexpedier ses vingt
+    # premieres lignes dans location["source_preview"] revient a l'envoyer
+    # deux fois : mesure du 27/07/2026, get_edit_context coutait 459
+    # caracteres la ou la chaine qu'il remplace (source + dependances +
+    # appelants) en coutait 216. L'outil phare "un appel au lieu de trois"
+    # coutait donc plus du double des trois. On copie le dictionnaire plutot
+    # que de le modifier : il vient du cache de find_symbol.
+    if isinstance(location, dict) and ctx.get("source"):
+        location = {c: v for c, v in location.items() if c != "source_preview"}
     ctx["location"] = location
     try:
         dependencies = qfns["get_dependencies"](sym_name, max_results=max_deps)
@@ -530,6 +573,24 @@ def _stop_hint() -> str:
         "say so explicitly."
     )
 
+
+
+
+def _indice_supportable(reponse: str, indice: str) -> bool:
+    """Un indice ne doit pas peser plus du quart de la reponse qu'il suit.
+
+    L'indice "-> get_full_context(...)" fait ~70 caracteres et etait ajoute a
+    toutes les reponses, quelle que soit leur taille. Mesure du 27/07/2026 :
+    sur une fonction de trois lignes, get_function_source rendait 131
+    caracteres la ou lire le fichier entier en coutait 76. L'outil cense
+    economiser des tokens en depensait plus que `cat`, et l'ecart etait
+    exactement l'indice.
+
+    Une suggestion qui coute le quart de la reponse ne se rentabilise que si
+    l'agent la suit ; sur un petit symbole il n'a aucune raison de le faire,
+    il a deja ce qu'il cherchait.
+    """
+    return len(indice) * 4 <= len(reponse)
 
 def _hints_for_symbol(name: str, sym_type: str | None) -> list[str]:
     if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:

@@ -14,12 +14,33 @@ TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-sav
 TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
 # Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
 # s'il est declare, sinon on prend le python du PATH.
+# La sonde `python3 -c "import token_savior"` demarre un interpreteur complet,
+# mesure a ~127 ms sur ce VPS, et elle etait payee a CHAQUE appel de hook, donc
+# a chaque outil utilise par l'agent. Le resultat est desormais memorise, et
+# invalide des que le binaire python change (chemin + mtime + taille).
 if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
   TS_PY="$TOKEN_SAVIOR_PYTHON"
-elif command -v python3 >/dev/null 2>&1 && python3 -c "import token_savior" 2>/dev/null; then
-  TS_PY="$(command -v python3)"
 else
-  TS_PY="${TS_PY:-python3}"
+  _ts_py_bin="$(command -v python3 2>/dev/null)"
+  if [ -z "$_ts_py_bin" ]; then
+    TS_PY="${TS_PY:-python3}"
+  else
+    _ts_cache="${XDG_CACHE_HOME:-$HOME/.cache}/token-savior/interpreteur"
+    _ts_sig="$_ts_py_bin:$(stat -c '%Y:%s' "$_ts_py_bin" 2>/dev/null || echo 0)"
+    if [ -r "$_ts_cache" ] && IFS='|' read -r _c_sig _c_py < "$_ts_cache" 2>/dev/null \
+       && [ "$_c_sig" = "$_ts_sig" ] && [ -n "$_c_py" ]; then
+      TS_PY="$_c_py"
+    else
+      if "$_ts_py_bin" -c "import token_savior" 2>/dev/null; then
+        TS_PY="$_ts_py_bin"
+      else
+        TS_PY="${TS_PY:-python3}"
+      fi
+      mkdir -p "$(dirname "$_ts_cache")" 2>/dev/null \
+        && printf '%s|%s\n' "$_ts_sig" "$TS_PY" > "$_ts_cache" 2>/dev/null || true
+    fi
+    unset _ts_py_bin _ts_cache _ts_sig _c_sig _c_py
+  fi
 fi
 # Checkout source : utile en developpement seulement. Apres `pip install`,
 # token_savior est importable sans rien ajouter a sys.path.

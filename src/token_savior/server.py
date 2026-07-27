@@ -982,73 +982,123 @@ def _locate_across_projects(file_hint: str) -> str:
     return f"\n\n-> Present in several projects: {liste}\n  Pick one with project=<name>."
 
 
+
+def _message_argument_obligatoire(name: str, exc: KeyError) -> str | None:
+    """Message utile quand la cle absente est un argument declare obligatoire.
+
+    Rend None pour toute autre KeyError, qui est alors relayee telle quelle :
+    une erreur interne ne doit jamais etre maquillee en probleme d'appel, on
+    perdrait le vrai defaut.
+
+    Raison d'etre, meme constat que _require_name dans server_handlers :
+    repondre `Error: 'from_name'` -- le repr d'une KeyError Python -- est le
+    pire message possible pour un client LLM. Il ne nomme ni l'argument
+    manquant ni comment l'obtenir, donc l'appelant retente a l'aveugle et paie
+    l'aller-retour deux fois. _require_name couvrait les outils dont
+    l'argument s'appelle `name` ; get_call_chain, qui attend
+    `from_name`/`to_name`, passait au travers et rendait une KeyError brute.
+    Ce garde-fou est generique : il vaut pour tout outil, quels que soient ses
+    noms d'arguments.
+    """
+    if not exc.args or not isinstance(exc.args[0], str):
+        return None
+    manquant = exc.args[0]
+    schema = TOOL_SCHEMAS.get(name) or {}
+    requis: list = []
+    for cle in ("inputSchema", "input_schema", "parameters"):
+        bloc = schema.get(cle)
+        if isinstance(bloc, dict) and isinstance(bloc.get("required"), list):
+            requis = bloc["required"]
+            break
+    if manquant not in requis:
+        return None
+    exemple = ", ".join(f'{r}="..."' for r in requis)
+    rappel = ""
+    if len(requis) > 1:
+        rappel = f" (obligatoires : {', '.join(requis)})"
+    return (
+        f"Error: {name} requires '{manquant}'{rappel}.\n"
+        f"  Example: {name}({exemple})\n"
+        f"  If you do not know the exact name: search_codebase(pattern=...) "
+        f"or ts_search(query=...)."
+    )
+
 def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> list[types.TextContent]:
     """Dispatch a tool by name, honoring the four handler categories.
 
     Shared by `call_tool` (normal entry) and the `ts_extended` proxy so that
     hidden tools in the `ultra` profile run through the exact same path.
+
+    Un argument obligatoire absent ressort en message utile plutot qu'en
+    KeyError brute : voir _message_argument_obligatoire.
     """
+    # Un seul appel : _normalize_arguments est idempotent (il ne deplace un
+    # alias que si le canonique est absent), le second etait un doublon.
     arguments = _normalize_arguments(name, arguments)
 
-    arguments = _normalize_arguments(name, arguments)
+    try:
+        meta_handler = _META_HANDLERS.get(name)
+        if meta_handler is not None:
+            return meta_handler(arguments)
 
-    meta_handler = _META_HANDLERS.get(name)
-    if meta_handler is not None:
-        return meta_handler(arguments)
+        mem_handler = _MEMORY_HANDLERS.get(name)
+        if mem_handler is not None:
+            return [TextContent(type="text", text=mem_handler(arguments))]
 
-    mem_handler = _MEMORY_HANDLERS.get(name)
-    if mem_handler is not None:
-        return [TextContent(type="text", text=mem_handler(arguments))]
+        project_hint = arguments.get("project")
+        slot, err = s._slot_mgr.resolve(project_hint)
+        if err:
+            return [TextContent(type="text", text=f"Error: {err}")]
+        # Auto-promote explicit project hint to active. Previously the hint only
+        # resolved for the current call, forcing agents to either repeat the
+        # project= arg on every call or prefix a switch_project. This makes the
+        # first real tool call implicitly set the session's active project.
+        if project_hint and slot is not None and s._slot_mgr.active_root != slot.root:
+            s._slot_mgr.active_root = slot.root
 
-    project_hint = arguments.get("project")
-    slot, err = s._slot_mgr.resolve(project_hint)
-    if err:
-        return [TextContent(type="text", text=f"Error: {err}")]
-    # Auto-promote explicit project hint to active. Previously the hint only
-    # resolved for the current call, forcing agents to either repeat the
-    # project= arg on every call or prefix a switch_project. This makes the
-    # first real tool call implicitly set the session's active project.
-    if project_hint and slot is not None and s._slot_mgr.active_root != slot.root:
-        s._slot_mgr.active_root = slot.root
+        handler = _SLOT_HANDLERS.get(name)
+        if handler is not None:
+            wrapped = _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
+            if name in _EDIT_TOOLS_NEEDING_CONTEXT and _edit_succeeded(wrapped):
+                notice = _edit_impact_notice(slot, name, record_symbol)
+                if notice:
+                    wrapped = [*wrapped, TextContent(type="text", text=notice)]
+            return wrapped
 
-    handler = _SLOT_HANDLERS.get(name)
-    if handler is not None:
-        wrapped = _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
-        if name in _EDIT_TOOLS_NEEDING_CONTEXT and _edit_succeeded(wrapped):
-            notice = _edit_impact_notice(slot, name, record_symbol)
-            if notice:
-                wrapped = [*wrapped, TextContent(type="text", text=notice)]
-        return wrapped
-
-    qfn_handler = _QFN_HANDLERS.get(name)
-    if qfn_handler is not None:
-        _prep(slot)
-        if slot.query_fns is None:
-            return [TextContent(
-                type="text",
-                text=f"Error: index not built for '{slot.root}'. Call reindex first.",
-            )]
-        src_key = None
-        if name in s._SRC_CACHEABLE_TOOLS:
-            args_repr = repr(sorted(
-                (k, v) for k, v in arguments.items() if k != "project"
-            ))
-            src_key = f"{name}:{slot.root}:{slot.cache_gen}:{args_repr}"
-            cached = s._session_result_cache.get(src_key)
-            if cached is not None:
-                s._src_hits += 1
-                return _count_and_wrap_result(slot, name, arguments, cached)
-            s._src_misses += 1
-        result = qfn_handler(slot.query_fns, arguments)
-        if isinstance(result, str) and "not found in index" in result:
-            piste = _locate_across_projects(str(arguments.get("file_path") or ""))
-            if piste:
-                result += piste
-        result = _maybe_compress(name, arguments, result)
-        if src_key is not None:
-            s._session_result_cache[src_key] = result
-        _prefetch_next(name, record_symbol, slot)
-        return _count_and_wrap_result(slot, name, arguments, result)
+        qfn_handler = _QFN_HANDLERS.get(name)
+        if qfn_handler is not None:
+            _prep(slot)
+            if slot.query_fns is None:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: index not built for '{slot.root}'. Call reindex first.",
+                )]
+            src_key = None
+            if name in s._SRC_CACHEABLE_TOOLS:
+                args_repr = repr(sorted(
+                    (k, v) for k, v in arguments.items() if k != "project"
+                ))
+                src_key = f"{name}:{slot.root}:{slot.cache_gen}:{args_repr}"
+                cached = s._session_result_cache.get(src_key)
+                if cached is not None:
+                    s._src_hits += 1
+                    return _count_and_wrap_result(slot, name, arguments, cached)
+                s._src_misses += 1
+            result = qfn_handler(slot.query_fns, arguments)
+            if isinstance(result, str) and "not found in index" in result:
+                piste = _locate_across_projects(str(arguments.get("file_path") or ""))
+                if piste:
+                    result += piste
+            result = _maybe_compress(name, arguments, result)
+            if src_key is not None:
+                s._session_result_cache[src_key] = result
+            _prefetch_next(name, record_symbol, slot)
+            return _count_and_wrap_result(slot, name, arguments, result)
+    except KeyError as exc:
+        message = _message_argument_obligatoire(name, exc)
+        if message is None:
+            raise
+        return [TextContent(type="text", text=message)]
 
     return [TextContent(type="text", text=f"Error: unknown tool '{name}'")]
 

@@ -38,6 +38,14 @@ ALLOWED_TOOLS: list[str] = [
     "find_semantic_duplicates",
     "find_import_cycles",
     "detect_breaking_changes",
+    # Ajoutes le 27/07/2026. Ils existaient cote MCP (handler, schema,
+    # dispatch) mais pas ici : un script Code Mode se prenait
+    # "tools.get_routes is not a function" sur des outils que la
+    # documentation presente comme disponibles. Tous en lecture seule.
+    "get_routes",
+    "get_env_usage",
+    "get_entry_points",
+    "find_impacted_test_files",
     "analyze_config",
     "analyze_docker",
     "list_projects",
