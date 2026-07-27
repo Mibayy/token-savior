@@ -142,8 +142,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--projet", required=True, help="project_root a mesurer")
     p.add_argument("--db", default=str(Path.home() / ".local/share/token-savior/memory.db"))
-    p.add_argument("--mode", choices=("contenu", "titre"), default="contenu",
-                   help="contenu = non biaise (defaut) ; titre = temoin flatteur")
+    p.add_argument("--mode", choices=("contenu", "titre", "les-deux"), default="contenu",
+                   help="contenu = non biaise (defaut) ; titre = temoin flatteur ; "
+                        "les-deux = les deux dans le meme run")
     p.add_argument("--n", type=int, default=45)
     p.add_argument("--limite", type=int, default=10)
     p.add_argument("--graine", type=int, default=11)
@@ -155,34 +156,53 @@ def main(argv: list[str] | None = None) -> int:
         print(f"base introuvable : {db}", file=sys.stderr)
         return 2
 
-    cas = construire_jeu(db, a.projet, a.n, a.mode, a.graine)
-    if not cas:
-        print(f"aucune observation exploitable pour {a.projet!r} dans {db}", file=sys.stderr)
-        return 2
-
-    mesure = mesurer(cas, a.projet, a.limite)
-    sortie = {
-        "projet": a.projet, "mode": a.mode, "cas": len(cas),
-        "limite": a.limite, "graine": a.graine, "mesure": mesure,
-    }
+    modes = ("contenu", "titre") if a.mode == "les-deux" else (a.mode,)
+    resultats: dict[str, dict] = {}
+    for mode in modes:
+        cas = construire_jeu(db, a.projet, a.n, mode, a.graine)
+        if not cas:
+            print(f"aucune observation exploitable pour {a.projet!r} dans {db} "
+                  f"(mode {mode})", file=sys.stderr)
+            return 2
+        resultats[mode] = {
+            "projet": a.projet, "mode": mode, "cas": len(cas),
+            "limite": a.limite, "graine": a.graine,
+            "mesure": mesurer(cas, a.projet, a.limite),
+        }
 
     if a.json:
-        print(json.dumps(sortie, ensure_ascii=False, indent=2))
+        # Un mode seul garde sa forme : `modes` n'apparait qu'en les-deux, pour
+        # ne pas casser ce qui lit deja la sortie a plat.
+        charge = ({"projet": a.projet, "limite": a.limite, "graine": a.graine,
+                   "modes": resultats}
+                  if a.mode == "les-deux" else resultats[a.mode])
+        print(json.dumps(charge, ensure_ascii=False, indent=2))
         return 0
 
     print(f"  projet : {a.projet}")
-    print(f"  mode   : {a.mode}" + ("  (BIAISE, temoin seulement)" if a.mode == "titre" else ""))
-    print(f"  cas    : {len(cas)} observations, fenetre {a.limite}\n")
-    for forme in ("courte", "longue"):
-        d = mesure[forme]
-        rang = f"{d['rang_moyen']:.2f}" if d["rang_moyen"] else "-"
-        print(f"    requete {forme:7} : {d['trouve']:3}/{d['sur']} ({d['taux']:5.1f} %)"
-              f"   rang moyen {rang}")
-    ecart = (mesure["courte"]["taux"] - mesure["longue"]["taux"])
-    if ecart > 5:
-        print(f"\n  ECART de {ecart:.1f} points entre mots-cles et question humaine.")
-        print("  C'est le symptome a surveiller : le moteur repond aux mots-cles")
-        print("  et pas aux questions.")
+    for mode, bloc in resultats.items():
+        mesure = bloc["mesure"]
+        print(f"  mode   : {mode}"
+              + ("  (BIAISE, temoin seulement)" if mode == "titre" else ""))
+        print(f"  cas    : {bloc['cas']} observations, fenetre {a.limite}\n")
+        for forme in ("courte", "longue"):
+            d = mesure[forme]
+            rang = f"{d['rang_moyen']:.2f}" if d["rang_moyen"] else "-"
+            print(f"    requete {forme:7} : {d['trouve']:3}/{d['sur']} ({d['taux']:5.1f} %)"
+                  f"   rang moyen {rang}")
+        ecart = (mesure["courte"]["taux"] - mesure["longue"]["taux"])
+        if ecart > 5:
+            print(f"\n  ECART de {ecart:.1f} points entre mots-cles et question humaine.")
+            print("  C'est le symptome a surveiller : le moteur repond aux mots-cles")
+            print("  et pas aux questions.")
+        print()
+
+    if a.mode == "les-deux":
+        honnete = resultats["contenu"]["mesure"]["courte"]["taux"]
+        temoin = resultats["titre"]["mesure"]["courte"]["taux"]
+        print(f"  Ecart temoin - honnete : {temoin - honnete:+.1f} points.")
+        print("  C'est ce que vaudrait la mesure si les requetes etaient baties")
+        print("  sur le titre de leur propre cible. A lire, jamais a citer.")
     return 0
 
 
