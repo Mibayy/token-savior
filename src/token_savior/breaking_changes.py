@@ -192,11 +192,73 @@ def _sig_from_func(
 # ---------------------------------------------------------------------------
 
 
+def _pourquoi_on_ne_peut_pas_comparer(root_path: str, since_ref: str) -> str | None:
+    """Rend la raison si la comparaison est impossible, ``None`` si elle l'est.
+
+    Sans ce controle, une comparaison qui ne peut pas avoir lieu rendait le
+    meme rapport qu'une comparaison reussie n'ayant rien trouve. Mesure du
+    27/07/2026, sur un depot ou un parametre venait d'etre supprime :
+
+        reference valide     -> 1 issue, parameter 'taux' was removed
+        reference inexistante-> "no breaking changes detected"
+        repertoire sans git  -> "no breaking changes detected"
+
+    Le cas cassant etait reellement present dans les deux derniers. L'outil
+    ne l'a pas rate : il n'a jamais regarde, et il a rendu la phrase qu'on
+    lit comme un feu vert.
+
+    C'est le pire mode de defaillance possible ici, parce que cet outil est
+    explicitement un controle d'avant-commit. Un controle qui echoue en
+    disant que tout va bien est pire que pas de controle du tout : il retire
+    la vigilance qu'on aurait eue sans lui.
+    """
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root_path,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+            check=False,  # on LIT le code de retour, on ne veut pas d'exception
+        )
+
+    try:
+        dans_un_depot = git("rev-parse", "--is-inside-work-tree")
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as souci:
+        return f"git is unavailable here ({type(souci).__name__})"
+    if dans_un_depot.returncode != 0 or dans_un_depot.stdout.strip() != "true":
+        return "this directory is not a git repository"
+
+    try:
+        resolue = git("rev-parse", "--verify", "--quiet", f"{since_ref}^{{commit}}")
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as souci:
+        return f"git is unavailable here ({type(souci).__name__})"
+    if resolue.returncode != 0:
+        return f"cannot resolve {since_ref!r} to a commit"
+    return None
+
+
 def detect_breaking_changes(index: ProjectIndex, since_ref: str = "HEAD~1") -> str:
     """Detect breaking changes between *since_ref* and the current working tree.
 
     Returns a human-readable report string.
+
+    Refuse de conclure quand la comparaison n'a pas pu avoir lieu. Voir
+    :func:`_pourquoi_on_ne_peut_pas_comparer` : une reference introuvable ou
+    un repertoire sans git rendaient auparavant « no breaking changes
+    detected », c'est-a-dire exactement la phrase que l'on lit comme un feu
+    vert, alors que rien n'avait ete examine.
     """
+    empechement = _pourquoi_on_ne_peut_pas_comparer(index.root_path, since_ref)
+    if empechement is not None:
+        return (
+            f"Breaking Change Analysis ({since_ref}..working tree) -- "
+            f"COMPARISON DID NOT RUN: {empechement}.\n"
+            "No conclusion can be drawn from this run. This is NOT a clean "
+            "bill of health: nothing was compared."
+        )
+
     changeset = get_changed_files(index.root_path, since_ref)
 
     all_changes: list[BreakingChange] = []
