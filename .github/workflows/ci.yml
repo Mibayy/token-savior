@@ -36,7 +36,11 @@ jobs:
         run: pip install -e ".[dev,mcp,memory-vector]"
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        # `scripts/` inclus depuis le 27/07/2026. Il n'etait linte ni ici ni
+        # dans le preflight local : 29 erreurs y dormaient, dont une variable
+        # morte portant une formule d'economies abandonnee. Deux garde-fous
+        # regardant le meme sous-ensemble ne font pas deux garde-fous.
+        run: ruff check src/ tests/ scripts/
 
       - name: Run tests
         run: pytest tests/ -v
