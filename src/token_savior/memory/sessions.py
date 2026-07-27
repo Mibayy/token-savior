@@ -8,7 +8,12 @@ from __future__ import annotations
 import sqlite3
 import sys
 
-from token_savior.db_core import _json_dumps, _now_epoch, _now_iso
+from token_savior.db_core import (
+    _fts5_safe_query,
+    _json_dumps,
+    _now_epoch,
+    _now_iso,
+)
 from token_savior.memory._facade import memory_db
 
 
@@ -119,8 +124,28 @@ def session_summary_search(
     *,
     limit: int = 10,
 ) -> list[dict]:
-    """FTS5 search over session_summaries. Returns rollup rows with age + excerpt."""
+    """FTS5 search over session_summaries. Returns rollup rows with age + excerpt.
+
+    La requete passe par `_fts5_safe_query` avant d'atteindre `MATCH`. Sans ca,
+    le texte de l'utilisateur etait interprete comme de la SYNTAXE FTS5. Une
+    requete contenant un trait d'union, une parenthese, un deux-points ou le
+    mot NOT levait une `sqlite3.Error` -- attrapee, imprimee sur stderr, et
+    traduite en `[]`. L'appelant lisait « rien trouve » la ou il fallait lire
+    « la recherche a echoue ».
+
+    Mesure du 27/07/2026, cinq cas sur dix cassaient, dont ceux qu'on tape
+    tous les jours : `token-savior`, `claude-code`, `port-80`, `post-mortem`.
+
+    Le desinfectant existait deja dans le depot, utilise par
+    `reasoning_search` et `tool_capture`. Il manquait ici et dans
+    `prompt_search`.
+    """
     if not (query or "").strip():
+        return []
+    fts_q = _fts5_safe_query(query)
+    if not fts_q:
+        # Que des mots de moins de trois caracteres, ou de la ponctuation :
+        # une chaine vide passee a MATCH leve.
         return []
     try:
         with memory_db.db_session() as conn:
@@ -134,7 +159,7 @@ def session_summary_search(
                 "WHERE session_summaries_fts MATCH ? "
                 "  AND (s.project_root = ? OR s.project_root = '') "
                 "ORDER BY rank LIMIT ?",
-                [query, project_root, limit],
+                [fts_q, project_root, limit],
             ).fetchall()
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] session_summary_search error: {exc}", file=sys.stderr)

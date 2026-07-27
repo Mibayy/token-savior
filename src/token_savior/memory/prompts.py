@@ -9,7 +9,12 @@ import sqlite3
 import sys
 import time
 
-from token_savior.db_core import _now_epoch, _now_iso, strip_private
+from token_savior.db_core import (
+    _fts5_safe_query,
+    _now_epoch,
+    _now_iso,
+    strip_private,
+)
 from token_savior.memory._facade import memory_db
 from token_savior.memory._text_utils import _STOPWORDS, _TOKEN_RE
 
@@ -49,7 +54,35 @@ def prompt_search(
     *,
     limit: int = 10,
 ) -> list[dict]:
-    """FTS5 search across user prompts. Returns id, prompt_number, excerpt, created_at."""
+    """FTS5 search across user prompts. Returns id, prompt_number, excerpt, created_at.
+
+    La requete passe par `_fts5_safe_query` avant d'atteindre `MATCH`. Sans ca,
+    le texte de l'utilisateur etait interprete comme de la SYNTAXE FTS5, et les
+    tournures les plus banales cassaient la recherche en silence -- mesure du
+    27/07/2026, corpus contenant la reponse :
+
+        'certificat'      -> 0 resultat   (correct : ce corpus n'a pas de prompt)
+        'certificat-ssl'  -> 0 resultat + erreur SQL avalee
+        'port-80'         -> 0 resultat + erreur SQL avalee
+        '(certificat'     -> 0 resultat + erreur SQL avalee
+        'NOT certificat'  -> 0 resultat + erreur SQL avalee
+
+    Cinq cas sur dix, dont le trait d'union, c'est-a-dire ce qu'on tape tous
+    les jours : `token-savior`, `claude-code`, `post-mortem`, `port-80`.
+    L'erreur partait sur stderr et la fonction rendait `[]`, donc l'appelant
+    lisait « rien trouve » la ou il fallait lire « la recherche a echoue ».
+
+    Le desinfectant existait deja dans le depot et etait utilise par
+    `reasoning_search` et `tool_capture`. Il manquait ici et dans
+    `session_summary_search`.
+    """
+    fts_q = _fts5_safe_query(query)
+    if not fts_q:
+        # Rien de cherchable ne subsiste (que des mots de moins de trois
+        # caracteres, ou de la ponctuation). Une chaine vide passee a MATCH
+        # leve, autant s'arreter proprement.
+        return []
+    conn = None
     try:
         conn = memory_db.get_db()
         rows = conn.execute(
@@ -60,14 +93,21 @@ def prompt_search(
             "WHERE user_prompts_fts MATCH ? "
             "  AND (p.project_root = ? OR p.project_root IS NULL) "
             "ORDER BY p.created_at_epoch DESC LIMIT ?",
-            (query, project_root, limit),
+            (fts_q, project_root, limit),
         ).fetchall()
-        result = [dict(r) for r in rows]
-        conn.close()
-        return result
+        return [dict(r) for r in rows]
     except sqlite3.Error as exc:
         print(f"[token-savior:memory] prompt_search error: {exc}", file=sys.stderr)
         return []
+    finally:
+        # Le `close` etait a l'interieur du `try`, donc il ne s'executait pas
+        # sur le chemin d'erreur : chaque recherche ratee laissait filer une
+        # connexion.
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
 
 
 def analyze_prompt_patterns(
