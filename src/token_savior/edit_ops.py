@@ -72,23 +72,59 @@ def _debut_sans_decorateurs(
     la nouvelle source en apporte deja : dans ce cas l'appelant a decide
     lui-meme de ce qui surmonte la definition, on ne lui force rien.
 
-    Ecrit en defensif : toute lecture qui echoue rend `debut`, c'est-a-dire
-    l'ancien comportement. Un remplacement doit rater plutot que de deplacer
-    ses lignes au hasard.
+    On saute le prologue d'attributs plutot que de chercher une ligne de
+    definition. Chercher `def`/`class` liait la reponse a la syntaxe Python,
+    alors que la question ne l'est pas : le seul autre annotateur dont la
+    plage indexee englobe l'attribut est Java, ou aucune de ces trois amorces
+    n'apparait. Le scan tombait donc jusqu'au `return debut` final et
+    `@Override` etait ecrase. Constate le 27/07/2026 sur `toString`, plage
+    @L:2-5, annotation disparue du fichier sans que la relecture du symbole
+    remplace ne puisse le montrer -- ce qui manque est au-dessus de la
+    definition. TypeScript, C#, Rust et PHP ne sont pas concernes : leur plage
+    commence a la declaration, l'attribut n'en fait pas partie.
+
+    Un attribut peut porter ses arguments sur plusieurs lignes. On consomme
+    donc chaque attribut jusqu'a ce que ses parentheses et crochets se
+    referment, sinon on s'arreterait a l'interieur et on effacerait la fin de
+    ses arguments.
+
+    Ecrit en defensif : toute lecture qui echoue, et tout prologue dont le
+    solde ne se referme pas, rendent `debut`, c'est-a-dire l'ancien
+    comportement. Un remplacement doit rater plutot que de deplacer ses lignes
+    au hasard.
     """
-    if nouvelle_source.lstrip().startswith("@"):
+    if nouvelle_source.lstrip().startswith(_AMORCES_ATTRIBUT):
         return debut
     try:
         lignes, _ = _read_lines(chemin)
     except OSError:
         return debut
-    if debut - 1 >= len(lignes) or not lignes[debut - 1].lstrip().startswith("@"):
-        return debut
-    for numero in range(debut - 1, min(fin, len(lignes))):
-        depouillee = lignes[numero].lstrip()
-        if depouillee.startswith(("def ", "async def ", "class ")):
-            return numero + 1
-    return debut
+    borne = min(fin, len(lignes))
+    numero = debut - 1
+    while numero < borne and lignes[numero].lstrip().startswith(_AMORCES_ATTRIBUT):
+        solde = _solde_delimiteurs(lignes[numero])
+        numero += 1
+        while numero < borne and solde > 0:
+            solde += _solde_delimiteurs(lignes[numero])
+            numero += 1
+    return numero + 1 if numero < borne else debut
+
+
+# `@` couvre Python, Java et TypeScript ; `#[` couvre Rust et PHP 8. Les deux
+# derniers langages n'en ont pas besoin aujourd'hui -- leur plage commence a la
+# declaration -- mais l'amorce ne coute rien et la convention peut changer.
+_AMORCES_ATTRIBUT = ("@", "#[")
+
+
+def _solde_delimiteurs(ligne: str) -> int:
+    """Ouvrants moins fermants, pour suivre un attribut sur plusieurs lignes.
+
+    Compte sans comprendre les chaines : un attribut dont un litteral contient
+    une parenthese depareillee laisse le solde ouvert, la boucle appelante va
+    au bout de la plage et rend `debut`. C'est l'ancien comportement, donc une
+    annotation perdue dans ce cas precis, jamais un remplacement decale.
+    """
+    return sum(ligne.count(o) - ligne.count(f) for o, f in (("(", ")"), ("[", "]")))
 
 
 def edit_lines_in_symbol(
