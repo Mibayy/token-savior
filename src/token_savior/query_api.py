@@ -832,19 +832,39 @@ class ProjectQueryEngine:
             f"Functions: {index.total_functions}, Classes: {index.total_classes}"),
         ]
 
+        infra_top = {"infra", "infrastructure", "deploy", "deployment", "k8s", "kubernetes",
+                     "terraform", "docker", "helm", "ansible", ".github", "ci", "cicd"}
+
+        # Single pass over the file table: top-level packages, per-type counts,
+        # and the (few) paths that can sit under an infra directory. This used
+        # to take four traversals, one of which lowercased and split every path
+        # in the project only to reject it.
+        package_set: set[str] = set()
+        infra_paths: list[str] = []
+        class_count = 0
+        func_count = 0
+        for path, meta in index.files.items():
+            head, sep, _rest = path.partition("/")
+            if sep:
+                package_set.add(head)
+            if head.lower() in infra_top:
+                infra_paths.append(path)
+            class_count += len(meta.classes)
+            for func in meta.functions:
+                if not func.is_method:
+                    func_count += 1
+
         # Top-level packages only (deduplicated)
-        top_packages = sorted({p.split("/")[0] for p in index.files if "/" in p})
+        top_packages = sorted(package_set)
         if top_packages:
             parts.append(f"Packages ({len(top_packages)}): {', '.join(top_packages[:15])}")
             if len(top_packages) > 15:
                 parts.append(f"  ... and {len(top_packages) - 15} more")
-            infra_top = {"infra", "infrastructure", "deploy", "deployment", "k8s", "kubernetes",
-                         "terraform", "docker", "helm", "ansible", ".github", "ci", "cicd"}
             infra_hits = [p for p in top_packages if p.lower() in infra_top]
-            infra_hits_set = set(infra_hits)
             if infra_hits:
+                infra_hits_set = set(infra_hits)
                 infra_techs: set[str] = set()
-                for path in index.files:
+                for path in infra_paths:
                     parts_l = path.lower().split("/")
                     if not parts_l or parts_l[0] not in infra_hits_set:
                         continue
@@ -863,11 +883,7 @@ class ProjectQueryEngine:
                 tech_str = f" (techs: {', '.join(sorted(infra_techs))})" if infra_techs else ""
                 parts.append(f"Infra dirs: {', '.join(infra_hits)}{tech_str}")
 
-        # Counts per type, no individual names
-        class_count = sum(len(meta.classes) for meta in index.files.values())
-        func_count = sum(
-            sum(1 for f in meta.functions if not f.is_method) for meta in index.files.values()
-        )
+        # Counts per type, no individual names (accumulated in the pass above)
         if class_count:
             parts.append(f"Classes: {class_count} total")
         if func_count:
