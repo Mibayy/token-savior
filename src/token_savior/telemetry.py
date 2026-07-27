@@ -45,13 +45,25 @@ from pathlib import Path
 _SCHEMA_VERSION = 1
 
 
-def _stats_dir() -> Path:
+def stats_dir() -> Path:
+    """Ou vivent les statistiques, demande au moment ou on ecrit.
+
+    Reference unique pour `TOKEN_SAVIOR_STATS_DIR`. La variable etait lue dans
+    six modules : quatre figeaient la reponse a l'import (`server_state`,
+    `dashboard`, `slot_manager`, `server_handlers/tool_search`), deux la
+    relisaient a l'usage. Un processus qui posait la variable apres l'import de
+    l'un des quatre ecrivait donc dans deux repertoires a la fois et relisait
+    dans celui des deux qu'il interrogeait (#90).
+
+    Ce module est une feuille -- il n'importe rien du paquet -- donc les cinq
+    autres peuvent s'y adresser sans cycle.
+    """
     raw = os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
     return Path(os.path.expanduser(raw))
 
 
 def _counter_path() -> Path:
-    return _stats_dir() / "tool-calls.json"
+    return stats_dir() / "tool-calls.json"
 
 
 def _resolve_client() -> str:
@@ -226,7 +238,7 @@ def record_tool_call(tool_name: str) -> None:
 
 
 def _nudge_path() -> Path:
-    return _stats_dir() / "nudge-stats.json"
+    return stats_dir() / "nudge-stats.json"
 
 
 _nudge_lock = threading.Lock()

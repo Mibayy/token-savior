@@ -36,6 +36,8 @@ import math
 import os
 from typing import Any
 
+from token_savior import telemetry
+
 # Cached at first call; module-level to survive across tool invocations.
 _TOOL_EMBED_CACHE: dict[str, list[float]] | None = None
 _TOOL_DESCRIPTIONS: dict[str, str] | None = None
@@ -46,10 +48,25 @@ _TOOL_DESCRIPTIONS: dict[str, str] | None = None
 # ts_search cold start measured on 2026-07-04 (the other half is the Nomic
 # model load, unavoidable in-process). Keyed by a hash of (names+descriptions+
 # model), so edited descriptions or a model swap invalidate it automatically.
-_STATS_DIR = os.path.expanduser(
-    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+# Point de surcharge : `test_tool_embed_disk_cache` le rebinde par cas. Compare
+# a sa valeur d'import pour distinguer « personne n'a rien impose, redemande a
+# l'environnement » de « quelqu'un a impose un chemin, il gagne » -- meme forme
+# que `db_core.chemin_memoire()`. Fige a l'import, `TOKEN_SAVIOR_STATS_DIR` pose
+# apres ce premier import ne comptait plus ici alors qu'il comptait dans
+# `telemetry` : le meme processus ecrivait a deux endroits (#90).
+_EMBED_CACHE_INITIAL = os.path.join(
+    os.path.expanduser(
+        os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+    ),
+    "tool_embeddings.json",
 )
-_EMBED_CACHE_FILE = os.path.join(_STATS_DIR, "tool_embeddings.json")
+_EMBED_CACHE_FILE = _EMBED_CACHE_INITIAL
+
+
+def _embed_cache_file() -> str:
+    if _EMBED_CACHE_FILE != _EMBED_CACHE_INITIAL:
+        return _EMBED_CACHE_FILE
+    return str(telemetry.stats_dir() / "tool_embeddings.json")
 
 
 def _cache_signature(descs: dict[str, str]) -> str:
@@ -72,7 +89,7 @@ def _load_disk_embeds(sig: str) -> dict[str, list[float]] | None:
     """Return persisted embeddings iff the on-disk signature matches ``sig``."""
     import json
     try:
-        with open(_EMBED_CACHE_FILE, encoding="utf-8") as f:
+        with open(_embed_cache_file(), encoding="utf-8") as f:
             blob = json.load(f)
     except (OSError, ValueError):
         return None
@@ -88,11 +105,12 @@ def _save_disk_embeds(sig: str, embeds: dict[str, list[float]]) -> None:
     """Persist embeddings atomically (best-effort, never raises into dispatch)."""
     import json
     try:
-        os.makedirs(_STATS_DIR, exist_ok=True)
-        tmp = _EMBED_CACHE_FILE + ".tmp"
+        cible = _embed_cache_file()
+        os.makedirs(os.path.dirname(cible), exist_ok=True)
+        tmp = cible + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"signature": sig, "embeds": embeds}, f)
-        os.replace(tmp, _EMBED_CACHE_FILE)
+        os.replace(tmp, cible)
     except OSError:
         pass
 

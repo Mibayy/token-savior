@@ -14,6 +14,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 
+from token_savior import telemetry
 from token_savior.leiden_communities import LeidenCommunities
 from token_savior.linucb_injector import LinUCBInjector
 from token_savior.markov_prefetcher import PPMPrefetcher
@@ -42,6 +43,39 @@ def get_server():
     return _server_singleton
 
 
+# Moteurs d'optimisation, construits au premier acces et non a l'import.
+#
+# Les construire a l'import figeait le repertoire de statistiques avant que
+# quiconque ait pu le choisir -- et `TCAEngine.__init__` fait un
+# `mkdir(parents=True)`, donc importer ce module creait le repertoire fige sur
+# le disque (#90). Ils restent des attributs de module : `state._prefetcher`
+# marche comme avant, et un test qui fait `monkeypatch.setattr(server_state,
+# "_tca_engine", espion)` gagne toujours, puisque le `__getattr__` d'un module
+# n'est consulte que pour un nom absent.
+#
+# Declare avant `__getattr__` pour qu'un acces pendant l'import ne tombe jamais
+# sur un nom pas encore defini.
+_MOTEURS = {
+    # Markov prefetcher (P8) — PPM variable-order model on tool-call sequences.
+    "_prefetcher": PPMPrefetcher,
+    # TCA — Tenseur de Co-Activation (PMI on symbol co-activation).
+    "_tca_engine": TCAEngine,
+    # Leiden community detector — clusters the symbol dependency graph.
+    "_leiden": LeidenCommunities,
+    # LinUCB contextual bandit — ranks observations for injection.
+    "_linucb": LinUCBInjector,
+    # Cross-session warm start — finds historical sessions with similar signature.
+    "_warm_start": SessionWarmStart,
+}
+
+
+def _construire_moteur(nom: str):
+    """Construit un moteur au premier acces, puis le fige comme un vrai attribut."""
+    instance = _MOTEURS[nom](Path(stats_dir()))
+    globals()[nom] = instance
+    return instance
+
+
 # Backward-compat alias. Many call sites do `from token_savior.server_state
 # import server` then access `server.run(...)`. We expose `server` as a
 # property-like attribute via __getattr__ on the module so that the first
@@ -49,6 +83,8 @@ def get_server():
 def __getattr__(name):
     if name == "server":
         return get_server()
+    if name in _MOTEURS:
+        return _construire_moteur(name)
     raise AttributeError(f"module 'token_savior.server_state' has no attribute {name!r}")
 
 # ---------------------------------------------------------------------------
@@ -109,25 +145,21 @@ _SRC_CACHEABLE_TOOLS: frozenset[str] = frozenset({
 # Persistent stats configuration
 # ---------------------------------------------------------------------------
 
-_STATS_DIR: str = os.path.expanduser(
-    os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
-)
+def stats_dir() -> str:
+    """Ou ce module ecrit, demande au moment ou il ecrit (#90).
+
+    `_STATS_DIR` etait une constante calculee a l'import, et les cinq moteurs
+    ci-dessous etaient construits avec elle, egalement a l'import. Poser
+    `TOKEN_SAVIOR_STATS_DIR` apres un `import token_savior.server_state` ne
+    changeait donc plus rien ici, alors que `telemetry` en tenait compte : le
+    meme processus ecrivait dans deux repertoires.
+    """
+    return str(telemetry.stats_dir())
+
+
 _MAX_SESSION_HISTORY: int = 200
 
-# ---------------------------------------------------------------------------
-# Optimization engines (instantiated once at module import)
-# ---------------------------------------------------------------------------
-
-# Markov prefetcher (P8) — PPM variable-order model on tool-call sequences.
-_prefetcher: PPMPrefetcher = PPMPrefetcher(Path(_STATS_DIR))
-# TCA — Tenseur de Co-Activation (PMI on symbol co-activation).
-_tca_engine: TCAEngine = TCAEngine(Path(_STATS_DIR))
-# Leiden community detector — clusters the symbol dependency graph.
-_leiden: LeidenCommunities = LeidenCommunities(Path(_STATS_DIR))
-# LinUCB contextual bandit — ranks observations for injection.
-_linucb: LinUCBInjector = LinUCBInjector(Path(_STATS_DIR))
-# Cross-session warm start — finds historical sessions with similar signature.
-_warm_start: SessionWarmStart = SessionWarmStart(Path(_STATS_DIR))
+# Les moteurs eux-memes sont declares plus haut, avec `__getattr__`.
 # Track symbols injected by memory_index so we can credit them as reward
 # when a subsequent call references them.
 _linucb_pending: dict[int, dict] = {}  # obs_id -> {features, context, injected_epoch}
