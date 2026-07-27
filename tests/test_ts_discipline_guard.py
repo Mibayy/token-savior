@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -332,3 +333,75 @@ def test_fail_open_sur_entree_malformee(brut: str, tmp_path: Path) -> None:
                        check=False)
     assert r.returncode == 0
     assert not r.stdout.strip()
+
+
+# --- Editions dans les arbres vendorises ---------------------------------- #
+
+@pytest.mark.parametrize("outil", ["Edit", "Write", "NotebookEdit"])
+@pytest.mark.parametrize("dossier", ["node_modules", ".venv", "dist", "build", "__pycache__"])
+def test_laisse_editer_les_dependances_vendorisees(
+    projet: Path, tmp_path: Path, outil: str, dossier: str,
+) -> None:
+    """Le meme chemin ne peut pas etre lisible et non editable.
+
+    `verdict_native_read` passe par `is_indexed_code`, qui honore
+    TOLERATED_PATHS ; `verdict_native_edit` refaisait le controle sur place et
+    l'oubliait. Read passait, Edit etait refuse, sur le meme fichier.
+
+    Le remede propose -- `get_edit_context` puis `replace_symbol_source` -- ne
+    peut pas fonctionner ici : ces arbres sont exclus de l'index, il n'y a
+    aucun symbole a remplacer. La seule issue etait TS_GUARD_OFF=1, ce qui est
+    exactement le faux positif que ce fichier dit vouloir eviter.
+    """
+    f = projet / dossier / "paquet" / "mod.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("x = 1\n", encoding="utf-8")
+    payload = {
+        "session_id": "s1",
+        "tool_name": outil,
+        "tool_input": {"file_path": str(f)},
+    }
+    assert lancer(payload, tmp_path / "etat") is None
+
+
+@pytest.mark.parametrize("outil", ["Edit", "Write"])
+def test_refuse_toujours_l_edition_du_vrai_code_du_projet(
+    projet: Path, tmp_path: Path, outil: str,
+) -> None:
+    """Le controle ajoute ne doit rien laisser passer d'autre."""
+    f = projet / "app" / "calc.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("def x():\n    return 1\n", encoding="utf-8")
+    payload = {
+        "session_id": "s1",
+        "tool_name": outil,
+        "tool_input": {"file_path": str(f)},
+    }
+    assert "native edit" in raison(lancer(payload, tmp_path / "etat"))
+
+
+# --- Etat de session ------------------------------------------------------ #
+
+def test_les_etats_de_session_perimes_sont_effaces(tmp_path: Path) -> None:
+    """Un fichier par session, pour toujours, dans XDG_STATE_HOME.
+
+    Rien ne les supprimait et aucune commande ne les nomme. Sur des mois
+    d'usage quotidien cela fait des milliers de fichiers dans un repertoire
+    que l'utilisateur ne voit jamais, et une fuite lente de ce sur quoi il a
+    travaille.
+    """
+    etat = tmp_path / "etat"
+    dossier = etat / "token-savior" / "discipline-guard"
+    dossier.mkdir(parents=True)
+    vieux = dossier / "session-oubliee.json"
+    vieux.write_text('["symbole"]', encoding="utf-8")
+    vieil_age = time.time() - 30 * 86400
+    os.utime(vieux, (vieil_age, vieil_age))
+    recent = dossier / "session-recente.json"
+    recent.write_text('["symbole"]', encoding="utf-8")
+
+    lancer(contexte("cible"), etat)
+
+    assert not vieux.exists(), "l'etat perime est reste"
+    assert recent.exists(), "un etat recent a ete emporte"
+    assert (dossier / "s1.json").exists(), "l'etat de la session courante manque"
