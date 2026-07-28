@@ -1767,3 +1767,21 @@ def test_rank_by_intent_is_deterministic_and_stable():
     b, _ = _rank_by_intent(names, "auth token", keep=2)
     assert a == b                       # deterministic, no model
     assert "auth_token" in a and dropped == 3
+
+
+def test_hints_off_respects_profile_and_explicit_override(monkeypatch):
+    """optimized profile disables per-result hints by default (measured overhead);
+    an explicit TS_NO_HINTS wins on any profile."""
+    from token_savior.server_handlers.code_nav import _hints_off
+    monkeypatch.delenv("TS_NO_HINTS", raising=False)
+    monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "optimized")
+    assert _hints_off() is True
+    monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "full")
+    assert _hints_off() is False
+    # explicit override wins both ways
+    monkeypatch.setenv("TS_NO_HINTS", "0")
+    monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "optimized")
+    assert _hints_off() is False
+    monkeypatch.setenv("TS_NO_HINTS", "1")
+    monkeypatch.setenv("TOKEN_SAVIOR_PROFILE", "full")
+    assert _hints_off() is True
