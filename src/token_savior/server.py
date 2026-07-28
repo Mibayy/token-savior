@@ -582,9 +582,20 @@ _emit_startup_banner(
 async def list_tools() -> list:
     """MCP list_tools handler. Decorateur applique dans `run()` lazily."""
     # Convertit nos ToolDef locaux en mcp.types.Tool a la frontiere protocole.
+    # Les annotations disent au client ce que l'outil fait au monde : sans
+    # elles, le defaut du protocole est readOnlyHint=false + destructiveHint=
+    # true, donc `get_function_source` passe pour destructeur.
     from mcp.types import Tool as McpTool
+    from mcp.types import ToolAnnotations
+
+    from token_savior.tool_annotations import annotations_for
     return [
-        McpTool(name=t.name, description=t.description, inputSchema=t.inputSchema)
+        McpTool(
+            name=t.name,
+            description=t.description,
+            inputSchema=t.inputSchema,
+            annotations=ToolAnnotations(**annotations_for(t.name)),
+        )
         for t in TOOLS
     ]
 
