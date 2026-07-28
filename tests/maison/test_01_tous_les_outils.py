@@ -152,6 +152,7 @@ ARGUMENTS_REALISTES: dict[str, dict] = {
     # --- meta ----------------------------------------------------------
     "ts_search": {"query": "trouver un symbole"},
     "ts_discover": {},
+    "ts_stale_context": {},
     "ts_execute": {"script": "return 1 + 1;"},
 }
 
