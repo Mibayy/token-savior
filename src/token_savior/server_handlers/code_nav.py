@@ -626,6 +626,43 @@ _LIST_HINTS = [
 ]
 
 
+def _dedup_served_source(result: dict, slot) -> None:
+    """Kill the read->get_full_context re-fetch: if this symbol's source was
+    already served this session (via get_function_source / get_class_source,
+    which populates the CSC session cache) AND its body is unchanged since,
+    omit the source and leave a recovery pointer instead.
+
+    Matches on body_hash, not the source string: the two code paths format
+    source differently, so a string compare would silently never fire. body_hash
+    is the CSC's own unchanged-signal (same `_lookup_symbol_meta` source), so a
+    changed body no longer matches and the source is returned in full.
+    Lossless — the handler runs this in compact mode only; mode='full' bypasses.
+    """
+    name = result.get("name")
+    if not name and isinstance(result.get("symbol"), dict):
+        name = result["symbol"].get("name")
+    src = result.get("source")
+    # Net-positive guard: the pointer is ~90 chars, so on a tiny source the
+    # dedup would cost more than it saves. Same logic as the CSC "only if
+    # shorter" guard.
+    if not name or not isinstance(src, str) or len(src) < 160:
+        return
+    meta = _lookup_symbol_meta(slot, {"name": name})
+    if not meta:
+        return
+    _, cur_body_hash, _ = meta
+    root = getattr(slot, "root", "") or ""
+    for kind in ("function", "class"):
+        entry = state._session_symbol_cache.get(f"{kind}:{root}:{name}")
+        if entry and entry.get("body_hash") == cur_body_hash:
+            result["source"] = (
+                f"# source of {name} already served this session (unchanged) — "
+                "reuse it; call with mode='full' to re-fetch"
+            )
+            state._csc_hits = getattr(state, "_csc_hits", 0) + 1
+            return
+
+
 def _q_get_full_context(qfns, args: dict[str, Any]):
     batch = _batch_dispatch(qfns, args, _q_get_full_context)
     if batch is not None:
@@ -640,6 +677,9 @@ def _q_get_full_context(qfns, args: dict[str, Any]):
     )
     mode = args.get("mode", "compact")
     if mode == "compact" and isinstance(result, dict):
+        slot, _ = state._slot_mgr.resolve(args.get("project"))
+        if slot is not None:
+            _dedup_served_source(result, slot)
         return _compact_full_context(result, args.get("intent"))
     return result
 
