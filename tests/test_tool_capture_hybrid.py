@@ -276,3 +276,18 @@ def test_string_response_large_is_sandboxed(stub_sandbox, monkeypatch):
     assert "ts://capture/1" in note
     assert len(stub_sandbox) == 1
     assert stub_sandbox[0]["output"] == "y" * 10_000
+
+
+# ---------------------------------------------------------------------------
+# stderr-only output must be captured on the sandbox path (#100)
+# ---------------------------------------------------------------------------
+def test_stderr_only_output_is_captured(stub_sandbox, monkeypatch):
+    """A Bash command that writes only to stderr (test runners, linters) must
+    still be captured — not judged empty and dropped — on the sandbox path (#100)."""
+    # Must clear the 4096-byte capture threshold on the stderr stream alone.
+    stderr = "\n".join(f"E{i:03d}: assertion failed in the module under test, detail" for i in range(150))
+    event = _bash_event("pytest -q", stdout="", stderr=stderr)
+    # No TS_BASH_COMPACT + capture enabled: exercise the plain sandbox path.
+    _run_hook(event, monkeypatch, env={"TS_BASH_COMPACT": "0", "TS_CAPTURE_DISABLED": "0"})
+    assert stub_sandbox, "stderr-only output was never captured (fell under threshold)"
+    assert "assertion failed" in stub_sandbox[-1]["output"]

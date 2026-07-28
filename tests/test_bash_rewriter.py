@@ -86,13 +86,13 @@ def test_git_status_with_flag_skipped() -> None:
 
 def test_git_diff_bare() -> None:
     new, reason = rewrite("git diff")
-    assert new == "git diff --no-color --stat=200,5"
+    assert new == "git diff --no-color"
     assert reason
 
 
 def test_git_diff_with_positional_refs() -> None:
     new, _ = rewrite("git diff main feature")
-    assert new == "git diff --no-color --stat=200,5 main feature"
+    assert new == "git diff --no-color main feature"
 
 
 def test_git_diff_with_user_flag_skipped() -> None:

@@ -589,3 +589,39 @@ def test_run_works_for_every_supported_agent(fake_home: Path) -> None:
             "--dry-run",
         ])
         assert rc == 0, f"dry-run failed for {agent}"
+
+
+# --- cross-scope duplicate hook guard (#99) ---
+def test_ts_init_skips_hooks_already_in_sibling_scope(tmp_path: Path) -> None:
+    """A hook already in the global scope is not re-added locally — Claude Code
+    merges scopes, so it would fire twice per event (#99)."""
+    import io as _io
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    (home / ".claude").mkdir(parents=True)
+    (proj / ".claude").mkdir(parents=True)
+    common = ["--agent", "claude", "--yes", "--home", str(home),
+              "--cwd", str(proj), "--ts-root", str(REPO_ROOT)]
+    assert run(common + ["--global"]) == 0
+    errbuf = _io.StringIO()
+    rc = run(common + ["--local"], stdout=_io.StringIO(), stderr=errbuf)
+    assert rc == 0
+    assert "already registered" in errbuf.getvalue()
+    local_path = proj / ".claude" / "settings.json"
+    if local_path.exists():
+        local = json.loads(local_path.read_text())
+        assert not local.get("hooks", {}).get("PostToolUse")
+
+
+def test_ts_init_force_adds_despite_sibling_scope(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    (home / ".claude").mkdir(parents=True)
+    (proj / ".claude").mkdir(parents=True)
+    common = ["--agent", "claude", "--yes", "--home", str(home),
+              "--cwd", str(proj), "--ts-root", str(REPO_ROOT)]
+    assert run(common + ["--global"]) == 0
+    rc = run(common + ["--local", "--force"])
+    assert rc == 0
+    local = json.loads((proj / ".claude" / "settings.json").read_text())
+    assert local.get("hooks", {}).get("PostToolUse")

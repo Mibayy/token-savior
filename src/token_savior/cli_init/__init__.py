@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .agent_paths import SUPPORTED_AGENTS, detection_path, hook_config_paths, settings_path
-from .merger import added_entries, format_diff, merge_hook_config
+from .merger import _entry_fingerprint, added_entries, format_diff, merge_hook_config
 
 # Resolve the directory whose ``hooks/`` subdir holds the bundled configs.
 # Two layouts to support:
@@ -170,6 +170,63 @@ def _apply_bundles(existing: dict, bundles: Iterable[dict]) -> dict:
     return merged
 
 
+def _hook_name(cmd: str) -> str:
+    """Cross-install identity of a hook command: its module or script basename.
+    The full path differs per machine (venv, checkout), the hook name does not.
+    """
+    m = re.search(r"token_savior\.hooks\.(\w+)", cmd)
+    if m:
+        return m.group(1)
+    m = re.search(r"([\w-]+)\.py(?:\b|$)", cmd)
+    if m:
+        return m.group(1)
+    return cmd.strip()
+
+
+def _scope_hook_identities(path: Path | None) -> set[tuple[str, str]]:
+    """(matcher, hook-name) for every hook entry already in a settings file."""
+    out: set[tuple[str, str]] = set()
+    if path is None:
+        return out
+    try:
+        data = _read_settings(path)
+    except RuntimeError:
+        return out
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return out
+    for entries in hooks.values():
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            matcher, cmd = _entry_fingerprint(e)
+            if cmd:
+                out.add((matcher, _hook_name(cmd)))
+    return out
+
+
+def _strip_cross_scope(after: dict, added: list, sibling_ids: set[tuple[str, str]]):
+    """Drop from `after` the newly-added entries whose (matcher, hook-name)
+    already exists in a sibling scope. Returns (kept, skipped) added-lists.
+    """
+    kept: list = []
+    skipped: list = []
+    for event, fp in added:
+        if (fp[0], _hook_name(fp[1])) in sibling_ids:
+            skipped.append((event, fp))
+            entries = after.get("hooks", {}).get(event)
+            if isinstance(entries, list):
+                after["hooks"][event] = [
+                    e for e in entries
+                    if not (isinstance(e, dict) and _entry_fingerprint(e) == fp)
+                ]
+        else:
+            kept.append((event, fp))
+    return kept, skipped
+
+
 # --------------------------------------------------------------------------- #
 # Public entrypoint                                                           #
 # --------------------------------------------------------------------------- #
@@ -192,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Skip the confirmation prompt.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the diff but do not write anything.")
+    p.add_argument("--force", action="store_true",
+                   help="Add hooks even if the same hook is already registered "
+                        "in a sibling scope (would fire twice per event). See #99.")
     # Test hooks (hidden):
     p.add_argument("--home", default=None, help=argparse.SUPPRESS)
     p.add_argument("--cwd", default=None, help=argparse.SUPPRESS)
@@ -246,6 +306,35 @@ def run(argv: list[str] | None = None, *,
     if not added:
         print(f"Token Savior hooks already installed for {agent} ({target}).", file=stdout)
         return 0
+
+    # Cross-scope duplicate guard (#99). Claude Code merges hooks across
+    # ~/.claude, <project>/.claude and settings.local.json, so the same hook
+    # registered in two scopes fires twice per event. `added` only dedups
+    # within the file we are writing; here we look at the sibling scope.
+    if agent == "claude" and not args.force:
+        other_scope = "global" if scope == "local" else "local"
+        try:
+            sibling = settings_path(agent, other_scope, home=home, cwd=cwd)
+        except (RuntimeError, ValueError):
+            sibling = None
+        sibling_ids = _scope_hook_identities(sibling)
+        if sibling_ids:
+            kept, skipped = _strip_cross_scope(after, added, sibling_ids)
+            for event, (matcher, cmd) in skipped:
+                print(
+                    f"warning: {_hook_name(cmd)} already registered in {sibling} "
+                    f"({event}); skipping to avoid a double fire per event. "
+                    f"Pass --force to add it anyway.",
+                    file=stderr,
+                )
+            added = kept
+        if not added:
+            print(
+                f"All Token Savior hooks are already registered in a sibling scope "
+                f"for {agent}; nothing to add (use --force to override).",
+                file=stdout,
+            )
+            return 0
 
     # Show the diff.
     print(f"Target: {target}", file=stdout)

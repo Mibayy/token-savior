@@ -47,7 +47,23 @@ _HERE = Path(__file__).resolve().parent
 _TS_ROOT = _HERE.parent
 _CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ts"
 _ACTIVE_FILE = _CONFIG_DIR / "active"
-_SOCK_PATH = os.environ.get("TS_SOCK", "/tmp/ts.sock")
+
+
+def _default_sock_path() -> str:
+    """Socket path outside world-writable /tmp (#98).
+
+    A fixed /tmp/ts.sock lets another local user squat the name (the client
+    then talks to an attacker-controlled socket) and makes the stale-socket
+    remove raise PermissionError on sticky-bit /tmp. Prefer the per-user 0700
+    $XDG_RUNTIME_DIR; fall back to the CLI's own config dir.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return os.path.join(runtime, "ts.sock")
+    return str(_CONFIG_DIR / "ts.sock")
+
+
+_SOCK_PATH = os.environ.get("TS_SOCK") or _default_sock_path()
 _PID_FILE = _CONFIG_DIR / "daemon.pid"
 
 # Defaults reduce noise
@@ -148,7 +164,10 @@ def _daemon_start() -> str:
         return "daemon already running"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if os.path.exists(_SOCK_PATH):
-        os.remove(_SOCK_PATH)
+        try:
+            os.remove(_SOCK_PATH)
+        except OSError as exc:
+            return f"cannot remove stale socket {_SOCK_PATH}: {exc}"
     log = _CONFIG_DIR / "daemon.log"
     # spawn detached daemon. env propage WORKSPACE_ROOTS si actif.
     env = os.environ.copy()
@@ -239,9 +258,21 @@ def _daemon_serve() -> None:
     calls = 0
 
     if os.path.exists(_SOCK_PATH):
-        os.remove(_SOCK_PATH)
+        try:
+            os.remove(_SOCK_PATH)
+        except OSError as exc:
+            print(f"[ts-daemon] cannot remove stale socket {_SOCK_PATH}: {exc}",
+                  file=sys.stderr, flush=True)
+            raise SystemExit(1) from exc
+    Path(_SOCK_PATH).parent.mkdir(parents=True, exist_ok=True)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    srv.bind(_SOCK_PATH)
+    # Bind under a restrictive umask so the socket is never observable with
+    # umask-derived permissions in the window between bind and chmod (#98).
+    _old_umask = os.umask(0o177)
+    try:
+        srv.bind(_SOCK_PATH)
+    finally:
+        os.umask(_old_umask)
     os.chmod(_SOCK_PATH, 0o600)
     srv.listen(8)
 
