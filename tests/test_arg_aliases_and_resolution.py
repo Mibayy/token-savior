@@ -16,6 +16,8 @@ un chemin reel non enregistre etait refuse alors qu'on savait quoi faire.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from token_savior.server import _normalize_arguments
@@ -115,6 +117,71 @@ def test_un_chemin_inexistant_reste_une_erreur_utile(tmp_path) -> None:
     _, err = m.resolve("/chemin/qui/n/existe/pas")
     assert "not found" in err
     assert "connu" in err, "l'erreur doit lister ce qui existe"
+
+
+# --- Routage par argument de chemin (agents paralleles, worktrees) --------- #
+#
+# Plusieurs agents, un seul serveur, active_root partage : le seul signal
+# par appel qui ne se fait pas voler est un chemin ABSOLU dans les arguments.
+# Il route l'appel vers l'arbre qui le possede (racine a marqueur la plus
+# proche : un worktree imbrique gagne sur le checkout parent) sans jamais
+# toucher au defaut partage.
+
+def _depot_avec_worktree(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    wt = repo / ".claude" / "worktrees" / "fix-98"
+    (wt / "src").mkdir(parents=True)
+    (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")
+    return str(repo), str(wt)
+
+
+def test_implicit_project_path_ne_lit_que_l_absolu() -> None:
+    from token_savior.server import _implicit_project_path
+
+    assert _implicit_project_path({"file_path": "/abs/x.py"}) == "/abs/x.py"
+    assert _implicit_project_path({"path": "/abs/y"}) == "/abs/y"
+    assert _implicit_project_path({"file_path": "rel/x.py"}) is None
+    assert _implicit_project_path({"name": "foo"}) is None
+
+
+def test_un_chemin_absolu_route_l_appel_sans_toucher_l_actif(tmp_path, monkeypatch) -> None:
+    import token_savior.server as srv
+    from token_savior import server_state as s
+
+    repo, wt = _depot_avec_worktree(tmp_path)
+    m = SlotManager(cache_version=1)
+    m.register_roots([repo])
+    m.active_root = repo
+    monkeypatch.setattr(s, "_slot_mgr", m)
+
+    srv._dispatch_tool("get_git_status", {"file_path": os.path.join(wt, "src", "x.py")}, "")
+
+    assert wt in m.projects, "le worktree du chemin doit obtenir son slot"
+    assert m.active_root == repo, (
+        "le routage implicite ne doit jamais deplacer le defaut partage : "
+        "c'est la course entre agents paralleles"
+    )
+
+
+def test_ts_sticky_active_gele_la_promotion(tmp_path, monkeypatch) -> None:
+    import token_savior.server as srv
+    from token_savior import server_state as s
+
+    repo, wt = _depot_avec_worktree(tmp_path)
+    m = SlotManager(cache_version=1)
+    m.register_roots([repo, wt])
+    m.active_root = repo
+    monkeypatch.setattr(s, "_slot_mgr", m)
+
+    monkeypatch.setattr(s, "_STICKY_ACTIVE", True)
+    srv._dispatch_tool("get_git_status", {"project": wt}, "")
+    assert m.active_root == repo, "hint explicite servi, mais defaut partage gele"
+
+    monkeypatch.setattr(s, "_STICKY_ACTIVE", False)
+    srv._dispatch_tool("get_git_status", {"project": wt}, "")
+    assert m.active_root == wt, "sans le gel, la promotion historique demeure"
 
 
 def test_l_ambiguite_reste_refusee(tmp_path) -> None:

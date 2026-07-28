@@ -14,7 +14,9 @@ from token_savior import memory_db
 def _resolve_project(explicit: str | None) -> str:
     if explicit:
         return explicit
-    env = os.environ.get("CLAUDE_PROJECT_ROOT")
+    # CLAUDE_PROJECT_ROOT is our own contract (user-set); CLAUDE_PROJECT_DIR
+    # is what Claude Code actually exports. Codex exports neither.
+    env = os.environ.get("CLAUDE_PROJECT_ROOT") or os.environ.get("CLAUDE_PROJECT_DIR")
     if env:
         return env
     db = memory_db.get_db()

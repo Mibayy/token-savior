@@ -180,3 +180,135 @@ def test_le_demarrage_se_debraye(tmp_path, monkeypatch) -> None:
     rt.s._slot_mgr.projects.clear()
     assert rt.autodiscover_and_register() == []
     assert recus == []
+
+
+# --- indications d'environnement (CLAUDE_PROJECT_ROOT / CLAUDE_PROJECT_DIR) - #
+#
+# Verifie contre les hotes, pas leur folklore : Claude Code exporte
+# CLAUDE_PROJECT_DIR (stable, toujours le checkout principal, jamais le
+# worktree — code.claude.com/docs/en/mcp) ; CLAUDE_PROJECT_ROOT n'est
+# documente nulle part, c'est NOTRE contrat, donc s'il est present un humain
+# l'a choisi. Codex n'exporte aucune variable de chemin et filtre l'env des
+# serveurs MCP par liste blanche : seul le cwd de lancement porte le signal.
+
+def _mgr_vierge(monkeypatch, rt):
+    from token_savior.slot_manager import SlotManager
+
+    mgr = SlotManager(cache_version=2)
+    monkeypatch.setattr(rt.s, "_slot_mgr", mgr)
+    monkeypatch.setattr(rt, "_active_hint_source", "")
+    monkeypatch.delenv("CLAUDE_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("TOKEN_SAVIOR_AUTODISCOVER", raising=False)
+    monkeypatch.delenv("TS_WARM_START", raising=False)
+    return mgr
+
+
+def _worktree_imbrique(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    wt = repo / ".claude" / "worktrees" / "fix-98"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")
+    return repo, wt
+
+
+def test_un_worktree_lie_est_un_projet(tmp_path) -> None:
+    """Un worktree lie porte un fichier `.git`, pas un dossier : il doit
+    compter comme marqueur, sinon rien ne s'arrete a sa racine."""
+    _repo, wt = _worktree_imbrique(tmp_path)
+    assert is_project_dir(str(wt))
+    assert project_root_of(str(wt)) == str(wt)
+
+
+def test_claude_project_dir_promeut_sans_jamais_enregistrer(tmp_path, monkeypatch) -> None:
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    a = make_project(tmp_path, "a")
+    b = make_project(tmp_path, "b")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(b))
+    rt._register_roots([str(a), str(b)])
+    assert mgr.active_root == str(b)
+
+    # Non enregistre : promotion refusee, et surtout PAS d'enregistrement —
+    # cette variable est posee par l'hote pour chaque process enfant, pytest
+    # compris ; l'honorer a l'import ferait adopter le depot du developpeur
+    # a chaque run de tests.
+    mgr2 = _mgr_vierge(monkeypatch, rt)
+    c = make_project(tmp_path, "c")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(c))
+    rt._register_roots([])
+    assert mgr2.projects == {}
+    assert mgr2.active_root == ""
+
+
+def test_claude_project_root_delibere_enregistre_et_gagne(tmp_path, monkeypatch) -> None:
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    a = make_project(tmp_path, "a")
+    b = make_project(tmp_path, "b")
+    monkeypatch.setenv("CLAUDE_PROJECT_ROOT", str(a))
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(b))
+    rt._register_roots([str(b)])
+    assert str(a) in mgr.projects, "le contrat delibere peut enregistrer"
+    assert mgr.active_root == str(a), "ROOT (humain) l'emporte sur DIR (hote)"
+
+
+def test_variable_invalide_cede_a_celle_qui_valide(tmp_path, monkeypatch) -> None:
+    """Les deux posees : celle qui pointe un vrai projet (marqueur) gagne."""
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    sans_marqueur = tmp_path / "pas-un-projet"
+    sans_marqueur.mkdir()
+    b = make_project(tmp_path, "b")
+    monkeypatch.setenv("CLAUDE_PROJECT_ROOT", str(sans_marqueur))
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(b))
+    rt._register_roots([str(b)])
+    assert mgr.active_root == str(b)
+
+
+def test_le_cwd_est_toujours_enregistre_meme_configure(tmp_path, monkeypatch) -> None:
+    """WORKSPACE_ROOTS fige le registre, mais le dossier de lancement doit
+    quand meme avoir un slot : une session demarree dans un worktree d'un
+    depot configure routait sinon tous ses appels vers le checkout parent."""
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    repo, wt = _worktree_imbrique(tmp_path)
+    mgr.register_roots([str(repo)])
+    monkeypatch.chdir(wt)
+    rt.autodiscover_and_register()
+    assert str(wt) in mgr.projects
+
+
+def test_le_worktree_de_lancement_devient_actif(tmp_path, monkeypatch) -> None:
+    """CLAUDE_PROJECT_DIR epingle volontairement le checkout PRINCIPAL, meme
+    quand la session travaille dans un worktree (contrat documente). Le cwd
+    est le seul signal qui suit le worktree : il doit l'emporter."""
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    repo, wt = _worktree_imbrique(tmp_path)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+    rt._register_roots([str(repo)])
+    assert mgr.active_root == str(repo)
+    monkeypatch.chdir(wt)
+    rt.autodiscover_and_register()
+    assert mgr.active_root == str(wt)
+
+
+def test_root_delibere_l_emporte_sur_le_worktree_de_lancement(tmp_path, monkeypatch) -> None:
+    import token_savior.server_runtime as rt
+
+    mgr = _mgr_vierge(monkeypatch, rt)
+    repo, wt = _worktree_imbrique(tmp_path)
+    monkeypatch.setenv("CLAUDE_PROJECT_ROOT", str(repo))
+    rt._register_roots([str(repo)])
+    monkeypatch.chdir(wt)
+    rt.autodiscover_and_register()
+    assert str(wt) in mgr.projects, "le worktree garde son slot"
+    assert mgr.active_root == str(repo), "un choix humain explicite n'est pas renverse"

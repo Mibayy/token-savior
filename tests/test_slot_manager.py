@@ -76,6 +76,102 @@ class TestResolve:
         assert "Multiple projects" in err
 
 
+def _repo_with_nested_worktree(tmp_path):
+    """A main checkout plus a linked worktree nested inside it, the way
+    Claude Code lays them out (`repo/.claude/worktrees/<branch>`). The
+    worktree carries a `.git` FILE (gitfile pointer), the main checkout a
+    `.git` directory — that difference is what the routing relies on."""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    wt = repo / ".claude" / "worktrees" / "fix-98"
+    (wt / "src").mkdir(parents=True)
+    (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")
+    return str(repo), str(wt)
+
+
+class TestResolvePath:
+    """Per-call routing of absolute paths — the signal parallel agents in
+    sibling worktrees rely on, since they share one server and one
+    active_root."""
+
+    def test_nested_worktree_wins_over_parent(self, tmp_path):
+        repo, wt = _repo_with_nested_worktree(tmp_path)
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([repo])
+        slot = mgr.resolve_path(os.path.join(wt, "src", "mod.py"))
+        assert slot is not None
+        assert slot.root == wt, "path inside the worktree must reach the worktree slot"
+        assert wt in mgr.projects, "unregistered worktree root registers on the fly"
+
+    def test_path_inside_parent_resolves_parent(self, tmp_path):
+        repo, _wt = _repo_with_nested_worktree(tmp_path)
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([repo])
+        slot = mgr.resolve_path(os.path.join(repo, "src", "mod.py"))
+        assert slot is not None and slot.root == repo
+        assert list(mgr.projects) == [repo], "no spurious registration for in-tree paths"
+
+    def test_does_not_touch_active_root(self, tmp_path):
+        repo, wt = _repo_with_nested_worktree(tmp_path)
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([repo])
+        mgr.active_root = repo
+        mgr.resolve_path(os.path.join(wt, "src", "mod.py"))
+        assert mgr.active_root == repo, (
+            "implicit path routing must never mutate the shared default — "
+            "that is the race between parallel agents"
+        )
+
+    def test_relative_path_is_no_signal(self, tmp_path):
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([str(tmp_path)])
+        assert mgr.resolve_path("src/mod.py") is None
+
+    def test_path_outside_any_project(self, tmp_path):
+        mgr = SlotManager(cache_version=2)
+        bare = tmp_path / "no-marker" / "deep"
+        bare.mkdir(parents=True)
+        assert mgr.resolve_path(str(bare / "f.py")) is None
+
+
+class TestResolvePathHints:
+    """resolve() with a path-like hint routes to the OWNING project."""
+
+    def test_worktree_path_hint_resolves_worktree(self, tmp_path):
+        repo, wt = _repo_with_nested_worktree(tmp_path)
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([repo])
+        slot, err = mgr.resolve(os.path.join(wt, "src"))
+        assert err == ""
+        assert slot.root == wt
+
+    def test_subdir_hint_resolves_owner_not_itself(self, tmp_path):
+        """Before: a real-but-unregistered subdirectory got registered as a
+        project of its own. Now it routes to the project that owns it."""
+        repo, _wt = _repo_with_nested_worktree(tmp_path)
+        mgr = SlotManager(cache_version=2)
+        mgr.register_roots([repo])
+        sub = os.path.join(repo, "src")
+        slot, err = mgr.resolve(sub)
+        assert err == ""
+        assert slot.root == repo
+        assert sub not in mgr.projects
+
+    def test_markerless_dir_hint_still_registers_as_before(self, tmp_path):
+        """A directory with no marker anywhere up the tree keeps the old
+        contract: register it as given."""
+        mgr = SlotManager(cache_version=2)
+        other = str(tmp_path / "proj-registered")
+        os.makedirs(other)
+        mgr.projects[other] = _ProjectSlot(root=other)
+        bare = tmp_path / "pile-of-files"
+        bare.mkdir()
+        slot, err = mgr.resolve(str(bare))
+        assert err == ""
+        assert slot.root == str(bare)
+
+
 class TestEnsure:
     """Tests for SlotManager.ensure()."""
 

@@ -264,3 +264,12 @@ _CHAIN_NUDGE_DISABLED: bool = (
 _TS_SEARCH_COLD_DELEGATE: bool = (
     os.environ.get("TS_SEARCH_COLD_DELEGATE", "0").lower() in ("1", "true", "on")
 )
+
+# Opt-in for parallel multi-agent sessions (several worktrees, one server or
+# daemon): freeze active_root. Explicit `project` hints and absolute-path
+# arguments still route each call correctly; what stops is one agent's hint
+# silently repointing the shared default that every hint-less call falls
+# back to.
+_STICKY_ACTIVE: bool = (
+    os.environ.get("TS_STICKY_ACTIVE", "0").lower() in ("1", "true", "on")
+)

@@ -83,7 +83,7 @@ PY=$TS_PY
 if [ "$TS_TURN_CAPTURE_DISABLE" != "1" ] && [ ! -t 0 ]; then
     HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
     if [ -n "$HOOK_INPUT" ]; then
-        TC_PROJECT="${CLAUDE_PROJECT_ROOT:-$PWD}"
+        TC_PROJECT="${CLAUDE_PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$PWD}}"
         printf '%s' "$HOOK_INPUT" | (
             "$PY" -c "
 import sys, json
@@ -143,7 +143,7 @@ import sys, os, json, time
 sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 db = memory_db.get_db()
 if not project:
     row = db.execute(

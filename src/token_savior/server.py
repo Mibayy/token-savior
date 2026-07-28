@@ -1023,6 +1023,24 @@ def _message_argument_obligatoire(name: str, exc: KeyError) -> str | None:
         f"or ts_search(query=...)."
     )
 
+# Argument names that carry a file location. An ABSOLUTE value is a per-call
+# routing signal: it says which tree the caller is actually working in, which
+# a shared `active_root` cannot (parallel agents, one server, several nested
+# worktrees — the worktree files live under the parent checkout, but belong
+# to a different project slot). Relative values stay project-relative by
+# contract and carry no signal.
+_PATH_ARG_KEYS = ("file_path", "path", "target_file")
+
+
+def _implicit_project_path(arguments: dict[str, Any]) -> str | None:
+    """First absolute filesystem path found among the call's path arguments."""
+    for key in _PATH_ARG_KEYS:
+        value = arguments.get(key)
+        if isinstance(value, str) and os.path.isabs(value):
+            return value
+    return None
+
+
 def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> list[types.TextContent]:
     """Dispatch a tool by name, honoring the four handler categories.
 
@@ -1046,14 +1064,30 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
             return [TextContent(type="text", text=mem_handler(arguments))]
 
         project_hint = arguments.get("project")
-        slot, err = s._slot_mgr.resolve(project_hint)
+        slot = None
+        err = ""
+        if not project_hint:
+            # No explicit project: an absolute path argument routes this one
+            # call to the tree it actually lives in (nearest marker root, so
+            # a nested worktree wins over the parent checkout that contains
+            # it) without consulting — or mutating — the shared active_root.
+            implicit = _implicit_project_path(arguments)
+            if implicit is not None:
+                slot = s._slot_mgr.resolve_path(implicit)
+        if slot is None:
+            slot, err = s._slot_mgr.resolve(project_hint)
         if err:
             return [TextContent(type="text", text=f"Error: {err}")]
         # Auto-promote explicit project hint to active. Previously the hint only
         # resolved for the current call, forcing agents to either repeat the
         # project= arg on every call or prefix a switch_project. This makes the
         # first real tool call implicitly set the session's active project.
-        if project_hint and slot is not None and s._slot_mgr.active_root != slot.root:
+        # TS_STICKY_ACTIVE freezes the promotion: with parallel agents in
+        # sibling worktrees, one agent's hint must not repoint everyone
+        # else's hint-less calls.
+        if (project_hint and slot is not None
+                and s._slot_mgr.active_root != slot.root
+                and not s._STICKY_ACTIVE):
             s._slot_mgr.active_root = slot.root
 
         handler = _SLOT_HANDLERS.get(name)

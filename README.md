@@ -322,8 +322,10 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 
 | Var | Default | Purpose |
 |---|---|---|
-| `WORKSPACE_ROOTS` | current dir | Comma-separated project roots to index |
+| `WORKSPACE_ROOTS` | current dir | Comma-separated project roots to index. Codex trap: Codex whitelist-filters the MCP server environment, so an exported shell variable never arrives — set it in `config.toml` under `[mcp_servers.token-savior] env` (or `env_vars`) |
 | `PROJECT_ROOT` | — | Single-root alternative to `WORKSPACE_ROOTS` |
+| `CLAUDE_PROJECT_ROOT` | — | Deliberate active-project override (Token Savior's own contract — no host sets it). Registered if valid, wins over every other boot signal |
+| `TS_STICKY_ACTIVE` | off (*bool*, `on` ok) | Freeze the active project: explicit `project=` hints and absolute path arguments still route each call, but no call repoints the shared default. For parallel agents in sibling worktrees |
 | `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile. `optimized` — the value the quickstart config and `ts init` recommend — ships the Pareto manifest, implies thin schemas, and omits the capture tools from the manifest |
 | `TS_THIN_SCHEMAS=1` | off (on in `optimized`) | Strip verbose tool schemas from the manifest |
 | `TS_AUTO_HOT_K` | `10` | Hot-tool count exposed by the telemetry-driven `auto` profile |
@@ -387,9 +389,13 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 | `TOKEN_SAVIOR_DEBUG=1` | off | Debug logging |
 | `TOKEN_SAVIOR_TRACE` | off (*bool*) | MCP request lifecycle tracing |
 
-Not knobs: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PROJECT_ROOT`,
+Not knobs: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PROJECT_DIR`,
 `CLAUDE_CONTEXT_REMAINING_PCT`, `CODEX_*` and `HERMES_*` are read for host/client
-detection — the environment sets them, you don't.
+detection and boot-time project hints — the environment sets them, you don't.
+(`CLAUDE_PROJECT_DIR` is what Claude Code actually exports; it always names the
+main checkout, never the worktree the session works in, so the launch directory
+outranks it when that directory is a linked worktree. `CLAUDE_PROJECT_ROOT`
+moved up into the knobs table: nothing sets it but you.)
 
 Naming trap: `TS_PROFILE` in the benchmark snippets is **tsbench's** variable;
 the server reads `TOKEN_SAVIOR_PROFILE`.
