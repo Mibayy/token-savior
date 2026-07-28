@@ -31,6 +31,7 @@ PREAMBULE = f'''{MARQUEUR}
 # Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
 # fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
 TS_DATA="${{TOKEN_SAVIOR_DATA_DIR:-${{XDG_DATA_HOME:-$HOME/.local/share}}/token-savior}}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_BACKUP="${{TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}}"
 # Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
 # s'il est declare, sinon on prend le python du PATH.
@@ -64,7 +65,9 @@ else
 fi
 # Checkout source : utile en developpement seulement. Apres `pip install`,
 # token_savior est importable sans rien ajouter a sys.path.
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_SRC="${{TOKEN_SAVIOR_SRC:-}}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_SCRIPTS="${{TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${{BASH_SOURCE[0]:-$0}}")/.." 2>/dev/null && pwd)/scripts}}"
 {MARQUEUR.replace('---', '--- fin ---')}
 '''

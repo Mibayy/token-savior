@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from token_savior import db_core
 from token_savior.memory import tool_capture
 
-
 # Realistic tool output corpus -- sizes mirror the Context-mode README claims:
 # Playwright snapshot 56 KB, GitHub issues 59 KB, access log 45 KB, verbose
 # Bash builds, and lighter Read/Grep results in the 4-12 KB band.

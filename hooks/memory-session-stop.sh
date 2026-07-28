@@ -10,6 +10,7 @@
 # Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
 # fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
 TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-savior}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
 # Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
 # s'il est declare, sinon on prend le python du PATH.
@@ -43,7 +44,9 @@ else
 fi
 # Checkout source : utile en developpement seulement. Apres `pip install`,
 # token_savior est importable sans rien ajouter a sys.path.
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_SRC="${TOKEN_SAVIOR_SRC:-}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
 TS_SCRIPTS="${TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)/scripts}"
 # --- fin --- resolution des chemins (voir scripts/deroot_hooks.py) --- fin ---
 
@@ -205,7 +208,7 @@ fi
 # 3. Build prompt: extract touched symbols from obs + add git-changed files for "end" mode
 TMP_IN=$(mktemp)
 TMP_OUT=$(mktemp)
-trap "rm -f $TMP_IN $TMP_OUT" EXIT
+trap 'rm -f "$TMP_IN" "$TMP_OUT"' EXIT
 
 CHANGED_SYMBOLS=$(echo "$SESSION_JSON" | "$PY" -c "
 import sys, json
@@ -291,7 +294,8 @@ fi
 export SS_SID="$SESSION_ID"
 export SS_PROJECT="$PROJECT"
 export SS_MODE="$HOOK_MODE"
-export SS_OBS_IDS=$(echo "$SESSION_JSON" | "$PY" -c "import sys,json; print(json.dumps([o['id'] for o in json.load(sys.stdin)['obs']]))")
+SS_OBS_IDS=$(echo "$SESSION_JSON" | "$PY" -c "import sys,json; print(json.dumps([o['id'] for o in json.load(sys.stdin)['obs']]))")
+export SS_OBS_IDS
 
 "$PY" -c "
 import sys, json, os
