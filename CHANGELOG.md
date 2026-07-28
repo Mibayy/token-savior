@@ -1,5 +1,61 @@
 # Changelog
 
+## v4.21.0 — The server stops keeping what it knows to itself (2026-07-28)
+
+Three things the server knew and never told anyone.
+
+**It knew which tools only read, and said the opposite.** MCP defaults
+`readOnlyHint` to false and `destructiveHint` to true, so every one of the 69
+tools reached the client looking potentially destructive — `get_function_source`
+included. Any consumer wanting a safe subset had to hard-code its own list and
+keep it in sync by hand; that list drifts silently the day a tool is added. The
+classification now lives in `tool_annotations.py`, `list_tools()` ships the four
+hints, and `read_only_tool_names()` is exported so a judge loop derives the safe
+set from the server instead of copying it.
+
+A classification is worth what its guard is worth.
+`test_no_unclassified_writer_slips_through` greps for the **absence** of
+classification: any tool whose name carries a write verb and is missing from
+`MUTATING_TOOLS` fails CI, with an explicit derogation list for the three
+readers whose names look like writers. Verified by mutation — dropping
+`replace_symbol_source` from the set breaks three tests.
+
+**It knew it had cut a result, and stayed quiet.** 41 tools accept a bound and
+honour it. None said it truncated, so a response holding exactly `max_results`
+items was indistinguishable from a complete one. A caller that counts those
+items believes it measured a total and actually measured the bound — two counts
+that both saturate the limit read as two equal values when they are two
+truncations. The notice is added at the single point where a raw handler result
+is wrapped.
+
+It also separates two things the schemas conflate: bounds that govern a *number*
+of elements, comparable to a list length, and bounds that govern a *size* in
+bytes or lines, comparable to nothing. `max_symbols_per_file` sits with the size
+bounds for a third reason — it caps symbols within *each file*, so comparing it
+to the overall total would be wrong in both directions. Multiple bounds in one
+call are all considered: `get_change_impact` carries `max_direct` **and**
+`max_transitive`, and keeping only the first would miss the truncation governed
+by the other. The coverage test found fourteen bounds a hand inventory had
+missed.
+
+This is deliberately not pagination. The handler has already cut by the time we
+reach that seam, so `total_count` and `next_offset` are not knowable there. It
+closes the "I don't know that I don't have everything" class and leaves the
+per-handler work for later.
+
+**It paid for its own bookkeeping on every call.** `record_tool_call` re-reads
+and re-writes the counter file under an inter-process flock; paid synchronously
+inside the dispatch path, that cost sat on every single tool call. The obvious
+fix — one daemon thread per call — is wrong: a daemon thread is killed abruptly
+at interpreter exit and can die mid read-modify-write, leaving truncated JSON.
+A single worker now drains the queue and **aggregates**, so everything enqueued
+while the previous write was in flight lands in the same locked write and the
+cost stops scaling with the number of calls. `atexit` flushes what is still
+queued — without it, short sessions would be systematically under-counted, which
+is a bias, not just a loss. `record_tool_call` stays synchronous and durable for
+its direct callers. Measured on an uncontended path: 0.489 ms per call down to
+0.005 ms.
+
 ## v4.20.0 — What the tools promise, now measured (2026-07-27)
 
 Fourteen defects, found by exercising all 69 tools on a real machine rather
