@@ -465,6 +465,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "enum": ["compact", "full"],
                     "description": "compact (default): source head 80 lines + deps/dependents as names only. full: raw payload.",
                 },
+                "intent": {
+                    "type": "string",
+                    "description": "Optional task/query. When set, long deps/dependents lists are ranked by relevance to it and trimmed to the top few with a recovery pointer — lossless (the rest stays reachable via mode='full').",
+                },
                 **_PROJECT_PARAM,
             },
         },
@@ -1165,7 +1169,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["id"],
             "properties": {
                 "id": {"type": "integer", "description": "Capture id (from search/list)."},
-                "range": {"type": "string", "description": "head | tail | all | preview | line:start-end (default preview)."},
+                "range": {"type": "string", "description": "head | tail | all | preview | line:start-end | relevant:<question> (keeps only the lines relevant to the question, lossless — 'all' still returns everything). Default preview."},
                 "max_bytes": {"type": "integer", "description": "Cap returned content size."},
             },
         },

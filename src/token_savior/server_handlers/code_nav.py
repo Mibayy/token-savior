@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 from token_savior import memory_db
@@ -626,12 +627,40 @@ def _q_get_full_context(qfns, args: dict[str, Any]):
     )
     mode = args.get("mode", "compact")
     if mode == "compact" and isinstance(result, dict):
-        return _compact_full_context(result)
+        return _compact_full_context(result, args.get("intent"))
     return result
 
 
-def _compact_full_context(result: dict) -> dict:
-    """Trim heavy fields: deps/dependents → names only, source → head 80 lines."""
+_INTENT_KEEP = 12
+
+
+def _rank_by_intent(names: list[str], intent: str, keep: int) -> tuple[list[str], int]:
+    """Deterministic lexical relevance rank (no model): count intent terms that
+    hit each name by token match or substring. Stable — earlier items win ties.
+    Returns (kept_names, dropped_count)."""
+    terms = [t for t in re.findall(r"[a-z0-9]+", intent.lower()) if len(t) > 2]
+    if not terms:
+        return names[:keep], max(0, len(names) - keep)
+
+    def _score(item):
+        i, n = item
+        low = n.lower()
+        toks = set(re.findall(r"[a-z0-9]+", low))
+        overlap = sum(1 for t in terms if t in toks)
+        substr = sum(1 for t in terms if t in low)
+        return (overlap, substr, -i)
+
+    ranked = sorted(enumerate(names), key=_score, reverse=True)
+    return [n for _, n in ranked[:keep]], max(0, len(names) - keep)
+
+
+def _compact_full_context(result: dict, intent: str | None = None) -> dict:
+    """Trim heavy fields: deps/dependents -> names only, source -> head 80 lines.
+
+    When `intent` is set, long deps/dependents lists are ranked by lexical
+    relevance to it and trimmed to the top _INTENT_KEEP, with a recovery
+    pointer appended -- lossless (the rest stays reachable via mode='full').
+    """
     compact: dict[str, Any] = {}
     for key in ("name", "file", "line", "type", "signature", "error", "symbol"):
         if key in result:
@@ -646,10 +675,16 @@ def _compact_full_context(result: dict) -> dict:
     for key in ("dependencies", "dependents", "callers", "callees", "change_impact"):
         val = result.get(key)
         if isinstance(val, list):
-            compact[key] = [
+            names = [
                 item.get("name") if isinstance(item, dict) else item
                 for item in val
             ]
+            clean = [n for n in names if n]
+            if intent and len(clean) > _INTENT_KEEP:
+                kept, dropped = _rank_by_intent(clean, intent, _INTENT_KEEP)
+                compact[key] = kept + [f"# +{dropped} ranked out by intent (mode='full' to expand)"]
+            else:
+                compact[key] = names
         elif val is not None:
             compact[key] = val
     return compact
