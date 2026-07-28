@@ -17,6 +17,7 @@ Supported ``format`` values:
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from typing import Any
 
 from token_savior._compat import TextContent, types
@@ -27,6 +28,8 @@ from token_savior.discover import (
     discover_adoption as _discover_adoption,
 )
 from token_savior.discover.patterns import AdoptionReport
+from token_savior.discover.superseded import find_superseded
+from token_savior.discover.transcript_scanner import iter_events, transcript_root
 
 
 def _fmt_table(findings: list) -> str:
@@ -124,6 +127,58 @@ def _hm_ts_discover(arguments: dict[str, Any]) -> list[types.TextContent]:
     return [TextContent(type="text", text=_fmt_table(findings))]
 
 
+def _fmt_stale(findings: list[dict]) -> str:
+    if not findings:
+        return "No superseded context found in window (nothing to drop)."
+    label = {
+        "reread": "read again — drop the earlier read",
+        "read_then_edit": "edited after read — the read is stale",
+        "rerun": "command re-run — earlier output stale",
+    }
+    rows = [
+        "# ts_stale_context — tool results made obsolete later in the session",
+        "",
+        "| reason | target | session | stale→fresh |",
+        "| ------ | ------ | ------- | ----------- |",
+    ]
+    for f in findings:
+        sid = (f["session"][:8] + "…") if len(f["session"]) > 8 else f["session"]
+        tgt = f["target"]
+        tgt = (tgt[:48] + "…") if len(tgt) > 48 else tgt
+        rows.append(f"| {label.get(f['reason'], f['reason'])} | `{tgt}` | {sid} "
+                    f"| #{f['stale_index']}→#{f['fresh_index']} |")
+    rows += [
+        "",
+        (f"_{len(findings)} stale reference(s). Drop the stale content or "
+         "refetch the fresh copy. On Claude Code the PreCompact hook prunes "
+         "these automatically; elsewhere this is advisory._"),
+    ]
+    return "\n".join(rows)
+
+
+def _hm_ts_stale_context(arguments: dict[str, Any]) -> list[types.TextContent]:
+    from datetime import datetime, timedelta
+
+    since_days = int(arguments.get("since_days", 1) or 1)
+    project = arguments.get("project") or None
+    fmt = (arguments.get("format") or "table").lower()
+    limit = arguments.get("limit")
+    try:
+        since = datetime.now(UTC) - timedelta(days=since_days)
+        events = iter_events(transcript_root(), since=since, project=project)
+        findings = find_superseded(events)
+    except Exception as exc:  # defensive — never break dispatch
+        return [TextContent(type="text", text=f"ts_stale_context error: {exc}")]
+    if isinstance(limit, int) and limit > 0:
+        findings = findings[:limit]
+    if fmt == "json":
+        return [TextContent(type="text", text=json.dumps(
+            {"since_days": since_days, "project": project,
+             "count": len(findings), "stale": findings}, indent=2))]
+    return [TextContent(type="text", text=_fmt_stale(findings))]
+
+
 HANDLERS: dict[str, Any] = {
     "ts_discover": _hm_ts_discover,
+    "ts_stale_context": _hm_ts_stale_context,
 }

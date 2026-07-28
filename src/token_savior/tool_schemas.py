@@ -692,6 +692,38 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "ts_stale_context": {
+        "description": (
+            "Scan the recent session transcript(s) and list tool results made "
+            "obsolete later in the SAME session — a file read then re-read, a "
+            "file read then edited, a Bash command re-run. Returns the stale "
+            "refs so you can drop that content or refetch the fresh copy, "
+            "keeping the context window lean. Agent-agnostic, read-only, "
+            "PII-safe. format='table' (default) or 'json'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_days": {
+                    "type": "integer",
+                    "description": "Only consider events newer than now - since_days (default 1 = the current session).",
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Filter to project dirs whose name contains this substring (omit = all recent).",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["table", "json"],
+                    "description": "Output format. 'table' (default) or 'json'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Cap the number of stale refs returned (default unlimited).",
+                },
+            },
+        },
+    },
     # ── Stats (unified) ───────────────────────────────────────────────────
     "get_stats": {
         "description": (
