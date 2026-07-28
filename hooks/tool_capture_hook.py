@@ -98,9 +98,18 @@ def main() -> None:
         response = {"content": response}
     # Claude Code PostToolUse exposes the textual response under .content
     # for native tools, .stdout/.stderr for Bash, or as a string fallback.
+    stdout = response.get("stdout")
+    stdout = stdout if isinstance(stdout, str) else ""
+    stderr = response.get("stderr")
+    stderr = stderr if isinstance(stderr, str) else ""
+    # stderr must count toward the capture threshold too: a Bash command that
+    # writes only to stderr (test runners, linters, anything logging there)
+    # otherwise yields empty content, falls under THRESHOLD, and is never
+    # captured — while the compact path below already reads stderr (#100). The
+    # streams stay split for _compact(), so stderr is not double-counted there.
     content = (
         response.get("content")
-        or response.get("stdout")
+        or (stdout + ("\n" + stderr if stderr else ""))
         or response.get("output")
         or ""
     )
@@ -123,9 +132,9 @@ def main() -> None:
             from token_savior.compactors import compact as _compact
             tool_input = event.get("tool_input") or {}
             command = (tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
-            stderr = response.get("stderr") if isinstance(response, dict) else ""
-            stderr = stderr if isinstance(stderr, str) else ""
-            result = _compact(command, content, stderr)
+            # stderr already normalized above; pass stdout (not the merged
+            # content) so the compactor still sees the two streams split.
+            result = _compact(command, stdout, stderr)
         except Exception as exc:
             sys.stderr.write(f"[ts-capture-hook] compact failed: {exc}\n")
             result = None
