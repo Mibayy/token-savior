@@ -269,3 +269,21 @@ def test_migration_adds_output_hash_to_predating_db(monkeypatch, tmp_path):
         "SELECT output_hash FROM tool_captures WHERE id = ?", (res["id"],)).fetchone()[0]
     conn.close()
     assert h
+
+
+def test_preview_short_line_large_output_no_negative_omitted():
+    """> preview byte cap but <= 2x preview lines: no bogus 'omitted' marker (#95)."""
+    output = "\n".join(("y" * 70 + f" L{i}") for i in range(12))  # ~889 B, 12 lines
+    preview = tool_capture._make_preview(output)
+    assert "omitted" not in preview
+    # No line may appear twice (head/tail overlap bug).
+    lines = [ln for ln in preview.splitlines() if ln.startswith("y")]
+    assert len(lines) == len(set(lines))
+
+
+def test_preview_omitted_count_positive_when_marker_shown():
+    """The separator only ever renders a positive omitted count (#95)."""
+    output = "\n".join(f"row-{i:04d} " + "z" * 60 for i in range(40))
+    preview = tool_capture._make_preview(output)
+    assert "[-" not in preview
+    assert "[24 lines omitted" in preview  # 40 - 2*8

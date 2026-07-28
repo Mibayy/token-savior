@@ -77,14 +77,15 @@ def _make_preview(output: str) -> str:
         return output
     lines = output.splitlines()
     if len(lines) <= _DEFAULT_PREVIEW_LINES * 2:
-        head = "\n".join(lines[:_DEFAULT_PREVIEW_LINES])
-        tail = "\n".join(lines[-_DEFAULT_PREVIEW_LINES:])
+        # Few long lines: a head/tail split would duplicate the middle and
+        # render a negative omitted count. Byte-cap the whole text instead.
+        preview = output
     else:
         head = "\n".join(lines[:_DEFAULT_PREVIEW_LINES])
         tail = "\n".join(lines[-_DEFAULT_PREVIEW_LINES:])
-    omitted = len(lines) - 2 * _DEFAULT_PREVIEW_LINES
-    sep = f"\n... [{omitted} lines omitted, full output stored — use capture_get] ...\n"
-    preview = head + sep + tail
+        omitted = len(lines) - 2 * _DEFAULT_PREVIEW_LINES
+        sep = f"\n... [{omitted} lines omitted, full output stored — use capture_get] ...\n"
+        preview = head + sep + tail
     if len(preview) > _DEFAULT_PREVIEW_BYTES:
         preview = preview[: _DEFAULT_PREVIEW_BYTES] + "…"
     return preview
