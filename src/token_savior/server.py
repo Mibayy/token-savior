@@ -633,9 +633,14 @@ def _track_call(name: str, arguments: dict[str, Any]) -> str:
     s._tool_call_counts[name] = s._tool_call_counts.get(name, 0) + 1
     # A5: persistent scoped-by-client counter for profile tuning across
     # sessions. Silent on failure — telemetry must never break dispatch.
+    #
+    # Variante async : `record_tool_call` relit et reecrit le compteur sous
+    # flock inter-processus, ~20 ms, ce qui portait le p95 de
+    # get_project_summary de 4 ms a 24 ms quand on le payait ici. Le worker
+    # agrege les incrementations en attente et flush a la sortie du process.
     try:
         from token_savior import telemetry
-        telemetry.record_tool_call(name)
+        telemetry.record_tool_call_async(name)
     except Exception:
         pass
     record_symbol = arguments.get("name") or arguments.get("symbol_name", "")
