@@ -35,9 +35,11 @@ server. Errors surface via ``telemetry_health()`` for a future
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import json
 import os
+import queue
 import threading
 import time
 from pathlib import Path
@@ -235,6 +237,106 @@ def record_tool_call(tool_name: str) -> None:
         etat["last_updated_epoch"] = int(time.time())
         _save(etat)
         _state = etat
+
+# ---------------------------------------------------------------------------
+# Ecriture differee et agregee
+#
+# `record_tool_call` relit et reecrit le fichier sous flock inter-processus a
+# chaque appel : environ 20 ms. Paye synchroniquement dans le dispatch, ce
+# cout a fait passer le p95 de `get_project_summary` de 4 ms a 24 ms.
+#
+# La correction n'est pas un thread par appel — un thread daemon tue a la
+# sortie de l'interpreteur peut mourir au milieu d'un read-modify-write et
+# laisser le JSON tronque. C'est un worker unique qui vide la file et AGREGE :
+# N incrementations en attente deviennent une seule ecriture verrouillee.
+# ---------------------------------------------------------------------------
+
+_SENTINELLE = object()
+_file: queue.Queue | None = None
+_worker: threading.Thread | None = None
+_worker_lock = threading.Lock()
+
+
+def _record_batch(compte: dict[str, int]) -> None:
+    """Applique plusieurs incrementations en une seule ecriture verrouillee."""
+    if not compte:
+        return
+    client = _resolve_client()
+    global _state
+    chemin = _counter_path()
+    with _lock, _verrou(chemin):
+        etat = _load()
+        bucket = etat["counts"].setdefault(client, {})
+        for nom, n in compte.items():
+            bucket[nom] = bucket.get(nom, 0) + n
+        etat["last_updated_epoch"] = int(time.time())
+        _save(etat)
+        _state = etat
+
+
+def _boucle_worker() -> None:
+    """Vide la file en agregant tout ce qui est deja en attente."""
+    assert _file is not None
+    while True:
+        item = _file.get()
+        fin = item is _SENTINELLE
+        compte: dict[str, int] = {}
+        if not fin:
+            compte[item] = 1
+        # Tout ce qui a ete empile pendant l'ecriture precedente part dans le
+        # meme lot : c'est ce qui rend le cout independant du nombre d'appels.
+        while True:
+            try:
+                suivant = _file.get_nowait()
+            except queue.Empty:
+                break
+            if suivant is _SENTINELLE:
+                fin = True
+                continue
+            compte[suivant] = compte.get(suivant, 0) + 1
+        with contextlib.suppress(Exception):
+            _record_batch(compte)
+        if fin:
+            return
+
+
+def _flush_a_la_sortie() -> None:
+    """Draine ce qui reste avant que le processus disparaisse.
+
+    Sans ca, la file en memoire part avec le processus et les derniers appels
+    de la session ne sont jamais comptes — precisement ceux d'une session
+    courte, donc un biais et pas une simple perte.
+    """
+    if _file is None or _worker is None:
+        return
+    with contextlib.suppress(Exception):
+        _file.put_nowait(_SENTINELLE)
+        _worker.join(timeout=2.0)
+
+
+def record_tool_call_async(tool_name: str) -> None:
+    """Compte un appel sans bloquer l'appelant.
+
+    Pour le chemin de dispatch uniquement. `record_tool_call` reste synchrone
+    et durable pour ses appelants directs : un test qui ecrit puis relit doit
+    continuer a voir sa propre ecriture.
+    """
+    if not tool_name:
+        return
+    global _file, _worker
+    try:
+        with _worker_lock:
+            if _worker is None or not _worker.is_alive():
+                _file = queue.Queue()
+                _worker = threading.Thread(
+                    target=_boucle_worker, name="ts-telemetry", daemon=True
+                )
+                _worker.start()
+                atexit.register(_flush_a_la_sortie)
+        _file.put_nowait(tool_name)
+    except Exception:
+        # La telemetrie ne casse jamais le dispatch, meme pour s'installer.
+        pass
 
 
 def _nudge_path() -> Path:
