@@ -84,7 +84,9 @@ class TestToolSchemas:
         #   collapsed into one round-trip; whitelisted via ALLOWED_TOOLS) = 68.
         # +1 ts_discover (v3.3 F4 — transcript scanner for missed TS
         #   opportunities; META handler, read-only on ~/.claude/projects) = 69.
-        assert len(TOOL_SCHEMAS) == 69, f"Expected 69 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 ts_stale_context (feature B — superseded-context detector exposed
+        #   as an agent-agnostic MCP tool; META handler, read-only) = 70.
+        assert len(TOOL_SCHEMAS) == 70, f"Expected 70 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS
