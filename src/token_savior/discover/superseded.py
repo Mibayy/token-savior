@@ -69,3 +69,39 @@ def find_superseded(events: Iterable[Event]) -> list[dict]:
                                      "fresh_index": i})
                 last_bash[key] = i
     return findings
+
+
+def precompact_report(transcript_path: str, max_items: int = 20) -> str:
+    """Markdown section for the PreCompact hook (Claude Code): the stale tool
+    results the summary can safely drop. Empty string when there is nothing to
+    prune or the transcript can't be read. Best-effort — never raises."""
+    try:
+        from pathlib import Path
+
+        from token_savior.discover.transcript_scanner import _iter_session_events
+
+        p = Path(transcript_path)
+        if not p.exists():
+            return ""
+        events = list(_iter_session_events(p, "session", None))
+        stale = find_superseded(events)
+    except Exception:
+        return ""
+    if not stale:
+        return ""
+    label = {
+        "reread": "read again later — keep only the last read",
+        "read_then_edit": "edited after reading — the earlier read is stale",
+        "rerun": "command re-run — the earlier output is stale",
+    }
+    seen: set = set()
+    lines = ["### Superseded context (safe to drop from the summary)"]
+    for f in stale:
+        key = (f["reason"], f["target"])
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- `{f['target']}` — {label.get(f['reason'], f['reason'])}")
+        if len(lines) > max_items:
+            break
+    return "\n".join(lines)
