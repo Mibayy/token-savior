@@ -591,6 +591,17 @@ def _count_and_wrap_result(
         except Exception:
             pass
 
+    # Une reponse coupee par sa borne est indiscernable d'une reponse complete :
+    # l'appelant qui compte croit mesurer un total et mesure la borne. On le dit.
+    # Voir truncation.py pour pourquoi ce n'est pas de la pagination.
+    try:
+        from token_savior.truncation import notice_de_troncature
+        notice = notice_de_troncature(arguments, result)
+        if notice:
+            formatted = f"{formatted}\n{notice}"
+    except Exception:
+        pass
+
     if slot.stats_file:
         _flush_stats(slot, s._total_naive_chars)
 
