@@ -42,11 +42,22 @@ def _tool_count() -> str:
 
 
 def _latest_entry() -> str:
-    """Titre de la derniere entree du CHANGELOG, sans le prefixe de version."""
+    """Titre de la derniere entree PUBLIEE du CHANGELOG, sans le prefixe de version.
+
+    Les sections `## Unreleased` sont sautees : la page est une vitrine
+    publique, elle doit annoncer ce que l'utilisateur peut installer. Sans ce
+    saut, la premiere PR qui ouvre une section non publiee faisait annoncer un
+    titre de travail comme s'il s'agissait de la derniere version, et cassait
+    la verification de derive a chaque merge.
+    """
     for line in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
-        if line.startswith("## "):
-            m = re.match(r"##\s+v?[\d.]+\s*[—-]\s*(.+?)\s*\(", line)
-            return m.group(1) if m else line[3:].strip()
+        if not line.startswith("## "):
+            continue
+        m = re.match(r"##\s+v?(\d[\d.]*)\s*[—-]\s*(.+?)\s*\(", line)
+        if m:
+            return m.group(2)
+        # Pas de numero de version : section de travail (Unreleased, Next...).
+        # On continue de descendre jusqu'a une vraie version.
     return ""
 
 
