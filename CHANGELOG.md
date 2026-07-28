@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased — One server, many worktrees, no stolen calls
+
+Parallel agents in sibling worktrees shared one server and one mutable
+`active_root`, and the worktree a session actually worked in was often never
+even registered. Verified against the hosts, not their folklore: Claude Code
+exports `CLAUDE_PROJECT_DIR` (stable — always the main checkout, never the
+worktree); `CLAUDE_PROJECT_ROOT` is set by no host at all; Codex exports no
+path variable and whitelist-filters the MCP server environment, so only the
+spawn cwd carries its signal.
+
+- **Per-call routing by absolute path.** A call with no `project` hint but an
+  absolute `file_path`/`path`/`target_file` now routes to the tree that owns
+  the path — nearest marker root, so a worktree nested in a registered repo
+  (`repo/.claude/worktrees/wt`) wins over the parent checkout that contains
+  it. A linked worktree's `.git` *file* counts as a marker. The owning root
+  registers on the fly, and the shared `active_root` is never touched.
+- **Path hints resolve to their owner.** `project=` hints that are paths go
+  through the same nearest-root routing; a subdirectory of a registered
+  project no longer gets registered as a project of its own. Removed a
+  literally duplicated reverse-containment/register block in `resolve()`.
+- **Boot signals, validated and ranked.** `CLAUDE_PROJECT_ROOT` (deliberate,
+  ours: may register, always wins) → launch-directory root (the only signal
+  that follows worktrees and the only one Codex has; when it is a linked
+  worktree it takes active) → `CLAUDE_PROJECT_DIR` (automatic: promotes among
+  registered roots, never registers — pytest under Claude Code would adopt
+  the developer's repo at import otherwise). A candidate counts only if it
+  exists and carries a project marker. The launch directory now always gets
+  a slot even when `WORKSPACE_ROOTS` pinned the registry.
+- **`TS_STICKY_ACTIVE=1`** freezes `active_root` for multi-agent sessions:
+  explicit hints and path arguments still route every call, but no call
+  repoints the default the other agents fall back to.
+- Hooks and the standalone CLI now fall back `CLAUDE_PROJECT_ROOT` →
+  `CLAUDE_PROJECT_DIR` → `$PWD`; the session-start memory hook previously
+  read only the first, which no host sets, and ran with an empty project.
+
 ## v4.21.0 — The server stops keeping what it knows to itself (2026-07-28)
 
 Three things the server knew and never told anyone.
@@ -55,6 +90,7 @@ queued — without it, short sessions would be systematically under-counted, whi
 is a bias, not just a loss. `record_tool_call` stays synchronous and durable for
 its direct callers. Measured on an uncontended path: 0.489 ms per call down to
 0.005 ms.
+
 
 ## v4.20.0 — What the tools promise, now measured (2026-07-27)
 

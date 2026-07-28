@@ -321,12 +321,42 @@ class SlotManager:
             file=sys.stderr,
         )
 
+    def resolve_path(self, path: str) -> _ProjectSlot | None:
+        """Route an absolute filesystem path to the project that OWNS it.
+
+        Nearest marker root wins, so a path inside a worktree nested in a
+        registered repo (`repo/.claude/worktrees/wt/src/x.py`) routes to the
+        worktree slot — a linked worktree carries a `.git` *file*, which
+        counts as a marker — never to the parent checkout that happens to
+        contain it. An unregistered root is registered on the spot.
+
+        Deliberately does NOT touch ``active_root``: this is the per-call
+        routing signal parallel agents (several worktrees, one server) rely
+        on, and mutating the shared default from one agent's call is exactly
+        the race this method exists to avoid.
+        """
+        if not path or not os.path.isabs(path):
+            return None
+        # Lazy import: server_runtime pulls in server_state, which imports
+        # this module — a top-level import would be circular.
+        from token_savior.server_runtime import project_root_of
+        root = project_root_of(path)
+        if not root:
+            return None
+        if root not in self.projects:
+            try:
+                self.register_roots([root])
+            except Exception:
+                return None
+        return self.projects.get(root)
+
     def resolve(self, project_hint: str | None = None) -> tuple[_ProjectSlot | None, str]:
         """
         Return (slot, error_message). error_message is empty on success.
 
         Resolution order:
-        1. explicit project_hint (basename or full path)
+        1. explicit project_hint (full path — routed to the project that
+           owns it, nearest marker root first, worktree-aware — or basename)
         2. active_root
         3. only registered project (if exactly one)
         4. error
@@ -336,6 +366,14 @@ class SlotManager:
             hint_abs = os.path.abspath(project_hint)
             if hint_abs in self.projects:
                 return self.projects[hint_abs], ""
+            # Path-like hint: route to the OWNING project before any name
+            # fuzzing. `repo/.claude/worktrees/wt` must reach the worktree
+            # slot, and a subdirectory of a registered project must resolve
+            # to that project — not get registered as a project of its own.
+            if os.sep in project_hint:
+                slot = self.resolve_path(hint_abs)
+                if slot is not None:
+                    return slot, ""
             # Try basename match
             for root, slot in self.projects.items():
                 if os.path.basename(root) == project_hint:
@@ -370,33 +408,14 @@ class SlotManager:
                     return reverse[0][1], ""
             # Un chemin reel que personne n'a enregistre : le refuser envoyait
             # vers set_project_root sans raison. On sait ou il est, il existe.
+            # resolve_path d'abord : si le dossier appartient a un projet (ou
+            # est un worktree), c'est SA racine qu'on enregistre, pas le
+            # sous-dossier. Sans marqueur nulle part, on enregistre tel quel.
             if os.path.isdir(hint_abs):
-                try:
-                    self.register_roots([*self.projects, hint_abs])
-                    if hint_abs in self.projects:
-                        self.active_root = hint_abs
-                        return self.projects[hint_abs], ""
-                except Exception:
-                    pass
-            # Reverse containment: the hint is *longer* than the project name.
-            # Measured on real calls: `scribe-transcription` never matched the
-            # registered `scribe`, because only hint-inside-basename was tried.
-            # Longest basename wins, so `api` never beats `api-client`.
-            reverse = [
-                (root, slot) for root, slot in self.projects.items()
-                if os.path.basename(root).lower() in hint_lower
-                and len(os.path.basename(root)) >= 4
-            ]
-            if reverse:
-                reverse.sort(key=lambda rs: len(os.path.basename(rs[0])), reverse=True)
-                best = os.path.basename(reverse[0][0]).lower()
-                if len({os.path.basename(r).lower() for r, _ in reverse
-                        if len(os.path.basename(r).lower()) == len(best)}) == 1:
-                    return reverse[0][1], ""
-            # The hint names a real directory nobody registered yet. Refusing
-            # here sent the caller to set_project_root for no reason: we know
-            # the path, it exists, and registering is what they wanted.
-            if os.path.isdir(hint_abs):
+                slot = self.resolve_path(hint_abs)
+                if slot is not None:
+                    self.active_root = slot.root
+                    return slot, ""
                 try:
                     self.register_roots([*self.projects, hint_abs])
                     if hint_abs in self.projects:

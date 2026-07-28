@@ -282,6 +282,51 @@ def _parse_workspace_roots() -> list[str]:
     return []
 
 
+def _is_linked_worktree(root: str) -> bool:
+    """A linked git worktree carries a `.git` FILE (gitfile pointer), the main
+    checkout a `.git` directory. The distinction is the routing signal: the
+    file says "this tree is a sibling copy, not the project's home"."""
+    try:
+        return os.path.isfile(os.path.join(root, ".git"))
+    except OSError:
+        return False
+
+
+# Which env variable chose the boot-time active project. "CLAUDE_PROJECT_ROOT"
+# means a human (or wrapper) chose deliberately — nothing else may override.
+_active_hint_source = ""
+
+
+def _boot_env_root_hint() -> tuple[str, str]:
+    """(path, variable) of the environment's project hint, or ("", "").
+
+    Two variables, in order of deliberateness — verified against the hosts,
+    not their folklore:
+
+    - CLAUDE_PROJECT_ROOT: Token Savior's own contract. NO host sets it
+      (it appears nowhere in the Claude Code docs), so when present a human
+      or wrapper script chose it — top priority.
+    - CLAUDE_PROJECT_DIR: what Claude Code actually exports to stdio MCP
+      servers. Stable by design: always the main checkout, never the
+      worktree the session may be working in (code.claude.com/docs/en/mcp).
+    - Codex exports no path variable at all AND whitelist-filters the MCP
+      server environment, so under Codex both are absent and the spawn cwd
+      (which Codex does point at the workspace) carries the signal instead.
+
+    A candidate only counts if it exists and looks like a project (marker
+    file; a `.git` file — a linked worktree — counts). With both variables
+    set, the one that validates wins.
+    """
+    for var in ("CLAUDE_PROJECT_ROOT", "CLAUDE_PROJECT_DIR"):
+        raw = os.environ.get(var, "").strip()
+        if not raw:
+            continue
+        cand = os.path.abspath(raw)
+        if cand in s._slot_mgr.projects or (os.path.isdir(cand) and is_project_dir(cand)):
+            return cand, var
+    return "", ""
+
+
 def _register_roots(roots: list[str]) -> None:
     """Create slots for each root. Index is built lazily on first use.
 
@@ -291,16 +336,27 @@ def _register_roots(roots: list[str]) -> None:
     exactly what happened: two unrelated memory-viewer tests started failing.
     Discovery belongs to `autodiscover_and_register`, called from `main()`.
 
-    Honors CLAUDE_PROJECT_ROOT env: if set and the path is one of the
-    registered roots, promote it to active. This lets short-lived subprocess
-    callers (benchmarks, `claude -p`, scripted flows) skip switch_project
-    entirely when the calling shell already knows which project is in focus.
+    Honors the environment's project hint (see _boot_env_root_hint): a valid
+    hint is registered if needed and promoted to active. This lets short-lived
+    subprocess callers (benchmarks, `claude -p`, scripted flows) skip
+    switch_project entirely when the calling environment already knows which
+    project is in focus.
     """
+    global _active_hint_source
     s._slot_mgr.register_roots(roots)
-    hint = os.environ.get("CLAUDE_PROJECT_ROOT", "").strip()
-    hint_abs = os.path.abspath(hint) if hint else ""
-    if hint_abs and hint_abs in s._slot_mgr.projects:
-        s._slot_mgr.active_root = hint_abs
+    hint_abs, hint_src = _boot_env_root_hint()
+    if hint_abs:
+        # Only the deliberate variable may REGISTER a root here: this runs at
+        # import time, and CLAUDE_PROJECT_DIR is set for every child process
+        # of a Claude Code session — pytest included. Letting it register
+        # would make every test run adopt the developer's own repo. The
+        # automatic variable therefore only promotes among roots that
+        # explicit config or discovery already registered.
+        if hint_abs not in s._slot_mgr.projects and hint_src == "CLAUDE_PROJECT_ROOT":
+            s._slot_mgr.register_roots([hint_abs])
+        if hint_abs in s._slot_mgr.projects:
+            s._slot_mgr.active_root = hint_abs
+            _active_hint_source = hint_src
 
     if os.environ.get("TS_WARM_START", "").strip() in ("1", "true", "yes"):
         targets = [hint_abs] if hint_abs in s._slot_mgr.projects else list(s._slot_mgr.projects)
@@ -324,19 +380,46 @@ def autodiscover_and_register() -> list[str]:
     Called from `main()` rather than at import, so unit tests never trigger it.
     Set `TOKEN_SAVIOR_AUTODISCOVER=0` to keep the old behaviour.
     """
-    if s._slot_mgr.projects:
-        return []
     if os.environ.get("TOKEN_SAVIOR_AUTODISCOVER", "1") == "0":
         return []
-    roots = autodiscover_roots()
-    if not roots:
-        return []
-    _register_roots(roots)
-    print(f"[token-savior] auto-discovered {len(roots)} project(s): "
-          f"{', '.join(os.path.basename(r) for r in roots[:5])}"
-          f"{'...' if len(roots) > 5 else ''}. "
-          f"Set WORKSPACE_ROOTS to pin them explicitly.", file=sys.stderr)
-    return roots
+
+    fresh: list[str] = []
+    if not s._slot_mgr.projects:
+        roots = autodiscover_roots()
+        if roots:
+            _register_roots(roots)
+            fresh = roots
+            print(f"[token-savior] auto-discovered {len(roots)} project(s): "
+                  f"{', '.join(os.path.basename(r) for r in roots[:5])}"
+                  f"{'...' if len(roots) > 5 else ''}. "
+                  f"Set WORKSPACE_ROOTS to pin them explicitly.", file=sys.stderr)
+
+    # The directory the server was actually started in always gets a slot,
+    # even when WORKSPACE_ROOTS pinned the registry. A session launched
+    # inside a linked worktree of a configured repo otherwise routed every
+    # call to the parent checkout — the worktree was never registered at all.
+    cwd_root = project_root_of(os.getcwd())
+    if cwd_root and cwd_root not in s._slot_mgr.projects:
+        s._slot_mgr.register_roots([cwd_root])
+        fresh.append(cwd_root)
+        print(f"[token-savior] registered launch-directory project: {cwd_root}",
+              file=sys.stderr)
+
+    # A cwd that is a linked worktree outranks the environment's stable hint:
+    # CLAUDE_PROJECT_DIR deliberately pins the MAIN checkout even when the
+    # session works in a worktree (that is its documented contract), and the
+    # spawn cwd is the only signal that follows the worktree. Only an
+    # explicit CLAUDE_PROJECT_ROOT — set by a human, never by a host — wins
+    # over it.
+    if (cwd_root and cwd_root in s._slot_mgr.projects
+            and s._slot_mgr.active_root != cwd_root
+            and _is_linked_worktree(cwd_root)
+            and _active_hint_source != "CLAUDE_PROJECT_ROOT"):
+        s._slot_mgr.active_root = cwd_root
+        print(f"[token-savior] active project follows the launch worktree: "
+              f"{cwd_root}", file=sys.stderr)
+
+    return fresh
 
 
 _client_roots_synced = False

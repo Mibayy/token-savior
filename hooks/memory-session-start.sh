@@ -70,7 +70,7 @@ import sys, os, json
 sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 
 # Adaptive budget based on remaining context
 try:
@@ -203,7 +203,7 @@ if [ "$INJECTED_TOKENS" -gt 0 ]; then
 import sys, os
 sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 if not project:
     db = memory_db.get_db()
     row = db.execute('SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1').fetchone()
@@ -235,7 +235,7 @@ from token_savior.session_warmstart import SessionWarmStart, compute_signature
 from token_savior.markov_prefetcher import PPMPrefetcher
 from token_savior import memory_db
 
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 if not project:
     db = memory_db.get_db()
     row = db.execute('SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1').fetchone()
@@ -305,7 +305,7 @@ import sys, os
 sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 db = memory_db.get_db()
 if not project:
     row = db.execute(
@@ -350,7 +350,7 @@ import sys, os
 sys.path.insert(0, '$TS_SRC')
 from token_savior import memory_db
 
-project = os.environ.get('CLAUDE_PROJECT_ROOT', '')
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 if not project:
     db = memory_db.get_db()
     row = db.execute(
