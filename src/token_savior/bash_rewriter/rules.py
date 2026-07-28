@@ -125,12 +125,15 @@ def _match_git_diff(toks: list[str]) -> bool:
 
 def _apply_git_diff(cmd: str, toks: list[str]) -> str:
     rest = toks[2:]
+    # Only add --no-color. Unlike every other rule, --stat would change WHAT the
+    # command produces (a diffstat, not the patch): the hunks the agent asked
+    # for would never exist for the PostToolUse layer to recover or sandbox
+    # (#97). Output-side compaction is the GitDiffCompactor's job — it sees the
+    # real patch and, in hybrid mode, keeps the full diff retrievable.
     if rest:
-        # Has positional args (refs/paths) but no flags — still safe to
-        # append ``--no-color`` and ``--stat=200,5``.
         tail = " ".join(shlex.quote(t) for t in rest)
-        return f"git diff --no-color --stat=200,5 {tail}"
-    return "git diff --no-color --stat=200,5"
+        return f"git diff --no-color {tail}"
+    return "git diff --no-color"
 
 
 _GIT_LOG_N = re.compile(r"^(?:-n|--max-count=?)(\d+)?$")
