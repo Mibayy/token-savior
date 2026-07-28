@@ -62,6 +62,9 @@ if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 20
     tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
 fi
 # -- end token-savior hook error log -----------------------------------------
+# PreCompact event payload (stdin). Claude Code pipes the event JSON here; we
+# keep it to extract transcript_path for superseded-context detection (B).
+_TS_PAYLOAD=$(cat)
 RESULT=$($TS_PY -c "
 import sys, os
 sys.path.insert(0, '$TS_SRC')
@@ -124,5 +127,25 @@ if recent:
 
 if [ -n "$RESULT" ]; then
     echo "$RESULT"
+fi
+
+# --- Superseded context (feature B, Claude Code only) ----------------------
+# Flag tool results a later action already invalidated (re-read, read-then-edit,
+# re-run) so compaction can drop them. Read-only, best-effort — never blocks.
+STALE=$(printf '%s' "$_TS_PAYLOAD" | $TS_PY -c "
+import sys, json
+sys.path.insert(0, '$TS_SRC')
+try:
+    tp = (json.load(sys.stdin) or {}).get('transcript_path', '') or ''
+except Exception:
+    tp = ''
+if tp:
+    from token_savior.discover.superseded import precompact_report
+    out = precompact_report(tp)
+    if out:
+        print(out)
+" 2>>"$ERR_LOG")
+if [ -n "$STALE" ]; then
+    echo "$STALE"
 fi
 exit 0

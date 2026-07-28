@@ -61,3 +61,20 @@ def test_fmt_stale_and_handler_smoke():
     assert out[0].type == "text"
     payload = _j.loads(out[0].text)
     assert "stale" in payload and "count" in payload
+
+
+def test_precompact_report_from_transcript(tmp_path):
+    import json
+
+    from token_savior.discover.superseded import precompact_report
+
+    def ev(tool, **inp):
+        return {"type": "assistant", "timestamp": "2026-07-28T00:00:00Z",
+                "message": {"content": [{"type": "tool_use", "name": tool, "input": inp}]}}
+
+    tp = tmp_path / "sess.jsonl"
+    tp.write_text("\n".join(json.dumps(e) for e in
+                            [ev("Read", file_path="a.py"), ev("Read", file_path="a.py")]))
+    md = precompact_report(str(tp))
+    assert "Superseded context" in md and "a.py" in md
+    assert precompact_report(str(tmp_path / "nope.jsonl")) == ""
