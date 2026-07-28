@@ -287,3 +287,31 @@ def test_preview_omitted_count_positive_when_marker_shown():
     preview = tool_capture._make_preview(output)
     assert "[-" not in preview
     assert "[24 lines omitted" in preview  # 40 - 2*8
+
+
+def test_capture_get_relevant_selects_matching_lines():
+    """range='relevant:<q>' keeps only query-relevant lines + a lossless
+    pointer — A generalized to arbitrary captured output (#non-code 80%)."""
+    lines = [f"boring log line {i}" for i in range(60)]
+    lines[10] = "ERROR: auth token validation failed for user 42"
+    lines[30] = "auth token refreshed successfully"
+    out = "\n".join(lines)
+    res = tool_capture.capture_put(tool_name="Bash", output=out)
+    got = tool_capture.capture_get(res["id"], range_spec="relevant:auth token validation")
+    c = got["content"]
+    assert "auth token validation failed" in c
+    assert "auth token refreshed" in c
+    assert "less-relevant lines omitted" in c        # lossless recovery pointer
+    assert c.count("boring log line") < 60           # trimmed
+    full = tool_capture.capture_get(res["id"], range_spec="all")["content"]
+    assert full.count("boring log line") == 58       # 'all' still returns everything
+
+
+def test_select_relevant_lines_is_deterministic():
+    from token_savior.memory.tool_capture import _select_relevant_lines
+    text = "\n".join(["alpha", "beta auth", "gamma", "delta auth token", "eps"]
+                      + [f"pad{i}" for i in range(50)])
+    a, om_a = _select_relevant_lines(text, "auth token", max_lines=3)
+    b, om_b = _select_relevant_lines(text, "auth token", max_lines=3)
+    assert a == b and om_a == om_b                   # deterministic, no model
+    assert "delta auth token" in a

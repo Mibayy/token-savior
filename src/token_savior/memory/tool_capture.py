@@ -220,6 +220,26 @@ def capture_search(
 _PLAGE_LIGNES = re.compile(r"(\d+)\s*-\s*(\d+)")
 
 
+def _select_relevant_lines(text: str, query: str, max_lines: int = 40) -> tuple[str, int]:
+    """Query-aware slice of a captured output: keep the lines most relevant to
+    `query` (deterministic lexical scoring, no model), in original order.
+    Returns (joined_lines, omitted_count). Lossless: full stays via range='all'.
+    """
+    lines = text.splitlines()
+    total = len(lines)
+    terms = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 2]
+    if not terms or total <= max_lines:
+        return text, 0
+    scored = [(sum(1 for t in terms if t in ln.lower()), i) for i, ln in enumerate(lines)]
+    matched = [(s, i) for s, i in scored if s > 0]
+    if not matched:
+        head = lines[:max_lines]
+        return "\n".join(head), total - len(head)
+    matched.sort(key=lambda x: (-x[0], x[1]))
+    keep_idx = sorted(i for _, i in matched[:max_lines])
+    return "\n".join(lines[i] for i in keep_idx), total - len(keep_idx)
+
+
 def capture_get(
     cap_id: int,
     *,
@@ -229,7 +249,9 @@ def capture_get(
     """Retrieve a captured output, optionally sliced.
 
     range_spec accepts: 'head', 'tail', 'all', 'preview', 'line:start-end'
-    (1-indexed inclusive). Defaults to 'preview' for safety.
+    (1-indexed inclusive), or 'relevant:<query>' — the lines most relevant to a
+    question (deterministic, no model, lossless: the full text stays reachable
+    via 'all'). Defaults to 'preview' for safety.
     max_bytes caps the returned content slice.
     """
     spec = (range_spec or "preview").strip().lower()
@@ -259,6 +281,14 @@ def capture_get(
         content = "\n".join(full.splitlines()[-50:])
     elif spec == "all":
         content = full
+    elif spec.startswith(("relevant:", "intent:")):
+        # Query-aware slice of an arbitrary captured output (logs, JSON, docs):
+        # keep the lines that match the question, drop the rest, point to 'all'.
+        # This is where the non-code 80% saves — lossless, deterministic.
+        query = spec.split(":", 1)[1].strip()
+        content, omitted = _select_relevant_lines(full, query)
+        if omitted:
+            content += f"\n# +{omitted} less-relevant lines omitted (range='all' for full)"
     elif _PLAGE_LIGNES.fullmatch(spec):
         # `10-12` est accepte au meme titre que `line:10-12`. Un appelant qui
         # ecrit la forme naturelle recevait auparavant le contenu ENTIER, sans
@@ -275,6 +305,7 @@ def capture_get(
             "uri": f"ts://capture/{cap_id}",
             "error": (f"range '{range_spec}' non reconnu. Formes acceptees : "
                       "'preview' (defaut), 'head', 'tail', 'all', "
+                      "'relevant:<question>', "
                       "'line:<debut>-<fin>' ou '<debut>-<fin>' (1-indexe, "
                       "bornes incluses)."),
             "output_lines": row["output_lines"],

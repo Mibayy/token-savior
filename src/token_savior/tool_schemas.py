@@ -1169,7 +1169,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["id"],
             "properties": {
                 "id": {"type": "integer", "description": "Capture id (from search/list)."},
-                "range": {"type": "string", "description": "head | tail | all | preview | line:start-end (default preview)."},
+                "range": {"type": "string", "description": "head | tail | all | preview | line:start-end | relevant:<question> (keeps only the lines relevant to the question, lossless — 'all' still returns everything). Default preview."},
                 "max_bytes": {"type": "integer", "description": "Cap returned content size."},
             },
         },
