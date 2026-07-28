@@ -465,6 +465,10 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     "enum": ["compact", "full"],
                     "description": "compact (default): source head 80 lines + deps/dependents as names only. full: raw payload.",
                 },
+                "intent": {
+                    "type": "string",
+                    "description": "Optional task/query. When set, long deps/dependents lists are ranked by relevance to it and trimmed to the top few with a recovery pointer — lossless (the rest stays reachable via mode='full').",
+                },
                 **_PROJECT_PARAM,
             },
         },

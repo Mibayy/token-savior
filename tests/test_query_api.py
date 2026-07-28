@@ -1740,3 +1740,30 @@ class TestCompressChangeImpact:
         assert "@S:A.run" in out and "@L:10" in out
         assert "## transitive" in out
         assert "@S:B.step" in out and "@S:helper" in out
+
+
+def test_get_full_context_intent_trims_and_keeps_pointer():
+    """intent ranks deps by relevance, trims to _INTENT_KEEP + a recovery
+    pointer -- lossless (the rest stays reachable via mode='full')."""
+    from token_savior.server_handlers.code_nav import _INTENT_KEEP, _compact_full_context
+    deps = [{"name": n} for n in
+            ([f"noise_{i}" for i in range(20)] + ["validate_auth_token", "auth_middleware"])]
+    res = {"name": "X", "dependents": deps}
+    out = _compact_full_context(res, intent="how is the auth token validated")
+    kept = out["dependents"]
+    assert len(kept) == _INTENT_KEEP + 1          # trimmed + one pointer line
+    assert any("ranked out" in str(x) for x in kept)
+    assert any("auth_token" in str(x) for x in kept)   # relevant name surfaced
+    # no intent -> unchanged behaviour: all names, no pointer
+    plain = _compact_full_context(res)["dependents"]
+    assert len(plain) == len(deps)
+    assert not any("ranked out" in str(x) for x in plain)
+
+
+def test_rank_by_intent_is_deterministic_and_stable():
+    from token_savior.server_handlers.code_nav import _rank_by_intent
+    names = ["parse", "auth_check", "log", "auth_token", "render"]
+    a, dropped = _rank_by_intent(names, "auth token", keep=2)
+    b, _ = _rank_by_intent(names, "auth token", keep=2)
+    assert a == b                       # deterministic, no model
+    assert "auth_token" in a and dropped == 3
