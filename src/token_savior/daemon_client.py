@@ -20,7 +20,18 @@ import socket
 import struct
 from typing import Any
 
-_SOCK_PATH = os.environ.get("TS_SOCK", "/tmp/ts.sock")
+
+def _default_sock_path() -> str:
+    """Match cli._default_sock_path: per-user socket outside world-writable
+    /tmp (#98). Both sides must agree or the CLI and daemon miss each other."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return os.path.join(runtime, "ts.sock")
+    cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(cfg, "ts", "ts.sock")
+
+
+_SOCK_PATH = os.environ.get("TS_SOCK") or _default_sock_path()
 
 
 def _send_frame(sock: socket.socket, obj: Any) -> None:

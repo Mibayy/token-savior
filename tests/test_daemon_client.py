@@ -88,3 +88,25 @@ def test_non_string_text_returns_none(sock_dir):
     out = daemon_client.call_daemon("ts_search", {"query": "x"}, sock_path=sock_path)
     t.join(timeout=5)
     assert out is None
+
+
+# --- socket path hardening (#98) ---
+def test_default_sock_path_prefers_xdg_runtime(monkeypatch):
+    """Socket defaults out of world-writable /tmp into a per-user dir (#98)."""
+    from token_savior import daemon_client
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    assert daemon_client._default_sock_path() == "/run/user/1000/ts.sock"
+
+
+def test_default_sock_path_falls_back_to_config(monkeypatch):
+    from token_savior import daemon_client
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/home/u/.config")
+    assert daemon_client._default_sock_path() == "/home/u/.config/ts/ts.sock"
+
+
+def test_default_sock_path_never_uses_tmp(monkeypatch):
+    from token_savior import daemon_client
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert not daemon_client._default_sock_path().startswith("/tmp/")
