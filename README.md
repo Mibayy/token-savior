@@ -359,6 +359,7 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 |---|---|---|
 | `TS_CAPTURE_THRESHOLD_BYTES` | `4096` | Minimum tool-output size to sandbox |
 | `TS_CAPTURE_REPLACE=1` | off | Strong-replace: tell the agent to ignore the inline output and `capture_get` the URI |
+| `TS_CAPTURE_TTL_DAYS` | `30` | Captures older than this are purged on the next `capture_put`; `0` disables the GC |
 | `TS_BASH_COMPACT=1` | off | Enable PostToolUse Bash output compactors |
 | `TS_COMPACT_INLINE_THRESHOLD` | `4096` | Hybrid mode: compact-result size above which the full original is also sandboxed |
 | `TS_COMPACT_TINY_THRESHOLD` | `256` | Hybrid mode: compact-result size below which the sandbox is always skipped |

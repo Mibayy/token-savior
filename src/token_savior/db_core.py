@@ -205,6 +205,10 @@ def run_migrations(db_path: Path | str | None = None) -> None:
 
     try:
         _ajouter_colonne(conn, "user_prompts", "project_root", "TEXT")
+        # Before the schema script, like user_prompts above: the script
+        # creates idx_tool_captures_hash, which needs the column to exist
+        # on databases that predate it.
+        _ajouter_colonne(conn, "tool_captures", "output_hash", "TEXT")
 
         schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
         conn.executescript(schema_sql)
