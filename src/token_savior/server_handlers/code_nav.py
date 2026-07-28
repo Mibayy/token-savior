@@ -26,7 +26,20 @@ _BATCH_MAX = 10
 # next-step routing advice (the agent must rely on its system prompt).
 # Recommended for benchmark / cold-start workloads where the prompt
 # already encodes routing rules.
-_HINTS_DISABLED = os.environ.get("TS_NO_HINTS") == "1"
+#
+# The `optimized` profile is the token-minimizing default: it already implies
+# thin schemas (server.py), and a usage audit found the per-result hint blocks
+# convert poorly (e.g. the ts_execute nudge fired hundreds of times without
+# moving adoption). So `optimized` disables them too — the ~30-50 tokens/call
+# are a measured overhead there. An explicit TS_NO_HINTS=0 opts back in.
+def _hints_off() -> bool:
+    override = os.environ.get("TS_NO_HINTS")
+    if override is not None:
+        return override == "1"
+    return os.environ.get("TOKEN_SAVIOR_PROFILE", "").lower() == "optimized"
+
+
+_HINTS_DISABLED = _hints_off()
 
 
 def _resolve_batch_names(args: dict[str, Any]) -> list[str] | None:
