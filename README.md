@@ -48,8 +48,6 @@ social account, and the most followed carries 18,922 followers. The named list i
 visible to the repo owner and to nobody else — the [public
 page](https://starscope.duckdns.org/r/_Na5VtAKXt-H) shows aggregates only.
 
-Source, AGPL-3.0: [github.com/Mibayy/starscope](https://github.com/Mibayy/starscope)
-
 ---
 
 ## What's new
