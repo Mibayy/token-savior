@@ -32,6 +32,26 @@ Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY
 
 ---
 
+## Who starred this repo?
+
+[![starscope](https://starscope.duckdns.org/badge/Mibayy/token-savior.svg)](https://starscope.duckdns.org/r/_Na5VtAKXt-H)
+
+On June 30, 2026 GitHub restricted stargazer and watcher lists to repo admins and
+collaborators, which broke every "who starred my repo" tool at once. I rebuilt one
+that still works, precisely because it only reads repos you own or can push to:
+**[starscope](https://starscope.duckdns.org)** ranks the people who starred or
+forked your repo by influence, and surfaces their social accounts when their
+GitHub profile declares them.
+
+Numbers on this very repo, computed with it: 1,147 people, 27% with a public
+social account, and the most followed carries 18,922 followers. The named list is
+visible to the repo owner and to nobody else — the [public
+page](https://starscope.duckdns.org/r/_Na5VtAKXt-H) shows aggregates only.
+
+Source, AGPL-3.0: [github.com/Mibayy/starscope](https://github.com/Mibayy/starscope)
+
+---
+
 ## What's new
 
 Release notes live where they can't drift out of sync with the code:
