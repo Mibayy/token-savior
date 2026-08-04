@@ -356,7 +356,7 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
         else:
             indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
-                "for source + callers + dependencies in one call"
+                "for callers + deps (source reused; mode='full' to re-fetch)"
             )
             if _indice_supportable(result, indice):
                 result += indice
@@ -444,7 +444,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
         else:
             indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
-                "for source + callers + dependencies in one call"
+                "for callers + deps (source reused; mode='full' to re-fetch)"
             )
             if _indice_supportable(result, indice):
                 result += indice

@@ -273,3 +273,31 @@ _TS_SEARCH_COLD_DELEGATE: bool = (
 _STICKY_ACTIVE: bool = (
     os.environ.get("TS_STICKY_ACTIVE", "0").lower() in ("1", "true", "on")
 )
+
+# Every root this process has been asked to make active. One server is shared
+# by a session and every sub-agent it spawns, so a sub-agent's switch_project
+# silently repoints the parent's hint-less calls. Recording the roots lets an
+# answer name the project it came from once there is more than one candidate --
+# a wrong source then shows up in the answer instead of being discovered three
+# deductions later. Measured 2026-08-05: a search meant for this repository
+# returned a competitor's files, well-formed and entirely wrong.
+_racines_actives_vues: set[str] = set()
+
+
+def noter_racine_active(root: str) -> bool:
+    """Record a bid to make `root` the shared active project.
+
+    Returns True when the bid was *refused* because TS_STICKY_ACTIVE is on.
+    The caller stays reachable either way: `project=` and absolute path
+    arguments route each call on their own, without the shared default.
+    """
+    _racines_actives_vues.add(root)
+    if _STICKY_ACTIVE:
+        return True
+    _slot_mgr.active_root = root
+    return False
+
+
+def racines_multiples() -> bool:
+    """True once this process has been pointed at more than one project."""
+    return len(_racines_actives_vues) > 1

@@ -1101,14 +1101,24 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
         # TS_STICKY_ACTIVE freezes the promotion: with parallel agents in
         # sibling worktrees, one agent's hint must not repoint everyone
         # else's hint-less calls.
-        if (project_hint and slot is not None
-                and s._slot_mgr.active_root != slot.root
-                and not s._STICKY_ACTIVE):
-            s._slot_mgr.active_root = slot.root
+        if project_hint and slot is not None and s._slot_mgr.active_root != slot.root:
+            # Routed through noter_racine_active so the promotion is recorded
+            # even when sticky mode refuses it: the tag below needs to know a
+            # second project was in play, not just that the default moved.
+            s.noter_racine_active(slot.root)
 
         handler = _SLOT_HANDLERS.get(name)
         if handler is not None:
             wrapped = _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
+            # A hint-less call rides the shared active_root, which any parallel
+            # agent may have repointed. Once this process has seen more than one
+            # project, name the one that answered: a wrong source then shows up
+            # in the answer rather than three deductions later.
+            if not project_hint and s.racines_multiples() and slot is not None:
+                wrapped = [
+                    *wrapped,
+                    TextContent(type="text", text=f"[project: {os.path.basename(slot.root)}]"),
+                ]
             if name in _EDIT_TOOLS_NEEDING_CONTEXT and _edit_succeeded(wrapped):
                 notice = _edit_impact_notice(slot, name, record_symbol)
                 if notice:

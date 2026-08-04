@@ -59,6 +59,18 @@ def _read_project_hint(project_root: str) -> str | None:
     return None
 
 
+_AVIS_GELE = (
+    "\n\nTS_STICKY_ACTIVE is on: the shared active project was NOT changed, "
+    "because this server is shared with parallel agents. Pass project='<name>' "
+    "on each call, or use an absolute file_path -- both route per call."
+)
+
+
+def _note_active_switch(root: str) -> bool:
+    """Bid to make `root` active. True when refused (sticky mode)."""
+    return state.noter_racine_active(root)
+
+
 def _resolve_unregistered(hint: str) -> str | None:
     """Resolve a switch_project hint that the SlotManager didn't know about.
 
@@ -83,35 +95,54 @@ def _resolve_unregistered(hint: str) -> str | None:
 
 
 def _hm_switch_project(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Switch the shared active project, and say so loudly when it is shared.
+
+    `active_root` lives on the server *process*, and one server is shared by a
+    session and every sub-agent it spawns. A sub-agent calling this tool used to
+    repoint every other agent's hint-less call with no error and no trace: the
+    caller got a well-formed answer sourced from someone else's repository.
+
+    Two guards, both cheap:
+
+    * `TS_STICKY_ACTIVE` now covers this tool too. It used to freeze only the
+      implicit promotion done by a `project=` hint in `_dispatch_tool`, which
+      left the explicit switch as an open door straight through the fence.
+    * Every switch is recorded. Once a process has been pointed at more than one
+      root, hint-less answers carry a `[project: name]` tag (see
+      `_dispatch_tool`), so a wrong source shows up in the answer instead of
+      being discovered three deductions later.
+    """
     hint = arguments["name"]
     slot, err = state._slot_mgr.resolve(hint)
     if err:
         cand = _resolve_unregistered(hint)
         if cand and cand not in state._slot_mgr.projects:
             state._slot_mgr.projects[cand] = _ProjectSlot(root=cand)
-            state._slot_mgr.active_root = cand
             slot = state._slot_mgr.projects[cand]
+            gele = _note_active_switch(cand)
             state._slot_mgr.ensure(slot)  # reuses disk cache when git ref matches
             _persist_registered_root(cand)
             idx = slot.indexer._project_index if slot.indexer else None
             info = f"{idx.total_files} files" if idx else "index not built"
-            body = (
-                f"Registered and switched to '{os.path.basename(cand)}' "
-                f"({cand}) -- {info}."
-            )
+            verbe = "Registered" if gele else "Registered and switched to"
+            body = f"{verbe} '{os.path.basename(cand)}' ({cand}) -- {info}."
+            if gele:
+                body += _AVIS_GELE
             hint_body = _read_project_hint(cand)
             if hint_body:
                 body += "\n\n--- project hint (.token-savior/hint.md) ---\n" + hint_body
             return [TextContent(type="text", text=body)]
         return [TextContent(type="text", text=f"Error: {err}")]
     already_active = (state._slot_mgr.active_root == slot.root and slot.indexer is not None)
-    state._slot_mgr.active_root = slot.root
+    gele = _note_active_switch(slot.root)
     if not already_active:
         state._slot_mgr.ensure(slot)
     idx = slot.indexer._project_index if slot.indexer else None
     info = f"{idx.total_files} files" if idx else "index not built"
-    prefix = "Already active" if already_active else "Switched to"
+    prefix = "Already active" if already_active else ("Indexed" if gele else "Switched to")
     body = f"{prefix} '{os.path.basename(slot.root)}' ({slot.root}) -- {info}."
+    if gele and not already_active:
+        body += _AVIS_GELE
     hint_body = _read_project_hint(slot.root)
     if hint_body:
         body += "\n\n--- project hint (.token-savior/hint.md) ---\n" + hint_body

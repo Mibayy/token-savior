@@ -29,3 +29,19 @@ def test_dedup_ne_touche_pas_les_deps(appeler):
     assert "already served" in out
     # depth=1 -> le bundle contient toujours les cles deps/dependents
     assert "dependencies" in out or "dependents" in out
+
+
+def test_hint_get_function_source_ne_surpromet_pas_la_source(appeler):
+    """L'indice de get_function_source pousse vers la sequence qui declenche la dedup.
+
+    Il suggere `get_full_context` juste apres avoir servi la source, c'est-a-dire
+    exactement l'enchainement que `_dedup_served_source` (#114) intercepte : le
+    prochain appel rendra un accuse de reception, pas le code. Promettre "source
+    + callers + dependencies" est donc faux depuis #114, et un agent qui decouvre
+    l'ecart au moment du resultat cesse de faire confiance a l'outil. L'indice
+    doit annoncer la reutilisation et la porte de sortie (mode='full').
+    """
+    out = appeler("get_function_source", name="calculer_frais", level=0)
+    assert "get_full_context('calculer_frais')" in out
+    assert "mode='full'" in out
+    assert "reused" in out.lower()
