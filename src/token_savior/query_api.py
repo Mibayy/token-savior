@@ -1747,7 +1747,7 @@ class ProjectQueryEngine:
         root = self.index.root_path
         limit = max(int(max_results), 5) if max_results else 10
 
-        reindex = reindex_project_symbols(root)
+        reindex = reindex_project_symbols(root, index=self.index)
         if reindex.get("status") != "ok":
             return [{
                 "error": (

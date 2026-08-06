@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
 import logging
 import time
 from collections.abc import Iterable
@@ -137,6 +138,107 @@ def collect_project_symbols(project_root: str | Path) -> list[dict]:
     return out
 
 
+
+# ---------------------------------------------------------------------------
+# Collecte multi-langage, adossee a l'index structurel deja construit
+# ---------------------------------------------------------------------------
+
+
+def collect_symbols_from_index(project_root: str | Path, index) -> list[dict]:
+    """Descripteurs de symboles pour TOUS les langages que le projet indexe.
+
+    `collect_project_symbols` ne voyait que les fichiers `.py` : elle marche au
+    `ast` de Python. Sur un projet TypeScript, l'index semantique se remplissait
+    donc avec les rares scripts Python du depot, et la recherche rendait des
+    resultats plausibles issus du mauvais langage, sans jamais dire que le
+    langage principal n'etait pas indexe.
+
+    Mesure du 06/08/2026 sur /root/estalle (305 fichiers TypeScript, 1 fichier
+    Python) : `search_codebase(semantic=True)` trouvait 1 cible sur 6, et
+    l'unique fichier qu'il rendait etait ce `tests/test_api.py`.
+
+    Ici on ne reecrit aucun analyseur : l'index structurel connait deja les
+    fonctions et les classes de chaque langage supporte. On se contente de
+    fabriquer le meme document d'embedding a partir de lui.
+    """
+    root = Path(project_root).resolve()
+    out: list[dict] = []
+    fichiers = getattr(index, "files", None) or {}
+
+    for rel_path, meta in fichiers.items():
+        lignes = None
+        try:
+            lignes = list(getattr(meta, "lines", []) or [])
+        except Exception:
+            lignes = []
+
+        def _extrait(debut: int) -> str:
+            """Les trois premieres lignes non vides du corps."""
+            tete: list[str] = []
+            for brute in lignes[debut : debut + 12]:
+                nette = str(brute).strip()
+                if nette:
+                    tete.append(nette)
+                if len(tete) >= 3:
+                    break
+            return "\n".join(tete)
+
+        elements = []
+        for fn in getattr(meta, "functions", []) or []:
+            elements.append(("function", fn, None))
+        for cl in getattr(meta, "classes", []) or []:
+            elements.append(("class", cl, None))
+            for m in getattr(cl, "methods", []) or []:
+                elements.append(("method", m, getattr(cl, "name", None)))
+
+        for kind, el, parent in elements:
+            nom = getattr(el, "qualified_name", None) or getattr(el, "name", "")
+            if not nom:
+                continue
+            if parent and not str(nom).startswith(f"{parent}."):
+                nom = f"{parent}.{nom}"
+            portee = getattr(el, "line_range", None)
+            debut = getattr(portee, "start", 0) or 0
+            params = getattr(el, "parameters", None)
+            signature = (
+                f"{getattr(el, 'name', nom)}({', '.join(params)})"
+                if params is not None
+                else str(getattr(el, "name", nom))
+            )
+            doc_head = (getattr(el, "docstring", None) or "").strip().split("\n")[0][:200]
+
+            # Le CHEMIN est en tete, et c'est le point qui fait la difference.
+            # Un handler de route Next.js s'appelle `POST` : ni son nom ni sa
+            # signature ne portent le moindre sens. Tout le sens est dans
+            # `app/api/oodrive/webhook/route.ts`, qui contient justement les
+            # mots de la question posee. Mesure du 06/08/2026 sur 3 questions
+            # a verite terrain : 2 cibles sur 6 sans le chemin, 3 sur 6 avec.
+            chemin_mots = str(rel_path).replace("/", " ").replace("_", " ").replace("-", " ")
+            embed_doc = (
+                f"{rel_path}\n"
+                f"{chemin_mots}\n"
+                f"{kind} {nom}\n"
+                f"{signature}\n"
+                f"{doc_head}\n"
+                f"{_extrait(max(debut, 1) - 1 + 1)}"
+            ).strip()[:_MAX_DOC_CHARS]
+
+            out.append({
+                "project_root": str(root),
+                "symbol_key": f"{rel_path}::{nom}",
+                "file_path": rel_path,
+                "lineno": debut or 1,
+                "kind": kind,
+                "signature": signature[:400],
+                "docstring_head": doc_head[:400],
+                "content_hash": hashlib.sha1(
+                    embed_doc.encode("utf-8", "replace")
+                ).hexdigest()[:16],
+                "embed_doc": embed_doc,
+            })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Indexing — batched embed + upsert into symbols / symbol_vectors
 # ---------------------------------------------------------------------------
@@ -170,6 +272,7 @@ def reindex_project_symbols(
     *,
     db_path: str | Path | None = None,
     batch_size: int = _BATCH_SIZE,
+    index: Any = None,
 ) -> dict[str, Any]:
     """Collect, embed, and upsert all symbols in ``project_root``.
 
@@ -217,7 +320,14 @@ def reindex_project_symbols(
 
     t0 = time.perf_counter()
     root_str = str(Path(project_root).resolve())
-    symbols = collect_project_symbols(root_str)
+    # Avec l'index structurel on couvre tous les langages du projet ; sans
+    # lui on retombe sur la marche `.py`, qui reste correcte pour un depot
+    # Python et garde le comportement des appels historiques.
+    symbols = (
+        collect_symbols_from_index(root_str, index)
+        if index is not None
+        else collect_project_symbols(root_str)
+    )
     now_epoch = int(time.time())
 
     indexed = 0
@@ -325,6 +435,100 @@ def reindex_project_symbols(
 # ---------------------------------------------------------------------------
 
 
+_MOTS_VIDES = {
+    "the", "a", "an", "is", "are", "was", "were", "how", "where", "what", "which",
+    "does", "do", "did", "of", "for", "to", "in", "on", "at", "by", "with", "from",
+    "and", "or", "it", "its", "this", "that", "after", "before", "when", "who",
+    "le", "la", "les", "un", "une", "des", "de", "du", "est", "sont", "ou", "et",
+}
+
+
+def _jetons(texte: str) -> set[str]:
+    """Decoupe un chemin ou une requete en mots comparables.
+
+    Les separateurs de chemin, tirets et underscores comptent comme des espaces,
+    et on coupe aussi le camelCase : `PlanningContractuelEditor` doit pouvoir
+    rencontrer « planning contractuel ».
+    """
+    espace = re.sub(r"[/\\._\-]+", " ", texte)
+    espace = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", espace)
+    return {
+        m for m in (w.strip().lower() for w in espace.split())
+        if len(m) > 2 and m not in _MOTS_VIDES
+    }
+
+
+
+
+
+
+def _prefixe_commun(a: str, b: str) -> int:
+    """Longueur du plus long debut commun a deux mots."""
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    return n
+
+
+def _recouvrement(mots_q: set[str], cible: set[str]) -> float:
+    """Part des mots de la question retrouves dans le chemin, prefixe admis.
+
+    L'egalite stricte ne suffit pas : le code de Louis est en francais et les
+    questions arrivent souvent en anglais. `contract` ne rencontrait jamais
+    `contrats`, ni `planning` -> `plannings`. Un prefixe commun d'au moins
+    quatre caracteres rattrape ces paires sans ouvrir la porte aux faux amis
+    courts (`app` / `application` reste hors de portee, c'est voulu : trois
+    lettres rapprocheraient n'importe quoi).
+
+    C'est du radical pauvre, pas de la lemmatisation. Suffisant ici, et sans
+    dependance nouvelle.
+    """
+    if not mots_q:
+        return 0.0
+    touches = 0
+    for m in mots_q:
+        if m in cible:
+            touches += 1
+            continue
+        if any(_prefixe_commun(m, c) >= 5 for c in cible):
+            touches += 1
+    return touches / len(mots_q)
+
+
+def _reclasser_hybride(query: str, hits: list[dict]) -> list[dict]:
+    """Melange la proximite vectorielle et le recouvrement lexical du chemin.
+
+    Pourquoi. Les vecteurs seuls diluent une correspondance lexicale forte :
+    une question sur « contract status » doit faire remonter
+    `app/api/contrats/status/route.ts`, or ce fichier n'expose qu'un symbole
+    nomme `GET`. Le sens est entierement dans le chemin.
+
+    Mesure du 06/08/2026 sur /root/estalle, trois questions a verite terrain :
+    1/6 avant tout correctif (l'index ne voyait que les .py), 3/6 une fois le
+    chemin ajoute au document vectorise. Ce reclassement n'a PAS ameliore ce
+    score sur ces trois questions : il corrige l'ordre, pas la couverture, et
+    trois questions sont trop peu pour trancher son effet. Il est garde parce
+    que son principe tient (une correspondance lexicale forte ne doit pas etre
+    diluee), pas parce qu'un chiffre le prouve.
+
+    Le poids lexical est volontairement minoritaire (0.35) : il corrige un
+    classement, il ne le remplace pas. Un poids majoritaire ferait de la
+    recherche semantique un grep deguise, qui echouerait sur les questions
+    posees avec d'autres mots que ceux du code -- exactement ce que le mode
+    regex fait deja mieux et plus vite.
+    """
+    mots_q = _jetons(query)
+    if not mots_q:
+        return hits
+    for h in hits:
+        cible = _jetons(f"{h.get('file', '')} {h.get('symbol', '')}")
+        recouvrement = _recouvrement(mots_q, cible)
+        h["score"] = round(0.65 * h.get("_cos", h.get("score", 0.0)) + 0.35 * recouvrement, 4)
+    return sorted(hits, key=lambda h: -h["score"])
+
+
 def search_symbols_semantic(
     query: str,
     project_root: str | Path,
@@ -366,7 +570,11 @@ def search_symbols_semantic(
         return {"status": "unavailable", "reason": "vec serialize failed", "hits": []}
 
     root_str = str(Path(project_root).resolve())
-    k = max(int(limit), 5)
+    limite = max(int(limit), 5)
+    # On tire large puis on reclasse : un vivier limite a `limit` ne laisse
+    # aucune place au signal lexical, qui est justement celui qui rattrape
+    # les symboles au nom vide de sens (`POST`, `GET`, `handler`).
+    k = limite * 5
 
     sql = (
         "SELECT s.symbol_key, s.file_path, s.lineno, s.kind, s.signature,"
@@ -398,7 +606,12 @@ def search_symbols_semantic(
             "signature": r["signature"],
             "docstring_head": r["docstring_head"],
             "score": round(cos_score, 4),
+            "_cos": cos_score,
         })
+
+    hits = _reclasser_hybride(query, hits)[:limite]
+    for h in hits:
+        h.pop("_cos", None)
 
     # No low-confidence warning on this path — see docstring. Kept in the
     # return shape as None for callers that check ``.get("warning")``.
