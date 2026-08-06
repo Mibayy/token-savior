@@ -1301,6 +1301,22 @@ class ProjectQueryEngine:
         result: dict = {}
         if "function" in searched or "class" in searched:
             result = self._resolve_symbol_info(name, level=level, kinds=searched)
+            # Deux fonctions du meme nom : le dire, plutot que d'en choisir une
+            # en silence. Mesure du 06/08/2026 sur estalle :
+            # `createSignatureRequest` existe dans lib/yousign.ts (fournisseur
+            # abandonne) ET lib/oodrive.ts (celui en service) ; find_symbol
+            # rendait le premier sans un mot sur le second. Un agent qui recoit
+            # un seul resultat le croit unique.
+            #
+            # L'ambiguite etait deja dite pour les classes homonymes entre
+            # langages ; elle ne l'etait pas pour les fonctions.
+            if result.get("file"):
+                autres = [c for c in self._fichiers_definissant(name)
+                          if c != result.get("file")]
+                if autres:
+                    result = {**result, "autres_definitions": autres,
+                              "note": "ce nom est defini dans plusieurs fichiers ; "
+                                      "preciser file_path pour lever le doute"}
         if "file" not in result and "variable" in searched:
             variable_result = self._resolve_variable_info(name, level=level)
             if variable_result is not None:
@@ -1449,6 +1465,88 @@ class ProjectQueryEngine:
             out.append({"_complete": True, "total": len(out), "depth_reached": depth})
         return out
 
+
+    def _fichiers_definissant(self, nom: str) -> list[str]:
+        """Tous les fichiers qui definissent une fonction ou classe de ce nom.
+
+        `symbol_table` n'en garde qu'un : sur un projet Next.js ou trente
+        fichiers exportent `POST`, il en designe un seul, et les resolveurs qui
+        s'y fient rendent un fichier au hasard de l'ordre alphabetique.
+        """
+        out: list[str] = []
+        for chemin, meta in sorted(self.index.files.items()):
+            fns = getattr(meta, "functions", None) or []
+            cls = getattr(meta, "classes", None) or []
+            if any(getattr(f, "name", None) == nom or getattr(f, "qualified_name", None) == nom for f in fns) \
+               or any(getattr(c, "name", None) == nom or getattr(c, "qualified_name", None) == nom for c in cls):
+                out.append(chemin)
+        return out
+
+    def _importe(self, chemin: str, cible: str) -> bool:
+        """Ce fichier importe-t-il `cible` ?"""
+        meta = self.index.files.get(chemin)
+        for imp in (getattr(meta, "imports", None) or []):
+            if cible in (getattr(imp, "names", None) or []):
+                return True
+            if getattr(imp, "alias", None) == cible:
+                return True
+        return False
+
+
+    def _info_dans_fichier(self, nom: str, chemin: str) -> dict | None:
+        """Le symbole `nom` tel qu'il est defini DANS `chemin`.
+
+        Necessaire parce que corriger seulement le champ `file` d'une entree
+        resolue ailleurs laisse les numeros de ligne de l'autre fichier. Une
+        entree qui melange le chemin de l'un et les lignes de l'autre est pire
+        qu'un aveu d'ambiguite : elle a l'air precise.
+        """
+        meta = self.index.files.get(chemin)
+        if meta is None:
+            return None
+        for f in (getattr(meta, "functions", None) or []):
+            if getattr(f, "name", None) == nom or getattr(f, "qualified_name", None) == nom:
+                portee = getattr(f, "line_range", None)
+                return {
+                    "name": nom,
+                    "file": chemin,
+                    "line": getattr(portee, "start", 0),
+                    "end_line": getattr(portee, "end", 0),
+                    "type": "function",
+                    "signature": f"{nom}({', '.join(getattr(f, 'parameters', None) or [])})",
+                    "resolu_par": "import",
+                }
+        for c in (getattr(meta, "classes", None) or []):
+            if getattr(c, "name", None) == nom:
+                portee = getattr(c, "line_range", None)
+                return {
+                    "name": nom, "file": chemin,
+                    "line": getattr(portee, "start", 0),
+                    "end_line": getattr(portee, "end", 0),
+                    "type": "class", "resolu_par": "import",
+                }
+        return None
+
+    def _appelants_plausibles(self, dep_nom: str, cible: str) -> list[str]:
+        """Parmi les fichiers definissant `dep_nom`, ceux qui peuvent appeler `cible`.
+
+        Un fichier est plausible s'il importe la cible, ou s'il la definit
+        lui-meme (appel intra-fichier). Le reste est ecarte : un fichier qui
+        ne connait pas le symbole ne peut pas l'appeler, et le rendre comme
+        appelant envoie editer le mauvais fichier.
+
+        Rend la liste vide quand aucun candidat ne tient. L'appelant de cette
+        methode doit alors le DIRE, pas retomber sur une resolution par nom.
+        """
+        candidats = self._fichiers_definissant(dep_nom)
+        if len(candidats) <= 1:
+            return candidats
+        gardes = [c for c in candidats
+                  if self._importe(c, cible)
+                  or any(getattr(f, "name", None) == cible
+                         for f in (getattr(self.index.files.get(c), "functions", None) or []))]
+        return gardes
+
     def get_dependents(self, name: str, max_results: int = 0, max_total_chars: int = 50_000) -> list[dict]:
         """What references this function/class (from reverse_dependency_graph).
 
@@ -1467,7 +1565,30 @@ class ProjectQueryEngine:
         chars_used = 0
         truncated = False
         for dep in result:
-            entry = self._resolve_symbol_info(dep, strip_preview=True)
+            # Le graphe est indexe par nom simple : `dep` peut designer trente
+            # fonctions differentes. On tranche par l'import reel de la cible
+            # plutot que par l'ordre alphabetique. Mesure du 06/08/2026 :
+            # sans ce filtre, get_dependents rendait un fichier ne contenant
+            # aucune occurrence du symbole, et perdait le vrai appelant.
+            plausibles = self._appelants_plausibles(dep, _resolved_name or name)
+            if len(plausibles) == 1:
+                entry = (
+                    self._info_dans_fichier(dep, plausibles[0])
+                    or self._resolve_symbol_info(dep, strip_preview=True)
+                )
+            elif len(plausibles) > 1:
+                entry = {"name": dep, "fichiers_candidats": plausibles,
+                         "ambigu": True,
+                         "note": "plusieurs fichiers importent la cible et definissent ce nom"}
+            else:
+                candidats = self._fichiers_definissant(dep)
+                if len(candidats) > 1:
+                    entry = {"name": dep, "fichiers_candidats": candidats,
+                             "ambigu": True,
+                             "note": "aucun de ces fichiers n'importe la cible ; "
+                                     "appelant indetermine, ne pas editer sans verifier"}
+                else:
+                    entry = self._resolve_symbol_info(dep, strip_preview=True)
             entry_len = len(str(entry))
             if max_total_chars > 0 and chars_used + entry_len > max_total_chars:
                 entries.append({
