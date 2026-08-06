@@ -122,6 +122,28 @@ def _lookup_symbol_meta(slot, args: dict[str, Any]) -> tuple[str, str, str] | No
     return None
 
 
+def _csc_key(slot, kind: str, name: str, file_path: object = None) -> str:
+    """La cle d'une entree du cache de session. Un seul endroit, exprès.
+
+    Le chemin fait partie de l'identite d'un symbole. Sans lui, tous les
+    homonymes d'un projet partagent une entree : constate le 06/08/2026 sur un
+    projet Next.js, ou chaque fichier de route exporte `POST`. Le rappel
+    servait alors un accuse `[MODIFIED]` dont le diff etait calcule contre une
+    fonction sans rapport, et le corps demande n'arrivait jamais.
+
+    Cette fonction existe parce que la cle etait construite en deux endroits
+    (`_csc_maybe_serve` et la dedup de `get_full_context`). Corriger l'un sans
+    l'autre casse la dedup en silence : c'est arrive pendant l'ecriture de ce
+    correctif, et seuls les tests l'ont dit.
+
+    Un appel sans `file_path` garde sa propre entree plutot que d'etre
+    rapproche d'un appel qui en precise un : deux cles distinctes valent une
+    source servie en trop, une cle commune vaut un corps retenu a tort.
+    """
+    root = getattr(slot, "root", "") or ""
+    return f"{kind}:{root}:{str(file_path or '')}:{name}"
+
+
 def _csc_compact_response(
     name: str,
     signature: str,
@@ -145,8 +167,16 @@ def _csc_compact_response(
         lines.append(
             f"(body unchanged since last view - {view_count} view{'s' if view_count != 1 else ''} this session)"
         )
+        # Ce cache est une globale du processus, partagee par une session et
+        # tous les sous-agents qu'elle lance. Un agent parallele peut donc
+        # recevoir cet accuse pour un corps que seul un autre agent a recu :
+        # l'issue de secours doit etre nommee ici, sinon on invite a reutiliser
+        # ce qu'on n'a pas -- et un modele a qui l'on affirme qu'il detient un
+        # corps est en position de l'inventer.
         lines.append(
-            "Reuse the body you already have. Only re-call with force_full=true if you suspect external mutation."
+            "Reuse the body you have. Never reconstruct it: if you lack it "
+            "(parallel sub-agent, compacted context) or suspect mutation, "
+            "re-call with force_full=true."
         )
     return "\n".join(lines)
 
@@ -226,9 +256,8 @@ def _csc_maybe_serve(
     if not body_hash:
         return full
 
-    project_root = getattr(slot, "root", "") or ""
     name = args["name"]
-    key = f"{kind}:{project_root}:{name}"
+    key = _csc_key(slot, kind, name, args.get("file_path"))
     entry = state._session_symbol_cache.get(key)
 
     from token_savior.symbol_hash import cache_token
@@ -651,9 +680,18 @@ def _dedup_served_source(result: dict, slot) -> None:
     if not meta:
         return
     _, cur_body_hash, _ = meta
-    root = getattr(slot, "root", "") or ""
+    file_path = result.get("file")
+    if not file_path and isinstance(result.get("symbol"), dict):
+        file_path = result["symbol"].get("file")
     for kind in ("function", "class"):
-        entry = state._session_symbol_cache.get(f"{kind}:{root}:{name}")
+        # On tente d'abord la cle portant le chemin, puis celle sans : un
+        # get_function_source appele sans `file_path` a enregistre la seconde,
+        # et la dedup doit reconnaitre les deux.
+        entry = None
+        for candidat in (_csc_key(slot, kind, name, file_path), _csc_key(slot, kind, name, None)):
+            entry = state._session_symbol_cache.get(candidat)
+            if entry is not None:
+                break
         if entry and entry.get("body_hash") == cur_body_hash:
             result["source"] = (
                 f"# source of {name} already served this session (unchanged) — "
