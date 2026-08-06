@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+
+from token_savior import budget_diag as _budget_diag
 import os
 import sys
 import threading
@@ -651,9 +653,15 @@ def _count_and_wrap_result(
     slot: _ProjectSlot, name: str, arguments: dict[str, Any], result: object
 ) -> list[types.TextContent]:
     """Update usage counters for a tool result and return it as text content."""
+    # Instrument de budget : None dans le cas normal, donc aucun octet change.
+    # Voir budget_diag.py — un diagnostic qui decale la sortie invalide toute
+    # mesure A/B prise avec lui.
+    _diag = _budget_diag.demarrer()
+
     formatted = _format_result(result)
+    _naifs = _estimate_naive_chars_for_call(slot, name, arguments, result)
     s._total_chars_returned += len(formatted)
-    s._total_naive_chars += _estimate_naive_chars_for_call(slot, name, arguments, result)
+    s._total_naive_chars += _naifs
 
     # DCP — stabilize chunk order for cache-prefix-friendly outputs
     if (
@@ -688,7 +696,32 @@ def _count_and_wrap_result(
     if slot.stats_file:
         _flush_stats(slot, s._total_naive_chars)
 
-    return [TextContent(type="text", text=formatted)]
+    if _diag is not None:
+        _bornes = {k: v for k, v in arguments.items() if k.startswith("max_") or k in ("limit", "top_k")}
+        _diag.rapporter(_budget_diag.RapportAppel(
+            outil=name,
+            projet=os.path.basename(getattr(slot, "root", "") or "") if slot is not None else "",
+            octets_rendus=len(formatted),
+            octets_naifs=_naifs,
+            tronque="[tronque]" in formatted or "[truncated]" in formatted,
+            raison_troncature="borne" if _bornes else "",
+            bornes=_bornes,
+        ))
+
+    wrapped = [TextContent(type="text", text=formatted)]
+    # A hint-less call rides the shared active_root, which any parallel agent
+    # may have repointed. Once this process has seen more than one project,
+    # name the one that answered: a wrong source then shows up in the answer
+    # rather than three deductions later. Le tag vit ici, seul point de passage
+    # commun aux trois retours de `_dispatch_tool` (_SLOT_HANDLERS, cache-hit
+    # QFN, QFN normal) : posé côté appelant, il manquait aux outils QFN
+    # (find_symbol, search_codebase, get_full_context…), c'est-à-dire à la
+    # majorité des appels réels.
+    if not arguments.get("project") and slot is not None and s.racines_multiples():
+        wrapped.append(
+            TextContent(type="text", text=f"[project: {os.path.basename(slot.root)}]")
+        )
+    return wrapped
 
 
 def _estimate_naive_chars_for_call(
