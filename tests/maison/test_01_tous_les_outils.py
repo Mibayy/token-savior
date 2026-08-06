@@ -79,6 +79,7 @@ ARGUMENTS_REALISTES: dict[str, dict] = {
     "analyze_docker": {},
     "get_db_schema": {},
     # --- git -----------------------------------------------------------
+    "get_diagnostics": {},
     "get_git_status": {},
     "get_changed_symbols": {},
     "build_commit_summary": {"changed_files": ["boutique/panier.py"]},

@@ -39,6 +39,7 @@ NOMS_DE_BORNE = (
     "max_callers",
     "max_direct",
     "max_transitive",
+    "max_per_file",
 )
 
 # Bornes qui gouvernent une TAILLE (octets, lignes, caracteres), pas un nombre

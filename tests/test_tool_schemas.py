@@ -86,7 +86,7 @@ class TestToolSchemas:
         #   opportunities; META handler, read-only on ~/.claude/projects) = 69.
         # +1 ts_stale_context (feature B — superseded-context detector exposed
         #   as an agent-agnostic MCP tool; META handler, read-only) = 70.
-        assert len(TOOL_SCHEMAS) == 70, f"Expected 70 tools, got {len(TOOL_SCHEMAS)}"
+        assert len(TOOL_SCHEMAS) == 71, f"Expected 71 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

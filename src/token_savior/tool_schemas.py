@@ -49,6 +49,24 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     # ── Git & diff ────────────────────────────────────────────────────────
+    "get_diagnostics": {
+        "description": (
+        "Type-checker errors for this project, grouped by file, each mapped to its "
+        "enclosing symbol. Runs the checker the project already declares (tsc / mypy / "
+        "pyright) - no new dependency. Use after an edit instead of shelling out to a "
+        "build: the output is bounded and says exactly what it truncated." ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Restrict to one file (suffix match)."},
+                "checker": {"type": "string", "enum": ["tsc", "mypy", "pyright"], "description": "Force a checker instead of detecting it."},
+                "max_per_file": {"type": "integer", "description": "Diagnostics kept per file (default 10)."},
+                "max_files": {"type": "integer", "description": "Files reported (default 15)."},
+                "timeout": {"type": "integer", "description": "Seconds before giving up (default 180)."},
+                **_PROJECT_PARAM,
+            },
+        },
+    },
     "get_git_status": {
         "description": (
         'Structured git status: branch, ahead/behind, staged, unstaged, untracked.'   ),

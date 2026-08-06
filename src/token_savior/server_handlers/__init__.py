@@ -25,6 +25,7 @@ from typing import Any
 from token_savior.server_handlers.analysis import HANDLERS as _ANALYSIS_HANDLERS
 from token_savior.server_handlers.checkpoints import HANDLERS as _CHECKPOINT_HANDLERS
 from token_savior.server_handlers.code_nav import QFN_HANDLERS as _QFN_HANDLERS
+from token_savior.server_handlers.diagnostics import HANDLERS as _DIAGNOSTICS_HANDLERS
 from token_savior.server_handlers.discover import HANDLERS as _DISCOVER_HANDLERS
 from token_savior.server_handlers.edit import HANDLERS as _EDIT_HANDLERS
 from token_savior.server_handlers.git import HANDLERS as _GIT_HANDLERS
@@ -76,6 +77,7 @@ SLOT_HANDLERS: dict[str, Any] = _merge_disjoint(
     _TESTS_HANDLERS,
     _PROJECT_ACTION_HANDLERS,
     _ANALYSIS_HANDLERS,
+    _DIAGNOSTICS_HANDLERS,
 )
 
 QFN_HANDLERS: dict[str, Any] = dict(_QFN_HANDLERS)
