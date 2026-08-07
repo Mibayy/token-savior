@@ -1109,16 +1109,10 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
 
         handler = _SLOT_HANDLERS.get(name)
         if handler is not None:
+            # L'étiquette [project: …] des sessions multi-projets est posée dans
+            # _count_and_wrap_result : un seul endroit pour les trois chemins de
+            # retour, sinon ils redivergent (c'était le bug).
             wrapped = _count_and_wrap_result(slot, name, arguments, handler(slot, arguments))
-            # A hint-less call rides the shared active_root, which any parallel
-            # agent may have repointed. Once this process has seen more than one
-            # project, name the one that answered: a wrong source then shows up
-            # in the answer rather than three deductions later.
-            if not project_hint and s.racines_multiples() and slot is not None:
-                wrapped = [
-                    *wrapped,
-                    TextContent(type="text", text=f"[project: {os.path.basename(slot.root)}]"),
-                ]
             if name in _EDIT_TOOLS_NEEDING_CONTEXT and _edit_succeeded(wrapped):
                 notice = _edit_impact_notice(slot, name, record_symbol)
                 if notice:

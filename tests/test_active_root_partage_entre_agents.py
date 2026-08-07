@@ -71,3 +71,82 @@ def test_une_seule_racine_ne_declenche_aucune_etiquette(etat):
         "étiqueter chaque réponse d'une session mono-projet serait du bruit payé "
         "à chaque appel"
     )
+
+
+@pytest.fixture
+def cobaye(tmp_path):
+    """Un projet réel et minuscule : le chemin QFN exige un index construit."""
+    (tmp_path / "boutique.py").write_text(
+        '"""Boutique."""\n'
+        "\n"
+        "\n"
+        "def calculer_total(lignes):\n"
+        '    """Somme les lignes."""\n'
+        "    return sum(lignes)\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def session_multi_projets(etat, cobaye, monkeypatch):
+    """Un processus qui a déjà vu deux racines, servant le cobaye par défaut."""
+    from token_savior.slot_manager import SlotManager
+
+    gestionnaire = SlotManager(cache_version=1)
+    gestionnaire.register_roots([str(cobaye)])
+    gestionnaire.active_root = str(cobaye)
+    monkeypatch.setattr(etat, "_slot_mgr", gestionnaire)
+    monkeypatch.setattr(
+        etat, "_racines_actives_vues", {str(cobaye), "/depots/celui-du-sous-agent"}
+    )
+    return cobaye
+
+
+def _texte(sortie) -> str:
+    return "".join(getattr(bloc, "text", "") or "" for bloc in sortie)
+
+
+@pytest.mark.parametrize(
+    "outil, arguments",
+    [
+        ("get_git_status", {}),
+        ("find_symbol", {"name": "calculer_total"}),
+    ],
+)
+def test_letiquette_couvre_les_deux_tables_de_dispatch(
+    session_multi_projets, outil, arguments
+):
+    """L'étiquette doit être posée quelle que soit la table qui a servi l'appel.
+
+    Elle ne vivait que sur la branche `_SLOT_HANDLERS`. Les outils de
+    navigation -- `find_symbol`, `search_codebase`, `get_full_context` --
+    passent par `_QFN_HANDLERS` et rendaient donc une réponse muette sur sa
+    source, c'est-à-dire l'incident même que l'étiquette devait signaler, sur
+    la majorité des appels réels.
+    """
+    import token_savior.server as srv
+
+    sortie = _texte(srv._dispatch_tool(outil, dict(arguments), ""))
+
+    etiquette = f"[project: {session_multi_projets.name}]"
+    assert etiquette in sortie, (
+        f"appel sans indice servi par '{outil}' : la réponse ne nomme pas le "
+        f"projet qui a répondu"
+    )
+    assert sortie.count("[project: ") == 1, "une seule étiquette, pas deux"
+
+
+def test_un_indice_explicite_ne_declenche_pas_letiquette(session_multi_projets):
+    """Un appel qui nomme son projet sait déjà d'où vient la réponse."""
+    import token_savior.server as srv
+
+    sortie = _texte(
+        srv._dispatch_tool(
+            "find_symbol",
+            {"name": "calculer_total", "project": str(session_multi_projets)},
+            "",
+        )
+    )
+
+    assert "[project: " not in sortie
