@@ -14,7 +14,7 @@
 [![CI](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibayy/token-savior/actions/workflows/ci.yml)
 
 **[mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** -- project site + benchmark landing
-**[github.com/Mibayy/tsbench](https://github.com/Mibayy/tsbench)** -- benchmark source + fixtures
+Benchmark source + fixtures: not currently published (see *Reproducing the score* below)
 
 ---
 
@@ -26,7 +26,9 @@
 | **Active tokens / task** | 17 221 | **3 395** (-80%) |
 | **Wall time / task** | 110.6 s | **18.9 s** (-83%) |
 
-Reproduces with the `optimized` profile (single env var). See [BENCHMARK-SUMMARY](https://github.com/Mibayy/tsbench/blob/main/BENCHMARK-SUMMARY.md).
+Reproduces with the `optimized` profile (single env var). The harness that
+produced these numbers is described below; its repository is not public at the
+moment, so take the figures as reported rather than as independently verifiable.
 
 </div>
 
@@ -247,7 +249,7 @@ out in #45.
 
 | Tool | Layer | Overlap | What to do |
 |---|---|---|---|
-| [RTK](https://github.com/paths-technology/rtk) | PostToolUse Bash output compression | Same layer, same PostToolUse limit: neither shrinks the current turn | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
+| RTK (repo currently unreachable) | PostToolUse Bash output compression | Same layer, same PostToolUse limit: neither shrinks the current turn | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
 | [serena](https://github.com/oraios/serena) | Symbol-graph navigation | Direct, with `find_symbol` / `get_dependents` | Run TS as `compact-only` if serena is your navigator |
 | codebase-memory | Persistent code graph | With the memory engine | `TS_MEMORY_DISABLE=1` |
 | Ponytail, Caveman | Output-side compression (code and prose) | Partial, output side only | Complementary, no knob needed |
@@ -327,16 +329,29 @@ output through the registry, and reports per-family savings + overall
 match rate. The second buckets the unmatched commands so the next
 compactor target is obvious from the histogram.
 
-To reproduce the tsbench score:
+### Reproducing the tsbench score
 
-```bash
-git clone https://github.com/Mibayy/tsbench && cd tsbench
-python3 generate.py --seed 42
-git tag v1
-python3 breaking_changes.py
-git tag v2
-TS_PROFILE=tiny_plus TS_CAPTURE_DISABLED=1 python3 bench.py --tasks all --run B
-```
+**Honest status, checked 2026-08-09:** the benchmark repository these
+instructions pointed at returns 404, and so did the BENCHMARK-SUMMARY link
+above. Rather than leave a recipe that cannot run, here is what the harness
+does, so the number can be judged on its method:
+
+- A generated toy repo (deterministic seed) with four planted traps: a symbol
+  defined twice, a three-level call chain, an `a -> b -> c -> a` import cycle,
+  and a dead function whose name contains a live one.
+- Eight read-only tasks, scored mechanically against an `expected` list and a
+  `forbidden` list. The forbidden list is the half that matters: an answer can
+  contain the right target *and* the wrong one, and a grader that only looks
+  for the right one would score it correct.
+- A `sans_ts` control arm running plain Read/Grep/Glob, without which the
+  bench compares Token Savior profiles to each other and can never conclude
+  "useless" — and therefore never "useful" either.
+
+One trap worth knowing about if you rebuild it: the harness spawns
+`claude -p`, which inherits `~/.claude/settings.json`. If any Token Savior
+PreToolUse hook is enabled on the machine, it applies to the control arm too
+and rigs the comparison. Neutralise them in both arms
+(`TS_GUARD_OFF=1 TS_READ_GUARD=0 TS_BASH_REWRITE=0`).
 
 ---
 
