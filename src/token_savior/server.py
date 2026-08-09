@@ -170,6 +170,8 @@ _ARG_ALIASES: dict[str, dict[str, str]] = {
     "get_edit_context": {"symbol_name": "name", "symbol": "name"},
     "find_symbol": {"symbol_name": "name", "symbol": "name"},
     "list_files": {"glob": "pattern", "query": "pattern"},
+    "read_lines": {"file": "file_path", "path": "file_path", "line": "start",
+                   "start_line": "start", "end_line": "end"},
     "ts_search": {"pattern": "query", "q": "query"},
 }
 
@@ -304,11 +306,11 @@ _ULTRA_INCLUDES: set[str] = {
     # Project lifecycle (5)
     "switch_project", "set_project_root", "list_projects", "reindex",
     "get_project_summary",
-    # Code navigation core (8)
+    # Code navigation core (9)
     "search_codebase", "list_files",
     "get_function_source", "get_class_source", "find_symbol",
     "get_full_context", "get_structure_summary",
-    "get_functions", "get_imports",
+    "get_functions", "get_imports", "read_lines",
     # Dependency graph (3)
     "get_dependencies", "get_dependents", "get_file_dependents",
     # Edit primitives (4)
@@ -948,6 +950,8 @@ _ARG_ALIASES: dict[str, dict[str, str]] = {
     "get_edit_context": {"symbol_name": "name", "symbol": "name"},
     "find_symbol": {"symbol_name": "name", "symbol": "name", "query": "name"},
     "list_files": {"glob": "pattern", "query": "pattern"},
+    "read_lines": {"file": "file_path", "path": "file_path", "line": "start",
+                   "start_line": "start", "end_line": "end"},
     "ts_search": {"pattern": "query", "q": "query"},
 }
 

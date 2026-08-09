@@ -853,6 +853,71 @@ class TestProjectQueryFunctions:
         for entry in res:
             assert "_hints" not in entry
 
+    # --- read_lines --------------------------------------------------------
+    # Le moteur savait lire une plage depuis toujours (`get_lines`), mais aucun
+    # outil MCP ne l'exposait : quand l'agent tenait un numero de ligne il
+    # partait en `sed`. Ces tests portent sur le handler, pas sur le moteur.
+
+    def _read_lines(self, **args):
+        from token_savior.server_handlers.code_nav import QFN_HANDLERS
+
+        return QFN_HANDLERS["read_lines"](self.funcs, args)
+
+    def test_read_lines_numerote_par_defaut(self):
+        res = self._read_lines(file_path="src/engine_mod.py", start=1, end=2)
+        assert "1  import os" in res
+        assert "2  from collections import OrderedDict" in res
+
+    def test_read_lines_sans_numeros(self):
+        res = self._read_lines(
+            file_path="src/engine_mod.py", start=1, end=2, numbers=False, hints=False
+        )
+        assert res == "import os\nfrom collections import OrderedDict"
+
+    def test_read_lines_fenetre_par_defaut_sans_end(self):
+        """Une trace d'erreur ne donne qu'une ligne : `end` doit etre optionnel."""
+        res = self._read_lines(file_path="src/engine_mod.py", start=1)
+        assert "import os" in res
+        assert "return x + 1" in res  # fin du fichier, borne par total_lines
+
+    def test_read_lines_nomme_le_symbole_englobant(self):
+        """Le seul reproche possible a une plage : ne pas dire de quoi elle est
+        un morceau. La ligne 15 est dans `helper` (14-16)."""
+        res = self._read_lines(file_path="src/engine_mod.py", start=15, end=15)
+        assert "inside helper (lines 14-16)" in res
+        assert "get_function_source('helper')" in res
+
+    def test_read_lines_hint_desactivable(self):
+        res = self._read_lines(file_path="src/engine_mod.py", start=15, end=15, hints=False)
+        assert "get_function_source" not in res
+
+    def test_read_lines_plafonne_et_dit_ou_reprendre(self):
+        """Sans plafond, `end=100000` redevient un `cat` du fichier entier."""
+        res = self._read_lines(file_path="src/engine_mod.py", start=1, end=999, max_lines=2)
+        assert "import os" in res
+        assert "class Engine" not in res
+        assert "tronque a 2 lignes" in res
+        assert "start=3" in res
+
+    def test_read_lines_arguments_manquants_sont_nommes(self):
+        res = self._read_lines(file_path="src/engine_mod.py")
+        assert "file_path" in res and "start" in res
+        assert "Traceback" not in res
+
+    def test_read_lines_fichier_hors_index_oriente(self):
+        res = self._read_lines(file_path="src/absent.py", start=1, end=2)
+        assert "not found in index" in res
+        assert "list_files" in res
+
+    def test_read_lines_start_au_dela_du_fichier(self):
+        res = self._read_lines(file_path="src/engine_mod.py", start=999, end=1000)
+        assert res.startswith("Error:")
+        assert "Traceback" not in res
+
+    def test_read_lines_start_invalide(self):
+        res = self._read_lines(file_path="src/engine_mod.py", start=0, end=2)
+        assert res.startswith("Error:")
+
     def test_get_call_chain(self):
         result = self.funcs["get_call_chain"]("Runner.execute", "helper")
         assert "chain" in result

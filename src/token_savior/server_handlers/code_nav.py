@@ -18,6 +18,7 @@ from typing import Any
 from token_savior import memory_db
 from token_savior import server_state as state
 from token_savior.query_api import format_signature
+from token_savior.tool_schemas import _READ_LINES_CAP, _READ_LINES_SPAN
 
 _BATCH_MAX = 10
 
@@ -596,7 +597,7 @@ _NAV_TOOLS = {
     "get_function_source", "get_class_source", "get_functions", "get_classes",
     "find_symbol", "search_codebase", "list_files", "get_structure_summary",
     "get_routes", "get_entry_points", "get_feature_files", "get_imports",
-    "get_full_context",
+    "get_full_context", "read_lines",
 }
 
 
@@ -906,12 +907,119 @@ def _q_get_classes(qfns, args: dict[str, Any]):
         result = result + [{"_hints": _LIST_HINTS}]
     return result
 
+def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | None:
+    """Nom du symbole qui contient la plage, ou None.
+
+    Sert l'unique reproche qu'on peut faire a une lecture par plage : elle ne
+    dit pas de quoi elle est un morceau. Repondre "ces lignes sont dans
+    Foo.bar (98-160)" evite la relecture a l'aveugle de la plage suivante.
+    """
+    try:
+        symboles = qfns["get_functions"](file_path, max_results=0)
+    except Exception:
+        return None
+    if not isinstance(symboles, list):
+        return None
+    meilleur = None
+    for sym in symboles:
+        if not isinstance(sym, dict):
+            continue
+        bornes = sym.get("lines")
+        if not (isinstance(bornes, (list, tuple)) and len(bornes) == 2):
+            continue
+        debut, fin = bornes
+        if not (isinstance(debut, int) and isinstance(fin, int)):
+            continue
+        if debut <= start and end <= fin:
+            # Le plus serre gagne : une methode plutot que sa classe.
+            if meilleur is None or (fin - debut) < (meilleur[2] - meilleur[1]):
+                meilleur = (sym.get("qualified_name") or sym.get("name"), debut, fin)
+    if meilleur is None or not meilleur[0]:
+        return None
+    return f"{meilleur[0]} (lines {meilleur[1]}-{meilleur[2]})"
+
+
+def _q_read_lines(qfns, args: dict[str, Any]):
+    """Lecture par plage de lignes — le cas ou l'appelant tient un numero.
+
+    Ajoute le 09/08/2026. Le moteur savait deja le faire (`get_lines` dans
+    ProjectQueryEngine, teste), mais aucun outil MCP ne l'exposait : un agent
+    qui tenait un numero de ligne (trace d'erreur, `grep -n`, erreur de
+    compilation) n'avait que `sed`/`cat` en Bash, parce que tout le reste de
+    la surface demande un nom de symbole.
+    """
+    file_path = args.get("file_path")
+    start_brut = args.get("start")
+    if not file_path or start_brut is None:
+        return (
+            "Error: read_lines requires 'file_path' and 'start' "
+            "(e.g. read_lines(file_path='src/app.py', start=105, end=150)). "
+            "Pass a symbol name to get_function_source instead if you have one."
+        )
+    try:
+        start = int(start_brut)
+        end = int(args.get("end") or 0)
+    except (TypeError, ValueError):
+        return "Error: 'start' and 'end' must be integers (1-indexed, inclusive)."
+    if end <= 0:
+        end = start + _READ_LINES_SPAN - 1
+    if end < start:
+        return f"Error: start ({start}) > end ({end})."
+
+    cap = args.get("max_lines", _READ_LINES_CAP)
+    try:
+        cap = int(cap)
+    except (TypeError, ValueError):
+        cap = _READ_LINES_CAP
+    tronque = False
+    if cap > 0 and (end - start + 1) > cap:
+        end = start + cap - 1
+        tronque = True
+
+    brut = qfns["get_lines"](file_path, start, end)
+    if not isinstance(brut, str):
+        return brut
+    if brut.startswith("Error:"):
+        if "not found in index" in brut:
+            return (
+                f"{brut}. Only indexed files are readable: check the path with "
+                f"list_files(pattern='*{file_path.rsplit('/', 1)[-1]}'), or "
+                f"switch_project(name='<root>') if the file belongs elsewhere."
+            )
+        return brut
+
+    lignes = brut.split("\n")
+    if args.get("numbers", True):
+        largeur = len(str(start + len(lignes) - 1))
+        corps = "\n".join(
+            f"{start + i:>{largeur}}  {ligne}" for i, ligne in enumerate(lignes)
+        )
+    else:
+        corps = brut
+
+    suffixes: list[str] = []
+    if tronque:
+        suffixes.append(
+            f"[tronque a {cap} lignes — relance avec start={end + 1}, "
+            f"ou max_lines=0 pour lever le plafond]"
+        )
+    if args.get("hints", True) and not _HINTS_DISABLED:
+        englobant = _read_lines_enclosing(qfns, file_path, start, start + len(lignes) - 1)
+        if englobant:
+            nom = englobant.split(" (")[0]
+            suffixes.append(f"→ inside {englobant} — get_function_source('{nom}') for the whole body")
+    if suffixes:
+        corps += "\n\n" + "\n".join(suffixes)
+    return corps
+
+
 
 # Dispatch table: tool name → handler(qfns, arguments) → result
 QFN_HANDLERS: dict[str, object] = {
     "get_project_summary": lambda q, a: q["get_project_summary"](),
     "list_files": _q_list_files,
     "get_structure_summary": lambda q, a: q["get_structure_summary"](a.get("file_path")),
+    "read_lines": _q_read_lines,
     "get_function_source": _q_get_function_source,
     "get_class_source": _q_get_class_source,
     "get_functions": _q_get_functions,

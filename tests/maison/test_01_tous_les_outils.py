@@ -50,6 +50,7 @@ ARGUMENTS_REALISTES: dict[str, dict] = {
     "get_full_context": {"name": "calculer_total"},
     "get_edit_context": {"name": "calculer_total"},
     "get_structure_summary": {"file_path": "boutique/panier.py"},
+    "read_lines": {"file_path": "boutique/panier.py", "start": 1, "end": 5},
     "get_functions": {"file_path": "boutique/panier.py"},
     "get_classes": {"file_path": "boutique/panier.py"},
     "get_imports": {"file_path": "boutique/panier.py"},

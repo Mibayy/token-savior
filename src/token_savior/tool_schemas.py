@@ -26,6 +26,15 @@ _NAMES_PARAM = {
     }
 }
 
+# read_lines — bornes partagees avec le handler (server_handlers/code_nav.py).
+# `_READ_LINES_SPAN` : fenetre par defaut quand l'appelant ne donne que `start`
+# (cas de la trace d'erreur, qui ne donne qu'une ligne). Valeur choisie, pas
+# mesuree. `_READ_LINES_CAP` : plafond dur, pour qu'un `end` enorme ne
+# redevienne pas un `cat` du fichier entier — ce que cet outil existe
+# precisement pour eviter.
+_READ_LINES_SPAN = 60
+_READ_LINES_CAP = 400
+
 TOOL_SCHEMAS: dict[str, dict] = {
     # ── Meta tools ────────────────────────────────────────────────────────
     "list_projects": {
@@ -306,6 +315,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
                 **_PROJECT_PARAM,
             },
+        },
+    },
+    "read_lines": {
+        "description": (
+        'Read an exact line range from a file (1-indexed, inclusive). The tool to reach for '
+        'when you hold a LINE NUMBER rather than a symbol name: a traceback frame, a `grep -n` '
+        'hit, a compiler or linter error. Replaces `sed -n \'105,150p\' file`, `head`, `tail` '
+        'and `cat` + scroll. Names the enclosing function/class so you can widen to '
+        'get_function_source when the range turns out to be the wrong unit.'   ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Path to an indexed file (relative to project root)."},
+                "start": {"type": "integer", "description": "First line, 1-indexed, inclusive."},
+                "end": {"type": "integer", "description": f"Last line, inclusive. Omit for start+{_READ_LINES_SPAN - 1}."},
+                "numbers": {"type": "boolean", "description": "Prefix each line with its number (default true)."},
+                "max_lines": {"type": "integer", "description": f"Cap on returned lines (default {_READ_LINES_CAP}, 0=uncapped)."},
+                "hints": {"type": "boolean", "description": "Append the enclosing symbol (default true)."},
+                **_PROJECT_PARAM,
+            },
+            "required": ["file_path", "start"],
         },
     },
     "get_function_source": {

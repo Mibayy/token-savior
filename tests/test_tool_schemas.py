@@ -86,7 +86,11 @@ class TestToolSchemas:
         #   opportunities; META handler, read-only on ~/.claude/projects) = 69.
         # +1 ts_stale_context (feature B — superseded-context detector exposed
         #   as an agent-agnostic MCP tool; META handler, read-only) = 70.
-        assert len(TOOL_SCHEMAS) == 71, f"Expected 71 tools, got {len(TOOL_SCHEMAS)}"
+        # +1 read_lines (09/08/2026 — lecture par plage de lignes. Le moteur
+        #   savait deja le faire via `get_lines`, mais aucun outil ne
+        #   l'exposait : l'audit d'usage montre que l'agent qui tient un
+        #   numero de ligne, et pas un nom de symbole, repart en `sed`) = 72.
+        assert len(TOOL_SCHEMAS) == 72, f"Expected 72 tools, got {len(TOOL_SCHEMAS)}"
 
     def test_server_tools_match_schemas(self):
         from token_savior.server import TOOLS

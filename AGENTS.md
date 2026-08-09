@@ -101,6 +101,7 @@ Manifeste : tiny_plus ~2,5 KT contre lean ~7 KT et full ~10 KT.
 |---|---|---|
 | Localiser un symbole | `find_symbol(name)` | `grep -rn` |
 | Lire une fonction / classe | `get_function_source` / `get_class_source` | `cat` + défilement |
+| Lire une plage quand on tient un **numéro de ligne** (trace, `grep -n`, erreur de compilation) | `read_lines(file_path, start, end)` | `sed -n '105,150p'`, `head`, `tail` |
 | Contexte complet en un appel | `get_full_context(name)` | toute la chaîne |
 | Chercher dans le projet | `search_codebase(pattern)` | `grep` / `rg` |
 | Découvrir un autre outil | `ts_search(query)` | lire la doc |

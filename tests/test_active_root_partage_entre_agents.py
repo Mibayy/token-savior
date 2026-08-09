@@ -137,6 +137,61 @@ def test_letiquette_couvre_les_deux_tables_de_dispatch(
     assert sortie.count("[project: ") == 1, "une seule étiquette, pas deux"
 
 
+@pytest.fixture
+def dossier_etranger(tmp_path_factory):
+    """Un dossier hors de tout projet enregistré.
+
+    Il doit être créé ailleurs que sous le cobaye : un sous-répertoire d'un
+    projet enregistré résout vers ce projet, et le test passerait alors sans
+    rien prouver.
+    """
+    racine = tmp_path_factory.mktemp("hors-projet")
+    (racine / "jetable.py").write_text(
+        "def alpha(x):\n    return x\n\n\ndef beta(x):\n    return x\n", encoding="utf-8"
+    )
+    return racine
+
+
+def test_sticky_couvre_aussi_un_chemin_jamais_enregistre(
+    session_multi_projets, etat, monkeypatch, dossier_etranger
+):
+    """Le trou mesuré le 09/08/2026, en cherchant à lire un fichier de /tmp.
+
+    `TS_STICKY_ACTIVE` était appliqué dans `server_state.noter_racine_active`,
+    au niveau du dispatch. Mais `SlotManager.resolve` écrivait `active_root`
+    lui-même sur une branche : celle du chemin réel que personne n'a
+    enregistré -- exactement le dépôt cloné dans /tmp, le dossier d'export,
+    le fichier de travail. Le gel ne tenait donc pas là où le besoin est le
+    plus fréquent : l'appel suivant, sans `project=`, repartait sur le
+    mauvais dépôt en silence.
+    """
+    import token_savior.server as srv
+
+    monkeypatch.setattr(etat, "_STICKY_ACTIVE", True, raising=True)
+
+    srv._dispatch_tool(
+        "find_symbol", {"name": "alpha", "project": str(dossier_etranger)}, ""
+    )
+
+    assert etat._slot_mgr.active_root == str(session_multi_projets), (
+        "un indice vers un dossier non enregistré a déplacé le défaut partagé "
+        "malgré TS_STICKY_ACTIVE"
+    )
+
+
+def test_sans_sticky_un_chemin_inconnu_promeut_toujours(
+    session_multi_projets, etat, dossier_etranger
+):
+    """Le comportement historique reste le défaut : seul le gel le change."""
+    import token_savior.server as srv
+
+    srv._dispatch_tool(
+        "find_symbol", {"name": "beta", "project": str(dossier_etranger)}, ""
+    )
+
+    assert etat._slot_mgr.active_root == str(dossier_etranger)
+
+
 def test_un_indice_explicite_ne_declenche_pas_letiquette(session_multi_projets):
     """Un appel qui nomme son projet sait déjà d'où vient la réponse."""
     import token_savior.server as srv

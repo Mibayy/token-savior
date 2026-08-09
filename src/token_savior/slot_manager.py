@@ -350,6 +350,31 @@ class SlotManager:
                 return None
         return self.projects.get(root)
 
+    def _promouvoir(self, root: str) -> None:
+        """Faire de `root` le defaut partage — sauf si le gel est demande.
+
+        `TS_STICKY_ACTIVE` existe pour qu'un agent parallele ne repointe pas
+        le projet actif des autres. Le gel etait applique au niveau du
+        dispatch (`server_state.noter_racine_active`), donc contourne ici :
+        un `project=<chemin jamais enregistre>` promouvait quand meme, et le
+        prochain appel sans `project=` tombait sur le mauvais depot. Mesure
+        le 09/08/2026 avec `TS_STICKY_ACTIVE=1` : la garantie ne tenait pas
+        sur cette branche precisement.
+
+        On lit le drapeau de `server_state` quand il est importable, pour
+        qu'il n'y ait qu'une source de verite ; sinon l'environnement, pour
+        que le gestionnaire reste utilisable seul (tests unitaires, CLI).
+        """
+        try:
+            from token_savior import server_state
+
+            gel = bool(server_state._STICKY_ACTIVE)
+        except Exception:
+            gel = os.environ.get("TS_STICKY_ACTIVE", "0").lower() in ("1", "true", "on")
+        if gel:
+            return
+        self.active_root = root
+
     def resolve(self, project_hint: str | None = None) -> tuple[_ProjectSlot | None, str]:
         """
         Return (slot, error_message). error_message is empty on success.
@@ -414,12 +439,12 @@ class SlotManager:
             if os.path.isdir(hint_abs):
                 slot = self.resolve_path(hint_abs)
                 if slot is not None:
-                    self.active_root = slot.root
+                    self._promouvoir(slot.root)
                     return slot, ""
                 try:
                     self.register_roots([*self.projects, hint_abs])
                     if hint_abs in self.projects:
-                        self.active_root = hint_abs
+                        self._promouvoir(hint_abs)
                         return self.projects[hint_abs], ""
                 except Exception:
                     pass

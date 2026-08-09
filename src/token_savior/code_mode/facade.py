@@ -15,6 +15,7 @@ ALLOWED_TOOLS: list[str] = [
     "search_codebase",
     "list_files",
     "get_structure_summary",
+    "read_lines",
     "get_project_summary",
     "get_functions",
     "get_classes",

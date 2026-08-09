@@ -39,6 +39,21 @@ CAS: list[tuple[str, str, dict, list[str]]] = [
      ["class Panier", "def ajouter"]),
     ("source_methode", "get_function_source", {"name": "Panier.total", "level": 0},
      ["calculer_total"]),
+    # --- lecture par plage de lignes -------------------------------------
+    # Le cas ou l'appelant tient un numero (trace d'erreur, `grep -n`) et pas
+    # un nom de symbole. Sans cet outil il repart en `sed -n '1,10p'`.
+    ("lecture_plage", "read_lines",
+     {"file_path": "boutique/panier.py", "start": 1, "end": 10},
+     ["appliquer_remise", "calculer_total"]),
+    ("lecture_plage_numerotee", "read_lines",
+     {"file_path": "boutique/panier.py", "start": 3, "end": 3},
+     ["3"]),
+    ("lecture_plage_hors_fichier", "read_lines",
+     {"file_path": "boutique/panier.py", "start": 9999, "end": 10000},
+     ["Error"]),
+    ("lecture_plage_fichier_inconnu", "read_lines",
+     {"file_path": "boutique/absent.py", "start": 1, "end": 2},
+     ["not found in index", "list_files"]),
     # --- contexte complet -----------------------------------------------
     ("contexte_source", "get_full_context", {"name": "calculer_total"},
      ["calculer_total"]),

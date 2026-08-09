@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased — Reading by line number
+
+An audit of 1 047 real code reads done in Bash rather than through this server
+found that 93,2 % never tried a tool at all (only 1,4 % were repairs after a
+failure), and that among the reads the index *could* have served, the dominant
+shape was `sed -n '105,150p' path.py`. The caller held a line number — from a
+traceback, a `grep -n` hit, a compiler error — and every read tool on the
+surface asked for a symbol name.
+
+- **`read_lines(file_path, start, end)`.** 1-indexed, inclusive, numbered by
+  default (`numbers=false` to get raw text back). `end` is optional: with only
+  a `start`, it returns a 60-line window, which is the shape a traceback
+  gives you. Capped at 400 lines by default (`max_lines`) so a huge `end`
+  can't turn back into `cat`, with a marker naming the `start` to resume from.
+  Names the enclosing function or class after the excerpt, so a range that
+  turns out to be the wrong unit routes to `get_function_source` instead of a
+  second blind guess. The engine already had `get_lines` — tested, reachable
+  from the Python API, exposed by no tool. Also whitelisted for `ts_execute`
+  scripts, where it was equally missing.
+- **`TS_STICKY_ACTIVE` now holds for unregistered directories.** The freeze
+  lived in `server_state.noter_racine_active`, at the dispatch layer, but
+  `SlotManager.resolve` assigned `active_root` itself on one branch: the real
+  path nobody had registered. That is exactly the /tmp clone, the export
+  folder, the scratch file — 23,4 % of those same Bash reads. So the one
+  guarantee meant to stop a parallel agent from repointing the shared default
+  failed precisely where the need is most common, and the next hint-less call
+  silently answered from the wrong repository. Default behaviour is unchanged
+  (promotion still happens with the flag off).
+
 ## Unreleased — One server, many worktrees, no stolen calls
 
 Parallel agents in sibling worktrees shared one server and one mutable

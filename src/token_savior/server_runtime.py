@@ -595,6 +595,7 @@ _TOOL_COST_MULTIPLIERS: dict[str, float] = {
     "get_project_summary": 0.10,
     "list_files": 0.01,
     "get_structure_summary": 0.05,
+    "read_lines": 0.01,
     "get_functions": 0.05,
     "get_classes": 0.05,
     "get_imports": 0.03,

@@ -24,6 +24,7 @@ full ~10 KT.
 |---|---|---|
 | Locate a symbol | `find_symbol(name)` | `grep -rn` |
 | Read a function / class | `get_function_source(name)` / `get_class_source(name)` | `cat` + scroll |
+| Read a range when you hold a **line number** (traceback, `grep -n`, compiler error) | `read_lines(file_path, start, end)` | `sed -n '105,150p'`, `head`, `tail` |
 | One-shot context (loc + source + callers + deps) | `get_full_context(name)` | the whole chain |
 | Search across project | `search_codebase(pattern)` | `grep` / `rg` |
 | Discover any other tool | `ts_search(query)` | reading docs |
