@@ -182,6 +182,65 @@ def record_symbols(session_id: str, names: list[str]) -> None:
         pass
 
 
+def _fichier_refus(session_id: str) -> Path:
+    """Fichier d'etat des refus deja prononces dans cette session."""
+    p = state_file(session_id)
+    return p.with_name(p.stem + "-refus.json")
+
+
+def deja_refuse(session_id: str, cle: str) -> bool:
+    try:
+        return cle in set(json.loads(
+            _fichier_refus(session_id).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return False
+
+
+def noter_refus(session_id: str, cle: str) -> None:
+    try:
+        chemin = _fichier_refus(session_id)
+        try:
+            deja = set(json.loads(chemin.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            deja = set()
+        deja.add(cle)
+        prune_state(chemin.parent)
+        chemin.write_text(json.dumps(sorted(deja)), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def cle_de_refus(tool: str, tool_input: dict) -> str:
+    """Identifie l'appel refuse, pour ne pas le refuser deux fois.
+
+    Un refus dit « il existe une meilleure route ». Repete, il ne dit plus
+    rien de neuf : il empeche. Le 27/07/2026 trois gardes bloquants ont ete
+    retires de ce poste apres avoir bloque quatre fois du travail correct en
+    une session, dont deux fois sur un cas que Token Savior ne sait pas
+    traiter -- `replace_symbol_source` ne porte que sur les fonctions et les
+    classes, pas sur une constante ni sur un dictionnaire de module. Le garde
+    interdisait alors la seule voie restante.
+
+    La sortie de secours documentee, `TS_GUARD_OFF=1`, ne repond pas a ce
+    cas : elle vit dans l'environnement de la session, on ne la pose pas
+    entre deux appels. En pratique elle voulait dire « demande a l'utilisateur
+    d'eteindre le garde », c'est-a-dire le mur.
+
+    D'ou cette cle : le premier appel est refuse et enseigne, le second passe.
+    Reformuler le meme appel est alors une decision prise en connaissance de
+    cause, et non une impasse.
+    """
+    cible = (
+        tool_input.get("file_path")
+        or tool_input.get("symbol_name")
+        or tool_input.get("name")
+        or tool_input.get("path")
+        or tool_input.get("command")
+        or ""
+    )
+    return f"{tool}:{str(cible)[:200]}"
+
+
 def requested_names(tool_input: dict) -> list[str]:
     """`get_full_context` accepts `name` or `names=[...]` in batch mode."""
     names: list[str] = []
@@ -353,10 +412,20 @@ def main() -> int:
             reason = verdict_shell_read(str(tool_input.get("command") or ""))
 
         if reason:
+            cle = cle_de_refus(tool, tool_input)
+            if deja_refuse(session_id, cle):
+                # Deuxieme fois sur le meme appel : l'enseignement est passe,
+                # insister n'apprend plus rien et devient un mur.
+                return 0
+            noter_refus(session_id, cle)
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": f"[ts_discipline_guard] {reason}",
+                "permissionDecisionReason": (
+                    f"[ts_discipline_guard] {reason}\n"
+                    f"Si cette route est la bonne malgre tout, relancez le meme "
+                    f"appel : il passera."
+                ),
             }}))
     except Exception:
         return 0
