@@ -30,7 +30,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import logging
-import re
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -443,98 +442,17 @@ def reindex_project_symbols(
 # ---------------------------------------------------------------------------
 
 
-_MOTS_VIDES = {
-    "the", "a", "an", "is", "are", "was", "were", "how", "where", "what", "which",
-    "does", "do", "did", "of", "for", "to", "in", "on", "at", "by", "with", "from",
-    "and", "or", "it", "its", "this", "that", "after", "before", "when", "who",
-    "le", "la", "les", "un", "une", "des", "de", "du", "est", "sont", "ou", "et",
-}
-
-
-def _jetons(texte: str) -> set[str]:
-    """Decoupe un chemin ou une requete en mots comparables.
-
-    Les separateurs de chemin, tirets et underscores comptent comme des espaces,
-    et on coupe aussi le camelCase : `PlanningContractuelEditor` doit pouvoir
-    rencontrer « planning contractuel ».
-    """
-    espace = re.sub(r"[/\\._\-]+", " ", texte)
-    espace = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", espace)
-    return {
-        m for m in (w.strip().lower() for w in espace.split())
-        if len(m) > 2 and m not in _MOTS_VIDES
-    }
-
-
-
-
-
-
-def _prefixe_commun(a: str, b: str) -> int:
-    """Longueur du plus long debut commun a deux mots."""
-    n = 0
-    for ca, cb in zip(a, b):
-        if ca != cb:
-            break
-        n += 1
-    return n
-
-
-def _recouvrement(mots_q: set[str], cible: set[str]) -> float:
-    """Part des mots de la question retrouves dans le chemin, prefixe admis.
-
-    L'egalite stricte ne suffit pas : le code de Louis est en francais et les
-    questions arrivent souvent en anglais. `contract` ne rencontrait jamais
-    `contrats`, ni `planning` -> `plannings`. Un prefixe commun d'au moins
-    quatre caracteres rattrape ces paires sans ouvrir la porte aux faux amis
-    courts (`app` / `application` reste hors de portee, c'est voulu : trois
-    lettres rapprocheraient n'importe quoi).
-
-    C'est du radical pauvre, pas de la lemmatisation. Suffisant ici, et sans
-    dependance nouvelle.
-    """
-    if not mots_q:
-        return 0.0
-    touches = 0
-    for m in mots_q:
-        if m in cible:
-            touches += 1
-            continue
-        if any(_prefixe_commun(m, c) >= 5 for c in cible):
-            touches += 1
-    return touches / len(mots_q)
-
-
-def _reclasser_hybride(query: str, hits: list[dict]) -> list[dict]:
-    """Melange la proximite vectorielle et le recouvrement lexical du chemin.
-
-    Pourquoi. Les vecteurs seuls diluent une correspondance lexicale forte :
-    une question sur « contract status » doit faire remonter
-    `app/api/contrats/status/route.ts`, or ce fichier n'expose qu'un symbole
-    nomme `GET`. Le sens est entierement dans le chemin.
-
-    Mesure du 06/08/2026 sur /root/estalle, trois questions a verite terrain :
-    1/6 avant tout correctif (l'index ne voyait que les .py), 3/6 une fois le
-    chemin ajoute au document vectorise. Ce reclassement n'a PAS ameliore ce
-    score sur ces trois questions : il corrige l'ordre, pas la couverture, et
-    trois questions sont trop peu pour trancher son effet. Il est garde parce
-    que son principe tient (une correspondance lexicale forte ne doit pas etre
-    diluee), pas parce qu'un chiffre le prouve.
-
-    Le poids lexical est volontairement minoritaire (0.35) : il corrige un
-    classement, il ne le remplace pas. Un poids majoritaire ferait de la
-    recherche semantique un grep deguise, qui echouerait sur les questions
-    posees avec d'autres mots que ceux du code -- exactement ce que le mode
-    regex fait deja mieux et plus vite.
-    """
-    mots_q = _jetons(query)
-    if not mots_q:
-        return hits
-    for h in hits:
-        cible = _jetons(f"{h.get('file', '')} {h.get('symbol', '')}")
-        recouvrement = _recouvrement(mots_q, cible)
-        h["score"] = round(0.65 * h.get("_cos", h.get("score", 0.0)) + 0.35 * recouvrement, 4)
-    return sorted(hits, key=lambda h: -h["score"])
+# Un reclassement lexical a vecu ici du 06 au 09/08/2026 : il melangeait la
+# proximite vectorielle (0,65) au recouvrement des mots de la question avec
+# le chemin du fichier (0,35), pour qu'une route Next.js nommee `GET` ne soit
+# pas diluee. Retire, parce qu'il comptait DEUX FOIS le meme signal : le
+# chemin avait ete ajoute au document vectorise dans le meme commit, donc le
+# vecteur le voyait deja. Mesure sur le banc code_retrieval (30 questions) :
+# MRR@10 0,690 -> 0,635 et R@3 0,733 -> 0,633 avec le reclassement, soit la
+# porte de qualite en echec pendant douze jours. Son auteur ecrivait lui-meme
+# qu'aucun chiffre ne le soutenait ; il en existe un maintenant, et il dit
+# non. A ressusciter le jour ou un banc a verite terrain TypeScript montre un
+# gain -- l'historique git garde le code.
 
 
 def search_symbols_semantic(
@@ -578,11 +496,7 @@ def search_symbols_semantic(
         return {"status": "unavailable", "reason": "vec serialize failed", "hits": []}
 
     root_str = str(Path(project_root).resolve())
-    limite = max(int(limit), 5)
-    # On tire large puis on reclasse : un vivier limite a `limit` ne laisse
-    # aucune place au signal lexical, qui est justement celui qui rattrape
-    # les symboles au nom vide de sens (`POST`, `GET`, `handler`).
-    k = limite * 5
+    k = max(int(limit), 5)
 
     sql = (
         "SELECT s.symbol_key, s.file_path, s.lineno, s.kind, s.signature,"
@@ -614,12 +528,7 @@ def search_symbols_semantic(
             "signature": r["signature"],
             "docstring_head": r["docstring_head"],
             "score": round(cos_score, 4),
-            "_cos": cos_score,
         })
-
-    hits = _reclasser_hybride(query, hits)[:limite]
-    for h in hits:
-        h.pop("_cos", None)
 
     # No low-confidence warning on this path — see docstring. Kept in the
     # return shape as None for callers that check ``.get("warning")``.

@@ -1,0 +1,290 @@
+{
+  "num_queries": 15,
+  "cold": {
+    "agg": {
+      "mrr_10": 0.8778,
+      "recall_3": 0.9667,
+      "recall_10": 1.0,
+      "p50_ms": 43.4,
+      "p95_ms": 2398.4,
+      "low_confidence_rate": 0.0
+    },
+    "per_query": [
+      {
+        "rr": 0.5,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L01",
+        "query": "serialize a python dict into a JSON string",
+        "package": "json",
+        "latency_ms": 2398.42529699672,
+        "low_confidence": false,
+        "top1_score": 0.692,
+        "top2_score": 0.6868,
+        "top3": [
+          "loads",
+          "dumps",
+          "JSONEncoder"
+        ]
+      },
+      {
+        "rr": 0.3333333333333333,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L02",
+        "query": "write a python object as JSON to a file handle",
+        "package": "json",
+        "latency_ms": 35.396428022067994,
+        "low_confidence": false,
+        "top1_score": 0.7391,
+        "top2_score": 0.7333,
+        "top3": [
+          "loads",
+          "load",
+          "dump"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L03",
+        "query": "parse a JSON string back into python data",
+        "package": "json",
+        "latency_ms": 40.697758027818054,
+        "low_confidence": false,
+        "top1_score": 0.7,
+        "top2_score": 0.6762,
+        "top3": [
+          "loads",
+          "load",
+          "dumps"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L04",
+        "query": "read JSON from a file-like object",
+        "package": "json",
+        "latency_ms": 36.58062900649384,
+        "low_confidence": false,
+        "top1_score": 0.7033,
+        "top2_score": 0.6919,
+        "top3": [
+          "load",
+          "dump",
+          "dumps"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L05",
+        "query": "customise how non-standard python objects are encoded as JSON",
+        "package": "json",
+        "latency_ms": 36.121008975896984,
+        "low_confidence": false,
+        "top1_score": 0.7259,
+        "top2_score": 0.6898,
+        "top3": [
+          "JSONEncoder",
+          "loads",
+          "JSONDecoder"
+        ]
+      },
+      {
+        "rr": 0.3333333333333333,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L06",
+        "query": "hook to turn parsed JSON objects into custom python classes",
+        "package": "json",
+        "latency_ms": 38.182624033652246,
+        "low_confidence": false,
+        "top1_score": 0.7569,
+        "top2_score": 0.7257,
+        "top3": [
+          "loads",
+          "load",
+          "JSONDecoder"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L07",
+        "query": "represent a filesystem path in an object-oriented way",
+        "package": "pathlib",
+        "latency_ms": 1290.5365580227226,
+        "low_confidence": false,
+        "top1_score": 0.7221,
+        "top2_score": 0.6848,
+        "top3": [
+          "Path",
+          "PosixPath",
+          "PurePath"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 0.5,
+        "recall_10": 1.0,
+        "id": "L08",
+        "query": "windows-specific path with drive letters and backslashes",
+        "package": "pathlib",
+        "latency_ms": 129.2660129838623,
+        "low_confidence": false,
+        "top1_score": 0.63,
+        "top2_score": 0.6174,
+        "top3": [
+          "WindowsPath",
+          "PosixPath",
+          "Path"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L09",
+        "query": "posix-style path with forward slashes",
+        "package": "pathlib",
+        "latency_ms": 132.41735997144133,
+        "low_confidence": false,
+        "top1_score": 0.7083,
+        "top2_score": 0.6587,
+        "top3": [
+          "PosixPath",
+          "PurePosixPath",
+          "posixpath"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "re",
+        "query": "compile a regular expression pattern once for repeated use",
+        "package": "re",
+        "latency_ms": 1645.3666419838555,
+        "low_confidence": false,
+        "top1_score": 0.7646,
+        "top2_score": 0.731,
+        "top3": [
+          "compile",
+          "Pattern",
+          "sub"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L11",
+        "query": "check whether a pattern matches the start of a string",
+        "package": "re",
+        "latency_ms": 43.43218001304194,
+        "low_confidence": false,
+        "top1_score": 0.7983,
+        "top2_score": 0.7546,
+        "top3": [
+          "match",
+          "fullmatch",
+          "finditer"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L12",
+        "query": "find every occurrence of a pattern in a string",
+        "package": "re",
+        "latency_ms": 41.98043199721724,
+        "low_confidence": false,
+        "top1_score": 0.7871,
+        "top2_score": 0.7548,
+        "top3": [
+          "findall",
+          "finditer",
+          "match"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L13",
+        "query": "replace every occurrence of a pattern with a replacement",
+        "package": "re",
+        "latency_ms": 41.36032902169973,
+        "low_confidence": false,
+        "top1_score": 0.7052,
+        "top2_score": 0.6861,
+        "top3": [
+          "sub",
+          "findall",
+          "subn"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L14",
+        "query": "escape a string so it can be used as a literal regex pattern",
+        "package": "re",
+        "latency_ms": 47.93310194509104,
+        "low_confidence": false,
+        "top1_score": 0.8189,
+        "top2_score": 0.7464,
+        "top3": [
+          "escape",
+          "split",
+          "sub"
+        ]
+      },
+      {
+        "rr": 1.0,
+        "recall_3": 1.0,
+        "recall_10": 1.0,
+        "id": "L15",
+        "query": "split a string on a pattern boundary",
+        "package": "re",
+        "latency_ms": 47.65304800821468,
+        "low_confidence": false,
+        "top1_score": 0.7885,
+        "top2_score": 0.6989,
+        "top3": [
+          "split",
+          "sub",
+          "subn"
+        ]
+      }
+    ],
+    "cache_info": {
+      "hits": 304,
+      "misses": 77,
+      "size": 77
+    }
+  },
+  "warm": {
+    "agg": {
+      "mrr_10": 0.8778,
+      "recall_3": 0.9667,
+      "recall_10": 1.0,
+      "p50_ms": 44.5,
+      "p95_ms": 135.3,
+      "low_confidence_rate": 0.0
+    },
+    "cache_info": {
+      "hits": 685,
+      "misses": 77,
+      "size": 77
+    }
+  }
+}
