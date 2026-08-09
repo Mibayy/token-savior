@@ -30,6 +30,27 @@ Reproduces with the `optimized` profile (single env var). The harness that
 produced these numbers is described below; its repository is not public at the
 moment, so take the figures as reported rather than as independently verifiable.
 
+**A contrary measurement, published here because it exists (2026-08-09).** The
+small replacement harness I can still run — 8 read-only tasks on a *generated*
+toy repo, Haiku — does **not** reproduce the -80%. Median active tokens per
+task (fresh input + output): control 895, `lean` 918, `auto` 976, `code_mode`
+1 099. The distributions overlap almost completely (control 273-2 343, `lean`
+260-1 659), so the first three are indistinguishable at n=8; only `code_mode`
+is clearly above.
+
+This does not refute the headline figure, and it is not presented as if it
+did: the two harnesses measure different things. The published number comes
+from 96 *real* coding tasks on a real repository, where files are long enough
+that reading one whole is expensive. The toy repo is 1 346 lines across 75
+files and **its largest file is 30 lines** — at that size, reading a file
+whole is cheaper than any tool round-trip, so structural navigation cannot win
+and the fixture is structurally favourable to the control.
+
+The honest state of things: the -80% is currently **unverified**, not because
+it was measured badly, but because the harness that produced it is gone and
+its replacement is too small to test it. Restoring a large-file fixture is
+what would settle it.
+
 </div>
 
 ---
