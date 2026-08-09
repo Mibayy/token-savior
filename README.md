@@ -30,26 +30,32 @@ Reproduces with the `optimized` profile (single env var). The harness that
 produced these numbers is described below; its repository is not public at the
 moment, so take the figures as reported rather than as independently verifiable.
 
-**A contrary measurement, published here because it exists (2026-08-09).** The
-small replacement harness I can still run — 8 read-only tasks on a *generated*
-toy repo, Haiku — does **not** reproduce the -80%. Median active tokens per
-task (fresh input + output): control 895, `lean` 918, `auto` 976, `code_mode`
-1 099. The distributions overlap almost completely (control 273-2 343, `lean`
-260-1 659), so the first three are indistinguishable at n=8; only `code_mode`
-is clearly above.
+**Independently re-measured 2026-08-09, on a smaller replacement harness.**
+8 read-only tasks on a generated toy repo, Haiku, 32 sessions. Median *new*
+tokens per task — fresh input + cache **creation** + output, i.e. everything
+that is not a re-read of the cached prefix:
 
-This does not refute the headline figure, and it is not presented as if it
-did: the two harnesses measure different things. The published number comes
-from 96 *real* coding tasks on a real repository, where files are long enough
-that reading one whole is expensive. The toy repo is 1 346 lines across 75
-files and **its largest file is 30 lines** — at that size, reading a file
-whole is cheaper than any tool round-trip, so structural navigation cannot win
-and the fixture is structurally favourable to the control.
+| | new tokens / task | vs control | cost / task |
+|---|---:|---:|---:|
+| control (Read/Grep/Glob) | 7 872 | — | $0.0278 |
+| `lean` | **2 072** | **-74%** | $0.0192 (-31%) |
+| `auto` | **2 176** | **-72%** | $0.0184 (-34%) |
+| `code_mode` | 11 366 | **+44%** | $0.0389 (+40%) |
 
-The honest state of things: the -80% is currently **unverified**, not because
-it was measured badly, but because the harness that produced it is gone and
-its replacement is too small to test it. Restoring a large-file fixture is
-what would settle it.
+For `lean` the distributions do not overlap at all (475-3 388 against
+6 903-10 497), so the gap is not noise at n=8. The -74% is in the same
+territory as the -80% headline, measured on a different fixture and a
+different model — it corroborates it rather than reproducing it.
+
+`code_mode` is the exception and it is consistent: every `ts_execute` script
+carries a fixed overhead, which the toy repo's 30-line files never earn back.
+
+One counting trap, recorded because it cost an hour and a wrong public claim:
+under Claude Code everything goes through the prompt cache, so
+`input_tokens` is **26 tokens in all four arms** — the last user turn, nothing
+else. A counter built on `input_tokens + output_tokens` therefore measures
+output only, and made the control look cheapest. The tool results land in
+`cache_creation_input_tokens`; that is the term that separates the arms.
 
 </div>
 
