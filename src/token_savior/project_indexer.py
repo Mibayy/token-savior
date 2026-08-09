@@ -7,6 +7,7 @@ builds cross-file dependency graphs, import graphs, and a global symbol table.
 import fnmatch
 import logging
 import os
+import json
 import re
 import sys
 import time
@@ -137,6 +138,54 @@ def _word_boundary_re(name: str) -> re.Pattern:
         pat = re.compile(r"\b" + re.escape(name) + r"\b")
         _WORD_BOUNDARY_CACHE[name] = pat
     return pat
+
+
+def _json_sans_commentaires(texte: str) -> str:
+    """Retire les commentaires d'un JSON avec commentaires, sans toucher aux chaines.
+
+    Une regex naive ne suffit pas, et l'echec est silencieux. Mesure le
+    09/08/2026 : le motif `"@/*"` d'un `tsconfig.json` contient `/*`, qu'une
+    regex de commentaire de bloc prend pour une ouverture et qui lui fait
+    avaler tout le fichier jusqu'au prochain `*/`. Le tsconfig devenait
+    illisible, le code repliait sur la convention `src/`, et les alias de
+    tous les projets Next.js sans dossier `src` restaient non resolus.
+
+    On parcourt donc le texte en suivant l'etat « dans une chaine », ce qui
+    est la seule facon correcte de distinguer un commentaire d'un caractere
+    de donnee.
+    """
+    sortie: list[str] = []
+    i, n = 0, len(texte)
+    dans_chaine = False
+    while i < n:
+        c = texte[i]
+        if dans_chaine:
+            sortie.append(c)
+            if c == "\\" and i + 1 < n:      # echappement : on avale le suivant
+                sortie.append(texte[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                dans_chaine = False
+            i += 1
+            continue
+        if c == '"':
+            dans_chaine = True
+            sortie.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and texte[i + 1] == "/":
+            while i < n and texte[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and texte[i + 1] == "*":
+            fin = texte.find("*/", i + 2)
+            i = n if fin == -1 else fin + 2
+            continue
+        sortie.append(c)
+        i += 1
+    # Virgules finales, tolerees par TypeScript et refusees par json.
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(sortie))
 
 
 class ProjectIndexer:
@@ -953,6 +1002,51 @@ class ProjectIndexer:
 
         return [single] if single else []
 
+    def _prefixes_python(self, all_files: set[str]) -> list[str]:
+        """Prefixes ou peut commencer un module Python, deduits du projet.
+
+        Mesure le 09/08/2026, trouvee par le banc. La liste etait codee en dur
+        a `["", "src/", "lib/"]`. Sur un projet dont le code vit ailleurs
+        (`app/`, `packages/`, `backend/`, `depot/`...), **aucun import ne se
+        resolvait**, donc `import_graph` etait vide, donc `find_import_cycles`
+        rendait `[]`.
+
+        Le degat n'est pas l'absence de reponse mais sa forme : `[]` se lit
+        « il n'y a pas de cycle », alors que cela voulait dire « je n'ai pas su
+        resoudre les imports ». Trois modeles sur quatre ont repris cette
+        affirmation a leur compte sur un depot qui contenait un cycle evident.
+
+        On deduit donc les prefixes : tout dossier qui contient un
+        `__init__.py` est dans un paquet ; la racine du paquet est son plus
+        haut ancetre qui en contient un aussi, et le prefixe cherche est le
+        parent de cette racine.
+        """
+        cache = getattr(self, "_cache_prefixes_py", None)
+        if cache is not None and cache[0] == len(all_files):
+            return cache[1]
+
+        dossiers_paquets = {
+            f.rsplit("/", 1)[0] if "/" in f else ""
+            for f in all_files
+            if f.endswith("/__init__.py") or f == "__init__.py"
+        }
+        prefixes: set[str] = {"", "src/", "lib/"}
+        for dossier in dossiers_paquets:
+            morceaux = dossier.split("/") if dossier else []
+            # On remonte tant que le parent est lui aussi un paquet : la racine
+            # du paquet est le dernier dossier encore muni d'un __init__.py.
+            i = len(morceaux)
+            while i > 0 and "/".join(morceaux[:i - 1]) in dossiers_paquets:
+                i -= 1
+            parent = "/".join(morceaux[:i - 1]) if i >= 1 else ""
+            prefixes.add(parent + "/" if parent else "")
+
+        # Les plus longs d'abord : `depot/cycle/b.py` doit gagner contre une
+        # coincidence de nom a la racine.
+        ordonnes = sorted(prefixes, key=lambda s: (-len(s), s))
+        self._cache_prefixes_py = (len(all_files), ordonnes)
+        return ordonnes
+
     def _resolve_python_import(
         self,
         module_path: str,
@@ -967,7 +1061,7 @@ class ProjectIndexer:
         collapse to the package init and become invisible to the graph.
         """
         rel_module = module_path.replace(".", "/")
-        search_prefixes = ["", "src/", "lib/"]
+        search_prefixes = self._prefixes_python(all_files)
 
         def _lookup(rel: str) -> str | None:
             for prefix in search_prefixes:
@@ -993,6 +1087,62 @@ class ProjectIndexer:
         single = _lookup(rel_module)
         return [single] if single else []
 
+    def _bases_alias_ts(self, module_path: str, all_files: set[str]) -> list[str]:
+        """Chemins candidats pour un import non relatif, lus dans le tsconfig.
+
+        Mesure le 09/08/2026. L'alias `@/` etait resolu en dur vers `src/`.
+        Or la convention Next.js App Router **sans** dossier `src` declare
+        `"@/*": ["./*"]`, donc `@/lib/utils` designe `lib/utils`. Sur estalle,
+        232 fichiers `.ts`/`.tsx` n'avaient de ce fait aucune arete d'import :
+        le graphe existait, mais vide, et tout ce qui s'appuie dessus rendait
+        des reponses confiantes et fausses.
+
+        On lit donc `compilerOptions.paths` du tsconfig, en tolerant les
+        commentaires que TypeScript autorise et que `json` refuse.
+        """
+        cache = getattr(self, "_cache_alias_ts", None)
+        if cache is None:
+            motifs: list[tuple[str, list[str]]] = []
+            for nom in ("tsconfig.json", "jsconfig.json"):
+                chemin = os.path.join(self.root_path, nom)
+                if not os.path.exists(chemin):
+                    continue
+                try:
+                    conf = json.loads(_json_sans_commentaires(
+                        open(chemin, encoding="utf-8").read()))
+                except (OSError, ValueError):
+                    # Fichier illisible ou JSON invalide : cas normal, on
+                    # passe. Toute autre exception est un bug de notre cote et
+                    # doit remonter : un `except Exception` nu ici a masque un
+                    # NameError pendant toute une seance, en repliant
+                    # silencieusement sur la mauvaise convention.
+                    continue
+                opts = conf.get("compilerOptions") or {}
+                base_url = (opts.get("baseUrl") or ".").strip("./")
+                for motif, cibles in (opts.get("paths") or {}).items():
+                    propres = []
+                    for c in cibles:
+                        c = c.lstrip("./")
+                        propres.append(f"{base_url}/{c}" if base_url else c)
+                    motifs.append((motif, propres))
+                break
+            if not motifs:
+                motifs = [("@/*", ["src/*"])]      # repli sur la convention
+            self._cache_alias_ts = motifs
+            cache = motifs
+
+        sorties: list[str] = []
+        for motif, cibles in cache:
+            if motif.endswith("*"):
+                tete = motif[:-1]
+                if module_path.startswith(tete):
+                    reste = module_path[len(tete):]
+                    for c in cibles:
+                        sorties.append(c[:-1] + reste if c.endswith("*") else c)
+            elif module_path == motif:
+                sorties.extend(cibles)
+        return sorties
+
     def _resolve_ts_import(
         self, importing_file: str, module_path: str, all_files: set[str]
     ) -> str | None:
@@ -1009,11 +1159,20 @@ class ProjectIndexer:
             importing_dir = os.path.dirname(importing_file)
             base = os.path.normpath(os.path.join(importing_dir, module_path))
             base = base.replace(os.sep, "/")
-        elif module_path.startswith("@/"):
-            # Common path alias: @/ -> src/
-            base = "src/" + module_path[2:]
-        else:
-            # Likely an external package (e.g., 'react', 'lodash')
+        elif not module_path.startswith("."):
+            # Alias declare dans le tsconfig, sinon repli sur la convention.
+            bases = self._bases_alias_ts(module_path, all_files)
+            if not bases:
+                return None
+            for b in bases:
+                if b in all_files:
+                    return b
+                for ext in extensions:
+                    if b + ext in all_files:
+                        return b + ext
+                for ext in extensions:
+                    if b + "/index" + ext in all_files:
+                        return b + "/index" + ext
             return None
 
         # Try exact match first (might already have extension)
