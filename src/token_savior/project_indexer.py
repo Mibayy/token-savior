@@ -5,9 +5,9 @@ builds cross-file dependency graphs, import graphs, and a global symbol table.
 """
 
 import fnmatch
+import json
 import logging
 import os
-import json
 import re
 import sys
 import time
@@ -1108,8 +1108,8 @@ class ProjectIndexer:
                 if not os.path.exists(chemin):
                     continue
                 try:
-                    conf = json.loads(_json_sans_commentaires(
-                        open(chemin, encoding="utf-8").read()))
+                    with open(chemin, encoding="utf-8") as f:
+                        conf = json.loads(_json_sans_commentaires(f.read()))
                 except (OSError, ValueError):
                     # Fichier illisible ou JSON invalide : cas normal, on
                     # passe. Toute autre exception est un bug de notre cote et

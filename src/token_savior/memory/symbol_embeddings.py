@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import re
 import logging
+import re
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -144,6 +144,25 @@ def collect_project_symbols(project_root: str | Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _tete_du_corps(lignes: list, debut: int) -> str:
+    """Les trois premieres lignes non vides du corps, a partir de `debut`.
+
+    Etait une fonction imbriquee qui capturait `lignes` depuis la boucle
+    englobante. Elle n'etait appelee que dans l'iteration qui la definissait,
+    donc sans consequence aujourd'hui, mais la capture d'une variable de boucle
+    ne survit pas a un deplacement de l'appel (B023). Prendre `lignes` en
+    parametre rend la dependance visible.
+    """
+    tete: list[str] = []
+    for brute in lignes[debut : debut + 12]:
+        nette = str(brute).strip()
+        if nette:
+            tete.append(nette)
+        if len(tete) >= 3:
+            break
+    return "\n".join(tete)
+
+
 def collect_symbols_from_index(project_root: str | Path, index) -> list[dict]:
     """Descripteurs de symboles pour TOUS les langages que le projet indexe.
 
@@ -171,17 +190,6 @@ def collect_symbols_from_index(project_root: str | Path, index) -> list[dict]:
             lignes = list(getattr(meta, "lines", []) or [])
         except Exception:
             lignes = []
-
-        def _extrait(debut: int) -> str:
-            """Les trois premieres lignes non vides du corps."""
-            tete: list[str] = []
-            for brute in lignes[debut : debut + 12]:
-                nette = str(brute).strip()
-                if nette:
-                    tete.append(nette)
-                if len(tete) >= 3:
-                    break
-            return "\n".join(tete)
 
         elements = []
         for fn in getattr(meta, "functions", []) or []:
@@ -220,7 +228,7 @@ def collect_symbols_from_index(project_root: str | Path, index) -> list[dict]:
                 f"{kind} {nom}\n"
                 f"{signature}\n"
                 f"{doc_head}\n"
-                f"{_extrait(max(debut, 1) - 1 + 1)}"
+                f"{_tete_du_corps(lignes, max(debut, 1) - 1 + 1)}"
             ).strip()[:_MAX_DOC_CHARS]
 
             out.append({

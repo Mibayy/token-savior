@@ -8,8 +8,6 @@ le diagnostic soit allume ou eteint.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from token_savior import budget_diag

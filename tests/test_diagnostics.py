@@ -20,8 +20,6 @@ projet utilise deja, donc zero dependance nouvelle.
 
 from __future__ import annotations
 
-import pytest
-
 from token_savior import diagnostics
 
 

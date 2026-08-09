@@ -142,7 +142,7 @@ def _csc_key(slot, kind: str, name: str, file_path: object = None) -> str:
     source servie en trop, une cle commune vaut un corps retenu a tort.
     """
     root = getattr(slot, "root", "") or ""
-    return f"{kind}:{root}:{str(file_path or '')}:{name}"
+    return f"{kind}:{root}:{file_path or ''!s}:{name}"
 
 
 def _csc_compact_response(
@@ -930,10 +930,13 @@ def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | N
         debut, fin = bornes
         if not (isinstance(debut, int) and isinstance(fin, int)):
             continue
-        if debut <= start and end <= fin:
-            # Le plus serre gagne : une methode plutot que sa classe.
-            if meilleur is None or (fin - debut) < (meilleur[2] - meilleur[1]):
-                meilleur = (sym.get("qualified_name") or sym.get("name"), debut, fin)
+        # Le plus serre gagne : une methode plutot que la classe qui la porte.
+        if (
+            debut <= start
+            and end <= fin
+            and (meilleur is None or (fin - debut) < (meilleur[2] - meilleur[1]))
+        ):
+            meilleur = (sym.get("qualified_name") or sym.get("name"), debut, fin)
     if meilleur is None or not meilleur[0]:
         return None
     return f"{meilleur[0]} (lines {meilleur[1]}-{meilleur[2]})"

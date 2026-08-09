@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-
-from token_savior import budget_diag as _budget_diag
 import os
 import sys
 import threading
 import time
 from typing import Any
 
+from token_savior import budget_diag as _budget_diag
 from token_savior import memory_db
 from token_savior import server_state as s
 from token_savior._compat import TextContent, types

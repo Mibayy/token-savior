@@ -144,7 +144,8 @@ def detecter_verificateur(racine: str) -> str | None:
     pyproject = os.path.join(racine, "pyproject.toml")
     if os.path.exists(pyproject):
         try:
-            contenu = open(pyproject, encoding="utf-8", errors="replace").read()
+            with open(pyproject, encoding="utf-8", errors="replace") as f:
+                contenu = f.read()
         except OSError:
             contenu = ""
         if "[tool.mypy]" in contenu:
@@ -213,7 +214,8 @@ def executer(racine: str, verificateur: str, timeout: int = 180) -> tuple[str, s
         return "", f"verificateur inconnu : {verificateur}"
     try:
         proc = subprocess.run(
-            cmd, cwd=racine, capture_output=True, text=True, timeout=timeout
+            cmd, cwd=racine, capture_output=True, text=True, timeout=timeout,
+            check=False,
         )
     except FileNotFoundError:
         return "", f"{cmd[0]} introuvable sur cette machine"

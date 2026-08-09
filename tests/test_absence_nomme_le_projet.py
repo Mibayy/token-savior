@@ -17,8 +17,6 @@ a l'air precise et ne l'est pas coute plus cher qu'une absence de reponse.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 
