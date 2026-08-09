@@ -29,6 +29,17 @@ from token_savior.symbol_hash import analyze_symbol_semantics
 # `not_searched` report on a find_symbol miss.
 _SYMBOL_KINDS = ("function", "class", "variable")
 
+# Nombre maximum d'homonymes listes dans `autres_definitions` /
+# `fichiers_candidats`. Sous ce plafond l'ambiguite reste signalee (le compte
+# reel part toujours dans `note`) sans faire exploser le cout par appel.
+# Mesure du 08/08/2026 sur n2-decision-tree : les listes non bornees ajoutees
+# par db4bc36 faisaient passer l'appel de 173.9 a 344.6 tokens sur des noms
+# courants — type `POST` defini une trentaine de fois dans un projet Next.js.
+# En dessous de ce nombre de fichiers, un index est probablement celui d'un
+# autre projet que celui vise : on le signale au lieu de conclure a une absence.
+_INDEX_SUSPECT = 25
+_MAX_HOMONYMES = 5
+
 def _split_signature_suffix(name: str) -> tuple[str, str]:
     if name.endswith(")") and "(" in name:
         base, _, suffix = name.rpartition("(")
@@ -1314,9 +1325,14 @@ class ProjectQueryEngine:
                 autres = [c for c in self._fichiers_definissant(name)
                           if c != result.get("file")]
                 if autres:
-                    result = {**result, "autres_definitions": autres,
-                              "note": "ce nom est defini dans plusieurs fichiers ; "
-                                      "preciser file_path pour lever le doute"}
+                    note = ("ce nom est defini dans plusieurs fichiers ; "
+                            "preciser file_path pour lever le doute")
+                    if len(autres) > _MAX_HOMONYMES:
+                        note += (f" ({len(autres)} autres definitions au total, "
+                                 f"{_MAX_HOMONYMES} affichees)")
+                    result = {**result,
+                              "autres_definitions": autres[:_MAX_HOMONYMES],
+                              "note": note}
         if "file" not in result and "variable" in searched:
             variable_result = self._resolve_variable_info(name, level=level)
             if variable_result is not None:
@@ -1325,11 +1341,27 @@ class ProjectQueryEngine:
         if "file" not in result:
             if "error" in result:  # ambiguous / normalized-candidates report
                 return result
+            # Nommer le projet fouille, pas seulement le symbole manquant.
+            # Panne vecue le 09/08/2026 : chaque message Telegram relance un
+            # processus `claude -p`, donc un serveur MCP neuf, donc le projet
+            # actif retombe au defaut. `find_symbol` repondait alors
+            # « not found » en ayant fouille 8 fichiers d'un autre projet, et
+            # l'agent cherchait un bug dans l'outil au lieu de re-switcher.
+            # Une reponse qui a l'air precise et ne l'est pas coute plus cher
+            # qu'une absence de reponse.
+            nb_fichiers = len(self.index.files)
             miss = {
                 "error": f"symbol '{name}' not found",
-                "scanned_files": len(self.index.files),
+                "projet_actif": getattr(self.index, "root_path", None) or "?",
+                "scanned_files": nb_fichiers,
                 "searched": searched,
             }
+            if nb_fichiers < _INDEX_SUSPECT:
+                miss["_suggestion_projet"] = (
+                    f"l'index actif ne porte que {nb_fichiers} fichiers : si le symbole "
+                    "appartient a un autre projet, appelle switch_project(...) avant de "
+                    "conclure a une absence (list_projects() donne les noms)"
+                )
             not_searched = [k for k in _SYMBOL_KINDS if k in self._indexed_kinds() - set(searched)]
             if not_searched:
                 miss["not_searched"] = not_searched
@@ -1577,16 +1609,26 @@ class ProjectQueryEngine:
                     or self._resolve_symbol_info(dep, strip_preview=True)
                 )
             elif len(plausibles) > 1:
-                entry = {"name": dep, "fichiers_candidats": plausibles,
+                note = "plusieurs fichiers importent la cible et definissent ce nom"
+                if len(plausibles) > _MAX_HOMONYMES:
+                    note += (f" ({len(plausibles)} candidats au total, "
+                             f"{_MAX_HOMONYMES} affiches)")
+                entry = {"name": dep,
+                         "fichiers_candidats": plausibles[:_MAX_HOMONYMES],
                          "ambigu": True,
-                         "note": "plusieurs fichiers importent la cible et definissent ce nom"}
+                         "note": note}
             else:
                 candidats = self._fichiers_definissant(dep)
                 if len(candidats) > 1:
-                    entry = {"name": dep, "fichiers_candidats": candidats,
+                    note = ("aucun de ces fichiers n'importe la cible ; "
+                            "appelant indetermine, ne pas editer sans verifier")
+                    if len(candidats) > _MAX_HOMONYMES:
+                        note += (f" ({len(candidats)} candidats au total, "
+                                 f"{_MAX_HOMONYMES} affiches)")
+                    entry = {"name": dep,
+                             "fichiers_candidats": candidats[:_MAX_HOMONYMES],
                              "ambigu": True,
-                             "note": "aucun de ces fichiers n'importe la cible ; "
-                                     "appelant indetermine, ne pas editer sans verifier"}
+                             "note": note}
                 else:
                     entry = self._resolve_symbol_info(dep, strip_preview=True)
             entry_len = len(str(entry))

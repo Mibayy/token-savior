@@ -1255,6 +1255,45 @@ def _handle_ts_extended(arguments: dict[str, Any]) -> list[types.TextContent]:
     )]
 
 
+def _verifier_forme_script(script: str) -> str | None:
+    """Rend un message d'erreur si le script ne peut structurellement rien rendre.
+
+    Le worker enveloppe le corps dans `(async () => { <corps> })()`. Deux
+    formes echouent, et ce sont exactement les deux qu'un modele ecrit
+    spontanement :
+
+    - `export default async function () {...}` : SyntaxError, le contexte `vm`
+      n'est pas un module ES. Bruyant, donc benin.
+    - une IIFE `(async () => {...})()` sans `return` devant : elle rend une
+      promesse que personne n'attend. Le resultat est `value: null`, **sans
+      erreur**, et les appels d'outils deja lances sont perdus en vol. Mesure
+      le 09/08/2026 : 4 appels ecrits, `tool_calls: 1`, `value: null`, zero
+      message. C'est le cas dangereux, parce qu'un agent en conclut que
+      `ts_execute` ne marche pas et repart en appels unitaires.
+
+    Le sens de l'erreur a preferer est l'inverse du silence : mieux vaut
+    refuser un script qui aurait pu marcher que rendre un vide qui se lit
+    comme une absence de resultat.
+    """
+    import re as _re
+
+    tete = script.lstrip()
+    if tete.startswith("export ") or "\nexport default" in script:
+        return (
+            "Script invalide : ce n'est pas un module ES mais un corps de fonction. "
+            "Retirez `export default async function () { ... }` et gardez seulement les "
+            "instructions, avec un `return` final. Le worker enveloppe deja le corps dans "
+            "`(async () => { ... })()`."
+        )
+    if _re.match(r"^\(\s*async\s*(?:function\b|\()", tete) and not _re.search(r"\breturn\b", script):
+        return (
+            "Script invalide : c'est une IIFE dont la promesse n'est jamais attendue. Elle "
+            "rendrait `value: null` sans erreur, en perdant les appels d'outils en cours. "
+            "Retirez l'enveloppe `(async () => { ... })()` et gardez les instructions avec un "
+            "`return`, ou prefixez l'IIFE par `return`."
+        )
+    return None
+
 async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextContent]:
     """Run a user JS script in a Node sandbox.
 
@@ -1269,6 +1308,12 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
     script = arguments.get("script") or ""
     if not script.strip():
         return [TextContent(type="text", text="Error: 'script' is required and non-empty")]
+
+    # Refuse les deux formes qui rendraient un resultat vide sans rien dire.
+    mauvaise_forme = _verifier_forme_script(script)
+    if mauvaise_forme:
+        return [TextContent(type="text", text="Error: " + mauvaise_forme)]
+
     timeout_ms = int(arguments.get("timeout_ms") or 30000)
 
     def _dispatch_from_sandbox(tool_name: str, tool_args: dict) -> Any:
@@ -1290,6 +1335,22 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
         dispatch=_dispatch_from_sandbox,
         timeout_ms=timeout_ms,
     )
+
+    # Un script qui n'a rien rendu alors qu'il a appele des outils a presque
+    # toujours oublie son `return` : le dire, plutot que de laisser lire un
+    # `value: null` comme « l'outil ne marche pas ».
+    if (
+        outcome.get("value") is None
+        and not outcome.get("error")
+        and outcome.get("tool_calls")
+        and "return" not in script
+    ):
+        outcome["hint"] = (
+            "value est null alors que des outils ont ete appeles : il manque un `return` "
+            "en fin de script. Le corps est enveloppe dans `(async () => { ... })()`, "
+            "donc seule une valeur explicitement rendue remonte."
+        )
+
     return [TextContent(type="text", text=_json.dumps(outcome, indent=2, default=str))]
 
 
