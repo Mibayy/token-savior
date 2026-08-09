@@ -241,6 +241,59 @@ def cle_de_refus(tool: str, tool_input: dict) -> str:
     return f"{tool}:{str(cible)[:200]}"
 
 
+def journal_garde() -> Path:
+    """Ou s'ecrit le compte des refus. Actif par defaut, exprès.
+
+    Le reste de ce depot met ses journaux derriere une variable
+    d'environnement. Pas celui-ci : un garde-fou dont personne ne compte les
+    refus derive sans que ca se voie. Le reecriveur de commandes a passe des
+    mois installe et inerte sur ce poste sans que rien ne le signale.
+
+    Une ligne JSON par decision, basename uniquement -- de quoi mesurer la
+    friction et sa derive, pas de quoi reconstituer une session.
+    `TS_GUARD_LOG=0` coupe, `TS_GUARD_LOG=<chemin>` deplace.
+    """
+    valeur = os.environ.get("TS_GUARD_LOG", "")
+    if valeur:
+        return Path(valeur)
+    base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    d = base / "token-savior"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "discipline-guard.jsonl"
+
+
+def _cible_journalisable(tool: str, cible: str) -> str:
+    """Ce qu'on garde d'une cible : un nom de fichier, jamais une commande.
+
+    Sur `Bash`, la cible est la ligne de commande entiere : `os.path.basename`
+    en rendait un fragment arbitraire, heredoc compris. Le journal promet de
+    ne pas permettre de reconstituer une session, il doit donc tenir cette
+    promesse la ou c'est le plus facile de la trahir.
+    """
+    texte = str(cible)
+    if tool == "Bash":
+        premier = texte.strip().split()
+        return premier[0][:20] if premier else "bash"
+    return os.path.basename(texte)[:60]
+
+
+def noter_decision(decision: str, verdict: str, tool: str, cible: str) -> None:
+    """Best-effort : un journal illisible ne doit jamais refuser un appel."""
+    if os.environ.get("TS_GUARD_LOG") == "0":
+        return
+    try:
+        with open(journal_garde(), "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "t": int(time.time()),
+                "decision": decision,          # "refus" | "relance"
+                "verdict": verdict,
+                "outil": tool,
+                "cible": _cible_journalisable(tool, cible),
+            }) + "\n")
+    except OSError:
+        pass
+
+
 def requested_names(tool_input: dict) -> list[str]:
     """`get_full_context` accepts `name` or `names=[...]` in batch mode."""
     names: list[str] = []
@@ -413,11 +466,14 @@ def main() -> int:
 
         if reason:
             cle = cle_de_refus(tool, tool_input)
+            court = reason.split("\n", 1)[0][:60]
             if deja_refuse(session_id, cle):
                 # Deuxieme fois sur le meme appel : l'enseignement est passe,
                 # insister n'apprend plus rien et devient un mur.
+                noter_decision("relance", court, tool, cle.split(":", 1)[-1])
                 return 0
             noter_refus(session_id, cle)
+            noter_decision("refus", court, tool, cle.split(":", 1)[-1])
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",

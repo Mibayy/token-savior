@@ -109,3 +109,64 @@ class TestRefusUnique:
         assert lancer(autre, etat) is not None, (
             "une nouvelle session n'a pas recu l'enseignement"
         )
+
+
+class TestJournal:
+    """Un garde dont personne ne compte les refus derive sans que ca se voie.
+
+    C'est litteralement ce qui est arrive au reecriveur de commandes : installe
+    sur ce poste, desactive par defaut, inerte pendant des mois, aucun signal.
+    """
+
+    def test_un_refus_puis_une_relance_laissent_deux_lignes(
+        self, projet: Path, tmp_path: Path
+    ) -> None:
+        etat = tmp_path / "etat"
+        journal = tmp_path / "garde.jsonl"
+        env = dict(os.environ)
+        env.pop("TS_GUARD_OFF", None)
+        env.update({"TS_DISCIPLINE_GUARD": "1", "XDG_STATE_HOME": str(etat),
+                    "TS_GUARD_LOG": str(journal)})
+        appel = _lecture(projet)
+        for _ in range(2):
+            subprocess.run([sys.executable, str(HOOK)], input=json.dumps(appel),
+                           capture_output=True, text=True, env=env, timeout=15,
+                           check=False)
+        lignes = [json.loads(x) for x in
+                  journal.read_text(encoding="utf-8").splitlines() if x.strip()]
+        assert [x["decision"] for x in lignes] == ["refus", "relance"]
+        assert lignes[0]["cible"] == "mod.py", "le journal garde le basename, pas le chemin"
+
+    def test_le_journal_se_coupe(self, projet: Path, tmp_path: Path) -> None:
+        etat = tmp_path / "etat"
+        journal = tmp_path / "rien.jsonl"
+        env = dict(os.environ)
+        env.pop("TS_GUARD_OFF", None)
+        env.update({"TS_DISCIPLINE_GUARD": "1", "XDG_STATE_HOME": str(etat),
+                    "TS_GUARD_LOG": "0"})
+        subprocess.run([sys.executable, str(HOOK)], input=json.dumps(_lecture(projet)),
+                       capture_output=True, text=True, env=env, timeout=15, check=False)
+        assert not journal.exists()
+
+    def test_une_commande_shell_ne_fuit_pas_dans_le_journal(
+        self, projet: Path, tmp_path: Path
+    ) -> None:
+        """Le journal promet de ne pas permettre de reconstituer une session.
+        Sur Bash la cible est la ligne entiere : basename en rendait un
+        fragment arbitraire, heredoc compris."""
+        f = projet / "secret.py"
+        f.write_text("def f():\n    return 1\n", encoding="utf-8")
+        etat = tmp_path / "etat"
+        journal = tmp_path / "g.jsonl"
+        env = dict(os.environ)
+        env.pop("TS_GUARD_OFF", None)
+        env.update({"TS_DISCIPLINE_GUARD": "1", "XDG_STATE_HOME": str(etat),
+                    "TS_GUARD_LOG": str(journal)})
+        appel = {"session_id": "s1", "tool_name": "Bash",
+                 "tool_input": {"command": f"cat {f} # TOKEN=abcdef"}}
+        subprocess.run([sys.executable, str(HOOK)], input=json.dumps(appel),
+                       capture_output=True, text=True, env=env, timeout=15,
+                       check=False)
+        ligne = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
+        assert ligne["cible"] == "cat"
+        assert "TOKEN" not in json.dumps(ligne)

@@ -5,7 +5,7 @@
 # Token Savior
 
 > One MCP server. One profile. **97.9% on tsbench at -80% tokens.**
-> Structural code navigation, persistent memory, and Bash output compaction for AI coding agents.
+> Structural code navigation, persistent memory, and Bash command rewriting for AI coding agents.
 
 [![PyPI](https://img.shields.io/pypi/v/token-savior-recall?color=orange&label=pypi)](https://pypi.org/project/token-savior-recall/)
 [![Benchmark](https://img.shields.io/badge/tsbench-97.9%25%20(188%2F192)-brightgreen)](https://mibayy.github.io/token-savior/)
@@ -138,6 +138,14 @@ token-efficient rendering. The dispatcher returns `None` when no matcher
 fires, leaving the existing sandbox path untouched. Compound commands
 (`cd ... && cmd`) fall through to the last meaningful segment.
 
+> **These run in PostToolUse, so they do not shrink the current turn.** The
+> hook fires after the tool has returned; it can add context, not remove it.
+> The compact rendering is appended below the raw output, which stays. What
+> you gain is persistence: the full output goes to the capture sandbox and
+> outlives a context compaction. For an actual reduction of what reaches the
+> model, use the PreToolUse rewriter (`TS_BASH_REWRITE=1`) — it edits the
+> command before it runs.
+
 ---
 
 ## `ts_discover` -- find missed TS opportunities
@@ -180,8 +188,8 @@ hooks, dedups, prints a unified diff. Backs up to
 
 Claude Code reads whole files to answer questions about three lines, and
 forgets everything the moment a session ends. Token Savior fixes both,
-plus a third axis: it now compacts the noisy Bash output that bloats
-turn budgets between code reads.
+plus a third axis: it bounds the noisy Bash output that bloats turn
+budgets between code reads — by rewriting the command before it runs.
 
 It indexes your codebase by symbol -- functions, classes, imports, call
 graph -- so the model navigates by pointer instead of by `cat`. Measured
@@ -195,6 +203,24 @@ re-injected as a compact delta at the start of the next session.
 And on top of *that*, since v4.1, sit the Bash compactors and the
 PreToolUse rewriter. Bench numbers above.
 
+**Which of those two actually shrinks a turn, and which does not.** Measured
+2026-08-09, and worth stating plainly because the distinction is not obvious:
+
+- The **PreToolUse rewriter** changes the command *before* it runs, so a
+  smaller output is produced and a smaller output reaches the model. This is
+  a real reduction in the current turn.
+- The **PostToolUse compactors** run *after* the tool has returned. A
+  PostToolUse hook can only *add* context; by the time it fires, the raw
+  output has already been sent. The compact rendering is appended, it does
+  not replace anything. What the compactors genuinely buy you is different
+  and still valuable: the full output is preserved in the capture sandbox and
+  survives a context compaction, so it can be queried later instead of being
+  re-run.
+
+If your goal is a smaller turn, `TS_BASH_REWRITE=1` is the switch that does
+it. If your goal is to stop losing command output across compactions, that is
+`TS_BASH_COMPACT=1`.
+
 ---
 
 ## Profile comparison
@@ -205,7 +231,7 @@ PreToolUse rewriter. Bench numbers above.
 | `auto` | adaptive | ~1-2 KT | Per-client telemetry-based (experimental) |
 | `tiny` | 6 | ~0.6 KT | Minimal hot loop |
 | `lean` | 51 | ~4 KT | Legacy -- broader surface |
-| **`compact-only`** | **1** | **~0.3 KT** | **Bash compaction only -- you already run symbol nav elsewhere** |
+| **`compact-only`** | **1** | **~0.3 KT** | **Bash layer only (rewriter + capture) -- you already run symbol nav elsewhere** |
 | `full` | 68 | ~6 KT | Everything exposed |
 
 You probably want `optimized`.
@@ -221,7 +247,7 @@ out in #45.
 
 | Tool | Layer | Overlap | What to do |
 |---|---|---|---|
-| [RTK](https://github.com/paths-technology/rtk) | PostToolUse Bash output compression | Direct, with the 34 compactors | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
+| [RTK](https://github.com/paths-technology/rtk) | PostToolUse Bash output compression | Same layer, same PostToolUse limit: neither shrinks the current turn | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
 | [serena](https://github.com/oraios/serena) | Symbol-graph navigation | Direct, with `find_symbol` / `get_dependents` | Run TS as `compact-only` if serena is your navigator |
 | codebase-memory | Persistent code graph | With the memory engine | `TS_MEMORY_DISABLE=1` |
 | Ponytail, Caveman | Output-side compression (code and prose) | Partial, output side only | Complementary, no knob needed |
@@ -232,7 +258,8 @@ The layers Token Savior owns that these do not: the PreToolUse Bash **rewriter**
 (`detect_breaking_changes`, `find_dead_code`, `analyze_config`).
 
 If you only want the Bash layer, `TOKEN_SAVIOR_PROFILE=compact-only` advertises
-a single tool and leaves the compactors and rewriter running.
+a single tool and leaves the compactors and rewriter running. Of those two, the
+rewriter is the one that reduces the current turn.
 
 ---
 
@@ -380,7 +407,7 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 | `TS_CAPTURE_THRESHOLD_BYTES` | `4096` | Minimum tool-output size to sandbox |
 | `TS_CAPTURE_REPLACE=1` | off | Strong-replace: tell the agent to ignore the inline output and `capture_get` the URI |
 | `TS_CAPTURE_TTL_DAYS` | `30` | Captures older than this are purged on the next `capture_put`; `0` disables the GC |
-| `TS_BASH_COMPACT=1` | off | Enable PostToolUse Bash output compactors |
+| `TS_BASH_COMPACT=1` | off | PostToolUse compactors. Preserves output across compaction; does NOT shrink the current turn (see note above) |
 | `TS_COMPACT_INLINE_THRESHOLD` | `4096` | Hybrid mode: compact-result size above which the full original is also sandboxed |
 | `TS_COMPACT_TINY_THRESHOLD` | `256` | Hybrid mode: compact-result size below which the sandbox is always skipped |
 | `TS_BASH_REWRITE=1` | off | Enable the PreToolUse Bash command rewriter |
