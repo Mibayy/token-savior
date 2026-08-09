@@ -1,0 +1,17 @@
+{
+  "_comment": "Hook PreToolUse pret a coller pour le garde-fou de lecture. A fusionner dans ~/.claude/settings.json sous la cle 'hooks'. ACTIF par defaut une fois branche : mettre TS_READ_GUARD=0 pour le neutraliser. Il ne refuse jamais un appel — il injecte `limit` sur une lecture non bornee d'un fichier de code de plus de TS_READ_MIN_LINES lignes (600 par defaut), et nomme dans sa raison l'outil a utiliser pour viser au lieu de tout lire. Une limite ou un offset pose par l'appelant n'est jamais ecrase ; le markdown, la config et les images ne sont pas concernes.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:read_guard_hook}}",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}

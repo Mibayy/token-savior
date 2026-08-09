@@ -270,6 +270,68 @@ def _apply_docker_ps(cmd: str, _toks: list[str]) -> str:
     return f"{cmd} --format {fmt}"
 
 
+# --- le shell utilise comme lecteur de code -------------------------------
+# Mesure du 09/08/2026 (`scripts/audit_budget.py`, 400 transcrits) : les
+# sorties de commande pesent 30 % des jetons rendus au modele, et `grep` puis
+# `cat` sont les deux familles non couvertes les plus lourdes apres les
+# scripts jetables. Un compacteur PostToolUse existe pour les deux, mais il
+# ne peut rien economiser : a ce moment-la, la sortie est deja partie. Seule
+# une borne posee AVANT compte, et elle doit s'ecrire dans le vocabulaire de
+# la commande elle-meme -- `is_unsafe_to_rewrite` refuse tout ce qui contient
+# un tube, donc « ajouter | head » n'est pas une option ici.
+
+_GREP_CAP = 20
+
+
+def _lettres_courtes(toks: list[str]) -> set[str]:
+    """Lettres de tous les drapeaux courts, groupes compris.
+
+    `grep -rl motif` porte `-l` sans jamais l'ecrire comme un jeton a lui
+    seul : `_has_flag` ne le voyait pas, et la regle bornait une commande qui
+    ne rend que des noms de fichiers. Attrape par son test avant d'etre
+    livre.
+    """
+    lettres: set[str] = set()
+    for t in toks:
+        if t.startswith("-") and not t.startswith("--") and len(t) > 1:
+            for c in t[1:]:
+                if c.isalpha():
+                    lettres.add(c)
+                else:
+                    break  # `-m20` : la valeur est collee, on arrete
+    return lettres
+
+
+def _match_grep(toks: list[str]) -> bool:
+    if not toks or toks[0] not in {"grep", "egrep", "fgrep", "rg"}:
+        return False
+    # Ces drapeaux disent deja que l'appelant borne ou compte lui-meme.
+    if _lettres_courtes(toks) & {"m", "c", "l", "L", "q", "o"}:
+        return False
+    return not _has_flag(
+        toks, "--max-count", "--count", "--files-with-matches",
+        "--files-without-match", "--quiet", "--only-matching",
+    )
+
+
+def _apply_grep(cmd: str, _toks: list[str]) -> str:
+    return f"{cmd} -m {_GREP_CAP}"
+
+
+_CAT_CAP = 400
+
+
+def _match_cat(toks: list[str]) -> bool:
+    # Un seul fichier, aucun drapeau : c'est une lecture integrale deguisee.
+    # `cat a b c` concatene volontairement, on n'y touche pas.
+    return len(toks) == 2 and toks[0] == "cat" and not toks[1].startswith("-")
+
+
+def _apply_cat(cmd: str, toks: list[str]) -> str:
+    return f"head -n {_CAT_CAP} {toks[1]}"
+
+
+
 # ---------------------------------------------------------------------------
 # Rule registry — first match wins.
 # ---------------------------------------------------------------------------
@@ -334,5 +396,26 @@ RULES: list[RewriteRule] = [
         reason="docker ps: tabular format drops port/created columns",
         _match=_match_docker_ps,
         _apply=_apply_docker_ps,
+    ),
+    RewriteRule(
+        name="grep-cap",
+        reason=(
+            f"grep: -m {_GREP_CAP} borne le nombre de correspondances par "
+            f"fichier. Pour chercher dans du code indexe, search_codebase "
+            f"rend le symbole englobant au lieu de la ligne nue"
+        ),
+        _match=_match_grep,
+        _apply=_apply_grep,
+        conflict_flags=("-m", "--max-count", "-c", "-l", "-L", "-q", "-o"),
+    ),
+    RewriteRule(
+        name="cat-cap",
+        reason=(
+            f"cat d'un fichier entier -> head -n {_CAT_CAP}. Si vous tenez un "
+            f"numero de ligne, read_lines(file_path, start, end) ; si vous "
+            f"tenez un nom, get_function_source(name)"
+        ),
+        _match=_match_cat,
+        _apply=_apply_cat,
     ),
 ]
