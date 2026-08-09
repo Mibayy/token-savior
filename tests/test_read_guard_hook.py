@@ -76,6 +76,32 @@ class TestBornage:
         assert sortie["hookSpecificOutput"]["updatedInput"]["limit"] == 50
 
 
+class TestTexteNonCode:
+    """La doc et la config pesent 9,3 % des jetons rendus : elles comptent
+    aussi, mais pas au meme seuil que le code."""
+
+    def test_un_journal_enorme_est_borne(self, tmp_path: Path) -> None:
+        chemin = _fichier(tmp_path, "sortie.log", 5000)
+        hso = _lancer(_evt(chemin))["hookSpecificOutput"]
+        assert hso["updatedInput"]["limit"] == 600
+
+    def test_la_raison_ne_promet_pas_un_symbole_dans_un_journal(
+        self, tmp_path: Path
+    ) -> None:
+        """Il n'y a pas de fonction a viser dans un CSV : proposer
+        get_function_source enverrait dans le mur."""
+        chemin = _fichier(tmp_path, "donnees.csv", 5000)
+        raison = _lancer(_evt(chemin))["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "read_lines" in raison
+        assert "get_function_source" not in raison
+
+    def test_le_seuil_du_texte_est_reglable(self, tmp_path: Path) -> None:
+        chemin = _fichier(tmp_path, "notes.md", 800)
+        sortie = _lancer_env(_evt(chemin), {"TS_READ_MIN_LINES_TEXTE": "100",
+                                            "TS_READ_MAX_LINES_TEXTE": "70"})
+        assert sortie["hookSpecificOutput"]["updatedInput"]["limit"] == 70
+
+
 class TestCeQuIlNeTouchePas:
     def test_un_petit_fichier_passe_intact(self, tmp_path: Path) -> None:
         chemin = _fichier(tmp_path, "petit.py", 50)
@@ -90,9 +116,14 @@ class TestCeQuIlNeTouchePas:
         chemin = _fichier(tmp_path, "gros.py", 2000)
         assert _lancer(_evt(chemin, offset=900)) == {"continue": True}
 
-    def test_le_markdown_n_est_pas_du_code(self, tmp_path: Path) -> None:
-        """Un README long se lit en entier pour de bonnes raisons."""
-        chemin = _fichier(tmp_path, "gros.md", 2000)
+    def test_un_markdown_de_taille_normale_passe(self, tmp_path: Path) -> None:
+        """Un README de 800 lignes se lit en entier pour de bonnes raisons :
+        le plancher du texte est bien plus haut que celui du code."""
+        chemin = _fichier(tmp_path, "readme.md", 800)
+        assert _lancer(_evt(chemin)) == {"continue": True}
+
+    def test_une_extension_inconnue_passe(self, tmp_path: Path) -> None:
+        chemin = _fichier(tmp_path, "truc.xyz", 5000)
         assert _lancer(_evt(chemin)) == {"continue": True}
 
     def test_une_image_n_est_pas_touchee(self, tmp_path: Path) -> None:

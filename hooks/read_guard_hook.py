@@ -55,8 +55,20 @@ EXT_CODE = {
     ".rb", ".php", ".cs", ".c", ".h", ".cpp", ".kt", ".scala", ".m", ".mm",
 }
 
+# Texte qui n'est pas du code : doc, config, journaux, donnees. Il pese 9,3 %
+# des jetons rendus (audit du 09/08/2026), donc il compte. Mais un README se
+# lit legitimement en entier, alors qu'un journal de 5 000 lignes non : d'ou
+# un plancher nettement plus haut, et un plafond plus genereux.
+EXT_TEXTE = {
+    ".md", ".mdx", ".txt", ".json", ".yml", ".yaml", ".toml", ".ini", ".cfg",
+    ".csv", ".tsv", ".log", ".xml", ".html", ".css", ".scss", ".sql", ".env",
+    ".sh", ".bash", ".zsh", ".rst", ".conf", ".lock",
+}
+
 PLAFOND_DEFAUT = 400
 PLANCHER_DEFAUT = 600
+PLAFOND_TEXTE_DEFAUT = 600
+PLANCHER_TEXTE_DEFAUT = 1500
 
 
 def _passer() -> None:
@@ -124,15 +136,23 @@ def main() -> None:
         return
 
     extension = os.path.splitext(chemin)[1].lower()
-    if extension not in EXT_CODE:
+    est_code = extension in EXT_CODE
+    if not est_code and extension not in EXT_TEXTE:
         _passer()
         return
 
     try:
-        plafond = int(os.environ.get("TS_READ_MAX_LINES", PLAFOND_DEFAUT))
-        plancher = int(os.environ.get("TS_READ_MIN_LINES", PLANCHER_DEFAUT))
+        if est_code:
+            plafond = int(os.environ.get("TS_READ_MAX_LINES", PLAFOND_DEFAUT))
+            plancher = int(os.environ.get("TS_READ_MIN_LINES", PLANCHER_DEFAUT))
+        else:
+            plafond = int(os.environ.get("TS_READ_MAX_LINES_TEXTE",
+                                         PLAFOND_TEXTE_DEFAUT))
+            plancher = int(os.environ.get("TS_READ_MIN_LINES_TEXTE",
+                                          PLANCHER_TEXTE_DEFAUT))
     except ValueError:
-        plafond, plancher = PLAFOND_DEFAUT, PLANCHER_DEFAUT
+        plafond = PLAFOND_DEFAUT if est_code else PLAFOND_TEXTE_DEFAUT
+        plancher = PLANCHER_DEFAUT if est_code else PLANCHER_TEXTE_DEFAUT
 
     lignes = _compter_lignes(chemin, plancher)
     if lignes is None or lignes <= plancher:
@@ -140,13 +160,23 @@ def main() -> None:
         return
 
     nom = os.path.basename(chemin)
+    if est_code:
+        suite = (
+            f"read_lines(file_path='{chemin}', start=N, end=M) si vous tenez un "
+            f"numero de ligne, get_function_source(name=...) si vous tenez un "
+            f"nom, get_full_context(name=...) si vous voulez aussi les appelants."
+        )
+    else:
+        # Pas de symbole a viser dans un journal ou un CSV : la plage de
+        # lignes et la recherche sont les deux seules prises utiles.
+        suite = (
+            f"read_lines(file_path='{chemin}', start=N, end=M) pour une plage "
+            f"precise, ou search_codebase(pattern=...) pour trouver ou regarder."
+        )
     raison = (
         f"[token-savior:read-guard] {nom} fait {lignes}+ lignes ; lecture bornee "
         f"aux {plafond} premieres. Pour la suite, viser au lieu de tout lire : "
-        f"read_lines(file_path='{chemin}', start=N, end=M) si vous tenez un "
-        f"numero de ligne, get_function_source(name=...) si vous tenez un nom, "
-        f"get_full_context(name=...) si vous voulez aussi les appelants. "
-        f"Read(offset=..., limit=...) reste accepte tel quel."
+        f"{suite} Read(offset=..., limit=...) reste accepte tel quel."
     )
     _journaliser({"fichier": chemin, "lignes": lignes, "plafond": plafond})
     print(json.dumps({
