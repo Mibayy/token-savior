@@ -30,32 +30,22 @@ Reproduces with the `optimized` profile (single env var). The harness that
 produced these numbers is described below; its repository is not public at the
 moment, so take the figures as reported rather than as independently verifiable.
 
-**Independently re-measured 2026-08-09, on a smaller replacement harness.**
-8 read-only tasks on a generated toy repo, Haiku, 32 sessions. Median *new*
-tokens per task — fresh input + cache **creation** + output, i.e. everything
-that is not a re-read of the cached prefix:
+**A re-measurement was published here on 2026-08-09 and has been withdrawn on
+2026-08-10.** It reported new-token savings from a small replacement harness.
+Those numbers did not measure this server at all: across 143 benchmark
+sessions, **exactly one** called a Token Savior tool. The client running the
+harness had MCP deferred-tool loading enabled, so all 18 tools sat behind a
+`ToolSearch` lookup instead of appearing in the model's manifest. The model
+never saw them and fell back to `Grep` and `Read` — 66 greps, 30 reads, one
+MCP call. What varied between the "profiles" was the size of the cached
+prefix, not what the agent did.
 
-| | new tokens / task | vs control | cost / task |
-|---|---:|---:|---:|
-| control (Read/Grep/Glob) | 7 872 | — | $0.0278 |
-| `lean` | **2 072** | **-74%** | $0.0192 (-31%) |
-| `auto` | **2 176** | **-72%** | $0.0184 (-34%) |
-| `code_mode` | 11 366 | **+44%** | $0.0389 (+40%) |
+The lesson is worth more than the numbers were: **a benchmark of an MCP server
+must assert that its tools were actually called.** Ours did not, so it happily
+compared two identical agents. That assertion now exists in the harness.
 
-For `lean` the distributions do not overlap at all (475-3 388 against
-6 903-10 497), so the gap is not noise at n=8. The -74% is in the same
-territory as the -80% headline, measured on a different fixture and a
-different model — it corroborates it rather than reproducing it.
-
-`code_mode` is the exception and it is consistent: every `ts_execute` script
-carries a fixed overhead, which the toy repo's 30-line files never earn back.
-
-One counting trap, recorded because it cost an hour and a wrong public claim:
-under Claude Code everything goes through the prompt cache, so
-`input_tokens` is **26 tokens in all four arms** — the last user turn, nothing
-else. A counter built on `input_tokens + output_tokens` therefore measures
-output only, and made the control look cheapest. The tool results land in
-`cache_creation_input_tokens`; that is the term that separates the arms.
+The headline figures above therefore stand as reported and unverified, as
+stated in the previous paragraph. Re-measuring them properly is open work.
 
 </div>
 
