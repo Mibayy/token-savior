@@ -4,6 +4,8 @@
 
 # Token Savior
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.Mibayy%2Ftoken-savior-recall.svg)](https://mcptoplist.com/server/io.github.Mibayy%2Ftoken-savior-recall)
+
 > One MCP server. One profile. **97.9% on tsbench at -80% tokens.**
 > Structural code navigation, persistent memory, and Bash command rewriting for AI coding agents.
 
