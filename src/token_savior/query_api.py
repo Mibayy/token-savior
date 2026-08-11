@@ -821,6 +821,11 @@ class ProjectQueryEngine:
         self._communities: dict[str, str] | None = None
         self._semantic_hash_cache: dict[str, str] | None = None
         self._semantic_hash_seuil: int | None = None
+        # Index paresseux nom -> fichiers qui le definissent, construit au
+        # premier `_fichiers_definissant` et reutilise pour toute la vie de
+        # l'instance (le slot_manager garde un engine par projet et le
+        # reutilise pour tous les appels suivants).
+        self._fichiers_definissant_index: dict[str, list[str]] | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -1504,15 +1509,30 @@ class ProjectQueryEngine:
         `symbol_table` n'en garde qu'un : sur un projet Next.js ou trente
         fichiers exportent `POST`, il en designe un seul, et les resolveurs qui
         s'y fient rendent un fichier au hasard de l'ordre alphabetique.
+
+        Le balayage complet du projet est fait UNE fois, pas a chaque appel :
+        `get_dependents` appelle cette methode deux fois par dependance, donc
+        le scan lineaire se payait O(dependances x fichiers) par requete
+        (p95 mesure a 3805 ms). L'index rend le meme resultat, dans le meme
+        ordre, en O(1).
         """
-        out: list[str] = []
-        for chemin, meta in sorted(self.index.files.items()):
-            fns = getattr(meta, "functions", None) or []
-            cls = getattr(meta, "classes", None) or []
-            if any(getattr(f, "name", None) == nom or getattr(f, "qualified_name", None) == nom for f in fns) \
-               or any(getattr(c, "name", None) == nom or getattr(c, "qualified_name", None) == nom for c in cls):
-                out.append(chemin)
-        return out
+        if self._fichiers_definissant_index is None:
+            index: dict[str, list[str]] = {}
+            for chemin, meta in sorted(self.index.files.items()):
+                # Un fichier n'apparait qu'une fois par nom, meme s'il porte
+                # plusieurs symboles homonymes (ou si `qualified_name` egale
+                # `name`) : le scan par appel appendait aussi un seul chemin.
+                noms_du_fichier: set[str] = set()
+                for symbole in list(getattr(meta, "functions", None) or []) \
+                        + list(getattr(meta, "classes", None) or []):
+                    for attr in ("name", "qualified_name"):
+                        valeur = getattr(symbole, attr, None)
+                        if valeur:
+                            noms_du_fichier.add(valeur)
+                for nom_defini in noms_du_fichier:
+                    index.setdefault(nom_defini, []).append(chemin)
+            self._fichiers_definissant_index = index
+        return self._fichiers_definissant_index.get(nom, [])
 
     def _importe(self, chemin: str, cible: str) -> bool:
         """Ce fichier importe-t-il `cible` ?"""
