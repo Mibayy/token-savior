@@ -74,13 +74,34 @@ def jetons(texte: str, longueur_min: int = 4) -> list[str]:
             if t.lower() not in STOP]
 
 
-def construire_jeu(db: Path, projet: str, n: int, mode: str, graine: int) -> list[dict]:
+def construire_jeu(db: Path, projet: str, n: int, mode: str, graine: int,
+                   difficulte: str = "facile", df_min: int = 3) -> list[dict]:
     """Tire n observations et fabrique deux requetes par cible.
 
     En mode ``contenu``, les mots de la requete viennent du contenu et sont
     absents du titre : aucune jambe ne part avec un avantage offert. En mode
     ``titre``, ils viennent du titre -- c'est le temoin biaise, utile pour
     montrer l'ecart, jamais pour conclure.
+
+    ``difficulte`` decide COMMENT les mots sont choisis, et c'est ce qui fait
+    qu'un banc mesure quelque chose ou non.
+
+        facile  les plus LONGS d'abord (comportement d'origine)
+        dure    les plus PARTAGES d'abord, parmi ceux vus dans au moins
+                ``df_min`` observations du corpus
+
+    Pourquoi ce parametre existe. Mesure du 11/08/2026 sur les 119 observations
+    exploitables du projet : en mode facile, **52 % des mots de requete sont des
+    hapax**, presents dans une seule observation de tout le corpus, et la
+    frequence documentaire mediane vaut 1. La requete n'est donc pas une
+    question, c'est une clef primaire deguisee. Le moteur rendait 45/45 au rang
+    moyen 1,00 : ce chiffre ne mesurait pas la qualite du rappel, il mesurait
+    que FTS sait retrouver un mot unique. Un banc au plafond ne peut departager
+    aucune strategie de fusion, et c'est precisement ce qu'on lui demandait.
+
+    Le mode ``dure`` retire le cadeau : les mots restent tires du contenu de la
+    cible, mais ce sont ceux que la cible PARTAGE avec le reste du corpus. Il
+    faut alors classer, pas seulement trouver.
     """
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
@@ -94,6 +115,14 @@ def construire_jeu(db: Path, projet: str, n: int, mode: str, graine: int) -> lis
     if not lignes:
         return []
 
+    # Frequence documentaire sur TOUT le corpus, titre et contenu confondus.
+    # Calculee meme en mode facile : elle ne coute rien et sert au rapport.
+    df: dict[str, int] = {}
+    for ligne in lignes:
+        vus = {t.lower() for t in jetons(f"{ligne['title'] or ''} {ligne['content'] or ''}")}
+        for mot in vus:
+            df[mot] = df.get(mot, 0) + 1
+
     alea = random.Random(graine)
     cas: list[dict] = []
     for r in alea.sample(list(lignes), min(len(lignes), n * 3)):
@@ -102,8 +131,15 @@ def construire_jeu(db: Path, projet: str, n: int, mode: str, graine: int) -> lis
         else:
             mots_titre = {t.lower() for t in jetons(r["title"])}
             source = [t for t in jetons(r["content"]) if t.lower() not in mots_titre]
-            # Les plus longs d'abord : plus distinctifs, moins de hasard.
-            source = sorted(set(source), key=len, reverse=True)
+            if difficulte == "dure":
+                # Les plus PARTAGES d'abord, et seulement ceux qui le sont
+                # assez : un mot vu dans une seule observation designe sa cible
+                # sans qu'aucun classement soit necessaire.
+                source = [t for t in set(source) if df.get(t.lower(), 0) >= df_min]
+                source = sorted(source, key=lambda t: (-df.get(t.lower(), 0), t))
+            else:
+                # Les plus longs d'abord : plus distinctifs, moins de hasard.
+                source = sorted(set(source), key=len, reverse=True)
         if len(source) < 5:
             continue
         cas.append({
@@ -111,6 +147,7 @@ def construire_jeu(db: Path, projet: str, n: int, mode: str, graine: int) -> lis
             "titre": r["title"],
             "courte": " ".join(source[:4]),
             "longue": f"{alea.choice(LIAISON)} {' '.join(source[:8])} sur ce projet",
+            "df": [df.get(t.lower(), 0) for t in source[:4]],
         })
         if len(cas) >= n:
             break
@@ -148,6 +185,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--n", type=int, default=45)
     p.add_argument("--limite", type=int, default=10)
     p.add_argument("--graine", type=int, default=11)
+    p.add_argument("--difficulte", choices=("facile", "dure"), default="facile",
+                   help="facile = mots les plus longs (defaut historique, sature) ; "
+                        "dure = mots les plus partages avec le reste du corpus")
+    p.add_argument("--df-min", type=int, default=3, dest="df_min",
+                   help="en mode dur, frequence documentaire minimale d'un mot "
+                        "de requete (defaut 3)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
 
@@ -159,7 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     modes = ("contenu", "titre") if a.mode == "les-deux" else (a.mode,)
     resultats: dict[str, dict] = {}
     for mode in modes:
-        cas = construire_jeu(db, a.projet, a.n, mode, a.graine)
+        cas = construire_jeu(db, a.projet, a.n, mode, a.graine,
+                             difficulte=a.difficulte, df_min=a.df_min)
         if not cas:
             print(f"aucune observation exploitable pour {a.projet!r} dans {db} "
                   f"(mode {mode})", file=sys.stderr)
