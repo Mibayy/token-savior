@@ -19,15 +19,27 @@ one call-site in ``observation_search``.
 
 from __future__ import annotations
 
+import math
+import os
 from typing import Any
 
 RRF_K = 60  # standard Reciprocal Rank Fusion constant.
+
+# Quelle fusion utiliser. Le defaut ne bouge pas : `rrf` est la production
+# d'aujourd'hui, garantie de position comprise. `additif` est la variante
+# mesurable, pas encore la production.
+#
+#     TS_FUSION=rrf       (defaut) RRF par rang + tetes remontees
+#     TS_FUSION=rrf_nu    RRF par rang seul, sans garantie de position
+#     TS_FUSION=additif   scores normalises additionnes, seuil semantique avant
+ENV_FUSION = "TS_FUSION"
 
 
 def rrf_merge(
     *ranked_lists: list[dict[str, Any]],
     limit: int = 20,
     k: int = RRF_K,
+    garantie_position: bool = True,
 ) -> list[dict[str, Any]]:
     """Fuse N rank-ordered result lists into a single list using RRF.
 
@@ -89,8 +101,9 @@ def rrf_merge(
 
     # `reversed` parce que chaque insertion se fait en position 0 : la tete de
     # la premiere liste finit donc bien devant celle de la seconde.
-    tetes = [rows[0].get("id") for rows in ranked_lists
-             if rows and rows[0].get("id") is not None]
+    tetes = ([rows[0].get("id") for rows in ranked_lists
+              if rows and rows[0].get("id") is not None]
+             if garantie_position else [])
     for tete in reversed(tetes):
         if tete in classement:
             classement.remove(tete)
@@ -102,6 +115,128 @@ def rrf_merge(
         row["_rrf_score"] = round(scores[oid], 6)
         out.append(row)
     return out
+
+
+ENTITE_POIDS = 0.0  # pas de jambe entites chez nous : reserve, jamais devinee
+
+
+def _params_bm25(requete: str) -> tuple[float, float]:
+    """Point median et pente de la sigmoide, selon la longueur de la requete.
+
+    Un score bm25 brut monte avec le nombre de termes qui matchent : la meme
+    valeur ne veut pas dire la meme chose pour deux mots et pour douze. Sans
+    cette adaptation, une question humaine est systematiquement mieux notee
+    qu'un mot-cle, a pertinence egale.
+
+    Les cinq paliers viennent de mem0 (`mem0/utils/scoring.py:16-40`, etudie le
+    11/08/2026). Ce sont LEURS valeurs, sur LEUR corpus, avec LEUR tokenizer :
+    reprises comme point de depart mesurable, pas comme verite.
+    """
+    n = len(requete.split()) or 1
+    if n <= 3:
+        return 5.0, 0.7
+    if n <= 6:
+        return 7.0, 0.6
+    if n <= 9:
+        return 9.0, 0.5
+    if n <= 15:
+        return 10.0, 0.5
+    return 12.0, 0.5
+
+
+def _normaliser_bm25(brut: float, median: float, pente: float) -> float:
+    """Ramene un bm25 SQLite dans [0, 1] par une logistique.
+
+    SQLite rend un bm25 negatif, meilleur quand il est plus bas. On prend donc
+    son oppose avant de normaliser, pour que « plus grand » veuille dire
+    « meilleur » comme partout ailleurs dans cette fonction.
+    """
+    return 1.0 / (1.0 + math.exp(-pente * (-brut - median)))
+
+
+def additive_merge(
+    fts_rows: list[dict[str, Any]],
+    vec_rows: list[dict[str, Any]],
+    requete: str,
+    *,
+    limit: int = 20,
+    seuil_semantique: float = 0.0,
+    explain: bool = False,
+) -> list[dict[str, Any]]:
+    """Fusionne par SCORE normalise plutot que par rang.
+
+    Le defaut que ca vise. `rrf_merge` classe par 1/(k + rang) : deux resultats
+    au rang 1 pesent exactement pareil, que leur score soit excellent ou
+    mediocre. C'est ce qui laisse un mediocre-partout battre un excellent-
+    quelque-part, et c'est pour ca que la garantie de position existe. Le rang
+    jette la magnitude ; ici on la garde.
+
+    La regle importante vient de mem0 (`mem0/utils/scoring.py:74`) : le seuil
+    porte sur la jambe semantique AVANT la combinaison. Le lexical ne peut donc
+    que reordonner a l'interieur de l'ensemble semantiquement recevable, jamais
+    y faire entrer un candidat. C'est ce qui distingue cette addition du
+    reclassement lexical mesure le 08/08, qui degradait le MRR de 0,690 a 0,635
+    en reponderant un signal deja porte par l'embedding.
+
+    Un candidat present dans une seule jambe garde son score de l'autre a zero,
+    et le diviseur reste le meme pour tout le monde : sans quoi apparaitre dans
+    une seule liste deviendrait un avantage.
+    """
+    median, pente = _params_bm25(requete)
+
+    lex: dict[Any, float] = {}
+    for ligne in fts_rows:
+        oid = ligne.get("id")
+        if oid is None:
+            continue
+        brut = ligne.get("_bm25")
+        lex[oid] = _normaliser_bm25(float(brut), median, pente) if brut is not None else 0.0
+
+    # La distance cosinus est une DISTANCE : 0 = identique. On la retourne en
+    # similarite pour que les deux jambes aillent dans le meme sens.
+    sem: dict[Any, float] = {}
+    for ligne in vec_rows:
+        oid = ligne.get("id")
+        if oid is None:
+            continue
+        d = ligne.get("distance")
+        sem[oid] = max(0.0, 1.0 - float(d)) if d is not None else 0.0
+
+    meta: dict[Any, dict[str, Any]] = {}
+    for rows in (fts_rows, vec_rows):
+        for ligne in rows:
+            oid = ligne.get("id")
+            if oid is not None and oid not in meta:
+                meta[oid] = ligne
+
+    diviseur = 2.0 + ENTITE_POIDS
+
+    notes: list[tuple[float, Any]] = []
+    for oid in meta:
+        s = sem.get(oid, 0.0)
+        # Le seuil ne s'applique qu'a ce qui a une note semantique. Un resultat
+        # purement lexical n'est pas juge par un signal qu'il n'a pas.
+        if oid in sem and s < seuil_semantique:
+            continue
+        notes.append((min((s + lex.get(oid, 0.0)) / diviseur, 1.0), oid))
+
+    notes.sort(key=lambda t: (-t[0], t[1]))
+
+    sortie: list[dict[str, Any]] = []
+    for note, oid in notes[:limit]:
+        ligne = dict(meta[oid])
+        ligne["_score"] = round(note, 6)
+        if explain:
+            ligne["_score_detail"] = {
+                "semantique": round(sem.get(oid, 0.0), 6),
+                "lexical": round(lex.get(oid, 0.0), 6),
+                "diviseur": diviseur,
+                "seuil_semantique": seuil_semantique,
+                "bm25_median": median,
+                "bm25_pente": pente,
+            }
+        sortie.append(ligne)
+    return sortie
 
 
 # Seuils mesures, pas choisis : voir le commentaire dans hybrid_search.
@@ -241,6 +376,12 @@ def hybrid_search(
     the existing SQL so quarantine/type/global filtering stays DRY. If the
     vector stack is unavailable, the FTS list is returned untouched
     (truncated to ``limit``) — fully backwards compatible.
+
+    La strategie de fusion se choisit par ``TS_FUSION`` (voir ``ENV_FUSION``).
+    Le defaut reste la production d'aujourd'hui : rien ne change tant que la
+    variable n'est pas posee, et les deux autres valeurs existent pour etre
+    MESUREES l'une contre l'autre sur ``scripts/eval_rappel.py --difficulte
+    dure --limite 1``, seul point de fonctionnement ou le banc discrimine.
     """
     from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
     if not VECTOR_SEARCH_AVAILABLE:
@@ -272,4 +413,13 @@ def hybrid_search(
     )
     if not vec_rows:
         return fts_rows[:limit]
+
+    strategie = (os.environ.get(ENV_FUSION) or "rrf").strip().lower()
+    if strategie == "additif":
+        # Le seuil vectoriel a deja ete applique par `vec_search_rows` via
+        # `max_distance` : le passer une seconde fois ici le compterait deux
+        # fois. On laisse donc 0,0 et c'est `max_distance` qui garde la porte.
+        return additive_merge(fts_rows, vec_rows, query, limit=limit)
+    if strategie == "rrf_nu":
+        return rrf_merge(fts_rows, vec_rows, limit=limit, garantie_position=False)
     return rrf_merge(fts_rows, vec_rows, limit=limit)

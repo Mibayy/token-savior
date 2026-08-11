@@ -465,7 +465,12 @@ def observation_search(
             "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
             "  snippet(observations_fts, 1, '»', '«', '...', 40) AS excerpt, "
             "  o.created_at, o.created_at_epoch, o.is_global, o.agent_id, "
-            "  c.quarantine, c.stale_suspected "
+            "  c.quarantine, c.stale_suspected, "
+            # Le SCORE lexical, pas seulement l'ordre. `ORDER BY rank` suffit a
+            # une fusion par rang ; une fusion par score a besoin de la
+            # magnitude, et c'est justement ce que le rang jette. bm25() rend
+            # un nombre negatif, meilleur quand il est plus bas.
+            "  bm25(observations_fts) AS _bm25 "
             "FROM observations_fts AS f "
             "JOIN observations AS o ON o.id = f.rowid "
             "LEFT JOIN consistency_scores AS c ON c.obs_id = o.id "
