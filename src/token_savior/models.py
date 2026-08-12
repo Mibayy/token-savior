@@ -297,6 +297,13 @@ class ProjectIndex:
     # a bare filename. Refreshed alongside sorted_paths.
     basename_map: dict[str, list[str]] = field(default_factory=dict)
 
+    # Monotonic counter bumped on every mutation of `files` (index,
+    # reindex_file, remove_file). Caches derived from the file set but held
+    # outside ProjectIndex — e.g. ProjectQueryEngine._fichiers_definissant_index
+    # — compare their stored value against this one to detect staleness in
+    # O(1), so the indexer never needs to know who its consumers are.
+    files_version: int = 0
+
     # Normalized-symbol index: lowercased + underscore/hyphen stripped name
     # -> list of full symbol names present in symbol_table. Lets resolvers
     # find `UserService` when the code actually defines `user_service`

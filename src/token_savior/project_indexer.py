@@ -44,6 +44,9 @@ def is_path_excluded_from_scans(path: str) -> bool:
 
 def _rebuild_path_indexes(idx: ProjectIndex) -> None:
     """Refresh sorted_paths and basename_map after idx.files mutates."""
+    # Sole funnel for every mutation of idx.files, so bumping here makes the
+    # counter advance exactly when (and as often as) the file set changes.
+    idx.files_version += 1
     idx.sorted_paths = sorted(idx.files.keys())
     bmap: dict[str, list[str]] = {}
     for path in idx.sorted_paths:

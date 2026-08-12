@@ -39,6 +39,12 @@ _SYMBOL_KINDS = ("function", "class", "variable")
 # autre projet que celui vise : on le signale au lieu de conclure a une absence.
 _INDEX_SUSPECT = 25
 _MAX_HOMONYMES = 5
+# Nombre de noms distincts au-dela duquel `_fichiers_definissant` bascule du
+# scan memoise vers l'index complet. Mesure du 12/08/2026 sur 19 160 fichiers :
+# construire l'index coute 2,7 scans, donc a partir du 3e nom demande il est
+# deja amorti. En dessous, il ferait payer a `find_symbol` un balayage entier
+# pour un seul nom.
+_SEUIL_INDEX_DEFINISSEURS = 3
 
 def _split_signature_suffix(name: str) -> tuple[str, str]:
     if name.endswith(")") and "(" in name:
@@ -821,11 +827,20 @@ class ProjectQueryEngine:
         self._communities: dict[str, str] | None = None
         self._semantic_hash_cache: dict[str, str] | None = None
         self._semantic_hash_seuil: int | None = None
-        # Index paresseux nom -> fichiers qui le definissent, construit au
-        # premier `_fichiers_definissant` et reutilise pour toute la vie de
-        # l'instance (le slot_manager garde un engine par projet et le
-        # reutilise pour tous les appels suivants).
+        # Deux caches pour `_fichiers_definissant`, reutilises pour toute la
+        # vie de l'instance (le slot_manager garde un engine par projet et le
+        # reutilise pour tous les appels suivants) :
+        #  - `_memo`, nom -> fichiers, rempli un nom a la fois par un scan
+        #    court-circuite : c'est le regime des requetes qui ne demandent
+        #    qu'un ou deux noms, `find_symbol` en tete ;
+        #  - `_index`, nom -> fichiers pour TOUT le projet, construit d'un bloc
+        #    seulement quand assez de noms distincts ont ete demandes pour
+        #    l'amortir (`_SEUIL_INDEX_DEFINISSEURS`), puis jamais mute.
+        # `_version` porte le `files_version` sur lequel les deux ont ete
+        # construits ; une edition le fait avancer et les perime.
         self._fichiers_definissant_index: dict[str, list[str]] | None = None
+        self._fichiers_definissant_memo: dict[str, list[str]] = {}
+        self._fichiers_definissant_version: int | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -1510,29 +1525,80 @@ class ProjectQueryEngine:
         fichiers exportent `POST`, il en designe un seul, et les resolveurs qui
         s'y fient rendent un fichier au hasard de l'ordre alphabetique.
 
-        Le balayage complet du projet est fait UNE fois, pas a chaque appel :
-        `get_dependents` appelle cette methode deux fois par dependance, donc
-        le scan lineaire se payait O(dependances x fichiers) par requete
-        (p95 mesure a 3805 ms). L'index rend le meme resultat, dans le meme
-        ordre, en O(1).
+        Deux regimes, parce que les deux appelants n'ont pas le meme profil.
+        `get_dependents` demande beaucoup de noms differents (deux appels par
+        dependance) : sans index, le scan lineaire se payait par nom, soit
+        O(dependances x fichiers) par requete (p95 mesuree a 3805 ms).
+        `find_symbol`, lui, n'en demande qu'UN, et le plus souvent sur une
+        instance fraiche (un message = un processus = un engine neuf). Lui
+        faire construire l'index complet du projet des le premier appel
+        revenait a lui faire payer 2,7 scans la ou un seul suffisait (mesure
+        du 12/08/2026 sur 19 160 fichiers / 198 520 symboles : 201 ms de
+        construction contre 75 ms de scan), d'ou une p95 passee de 382 ms a
+        3566 ms.
+
+        Donc : scan court-circuite et memoise tant qu'on reste sous
+        `_SEUIL_INDEX_DEFINISSEURS` noms distincts, index complet ensuite. Le
+        seuil est place la ou la construction est deja amortie par les scans
+        qu'elle evite. Meme resultat et meme ordre (alphabetique) dans les
+        deux regimes.
+
+        Les deux caches sont versionnes contre `index.files_version` : ils
+        tombent des qu'une edition a modifie le jeu de fichiers
+        (replace_symbol_source / insert_near_symbol / move_symbol passent
+        toutes par `indexer.reindex_file`), sans quoi l'engine garderait en
+        session une vue perimee des definisseurs.
         """
-        if self._fichiers_definissant_index is None:
-            index: dict[str, list[str]] = {}
-            for chemin, meta in sorted(self.index.files.items()):
-                # Un fichier n'apparait qu'une fois par nom, meme s'il porte
-                # plusieurs symboles homonymes (ou si `qualified_name` egale
-                # `name`) : le scan par appel appendait aussi un seul chemin.
-                noms_du_fichier: set[str] = set()
-                for symbole in list(getattr(meta, "functions", None) or []) \
-                        + list(getattr(meta, "classes", None) or []):
-                    for attr in ("name", "qualified_name"):
-                        valeur = getattr(symbole, attr, None)
-                        if valeur:
-                            noms_du_fichier.add(valeur)
-                for nom_defini in noms_du_fichier:
-                    index.setdefault(nom_defini, []).append(chemin)
-            self._fichiers_definissant_index = index
-        return self._fichiers_definissant_index.get(nom, [])
+        if self._fichiers_definissant_version != self.index.files_version:
+            self._fichiers_definissant_index = None
+            self._fichiers_definissant_memo = {}
+            self._fichiers_definissant_version = self.index.files_version
+
+        if self._fichiers_definissant_index is not None:
+            return self._fichiers_definissant_index.get(nom, [])
+
+        memo = self._fichiers_definissant_memo
+        if nom in memo:
+            return memo[nom]
+
+        # `sorted_paths` est deja `sorted(files.keys())`, maintenu par
+        # `_rebuild_path_indexes` : le retrier ici serait le payer deux fois.
+        chemins = self.index.sorted_paths or sorted(self.index.files)
+
+        if len(memo) < _SEUIL_INDEX_DEFINISSEURS:
+            trouve: list[str] = []
+            for chemin in chemins:
+                meta = self.index.files.get(chemin)
+                fns = getattr(meta, "functions", None) or []
+                cls = getattr(meta, "classes", None) or []
+                if any(getattr(f, "name", None) == nom
+                       or getattr(f, "qualified_name", None) == nom for f in fns) \
+                   or any(getattr(c, "name", None) == nom
+                          or getattr(c, "qualified_name", None) == nom for c in cls):
+                    trouve.append(chemin)
+            memo[nom] = trouve
+            return trouve
+
+        # Assez de noms distincts demandes pour que l'index complet soit
+        # rentable. Construit d'un bloc, jamais mute ensuite.
+        index: dict[str, list[str]] = {}
+        for chemin in chemins:
+            meta = self.index.files.get(chemin)
+            # Un fichier n'apparait qu'une fois par nom, meme s'il porte
+            # plusieurs symboles homonymes (ou si `qualified_name` egale
+            # `name`) : le scan par appel appendait aussi un seul chemin.
+            noms_du_fichier: set[str] = set()
+            for symbole in list(getattr(meta, "functions", None) or []) \
+                    + list(getattr(meta, "classes", None) or []):
+                for attr in ("name", "qualified_name"):
+                    valeur = getattr(symbole, attr, None)
+                    if valeur:
+                        noms_du_fichier.add(valeur)
+            for nom_defini in noms_du_fichier:
+                index.setdefault(nom_defini, []).append(chemin)
+        self._fichiers_definissant_index = index
+        memo.clear()
+        return index.get(nom, [])
 
     def _importe(self, chemin: str, cible: str) -> bool:
         """Ce fichier importe-t-il `cible` ?"""
