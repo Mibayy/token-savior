@@ -182,6 +182,102 @@ class TestExtractObservations:
         assert captured["model"] == "claude-opus-4-7"
 
 
+# ── orcarouter mode (TS_ORCAROUTER=1) ────────────────────────────────────
+
+
+class TestOrcaRouterMode:
+    def test_orcarouter_uses_orcarouter_default_model_and_key(
+        self, monkeypatch,
+    ):
+        captured: dict = {}
+        monkeypatch.setenv("TS_ORCAROUTER", "1")
+        monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-test")
+        monkeypatch.delenv("TS_API_KEY", raising=False)
+        monkeypatch.delenv("TS_MODEL", raising=False)
+
+        def fake_call(system, user, api_key, model):
+            captured["model"] = model
+            captured["api_key"] = api_key
+            return "[]"
+
+        monkeypatch.setattr(auto_extract, "_call_api", fake_call)
+        auto_extract.extract_observations("Bash", {}, "")
+        assert captured["model"] == auto_extract.ORCAROUTER_DEFAULT_MODEL
+        assert captured["api_key"] == "sk-orca-test"
+
+    def test_orcarouter_falls_back_to_ts_api_key(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setenv("TS_ORCAROUTER", "1")
+        monkeypatch.delenv("ORCAROUTER_API_KEY", raising=False)
+        monkeypatch.setenv("TS_API_KEY", "sk-ts-test")
+
+        def fake_call(system, user, api_key, model):
+            captured["api_key"] = api_key
+            return "[]"
+
+        monkeypatch.setattr(auto_extract, "_call_api", fake_call)
+        auto_extract.extract_observations("Bash", {}, "")
+        assert captured["api_key"] == "sk-ts-test"
+
+    def test_orcarouter_honours_ts_model_override(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setenv("TS_ORCAROUTER", "1")
+        monkeypatch.setenv("TS_API_KEY", "sk-test")
+        monkeypatch.setenv("TS_MODEL", "anthropic/claude-haiku-4.5")
+
+        def fake_call(system, user, api_key, model):
+            captured["model"] = model
+            return "[]"
+
+        monkeypatch.setattr(auto_extract, "_call_api", fake_call)
+        auto_extract.extract_observations("Bash", {}, "")
+        assert captured["model"] == "anthropic/claude-haiku-4.5"
+
+    def test_default_mode_keeps_anthropic_model_and_ts_api_key(
+        self, monkeypatch,
+    ):
+        captured: dict = {}
+        monkeypatch.delenv("TS_ORCAROUTER", raising=False)
+        monkeypatch.setenv("TS_API_KEY", "sk-test")
+        monkeypatch.delenv("TS_MODEL", raising=False)
+
+        def fake_call(system, user, api_key, model):
+            captured["model"] = model
+            captured["api_key"] = api_key
+            return "[]"
+
+        monkeypatch.setattr(auto_extract, "_call_api", fake_call)
+        auto_extract.extract_observations("Bash", {}, "")
+        assert captured["model"] == auto_extract.DEFAULT_MODEL
+        assert captured["api_key"] == "sk-test"
+
+
+class TestCallApiUrlRouting:
+    def test_default_posts_to_anthropic(self, monkeypatch):
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=15):
+            captured["url"] = req.full_url
+            raise OSError("stop")  # exercised path; _call_api swallows it
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        monkeypatch.delenv("TS_ORCAROUTER", raising=False)
+        auto_extract._call_api("sys", "user", "key", "model")
+        assert captured["url"] == "https://api.anthropic.com/v1/messages"
+
+    def test_orcarouter_posts_to_orcarouter(self, monkeypatch):
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=15):
+            captured["url"] = req.full_url
+            raise OSError("stop")
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setenv("TS_ORCAROUTER", "1")
+        auto_extract._call_api("sys", "user", "key", "model")
+        assert captured["url"] == "https://api.orcarouter.ai/v1/messages"
+
+
 # ── persistence ──────────────────────────────────────────────────────────
 
 

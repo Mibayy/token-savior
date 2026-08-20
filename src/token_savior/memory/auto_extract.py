@@ -19,6 +19,12 @@ Env:
     TS_AUTO_EXTRACT=1                       — master switch (required)
     TS_API_KEY=...                          — Anthropic API key (required)
     TS_MODEL=claude-sonnet-4-6              — override default model
+    TS_ORCAROUTER=1                         — route through OrcaRouter's
+                                              Anthropic-compatible endpoint
+                                              (https://api.orcarouter.ai) instead
+                                              of api.anthropic.com
+    ORCAROUTER_API_KEY=...                  — OrcaRouter key when TS_ORCAROUTER=1;
+                                              falls back to TS_API_KEY when unset
 
 Dedup is handled downstream by ``content_hash`` (P2); extracting the
 same obs twice collapses to a single row.
@@ -35,8 +41,16 @@ from typing import Any
 ENV_ENABLED = "TS_AUTO_EXTRACT"
 ENV_API_KEY = "TS_API_KEY"
 ENV_MODEL = "TS_MODEL"
+ENV_ORCAROUTER = "TS_ORCAROUTER"
+ENV_ORCAROUTER_API_KEY = "ORCAROUTER_API_KEY"
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_API_BASE = "https://api.anthropic.com"
+ORCAROUTER_API_BASE = "https://api.orcarouter.ai"
+# OrcaRouter serves the Anthropic Messages protocol; model ids must carry the
+# `anthropic/` namespace and use the dotted form (4.6, not 4-6) — verified live
+# against https://api.orcarouter.ai/v1/messages.
+ORCAROUTER_DEFAULT_MODEL = "anthropic/claude-sonnet-4.6"
 MAX_OBS_PER_CALL = 3
 MAX_OUTPUT_CHARS = 2000
 VALID_TYPES = {
@@ -55,6 +69,11 @@ SYSTEM_PROMPT = (
 def is_enabled() -> bool:
     """Master switch — True only when ``TS_AUTO_EXTRACT=1`` exactly."""
     return os.environ.get(ENV_ENABLED, "").strip() == "1"
+
+
+def is_orcarouter() -> bool:
+    """True only when ``TS_ORCAROUTER=1`` exactly."""
+    return os.environ.get(ENV_ORCAROUTER, "").strip() == "1"
 
 
 def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
@@ -85,6 +104,7 @@ def _call_api(system: str, user: str, api_key: str, model: str) -> str | None:
     """POST Anthropic ``/v1/messages`` via stdlib urllib; return raw text or None."""
     import urllib.request
 
+    base_url = ORCAROUTER_API_BASE if is_orcarouter() else ANTHROPIC_API_BASE
     body = json.dumps({
         "model": model,
         "max_tokens": 1024,
@@ -92,7 +112,7 @@ def _call_api(system: str, user: str, api_key: str, model: str) -> str | None:
         "messages": [{"role": "user", "content": user}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        f"{base_url}/v1/messages",
         data=body,
         method="POST",
         headers={
@@ -168,10 +188,17 @@ def extract_observations(
     Returns ``[]`` when the API key is missing, the call fails, or the
     response is malformed. Never raises.
     """
-    api_key = os.environ.get(ENV_API_KEY, "").strip()
+    orcarouter = is_orcarouter()
+    api_key = os.environ.get(
+        ENV_ORCAROUTER_API_KEY if orcarouter else ENV_API_KEY, ""
+    ).strip()
+    if not api_key:
+        api_key = os.environ.get(ENV_API_KEY, "").strip()
     if not api_key:
         return []
-    model = os.environ.get(ENV_MODEL, "").strip() or DEFAULT_MODEL
+    model = os.environ.get(ENV_MODEL, "").strip() or (
+        ORCAROUTER_DEFAULT_MODEL if orcarouter else DEFAULT_MODEL
+    )
     user = _build_user_prompt(tool_name, tool_input, tool_output)
     raw = _call_api(SYSTEM_PROMPT, user, api_key, model)
     if raw is None:

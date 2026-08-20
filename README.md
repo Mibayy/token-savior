@@ -453,6 +453,8 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 | `TS_VIEWER_PORT` | off | Port for the observation web viewer (unset = disabled) |
 | `TS_AUTO_EXTRACT=1` + `TS_API_KEY` | off | LLM auto-extraction of memory observations (Anthropic API key required) |
 | `TS_MODEL` | `claude-sonnet-4-6` | Auto-extraction model override |
+| `TS_ORCAROUTER=1` | off | Route auto-extraction through OrcaRouter's Anthropic-compatible endpoint (`https://api.orcarouter.ai`) instead of `api.anthropic.com`; default model becomes `anthropic/claude-sonnet-4.6` |
+| `ORCAROUTER_API_KEY` | — | OrcaRouter key for `TS_ORCAROUTER=1`; falls back to `TS_API_KEY` when unset |
 | `TOKEN_SAVIOR_MEMORY_AUTO_SAVE=1` | off | Auto-save memory observations |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | — | Critical-observation feed |
 
