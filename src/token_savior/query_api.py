@@ -23,6 +23,7 @@ from token_savior.models import (
     StructuralMetadata,
     variables_mode,
 )
+from token_savior.project_indexer import _rebuild_path_indexes
 from token_savior.symbol_hash import analyze_symbol_semantics
 
 # Canonical order for the `kinds` parameter and for the `searched` /
@@ -841,6 +842,12 @@ class ProjectQueryEngine:
         self._fichiers_definissant_index: dict[str, list[str]] | None = None
         self._fichiers_definissant_memo: dict[str, list[str]] = {}
         self._fichiers_definissant_version: int | None = None
+        # Meme mecanique, meme invalidation, pour `_classes_definissant` : le
+        # signalement d'ambiguite de classe dans `_resolve_symbol_info` faisait
+        # son propre balayage complet des fichiers a CHAQUE appel, sans cache.
+        self._classes_homonymes_index: dict[str, list[str]] | None = None
+        self._classes_homonymes_memo: dict[str, list[str]] = {}
+        self._classes_homonymes_version: int | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -1563,7 +1570,15 @@ class ProjectQueryEngine:
 
         # `sorted_paths` est deja `sorted(files.keys())`, maintenu par
         # `_rebuild_path_indexes` : le retrier ici serait le payer deux fois.
-        chemins = self.index.sorted_paths or sorted(self.index.files)
+        # Le `or sorted(self.index.files)` d'avant le repayait quand meme a
+        # CHAQUE appel du regime scan : une liste vide est falsy, donc un index
+        # arrive sans passer par `_rebuild_path_indexes` (cache, deserialisation)
+        # retriait ses 19 160 chemins par appel. On repare l'index une fois, sur
+        # l'objet partage, donc aussi pour tous les autres lecteurs de
+        # `sorted_paths`. Un projet reellement sans fichier garde `[]`.
+        if not self.index.sorted_paths and self.index.files:
+            _rebuild_path_indexes(self.index)
+        chemins = self.index.sorted_paths
 
         if len(memo) < _SEUIL_INDEX_DEFINISSEURS:
             trouve: list[str] = []
@@ -1597,6 +1612,74 @@ class ProjectQueryEngine:
             for nom_defini in noms_du_fichier:
                 index.setdefault(nom_defini, []).append(chemin)
         self._fichiers_definissant_index = index
+        memo.clear()
+        return index.get(nom, [])
+
+    def _classes_definissant(self, nom: str) -> list[str]:
+        """Tous les fichiers qui definissent une CLASSE de ce nom.
+
+        Jumeau de `_fichiers_definissant`, restreint aux classes, parce que
+        `_resolve_symbol_info` a besoin de compter les definitions de classe
+        pour savoir s'il rend une reponse sur N presentee comme la seule.
+
+        Ce comptage se faisait en clair, sans cache, par un
+        `sorted(index.files.items())` suivi d'un balayage de toutes les classes
+        de tous les fichiers -- a CHAQUE appel de `_resolve_symbol_info`, donc a
+        chaque `find_symbol`, et une fois par dependance dans `get_dependents`,
+        `get_dependencies` et `get_call_chain`. Le cache pose sur
+        `_fichiers_definissant` ne l'atteignait pas : c'est ce balayage-la qui
+        restait a payer, et la p95 de `find_symbol` avec (437 ms -> 3343 ms).
+
+        Meme sortie et meme ordre (alphabetique) qu'avant, pour ne rien changer
+        au service rendu : l'ambiguite entre classes homonymes reste signalee.
+        Meme invalidation que le jumeau, contre `index.files_version`, sans quoi
+        un `replace_symbol_source` / `move_symbol` qui renomme une classe
+        laisserait la vue des definisseurs perimee pour la session.
+        """
+        if self._classes_homonymes_version != self.index.files_version:
+            self._classes_homonymes_index = None
+            self._classes_homonymes_memo = {}
+            self._classes_homonymes_version = self.index.files_version
+
+        if self._classes_homonymes_index is not None:
+            return self._classes_homonymes_index.get(nom, [])
+
+        memo = self._classes_homonymes_memo
+        if nom in memo:
+            return memo[nom]
+
+        # `sorted_paths` est deja `sorted(files.keys())`, maintenu par
+        # `_rebuild_path_indexes` : le retrier ici serait le payer deux fois.
+        chemins = self.index.sorted_paths or sorted(self.index.files)
+
+        if len(memo) < _SEUIL_INDEX_DEFINISSEURS:
+            trouve: list[str] = []
+            for chemin in chemins:
+                meta = self.index.files.get(chemin)
+                cls = getattr(meta, "classes", None) or []
+                if any(getattr(c, "name", None) == nom
+                       or getattr(c, "qualified_name", None) == nom for c in cls):
+                    trouve.append(chemin)
+            memo[nom] = trouve
+            return trouve
+
+        # Assez de noms distincts demandes pour que l'index complet soit
+        # rentable. Construit d'un bloc, jamais mute ensuite.
+        index: dict[str, list[str]] = {}
+        for chemin in chemins:
+            meta = self.index.files.get(chemin)
+            # Un fichier n'apparait qu'une fois par nom, meme s'il porte
+            # plusieurs classes homonymes (ou si `qualified_name` egale
+            # `name`) : le scan par appel n'appendait aussi qu'un chemin.
+            noms_du_fichier: set[str] = set()
+            for symbole in (getattr(meta, "classes", None) or []):
+                for attr in ("name", "qualified_name"):
+                    valeur = getattr(symbole, attr, None)
+                    if valeur:
+                        noms_du_fichier.add(valeur)
+            for nom_defini in noms_du_fichier:
+                index.setdefault(nom_defini, []).append(chemin)
+        self._classes_homonymes_index = index
         memo.clear()
         return index.get(nom, [])
 
@@ -3380,9 +3463,7 @@ class ProjectQueryEngine:
         want_classes = kinds is None or "class" in kinds
         homonymes: list[str] = []
         if want_classes:
-            homonymes = [pth for pth, m in sorted(index.files.items())
-                         if any(c.name == name or c.qualified_name == name
-                                for c in m.classes)]
+            homonymes = self._classes_definissant(name)
             if len(homonymes) <= 1:
                 class_info = self._resolve_exact_class_info(name, level=level)
                 if class_info is not None:
