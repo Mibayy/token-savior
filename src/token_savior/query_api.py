@@ -1650,7 +1650,15 @@ class ProjectQueryEngine:
 
         # `sorted_paths` est deja `sorted(files.keys())`, maintenu par
         # `_rebuild_path_indexes` : le retrier ici serait le payer deux fois.
-        chemins = self.index.sorted_paths or sorted(self.index.files)
+        # Le `or sorted(self.index.files)` d'avant le repayait quand meme a
+        # CHAQUE appel du regime scan : une liste vide est falsy, donc un index
+        # arrive sans passer par `_rebuild_path_indexes` (cache, deserialisation)
+        # retriait ses 19 160 chemins par appel. On repare l'index une fois, sur
+        # l'objet partage, donc aussi pour tous les autres lecteurs de
+        # `sorted_paths`. Un projet reellement sans fichier garde `[]`.
+        if not self.index.sorted_paths and self.index.files:
+            _rebuild_path_indexes(self.index)
+        chemins = self.index.sorted_paths
 
         if len(memo) < _SEUIL_INDEX_DEFINISSEURS:
             trouve: list[str] = []

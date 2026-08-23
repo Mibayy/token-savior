@@ -122,3 +122,20 @@ def test_le_cache_tombe_quand_les_fichiers_changent(engine, projet, indexeur) ->
         "apres reindexation, le cache doit tomber : `Tarif` n'est plus defini "
         f"que dans a.py (rendu : {apres})"
     )
+
+
+def test_sorted_paths_perime_est_repare_par_classes_definissant(engine) -> None:
+    """Meme reparation que `_fichiers_definissant` quand `sorted_paths` arrive
+    vide/perime (cache, deserialisation) alors que des fichiers existent :
+    sinon chaque appel en regime scan retrie tout le projet a chaque fois.
+    """
+    assert engine.index.files, "le fixture doit avoir des fichiers"
+    engine.index.sorted_paths = []
+
+    engine._classes_definissant("Tarif")
+
+    assert engine.index.sorted_paths, (
+        "sorted_paths perime aurait du etre repare sur l'objet partage, "
+        "comme le fait _fichiers_definissant, pour eviter un retri a chaque appel"
+    )
+    assert engine.index.sorted_paths == sorted(engine.index.files)
