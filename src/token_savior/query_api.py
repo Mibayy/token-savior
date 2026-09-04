@@ -826,8 +826,10 @@ class ProjectQueryEngine:
     def __init__(self, index: ProjectIndex):
         self.index = index
         self._communities: dict[str, str] | None = None
+        self._communities_version: int | None = None
         self._semantic_hash_cache: dict[str, str] | None = None
         self._semantic_hash_seuil: int | None = None
+        self._semantic_hash_version: int | None = None
         # Deux caches pour `_fichiers_definissant`, reutilises pour toute la
         # vie de l'instance (le slot_manager garde un engine par projet et le
         # reutilise pour tous les appels suivants) :
@@ -2785,8 +2787,14 @@ class ProjectQueryEngine:
         # Le cache etait construit une seule fois, avec le min_lines du
         # PREMIER appel, puis reutilise tel quel. Un appel ulterieur avec un
         # autre seuil recevait donc un resultat calcule pour l'ancien, sans
-        # rien qui le signale. On le cle par seuil.
-        if self._semantic_hash_cache is None or self._semantic_hash_seuil != min_lines:
+        # rien qui le signale. On le cle par seuil, et par `files_version` :
+        # sinon une edition reindexee laisse le cache fige sur les sources
+        # d'avant, pour toute la vie de l'engine.
+        if (
+            self._semantic_hash_cache is None
+            or self._semantic_hash_seuil != min_lines
+            or self._semantic_hash_version != self.index.files_version
+        ):
             self._build_semantic_hash_cache(min_lines)
 
         cache = self._semantic_hash_cache
@@ -3070,6 +3078,7 @@ class ProjectQueryEngine:
                 key = f"{func.qualified_name}  ({file_path}:{start})"
                 cache[key] = h
         self._semantic_hash_cache = cache
+        self._semantic_hash_version = self.index.files_version
 
     # ------------------------------------------------------------------
     # RWR relevance ranking
@@ -3606,8 +3615,14 @@ class ProjectQueryEngine:
         return None
 
     def _get_communities(self) -> dict[str, str]:
-        if self._communities is None:
+        # Versionne contre `index.files_version`, comme `_fichiers_definissant` :
+        # une edition qui ajoute ou deplace un appel change le graphe de
+        # dependances, et l'engine n'est jamais recree entre deux appels (le
+        # slot_manager le garde). Sans invalidation, `get_symbol_cluster`
+        # continuerait de rendre le decoupage d'avant l'edition.
+        if self._communities is None or self._communities_version != self.index.files_version:
             self._communities = compute_communities(self.index)
+            self._communities_version = self.index.files_version
         return self._communities
 
     def _get_aggregated_dependencies(self, resolved_name: str) -> set[str] | None:
