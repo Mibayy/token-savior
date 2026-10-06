@@ -3540,8 +3540,9 @@ class ProjectQueryEngine:
             return {
                 "name": name,
                 "error": (f"class '{name}' is ambiguous; defined in "
-                          f"{len(fichiers)} files: {', '.join(fichiers[:5])}"),
-                "candidates": fichiers[:10],
+                          f"{len(fichiers)} files: "
+                          f"{', '.join(fichiers[:_MAX_HOMONYMES])}"),
+                "candidates": fichiers[:_MAX_HOMONYMES],
                 "_suggestion": (f"get_class_source('{name}', file_path='{fichiers[0]}') "
                                 "or pass the fully qualified name."),
             }
@@ -3573,9 +3574,10 @@ class ProjectQueryEngine:
                     "name": name,
                     "error": (
                         f"no exact match; normalized-name candidates "
-                        f"({len(candidates)}): {', '.join(candidates[:5])}"
+                        f"({len(candidates)}): "
+                        f"{', '.join(candidates[:_MAX_HOMONYMES])}"
                     ),
-                    "normalized_candidates": candidates[:10],
+                    "normalized_candidates": candidates[:_MAX_HOMONYMES],
                 }
         return {"name": name}
 
