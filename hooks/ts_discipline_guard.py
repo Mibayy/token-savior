@@ -48,19 +48,36 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 # Extensions Token Savior can edit structurally. Everything else (.md, .json,
 # .yml, .sql, .env) stays on the native tools by design.
-CODE_EXTENSIONS = (".py", ".ts", ".tsx", ".js", ".jsx")
+CODE_EXTENSIONS = (".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 INDEX_MARKER = ".token-savior-cache.json"
+RACINES_IGNOREES = {"/", os.path.realpath(tempfile.gettempdir())}
 
 # The MCP server registers as `token-savior` or `token-savior-recall`
 # depending on the install, hence the loose middle.
-CONTEXT_TOOLS = re.compile(r"__(get_edit_context|get_full_context)$")
+CONTEXT_TOOLS = re.compile(
+    r"__(get_edit_context|get_full_context|get_function_source|get_class_source"
+    r"|ts_execute)$")
+# Inside a ts_execute script: `tools.get_edit_context({ name: "X" })`.
+SCRIPT_CONTEXT = re.compile(
+    r"tools\.(get_edit_context|get_full_context|get_function_source|get_class_source)"
+    r"\(\s*\{[^}]*?\b(?:name|symbol_name|symbol)\s*:\s*[\"'`]([^\"'`]+)[\"'`]")
+# Rewriting a symbol needs its context. Inserting next to one does not: the
+# anchor is only a position, it is not modified. 26 of the 29 refusals of
+# insert_near_symbol over 30 days (06/10/2026) were on that anchor.
 EDIT_TOOLS = re.compile(
-    r"__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol)$")
+    r"__(replace_symbol_source|add_field_to_model|move_symbol)$")
+
+# A whole-file Read of a short file costs about what read_lines would, and
+# Claude Code's Edit requires a prior Read of the file: refusing it only adds
+# a round-trip. Measured 06/10/2026 over 30 days: 78 % of refused Reads were
+# re-issued identically within five minutes.
+LECTURE_LIBRE_LIGNES = int(os.environ.get("TS_GUARD_READ_FREE_LINES", "200"))
 
 SHELL_READERS = re.compile(r"^(cat|head|tail|less|more|grep|rg|sed|awk)$")
 
@@ -79,6 +96,10 @@ def indexed_root(path: str) -> str | None:
     environment, not the MCP server's, where that variable does not exist. The
     marker file at an indexed project's root is local, present exactly where
     the question is asked, and cannot drift from a distant config.
+
+    A marker at `/` or in the temp directory is not a project: on 06/10/2026
+    a stray `/tmp/.token-savior-cache.json` (25 MB, written by a nightly job)
+    made every file under `/tmp` count as indexed code.
     """
     try:
         p = Path(path).resolve()
@@ -86,6 +107,8 @@ def indexed_root(path: str) -> str | None:
         return None
     p = p if p.is_dir() else p.parent
     for candidate in (p, *p.parents):
+        if str(candidate) in RACINES_IGNOREES:
+            continue
         if (candidate / INDEX_MARKER).exists():
             return str(candidate)
     return None
@@ -294,11 +317,28 @@ def noter_decision(decision: str, verdict: str, tool: str, cible: str) -> None:
         pass
 
 
-def requested_names(tool_input: dict) -> list[str]:
-    """`get_full_context` accepts `name` or `names=[...]` in batch mode."""
+def requested_names(tool, tool_input: dict) -> list[str]:
+    """Symbols whose source the caller has just seen.
+
+    `get_full_context` accepts `name` or `names=[...]` in batch mode. Reading
+    the source with `get_function_source` / `get_class_source` counts too: the
+    refusal only ever asked that the symbol be looked at before being
+    rewritten, and the server appends the edit-impact block (callers) to the
+    edit itself.
+
+    A `ts_execute` script is the route the instructions recommend for chains,
+    so its calls count as well, read from the script text. Measured on 30
+    days of transcripts (06/10/2026): of 33 refusals of
+    `replace_symbol_source`, most followed a context taken through a route
+    this function did not recognise.
+    """
+    if isinstance(tool, str) and tool.endswith("__ts_execute"):
+        script = str(tool_input.get("script") or tool_input.get("code") or "")
+        return [m.group(2) for m in SCRIPT_CONTEXT.finditer(script)]
     names: list[str] = []
-    if isinstance(tool_input.get("name"), str):
-        names.append(tool_input["name"])
+    for cle in ("name", "symbol_name", "symbol"):
+        if isinstance(tool_input.get(cle), str):
+            names.append(tool_input[cle])
     batch = tool_input.get("names")
     if isinstance(batch, list):
         names += [n for n in batch if isinstance(n, str)]
@@ -354,13 +394,32 @@ def verdict_native_edit(tool_input: dict) -> str | None:
 
 
 def verdict_native_read(tool_input: dict) -> str | None:
+    """Whole-file Read of a long indexed source file.
+
+    A ranged Read (`offset`/`limit`) already is the targeted read this guard
+    asks for, and a short file read whole costs no more than its symbols.
+    Both pass. Before 06/10/2026 every Read of indexed code was refused once
+    and 78 % were re-issued identically: Claude Code's `Edit` demands a prior
+    `Read` of the file, so the refusal mostly bought a round-trip.
+    """
     path = str(tool_input.get("file_path") or "")
     if not is_indexed_code(path):
         return None
+    if tool_input.get("offset") or tool_input.get("limit"):
+        return None
+    try:
+        with open(os.path.expanduser(path), "rb") as f:
+            lignes = sum(1 for _ in f)
+    except OSError:
+        return None
+    if lignes <= LECTURE_LIBRE_LIGNES:
+        return None
     return (
-        f"native Read on {os.path.basename(path)}, an indexed source file.\n"
-        f'  get_function_source("<symbol>") or get_full_context("<symbol>") '
-        f"return the symbol and its neighbourhood instead of the whole file."
+        f"native Read on {os.path.basename(path)}, an indexed source file "
+        f"of {lignes} lines.\n"
+        f'  read_lines(file_path, start, end) for a range, get_function_source("<symbol>") '
+        f'or get_full_context("<symbol>") for a symbol and its neighbourhood.\n'
+        f"  A Read with offset/limit passes too."
     )
 
 
@@ -449,14 +508,25 @@ def main() -> int:
         session_id = str(data.get("session_id") or "")
 
         if CONTEXT_TOOLS.search(tool):
-            record_symbols(session_id, requested_names(tool_input))
+            record_symbols(session_id, requested_names(tool, tool_input))
             return 0
 
         reason = None
         if EDIT_TOOLS.search(tool):
             reason = verdict_edit_without_context(tool, tool_input, session_id)
+            if reason is None:
+                # Edited once with its context: later edits of the same
+                # symbol in this session need no second context call.
+                record_symbols(session_id, requested_names(tool, tool_input))
         elif tool in ("Edit", "Write", "NotebookEdit"):
-            reason = verdict_native_edit(tool_input)
+            # Advice only since 06/10/2026: 303 of 305 refusals over 30 days
+            # were re-issued identically within five minutes. A refusal that
+            # is always overridden teaches nothing and costs a round-trip.
+            conseil = verdict_native_edit(tool_input)
+            if conseil:
+                noter_decision("conseil", conseil.split("\n", 1)[0][:60], tool,
+                               str(tool_input.get("file_path") or ""))
+            return 0
         elif tool == "Read":
             reason = verdict_native_read(tool_input)
         elif tool in ("Grep", "Glob"):

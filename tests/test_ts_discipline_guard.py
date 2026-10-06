@@ -104,7 +104,6 @@ def test_les_sessions_sont_cloisonnees(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("outil", [
-    "mcp__token-savior__insert_near_symbol",
     "mcp__token-savior__add_field_to_model",
     "mcp__token-savior__move_symbol",
     "mcp__token-savior-recall__replace_symbol_source",
@@ -120,10 +119,10 @@ def test_toutes_les_primitives_d_edition_sont_couvertes(tmp_path: Path, outil: s
 
 # --- Lecture ------------------------------------------------------------- #
 
-@pytest.mark.parametrize("ext", [".py", ".ts", ".tsx", ".js", ".jsx"])
+@pytest.mark.parametrize("ext", [".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 def test_refuse_read_natif_sur_code_indexe(projet: Path, tmp_path: Path, ext: str) -> None:
     f = projet / f"module{ext}"
-    f.write_text("x = 1\n", encoding="utf-8")
+    f.write_text("x = 1\n" * 300, encoding="utf-8")
     payload = {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(f)}}
     assert "get_function_source" in raison(lancer(payload, tmp_path / "etat"))
 
@@ -365,10 +364,11 @@ def test_laisse_editer_les_dependances_vendorisees(
 
 
 @pytest.mark.parametrize("outil", ["Edit", "Write"])
-def test_refuse_toujours_l_edition_du_vrai_code_du_projet(
+def test_l_edition_native_du_vrai_code_n_est_plus_refusee(
     projet: Path, tmp_path: Path, outil: str,
 ) -> None:
-    """Le controle ajoute ne doit rien laisser passer d'autre."""
+    """Conseil journalise depuis le 06/10/2026 : le refus etait relance a
+    l'identique 303 fois sur 305, il ne faisait que couter un aller-retour."""
     f = projet / "app" / "calc.py"
     f.parent.mkdir(parents=True)
     f.write_text("def x():\n    return 1\n", encoding="utf-8")
@@ -377,7 +377,75 @@ def test_refuse_toujours_l_edition_du_vrai_code_du_projet(
         "tool_name": outil,
         "tool_input": {"file_path": str(f)},
     }
-    assert "native edit" in raison(lancer(payload, tmp_path / "etat"))
+    assert lancer(payload, tmp_path / "etat") is None
+
+
+# --- Ce qui passe depuis le 06/10/2026 ------------------------------------ #
+
+def test_inserer_pres_d_un_symbole_ne_demande_pas_son_contexte(tmp_path: Path) -> None:
+    """L'ancre n'est qu'une position, elle n'est pas modifiee : 26 des 29
+    refus d'insert_near_symbol sur 30 jours portaient sur elle."""
+    payload = {"session_id": "s1", "tool_name": "mcp__token-savior__insert_near_symbol",
+               "tool_input": {"symbol_name": "ancre", "content": "x = 1"}}
+    assert lancer(payload, tmp_path / "etat") is None
+
+
+def test_un_fichier_court_se_lit_en_entier(projet: Path, tmp_path: Path) -> None:
+    f = projet / "petit.py"
+    f.write_text("x = 1\n" * 50, encoding="utf-8")
+    payload = {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(f)}}
+    assert lancer(payload, tmp_path / "etat") is None
+
+
+def test_une_lecture_bornee_passe(projet: Path, tmp_path: Path) -> None:
+    f = projet / "long.py"
+    f.write_text("x = 1\n" * 900, encoding="utf-8")
+    payload = {"session_id": "s1", "tool_name": "Read",
+               "tool_input": {"file_path": str(f), "offset": 100, "limit": 40}}
+    assert lancer(payload, tmp_path / "etat") is None
+
+
+@pytest.mark.parametrize("outil", ["get_function_source", "get_class_source"])
+def test_lire_la_source_vaut_contexte(tmp_path: Path, outil: str) -> None:
+    etat = tmp_path / "etat"
+    lu = {"session_id": "s1", "tool_name": f"mcp__token-savior__{outil}",
+          "tool_input": {"name": "cible"}}
+    assert lancer(lu, etat) is None
+    assert lancer(edition("cible"), etat) is None
+    assert lancer(edition("autre"), etat) is not None
+
+
+def test_un_script_ts_execute_vaut_contexte(tmp_path: Path) -> None:
+    """La route que les consignes recommandent pour les chaines d'appels."""
+    etat = tmp_path / "etat"
+    script = ('const c = await tools.get_edit_context({ name: "cible" });\n'
+              "const s = await tools.get_function_source({symbol_name: 'deux'});\n"
+              "return c;")
+    payload = {"session_id": "s1", "tool_name": "mcp__token-savior__ts_execute",
+               "tool_input": {"script": script}}
+    assert lancer(payload, etat) is None
+    assert lancer(edition("cible"), etat) is None
+    assert lancer(edition("deux"), etat) is None
+    assert lancer(edition("trois"), etat) is not None
+
+
+def test_un_symbole_deja_edite_se_reedite(tmp_path: Path) -> None:
+    etat = tmp_path / "etat"
+    assert lancer(contexte("cible"), etat) is None
+    assert lancer(edition("cible"), etat) is None
+    assert lancer(edition("cible"), etat) is None
+
+
+def test_un_marqueur_dans_le_dossier_temporaire_ne_fait_pas_un_projet(tmp_path: Path) -> None:
+    """Le 06/10/2026, un `/tmp/.token-savior-cache.json` de 25 Mo laisse par
+    une tache de nuit faisait passer tout fichier de /tmp pour du code indexe."""
+    faux_tmp = tmp_path / "tmp"
+    (faux_tmp / "clone").mkdir(parents=True)
+    (faux_tmp / ".token-savior-cache.json").write_text("{}", encoding="utf-8")
+    f = faux_tmp / "clone" / "mod.py"
+    f.write_text("x = 1\n" * 300, encoding="utf-8")
+    payload = {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(f)}}
+    assert lancer(payload, tmp_path / "etat", {"TMPDIR": str(faux_tmp)}) is None
 
 
 # --- Etat de session ------------------------------------------------------ #

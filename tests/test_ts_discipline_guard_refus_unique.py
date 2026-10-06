@@ -48,7 +48,9 @@ def projet(tmp_path: Path) -> Path:
 
 def _lecture(projet: Path, nom: str = "mod.py") -> dict:
     f = projet / nom
-    f.write_text("def f():\n    return 1\n", encoding="utf-8")
+    # Assez long pour que la lecture entiere reste refusee : un fichier court
+    # se lit en entier sans refus depuis le 06/10/2026.
+    f.write_text("def f():\n    return 1\n" * 150, encoding="utf-8")
     return {"session_id": "s1", "tool_name": "Read",
             "tool_input": {"file_path": str(f)}}
 
@@ -77,13 +79,12 @@ class TestRefusUnique:
             "insister sur le meme appel doit passer, sinon le garde est un mur"
         )
 
-    def test_l_edition_native_suit_la_meme_regle(self, projet: Path, tmp_path: Path) -> None:
-        """C'est le cas precis du dictionnaire de module, que
-        replace_symbol_source ne sait pas modifier."""
+    def test_l_edition_native_n_est_jamais_refusee(self, projet: Path, tmp_path: Path) -> None:
+        """Le cas du dictionnaire de module, que replace_symbol_source ne sait
+        pas modifier. Depuis le 06/10/2026 l'edition native n'est plus qu'un
+        conseil journalise : 303 refus sur 305 etaient relances a l'identique."""
         etat = tmp_path / "etat"
-        appel = _edition_native(projet)
-        assert lancer(appel, etat) is not None
-        assert lancer(appel, etat) is None
+        assert lancer(_edition_native(projet), etat) is None
 
     def test_le_refus_dit_comment_insister(self, projet: Path, tmp_path: Path) -> None:
         etat = tmp_path / "etat"

@@ -62,8 +62,9 @@ def test_sans_le_drapeau_le_garde_fou_ne_refuse_rien(projet: Path) -> None:
 
 def test_avec_le_drapeau_il_refuse(projet: Path, tmp_path: Path) -> None:
     f = projet / "module.py"
-    f.write_text("x = 1\n", encoding="utf-8")
-    verdict = run_hook(_edit_natif(f), {"TS_DISCIPLINE_GUARD": "1",
+    f.write_text("x = 1\n" * 300, encoding="utf-8")
+    lecture = {"session_id": "s1", "tool_name": "Read", "tool_input": {"file_path": str(f)}}
+    verdict = run_hook(lecture, {"TS_DISCIPLINE_GUARD": "1",
                                         "XDG_STATE_HOME": str(tmp_path / "etat")})
     assert verdict is not None
     assert verdict["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -85,17 +86,18 @@ def _actif(tmp_path: Path) -> dict:
     return {"TS_DISCIPLINE_GUARD": "1", "XDG_STATE_HOME": str(tmp_path / "etat")}
 
 
-@pytest.mark.parametrize("ext", [".py", ".ts", ".tsx", ".js", ".jsx"])
-def test_refuse_l_edition_native_de_code_indexe(projet: Path, tmp_path: Path,
-                                                ext: str) -> None:
+@pytest.mark.parametrize("ext", [".py", ".ts", ".tsx", ".js", ".jsx", ".mjs"])
+def test_l_edition_native_de_code_indexe_est_un_conseil(projet: Path, tmp_path: Path,
+                                                        ext: str) -> None:
+    """Conseil journalise, jamais refus : sur 30 jours (06/10/2026), 303 refus
+    sur 305 ont ete relances a l'identique dans les cinq minutes."""
     f = projet / f"module{ext}"
     f.write_text("x = 1\n", encoding="utf-8")
-    verdict = run_hook(_edit_natif(f), _actif(tmp_path))
-    assert verdict is not None
-    motif = verdict["hookSpecificOutput"]["permissionDecisionReason"]
-    # Un garde-fou qui bloque sans nommer le remplacant se contourne.
-    assert "get_edit_context" in motif
-    assert "replace_symbol_source" in motif
+    journal = tmp_path / "garde.jsonl"
+    env = dict(_actif(tmp_path), TS_GUARD_LOG=str(journal))
+    assert run_hook(_edit_natif(f), env) is None
+    ligne = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
+    assert ligne["decision"] == "conseil"
 
 
 def test_la_creation_d_un_fichier_reste_permise(projet: Path, tmp_path: Path) -> None:
