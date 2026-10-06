@@ -135,8 +135,16 @@ class TestPythonAnnotatorVariables:
 
 
 class TestFindSymbolKinds:
-    def test_variable_not_found_under_default_kinds(self, funcs):
+    def test_variable_found_by_fallback_under_default_kinds(self, funcs):
+        """Sans genres explicites, un echec sur fonctions et classes retente
+        les variables : le `retry_with` coutait un aller-retour (06/10/2026)."""
         result = funcs["find_symbol"]("pfb")
+        assert result["file"] == "engine.py"
+        assert result["type"] == "variable"
+        assert result["trouve_par"] == "repli sur les variables"
+
+    def test_no_fallback_when_kinds_are_explicit(self, funcs):
+        result = funcs["find_symbol"]("pfb", kinds=["function", "class"])
         assert "error" in result
         assert result["not_searched"] == ["variable"]
 

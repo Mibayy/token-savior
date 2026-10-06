@@ -798,6 +798,7 @@ class ProjectQueryEngine:
         "get_imports",
         "get_function_source",
         "get_class_source",
+        "get_variable_source",
         "find_symbol",
         "get_dependencies",
         "get_dependents",
@@ -1366,6 +1367,19 @@ class ProjectQueryEngine:
             variable_result = self._resolve_variable_info(name, level=level)
             if variable_result is not None:
                 result = variable_result
+        # Repli sur les variables quand l'appelant n'a pas choisi de genres.
+        # Releve du 06/10/2026 sur 30 jours : les « not found » de
+        # find_symbol et get_edit_context portaient surtout sur des constantes
+        # de module (POSTES_ESTALLE_MP, SENDER, REGISTRATION_ERRORS). Le
+        # rapport `retry_with` coutait un aller-retour pour une reponse que
+        # l'index avait deja. Une fonction ou une classe du meme nom garde la
+        # priorite : le repli ne joue que sur un echec.
+        if ("file" not in result and "error" not in result and kinds is None
+                and "variable" not in searched
+                and "variable" in self._indexed_kinds()):
+            variable_result = self._resolve_variable_info(name, level=level)
+            if variable_result is not None:
+                result = {**variable_result, "trouve_par": "repli sur les variables"}
 
         if "file" not in result:
             if "error" in result:  # ambiguous / normalized-candidates report
@@ -1465,6 +1479,37 @@ class ProjectQueryEngine:
         if level == 0:
             out["source_preview"] = meta.lines[var.line_number - 1]
         return out
+
+    def get_variable_source(self, name: str, max_lines: int = 200) -> str:
+        """Source of a module or class binding: from its line to the end of
+        the value, brackets balanced.
+
+        `get_full_context` and `get_edit_context` only knew functions and
+        classes, so a constant came back as "function 'X' not found" even
+        after find_symbol had located it. Releve du 06/10/2026 : c'etait la
+        moitie des echecs de get_edit_context sur 30 jours
+        (POSTES_ESTALLE_MP, SENDER, readToken...).
+        """
+        info = self._resolve_variable_info(name, level=2)
+        if not info or "file" not in info:
+            return f"Error: variable '{name}' not found in project"
+        meta = _resolve_file(self.index, info["file"])
+        if meta is None:
+            return f"Error: file '{info['file']}' not found in index"
+        lignes = meta.lines
+        debut = info["line"]
+        fin = debut
+        profondeur = 0
+        borne = min(len(lignes), debut - 1 + max(1, max_lines))
+        for i in range(debut - 1, borne):
+            texte = lignes[i]
+            profondeur += sum(texte.count(c) for c in "([{")
+            profondeur -= sum(texte.count(c) for c in ")]}")
+            fin = i + 1
+            if profondeur <= 0 and not texte.rstrip().endswith(("\\", ",", "=", "+", "(", "[", "{")):
+                break
+        corps = "\n".join(lignes[debut - 1:fin])
+        return f"{info['type']} {info['name']} ({info['file']}:{debut}-{fin})\n{corps}"
 
     def get_dependencies(
         self, name: str, max_results: int = 0, depth: int = 1
@@ -2269,6 +2314,8 @@ class ProjectQueryEngine:
         try:
             if sym_type == "class":
                 result["source"] = self.get_class_source(name, max_lines=max_lines)
+            elif sym_type in ("variable", "constant"):
+                result["source"] = self.get_variable_source(name, max_lines=max_lines)
             else:
                 result["source"] = self.get_function_source(name, max_lines=max_lines)
         except Exception as exc:  # pragma: no cover

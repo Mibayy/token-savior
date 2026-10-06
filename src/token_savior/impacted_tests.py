@@ -352,7 +352,7 @@ def _select_test_command(index: ProjectIndex, selection: dict) -> list[str] | No
     if any(_is_java_related_file(path) for path in changed_files):
         return action_ids.get("gradle:test") or action_ids.get("maven:test")
 
-    if any(path.endswith((".ts", ".tsx", ".js", ".jsx")) for path in changed_files):
+    if any(path.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")) for path in changed_files):
         return action_ids.get("npm:test")
     if any(path.endswith(".rs") for path in changed_files):
         return action_ids.get("cargo:test")

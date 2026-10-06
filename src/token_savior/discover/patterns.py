@@ -23,7 +23,7 @@ from datetime import datetime
 
 from token_savior.discover.transcript_scanner import Event
 
-_CODE_EXTS = (".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go")
+_CODE_EXTS = (".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".rs", ".go")
 _NATIVE_SHELL_CODE_VERBS = ("grep", "cat", "head", "sed", "awk", "find", "rg", "tail")
 
 # Tools considered "Token Savior" calls for adoption accounting.

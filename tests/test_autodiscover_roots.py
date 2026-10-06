@@ -29,6 +29,7 @@ def make_project(base, name: str, marker: str = ".git"):
     d.mkdir(parents=True, exist_ok=True)
     if marker == ".git":
         (d / ".git").mkdir()
+        (d / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     else:
         (d / marker).write_text("{}", encoding="utf-8")
     return d
@@ -208,6 +209,7 @@ def _worktree_imbrique(tmp_path):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / ".git").mkdir()
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     wt = repo / ".claude" / "worktrees" / "fix-98"
     wt.mkdir(parents=True)
     (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")
@@ -312,3 +314,24 @@ def test_root_delibere_l_emporte_sur_le_worktree_de_lancement(tmp_path, monkeypa
     rt.autodiscover_and_register()
     assert str(wt) in mgr.projects, "le worktree garde son slot"
     assert mgr.active_root == str(repo), "un choix humain explicite n'est pas renverse"
+
+
+def test_un_git_vide_ne_fait_pas_un_projet(tmp_path) -> None:
+    """Panne du 06/10/2026 : un `/tmp/.git` vide faisait de tout /tmp un depot."""
+    from token_savior.server_runtime import is_project_dir
+    (tmp_path / ".git").mkdir()
+    assert not is_project_dir(str(tmp_path))
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    assert is_project_dir(str(tmp_path))
+
+
+def test_le_dossier_temporaire_n_est_jamais_une_racine(tmp_path, monkeypatch) -> None:
+    from token_savior.server_runtime import project_root_of
+    faux_tmp = tmp_path / "tmp"
+    (faux_tmp / ".git").mkdir(parents=True)
+    (faux_tmp / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (faux_tmp / "clone" / "src").mkdir(parents=True)
+    monkeypatch.setenv("TMPDIR", str(faux_tmp))
+    import tempfile
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert project_root_of(str(faux_tmp / "clone" / "src")) is None

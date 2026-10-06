@@ -60,6 +60,7 @@ def projet(tmp_path, nom: str):
     d = tmp_path / nom
     d.mkdir(parents=True)
     (d / ".git").mkdir()
+    (d / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     return d
 
 

@@ -37,7 +37,7 @@ _BRACE_LANGUAGE_BRANCH_KEYWORDS = (
     "do {",
 )
 _BRACE_LANGUAGE_EXTENSIONS = frozenset(
-    {".java", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".cs", ".c", ".h"}
+    {".java", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rs", ".cs", ".c", ".h"}
 )
 
 def _compute_nesting_depth(lines: list[str], file_path: str | None = None) -> int:

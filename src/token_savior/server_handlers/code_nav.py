@@ -492,8 +492,13 @@ def _q_get_edit_context(qfns, args):
     except Exception:
         location = None
     is_class = isinstance(location, dict) and location.get("type") == "class"
+    is_variable = (isinstance(location, dict)
+                   and location.get("type") in ("variable", "constant")
+                   and "get_variable_source" in qfns)
     try:
-        if is_class:
+        if is_variable:
+            ctx["source"] = qfns["get_variable_source"](sym_name, max_lines=200)
+        elif is_class:
             ctx["source"] = qfns["get_class_source"](sym_name, max_lines=200)
         else:
             ctx["source"] = qfns["get_function_source"](sym_name, max_lines=200)
@@ -797,6 +802,33 @@ def _suggest_if_empty_search(result, pattern: str):
     return result
 
 
+# Au-dela, Claude Code refuse le resultat et le depose dans un fichier : 5
+# appels search_codebase(max_results=0) sur 30 jours (06/10/2026) ont rendu
+# de 107 000 a 192 000 caracteres, soit une erreur au lieu d'une reponse.
+_BUDGET_RECHERCHE_SANS_BORNE = 60_000
+
+
+def _borner_recherche_sans_borne(result, args: dict[str, Any]):
+    """`max_results=0` veut dire « pas de plafond en nombre », pas « depasse
+    la fenetre » : on coupe au budget de caracteres et on le dit."""
+    if args.get("max_results", 100) != 0 or not isinstance(result, list):
+        return result
+    total = 0
+    for i, hit in enumerate(result):
+        total += len(json.dumps(hit, ensure_ascii=False)) + 1
+        if total > _BUDGET_RECHERCHE_SANS_BORNE:
+            fichiers = len({h.get("file") for h in result if isinstance(h, dict)})
+            return {
+                "matches": result[:i],
+                "_tronque": (
+                    f"{len(result)} correspondances dans {fichiers} fichiers, "
+                    f"{i} rendues ({_BUDGET_RECHERCHE_SANS_BORNE} caracteres). "
+                    f"Resserre le motif, ou cible un fichier avec read_lines."
+                ),
+            }
+    return result
+
+
 def _suggest_if_empty_dependents(result, name: str):
     if isinstance(result, list) and len(result) == 0:
         if _HINTS_DISABLED:
@@ -942,6 +974,46 @@ def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | N
     return f"{meilleur[0]} (lines {meilleur[1]}-{meilleur[2]})"
 
 
+_HORS_INDEX_MAX_OCTETS = 5 * 1024 * 1024
+
+
+def _lire_hors_index(qfns, file_path: str, start: int, end: int) -> str | None:
+    """Lit une plage d'un fichier present sur disque mais absent de l'index.
+
+    Releve du 06/10/2026 sur 30 jours : 17 des 19 echecs de read_lines etaient
+    « file not found in index » sur un fichier qui existait bien (un `.mjs`
+    jamais indexe, un depot non enregistre comme /root/rhwatch). L'erreur
+    renvoyait l'appelant vers list_files ou switch_project, et en pratique
+    vers `sed -n` en Bash. Lire ce que `sed` aurait lu, sans symbole
+    englobant, rend le meme service sans quitter l'outil.
+
+    Chemin absolu, ou relatif a la racine du projet actif. Fichier regulier
+    de moins de 5 Mo, sans octet nul : pas de binaire.
+    """
+    racine = None
+    try:
+        racine = qfns["get_lines"].__self__.index.root_path
+    except (AttributeError, KeyError, TypeError):
+        pass
+    chemin = os.path.expanduser(file_path)
+    if not os.path.isabs(chemin):
+        if not racine:
+            return None
+        chemin = os.path.join(racine, chemin)
+    try:
+        if not os.path.isfile(chemin) or os.path.getsize(chemin) > _HORS_INDEX_MAX_OCTETS:
+            return None
+        with open(chemin, "rb") as f:
+            octets = f.read()
+    except OSError:
+        return None
+    if b"\0" in octets[:8192]:
+        return None
+    lignes = octets.decode("utf-8", errors="replace").split("\n")
+    if start > len(lignes):
+        return (f"Error: start ({start}) is past the end of '{file_path}' "
+                f"({len(lignes)} lines).")
+    return "\n".join(lignes[start - 1:end])
 def _q_read_lines(qfns, args: dict[str, Any]):
     """Lecture par plage de lignes — le cas ou l'appelant tient un numero.
 
@@ -982,6 +1054,11 @@ def _q_read_lines(qfns, args: dict[str, Any]):
     brut = qfns["get_lines"](file_path, start, end)
     if not isinstance(brut, str):
         return brut
+    hors_index = None
+    if brut.startswith("Error:") and "not found in index" in brut:
+        hors_index = _lire_hors_index(qfns, file_path, start, end)
+        if hors_index is not None:
+            brut = hors_index
     if brut.startswith("Error:"):
         if "not found in index" in brut:
             return (
@@ -1006,7 +1083,9 @@ def _q_read_lines(qfns, args: dict[str, Any]):
             f"[tronque a {cap} lignes — relance avec start={end + 1}, "
             f"ou max_lines=0 pour lever le plafond]"
         )
-    if args.get("hints", True) and not _HINTS_DISABLED:
+    if hors_index is not None:
+        suffixes.append("[lu sur disque : fichier hors index, pas de symbole englobant]")
+    elif args.get("hints", True) and not _HINTS_DISABLED:
         englobant = _read_lines_enclosing(qfns, file_path, start, start + len(lignes) - 1)
         if englobant:
             nom = englobant.split(" (")[0]
@@ -1056,7 +1135,7 @@ QFN_HANDLERS: dict[str, object] = {
     "get_file_dependents": lambda q, a: q["get_file_dependents"](
         a["file_path"], max_results=a.get("max_results", 0)
     ),
-    "search_codebase": lambda q, a: _suggest_if_empty_search(
+    "search_codebase": lambda q, a: _borner_recherche_sans_borne(_suggest_if_empty_search(
         q["search_codebase"](
             a["pattern"],
             max_results=a.get("max_results", 100),
@@ -1064,7 +1143,7 @@ QFN_HANDLERS: dict[str, object] = {
             semantic=a.get("semantic", False),
         ),
         a["pattern"],
-    ),
+    ), a),
     "search_in_symbols": lambda q, a: _suggest_if_empty_search(
         q["search_in_symbols"](a["pattern"], max_results=a.get("max_results", 100)),
         a["pattern"],

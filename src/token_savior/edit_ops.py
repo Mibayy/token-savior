@@ -571,7 +571,7 @@ def _file_to_module(rel_path: str) -> str | None:
         return None
     # Strip extension
     base, ext = os.path.splitext(rel_path)
-    if ext not in {".py", ".ts", ".tsx", ".js", ".jsx"}:
+    if ext not in {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
         return None
     # Convert slashes to dots
     return base.replace("/", ".").replace("\\", ".")
@@ -794,7 +794,7 @@ def _refactor_extract(
         body_lines.append("    " + stripped if stripped else "")
 
     ext = os.path.splitext(file_path)[1]
-    if ext in {".ts", ".tsx", ".js", ".jsx"}:
+    if ext in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
         func_def = f"function {new_name}() {{\n"
         func_end = "}\n"
     else:
@@ -805,7 +805,7 @@ def _refactor_extract(
 
     # Replace extracted lines with a call to the new function
     indent_prefix = " " * base_indent
-    if ext in {".ts", ".tsx", ".js", ".jsx"}:
+    if ext in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
         call_line = f"{indent_prefix}{new_name}();"
     else:
         call_line = f"{indent_prefix}{new_name}()"

@@ -211,6 +211,8 @@ class ProjectIndexer:
             "**/*.tsx",
             "**/*.js",
             "**/*.jsx",
+            "**/*.mjs",
+            "**/*.cjs",
             "**/*.go",
             "**/*.rb",
             "**/*.rs",
@@ -994,7 +996,7 @@ class ProjectIndexer:
             return self._resolve_python_import(module_path, all_files, is_from_import, names)
 
         single: str | None = None
-        if ext in (".ts", ".tsx", ".js", ".jsx"):
+        if ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             single = self._resolve_ts_import(importing_file, module_path, all_files)
         elif ext == ".rs":
             single = self._resolve_rust_import(importing_file, module_path, all_files)
@@ -1155,7 +1157,7 @@ class ProjectIndexer:
         - Relative paths: './utils' -> try utils.ts, utils.tsx, utils/index.ts, etc.
         - Path aliases: '@/lib/utils' -> try src/lib/utils.ts, etc.
         """
-        extensions = [".ts", ".tsx", ".js", ".jsx"]
+        extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 
         if module_path.startswith("."):
             # Relative import

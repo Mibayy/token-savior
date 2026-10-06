@@ -16,6 +16,8 @@ v2 improvements over v1:
 import re
 
 from token_savior.models import (
+    VariableInfo,
+    variables_mode,
     ClassInfo,
     FunctionInfo,
     ImportInfo,
@@ -277,6 +279,12 @@ _INTERFACE_RE = re.compile(r"^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\
 
 _TYPE_ALIAS_RE = re.compile(r"^(?:export\s+)?type\s+(\w+)\s*(?:<[^>]*>)?\s*=")
 
+# Top-level binding, column 0 only: `export const POSTES: Poste[] = [`.
+# Function-valued bindings are caught earlier as arrow functions.
+_TOP_BINDING_RE = re.compile(
+    r"^(?:export\s+)?(?:declare\s+)?(const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*="
+)
+
 
 # ---------------------------------------------------------------------------
 # Main annotator
@@ -306,6 +314,8 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
 
     functions: list[FunctionInfo] = []
     classes: list[ClassInfo] = []
+    variables: list[VariableInfo] = []
+    extraire_variables = variables_mode() != "off"
 
     # Track which lines are consumed by class bodies so we can tag methods.
     # We'll do two passes:
@@ -568,6 +578,22 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
             i = end_0 + 1
             continue
 
+        # Module-level constants and variables. Releve du 06/10/2026 : sur
+        # 30 jours, les « not found » de get_edit_context portaient surtout
+        # sur des `export const` TypeScript (POSTES_ESTALLE_MP, SENDER) que
+        # cet annotateur ne relevait pas du tout.
+        bm = _TOP_BINDING_RE.match(lines[i]) if extraire_variables else None
+        if bm:
+            nom = bm.group(2)
+            variables.append(VariableInfo(
+                name=nom,
+                qualified_name=nom,
+                line_number=i + 1,
+                kind="constant" if nom.isupper() else "variable",
+                scope="module",
+                type_annotation=(bm.group(3) or "").strip() or None,
+            ))
+
         i += 1
 
     return StructuralMetadata(
@@ -579,4 +605,5 @@ def annotate_typescript(source: str, source_name: str = "<source>") -> Structura
         functions=functions,
         classes=classes,
         imports=imports,
+        variables=variables,
     )

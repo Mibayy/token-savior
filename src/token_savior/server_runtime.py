@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import sys
 import threading
 import time
@@ -189,8 +190,23 @@ MAX_AUTODISCOVERED = 40
 
 
 def is_project_dir(path: str) -> bool:
+    """A marker makes a project, but an empty `.git` directory is not one.
+
+    Panne du 06/10/2026 : un `/tmp/.git` vide, laisse le 27/09 par un outil
+    interrompu, faisait de tout `/tmp` un depot. Chaque clone jetable y etait
+    rattache a /tmp, qui s'est fait indexer en entier (25 Mo de cache) par une
+    tache de nuit. Un vrai depot a un `HEAD` ; un worktree lie a un fichier
+    `.git`.
+    """
     try:
-        return any(os.path.exists(os.path.join(path, m)) for m in PROJECT_MARKERS)
+        for m in PROJECT_MARKERS:
+            p = os.path.join(path, m)
+            if m == ".git":
+                if os.path.isfile(p) or os.path.exists(os.path.join(p, "HEAD")):
+                    return True
+            elif os.path.exists(p):
+                return True
+        return False
     except OSError:
         return False
 
@@ -203,6 +219,9 @@ def project_root_of(path: str) -> str | None:
     checking only the directory being examined returns the vendored package as
     a project root before the walk ever reaches `node_modules`. Caught by
     `test_ne_remonte_pas_depuis_une_dependance_vendorisee`, not by reading.
+
+    The temp directory itself is never a project root, whatever it contains:
+    it is shared by every tool on the machine (see `is_project_dir`).
     """
     try:
         cur = os.path.abspath(path)
@@ -212,10 +231,11 @@ def project_root_of(path: str) -> str | None:
         cur = os.path.dirname(cur)
     if SKIP_DIRS.intersection(cur.split(os.sep)):
         return None
+    temporaire = os.path.realpath(tempfile.gettempdir())
     seen: set[str] = set()
     while cur and cur not in seen and cur != os.path.dirname(cur):
         seen.add(cur)
-        if is_project_dir(cur):
+        if os.path.realpath(cur) != temporaire and is_project_dir(cur):
             return cur
         cur = os.path.dirname(cur)
     return None

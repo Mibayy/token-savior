@@ -198,7 +198,12 @@ def test_ts_execute_in_tool_manifest():
     names = {t.name for t in TOOLS}
     assert "ts_execute" in names
     spec = next(t for t in TOOLS if t.name == "ts_execute")
-    assert "script" in spec.inputSchema.get("required", [])
+    schema = spec.inputSchema
+    # `script` reste obligatoire ; depuis l'alias `code` (06/10/2026) il l'est
+    # sous forme anyOf, une branche par nom accepte.
+    requis = schema.get("required") or [r for alt in schema.get("anyOf", [])
+                                        for r in alt.get("required", [])]
+    assert "script" in requis
 
 
 @pytest.mark.skipif(

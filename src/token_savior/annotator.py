@@ -41,6 +41,8 @@ _EXTENSION_MAP: dict[str, str] = {
     ".tsx": "typescript",
     ".js": "javascript",
     ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".go": "go",
     ".rb": "ruby",
     ".rs": "rust",

@@ -84,6 +84,7 @@ def _repo_with_nested_worktree(tmp_path):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / ".git").mkdir()
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     wt = repo / ".claude" / "worktrees" / "fix-98"
     (wt / "src").mkdir(parents=True)
     (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")

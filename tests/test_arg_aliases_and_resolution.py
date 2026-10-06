@@ -36,6 +36,8 @@ from token_savior.slot_manager import SlotManager
     ("get_function_source", {"symbol_name": "f"}, {"name": "f"}),
     ("get_full_context", {"symbol": "f"}, {"name": "f"}),
     ("ts_search", {"pattern": "x"}, {"query": "x"}),
+    ("ts_execute", {"code": "return 1;"}, {"script": "return 1;"}),
+    ("find_symbol", {"query": "f"}, {"name": "f"}),
 ])
 def test_traduit_les_alias_reellement_observes(outil, donne, attendu) -> None:
     assert _normalize_arguments(outil, donne) == attendu
@@ -131,6 +133,7 @@ def _depot_avec_worktree(tmp_path):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / ".git").mkdir()
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     wt = repo / ".claude" / "worktrees" / "fix-98"
     (wt / "src").mkdir(parents=True)
     (wt / ".git").write_text("gitdir: ../../../.git/worktrees/fix-98\n")
@@ -190,3 +193,20 @@ def test_l_ambiguite_reste_refusee(tmp_path) -> None:
     _, err = m.resolve("app")
     assert err != ""
     assert "Multiple" in err or "Did you mean" in err
+
+
+def test_le_schema_de_ts_execute_accepte_code() -> None:
+    """Sans l'alias dans le schema, la validation du SDK refuse l'appel avant
+    que la traduction ne tourne (06/10/2026 : 8 echecs sur 30 jours)."""
+    from token_savior.server import TOOLS
+    schema = next(t.inputSchema for t in TOOLS if t.name == "ts_execute")
+    assert "code" in schema["properties"]
+    assert {"required": ["code"]} in schema.get("anyOf", [])
+
+
+def test_une_seule_table_d_alias() -> None:
+    """Deux tables homonymes avaient diverge : le schema lisait la premiere,
+    la traduction la seconde."""
+    import inspect
+    import token_savior.server as srv
+    assert inspect.getsource(srv).count("_ARG_ALIASES: dict") == 1

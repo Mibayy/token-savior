@@ -168,11 +168,14 @@ _ARG_ALIASES: dict[str, dict[str, str]] = {
     "get_class_source": {"symbol_name": "name", "class_name": "name"},
     "get_full_context": {"symbol_name": "name", "symbol": "name"},
     "get_edit_context": {"symbol_name": "name", "symbol": "name"},
-    "find_symbol": {"symbol_name": "name", "symbol": "name"},
+    "find_symbol": {"symbol_name": "name", "symbol": "name", "query": "name"},
     "list_files": {"glob": "pattern", "query": "pattern"},
     "read_lines": {"file": "file_path", "path": "file_path", "line": "start",
                    "start_line": "start", "end_line": "end"},
     "ts_search": {"pattern": "query", "q": "query"},
+    # 8 des 30 echecs de ts_execute sur 30 jours (06/10/2026) : le script
+    # envoye sous `code`, le nom que replace_symbol_source accepte deja.
+    "ts_execute": {"code": "script", "body": "script", "js": "script"},
 }
 
 
@@ -927,51 +930,6 @@ def _prefetch_next(name: str, record_symbol: str, slot) -> None:
         pass
 
 
-# Le meme concept portait trois noms selon l'outil, et l'appelant devinait.
-# Mesure sur 295 appels reels : 9 utilisaient un nom d'argument inexistant, et
-# chacun etait le nom employe par un outil VOISIN pour la meme chose --
-# `query` vient de ts_search, `source` de replace_symbol_source. Ce ne sont pas
-# des fautes d'appelant, c'est une API incoherente, et chaque devinette ratee
-# coute un aller-retour complet.
-#
-# On accepte donc l'alias plutot que de refuser. Le schema continue d'annoncer
-# le nom canonique : les alias rattrapent, ils ne remplacent pas.
-_ARG_ALIASES: dict[str, dict[str, str]] = {
-    "search_codebase": {"query": "pattern", "q": "pattern", "regex": "pattern"},
-    "insert_near_symbol": {"source": "content", "new_source": "content",
-                           "code": "content", "name": "symbol_name"},
-    "replace_symbol_source": {"content": "new_source", "source": "new_source",
-                              "code": "new_source", "name": "symbol_name"},
-    "switch_project": {"project": "name", "path": "name", "root": "name"},
-    "set_project_root": {"project": "path", "name": "path", "root": "path"},
-    "get_function_source": {"symbol_name": "name", "function": "name"},
-    "get_class_source": {"symbol_name": "name", "class_name": "name"},
-    "get_full_context": {"symbol_name": "name", "symbol": "name"},
-    "get_edit_context": {"symbol_name": "name", "symbol": "name"},
-    "find_symbol": {"symbol_name": "name", "symbol": "name", "query": "name"},
-    "list_files": {"glob": "pattern", "query": "pattern"},
-    "read_lines": {"file": "file_path", "path": "file_path", "line": "start",
-                   "start_line": "start", "end_line": "end"},
-    "ts_search": {"pattern": "query", "q": "query"},
-}
-
-
-def _normalize_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Traduit les alias connus vers le nom canonique de l'outil.
-
-    Ne remplace jamais une valeur deja fournie sous le bon nom : si l'appelant
-    a mis les deux, le canonique gagne et l'alias est ignore.
-    """
-    table = _ARG_ALIASES.get(name)
-    if not table or not isinstance(arguments, dict):
-        return arguments
-    out = dict(arguments)
-    for alias, canonique in table.items():
-        if alias in out and canonique not in out:
-            out[canonique] = out.pop(alias)
-    return out
-
-
 def _locate_across_projects(file_hint: str) -> str:
     """Cherche un fichier dans les AUTRES projets enregistres.
 
@@ -1001,6 +959,13 @@ def _locate_across_projects(file_hint: str) -> str:
     liste = ", ".join(f"{pr}:{ch}" for pr, ch in trouves[:5])
     return f"\n\n-> Present in several projects: {liste}\n  Pick one with project=<name>."
 
+
+
+def _est_erreur_hors_index(result: Any) -> bool:
+    """Vrai pour une erreur « not found in index », faux pour une lecture
+    reussie dont le TEXTE contient ces mots (voir l'appelant)."""
+    return (isinstance(result, str) and result.startswith("Error")
+            and "not found in index" in result.split("\n", 1)[0])
 
 
 def _message_argument_obligatoire(name: str, exc: KeyError) -> str | None:
@@ -1143,7 +1108,12 @@ def _dispatch_tool(name: str, arguments: dict[str, Any], record_symbol: str) -> 
                     return _count_and_wrap_result(slot, name, arguments, cached)
                 s._src_misses += 1
             result = qfn_handler(slot.query_fns, arguments)
-            if isinstance(result, str) and "not found in index" in result:
+            # Sur la premiere ligne d'une erreur seulement. Le test portait sur
+            # tout le texte rendu : lire un code qui contient lui-meme cette
+            # chaine (ce handler, par exemple) collait « Found in project » a
+            # une lecture reussie, et la piste finissait recopiee dans la
+            # source par un replace_symbol_source (vecu le 06/10/2026).
+            if _est_erreur_hors_index(result):
                 piste = _locate_across_projects(str(arguments.get("file_path") or ""))
                 if piste:
                     result += piste

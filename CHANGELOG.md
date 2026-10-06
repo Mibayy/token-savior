@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased — What 30 days of real calls said (06/10/2026)
+
+Audit of 765 transcripts (3 569 Token Savior calls) and of the discipline
+guard's own log. Every change below answers a measured failure, counted in
+the commit that fixes it.
+
+- **`.mjs` and `.cjs` are indexed.** Every `get_functions` miss and most
+  `read_lines` misses were on ES modules (`launchpad/pump.mjs`,
+  `runtime/cycle-reconciler.mjs`): the include patterns stopped at `.js`/`.jsx`.
+  Imports between them resolve, editing works. Index cache version bumped to 4.
+- **Constants have a context.** `find_symbol` with default kinds now falls
+  back to variables on a miss instead of answering `retry_with`; the
+  TypeScript/JavaScript annotator records top-level `const`/`let`/`var`
+  bindings (it recorded none); `get_full_context` and `get_edit_context`
+  return the binding's source (new `get_variable_source`, brackets balanced)
+  instead of "function 'X' not found". Half of the `get_edit_context`
+  failures were `export const` tables.
+- **`read_lines` reads files outside the index** — absolute, or relative to
+  the active root; regular text files under 5 MB, no binaries — and says so.
+  17 of its 19 failures were files that existed on disk.
+- **`search_codebase(max_results=0)` is cut at 60 000 characters** with a
+  `_tronque` note. Five such calls returned 107-192 k characters, which
+  Claude Code refuses.
+- **`ts_execute` accepts `code` (and `body`, `js`) for `script`.** 8 of its 30
+  failures. The two homonymous `_ARG_ALIASES` tables in `server.py` had
+  diverged (schema read one, dispatch the other); merged into one.
+- **"Found in project" no longer sticks to successful reads.** The footer
+  fired whenever the returned *text* contained "not found in index"; reading
+  the handler that emits it was enough, and the footer ended up pasted into
+  the source by a `replace_symbol_source`.
+- **An empty `.git` directory is not a project, and the temp directory never
+  is.** A stray `/tmp/.git` (empty, 27/09) made `/tmp` a repository, so every
+  scratch clone resolved to `/tmp`, which a nightly job indexed whole
+  (25 MB cache).
+- **Discipline guard, recalibrated on its own log** (30 days):
+  - native `Edit`/`Write` on indexed code is now advice, logged as
+    `conseil`, never denied: 303 of 305 refusals were re-issued identically
+    within five minutes;
+  - native `Read` is refused only whole-file and over 200 lines
+    (`TS_GUARD_READ_FREE_LINES`): 78 % of refused Reads were re-issued, and
+    Claude Code's `Edit` requires a prior `Read`;
+  - `insert_near_symbol` no longer needs the anchor's context (26 of 29
+    refusals were on an anchor that is not modified);
+  - `get_function_source`, `get_class_source` and `ts_execute` scripts
+    calling the context tools count as context; a symbol edited once can be
+    edited again;
+  - a marker at `/` or in the temp directory no longer makes a project.
+
 ## Unreleased — Reading by line number
 
 An audit of 1 047 real code reads done in Bash rather than through this server
