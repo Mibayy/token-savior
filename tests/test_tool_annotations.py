@@ -167,21 +167,28 @@ def test_read_only_subset_matches_annotations():
 
 
 def test_list_tools_advertises_annotations():
-    """Le handler protocole transmet bien les hints, pas seulement le module."""
+    """Le handler protocole transmet bien les hints, pas seulement le module.
+
+    Lu tel qu'il part sur le fil (alias camelCase) : le SDK 2.x nomme les
+    attributs Python en snake_case, le 1.x en camelCase.
+    """
     import asyncio
 
     from token_savior.server import list_tools
+
+    def hint(outil, cle):
+        return outil.annotations.model_dump(by_alias=True)[cle]
 
     tools = asyncio.run(list_tools())
     assert tools, "aucun outil annonce"
     for t in tools:
         assert t.annotations is not None, f"{t.name} sans annotations"
-        assert isinstance(t.annotations.readOnlyHint, bool), t.name
+        assert isinstance(hint(t, "readOnlyHint"), bool), t.name
 
     par_nom = {t.name: t for t in tools}
     if "get_function_source" in par_nom:
-        assert par_nom["get_function_source"].annotations.readOnlyHint is True
-        assert par_nom["get_function_source"].annotations.destructiveHint is False
+        assert hint(par_nom["get_function_source"], "readOnlyHint") is True
+        assert hint(par_nom["get_function_source"], "destructiveHint") is False
     if "replace_symbol_source" in par_nom:
-        assert par_nom["replace_symbol_source"].annotations.readOnlyHint is False
-        assert par_nom["replace_symbol_source"].annotations.destructiveHint is True
+        assert hint(par_nom["replace_symbol_source"], "readOnlyHint") is False
+        assert hint(par_nom["replace_symbol_source"], "destructiveHint") is True

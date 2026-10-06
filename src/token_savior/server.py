@@ -1450,6 +1450,52 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list:
 # ---------------------------------------------------------------------------
 
 
+def _sdk_mcp_majeur() -> int:
+    """Version majeure du SDK MCP installe (1 par defaut si illisible)."""
+    try:
+        from importlib.metadata import version
+        return int(version("mcp").split(".", 1)[0])
+    except Exception:
+        return 1
+
+
+def _serveur_sdk2():
+    """Serveur pour le SDK MCP 2.x, qui parle le protocole 2026-07-28.
+
+    Claude Code negocie ce protocole par defaut sur stdio depuis la 2.1.292 ;
+    un serveur qui ne le comprend pas coute une connexion lente, puis sept
+    jours memorises en mode ancien. Le SDK 2.x sert les deux epoques dans la
+    meme boucle (le premier message du client decide), mais il a retire les
+    decorateurs `list_tools()` / `call_tool()` au profit de rappels passes
+    au constructeur. Les handlers restent les memes : seule l'enveloppe change.
+    """
+    from mcp import types as t
+    from mcp.server.lowlevel import Server
+
+    async def on_list_tools(ctx, params):
+        return t.ListToolsResult(tools=await list_tools())
+
+    async def on_call_tool(ctx, params):
+        contenu = await call_tool(params.name, dict(params.arguments or {}))
+        return t.CallToolResult(content=contenu)
+
+    rappels: dict[str, Any] = {"on_list_tools": on_list_tools, "on_call_tool": on_call_tool}
+    if os.environ.get("TS_RESOURCES_DISABLED", "").lower() not in ("1", "true", "yes"):
+        from token_savior.server_handlers import resources as _res
+
+        async def on_list_resources(ctx, params):
+            try:
+                return t.ListResourcesResult(resources=_res.list_observation_resources())
+            except Exception:
+                return t.ListResourcesResult(resources=[])
+
+        async def on_read_resource(ctx, params):
+            texte = _res.read_observation_resource(params.uri)
+            return t.ReadResourceResult(contents=[t.TextResourceContents(
+                uri=params.uri, mimeType="text/markdown", text=texte)])
+
+        rappels.update(on_list_resources=on_list_resources, on_read_resource=on_read_resource)
+    return Server("token-savior-recall", **rappels)
 async def main():
     # Aucun projet configure ? On en cherche, plutot que de demarrer aveugle.
     # Ici et pas a l'import : `_register_roots` tourne au niveau module, donc
@@ -1481,12 +1527,15 @@ async def main():
     # est confine a ce point d entree -- les clients CLI (qui importent
     # _dispatch_tool depuis le module) ne payent jamais ce cout.
     from mcp.server.stdio import stdio_server
-    server = s.get_server()
-    server.list_tools()(list_tools)
-    server.call_tool()(call_tool)
+    if _sdk_mcp_majeur() >= 2:
+        server = _serveur_sdk2()
+    else:
+        server = s.get_server()
+        server.list_tools()(list_tools)
+        server.call_tool()(call_tool)
 
     # Observations as ts://obs/{id} resources (opt-out: TS_RESOURCES_DISABLED=1).
-    if os.environ.get("TS_RESOURCES_DISABLED", "").lower() not in ("1", "true", "yes"):
+    if _sdk_mcp_majeur() < 2 and os.environ.get("TS_RESOURCES_DISABLED", "").lower() not in ("1", "true", "yes"):
         try:
             from token_savior.server_handlers import resources as _res
 

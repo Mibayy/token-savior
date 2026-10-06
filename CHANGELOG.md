@@ -34,6 +34,15 @@ the commit that fixes it.
   is.** A stray `/tmp/.git` (empty, 27/09) made `/tmp` a repository, so every
   scratch clone resolved to `/tmp`, which a nightly job indexed whole
   (25 MB cache).
+- **MCP SDK 2.x and protocol 2026-07-28.** Claude Code negotiates the
+  2026-07-28 protocol on stdio by default since 2.1.292; a server that does
+  not answer it pays a slow connect, then seven days remembered in the old
+  mode. The 2.x SDK serves both eras in one loop but dropped the
+  `list_tools()`/`call_tool()` decorators, so the server crashed at start
+  under it. `main()` now builds the server with the 2.x callbacks when that
+  SDK is installed and keeps the 1.x path otherwise; the pin is `mcp>=1.25,<3`.
+  Checked over stdio: 2.x server answers 2026-07-28 to a modern client and
+  2025-11-25 to a 1.x one.
 - **Discipline guard, recalibrated on its own log** (30 days):
   - native `Edit`/`Write` on indexed code is now advice, logged as
     `conseil`, never denied: 303 of 305 refusals were re-issued identically
