@@ -274,9 +274,16 @@ def collect_dashboard_data(stats_dir: Path | None = None) -> dict:
         if not _should_include_project(payload, path):
             continue
         project_name = _project_name(payload, path)
-        chars_used = _safe_int(payload, "total_chars_returned")
-        chars_naive = _safe_int(payload, "total_naive_chars")
-        calls = _safe_int(payload, "total_calls")
+        # Seulement la méthode d'estimation actuelle (alternative native réelle,
+        # depuis le 07/10/2026). L'ancienne prenait une fraction du projet entier
+        # par appel et affichait ~98 % d'économie quand le banc A/B mesurait
+        # -14 % de coût : un projet sans session récente montre 0, pas ce chiffre.
+        if "total_naive_chars_v2" in payload:
+            chars_used = _safe_int(payload, "total_chars_returned_v2")
+            chars_naive = _safe_int(payload, "total_naive_chars_v2")
+            calls = _safe_int(payload, "total_calls_v2")
+        else:
+            chars_used = chars_naive = calls = 0
         sessions = _safe_int(payload, "sessions")
         project_client_counts = _project_client_counts(payload)
         if not project_client_counts and _safe_int(payload, "sessions") > 0:
@@ -1068,5 +1075,7 @@ def format_gain(report: dict, compact: bool = False) -> str:
         f"  tokens used   {report['tokens_used']}\n"
         f"  tokens naive  {report['tokens_naive']}\n"
         f"  tokens saved  {report['tokens_saved']}\n"
-        f"  savings       {report['savings_pct']}%"
+        f"  savings       {report['savings_pct']}%\n"
+        f"  (tool output vs. the native read it replaced, since 2026-10-07;\n"
+        f"   end-to-end A/B on 2026-10-07: -14% cost, -25% new tokens, +45% time)"
     )

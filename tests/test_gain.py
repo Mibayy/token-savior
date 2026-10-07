@@ -18,6 +18,9 @@ def _write_stats(tmp_path, name, project, used, naive, calls=10, sessions=2):
         "total_naive_chars": naive,
         "total_calls": calls,
         "sessions": sessions,
+        "total_chars_returned_v2": used,
+        "total_naive_chars_v2": naive,
+        "total_calls_v2": calls,
     }))
 
 
@@ -73,3 +76,15 @@ def test_long_format_carries_the_numbers(tmp_path):
     out = format_gain(gain_report(stats_dir=tmp_path))
     assert "7" in out           # queries
     assert "80" in out          # savings %
+
+
+def test_l_ancienne_estimation_n_est_plus_affichee(tmp_path):
+    """07/10/2026 : l'ancienne méthode (fraction du projet entier par appel)
+    affichait ~98 % d'économie quand le banc A/B mesurait -14 % de coût. Des
+    statistiques sans totaux de la méthode actuelle comptent pour zéro."""
+    (tmp_path / "vieux.json").write_text(json.dumps({
+        "project": "/srv/vieux", "total_chars_returned": 1000,
+        "total_naive_chars": 100000, "total_calls": 50, "sessions": 3,
+    }))
+    r = gain_report(stats_dir=tmp_path)
+    assert r["tokens_saved"] == 0 and r["savings_pct"] == 0

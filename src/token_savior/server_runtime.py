@@ -618,6 +618,7 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
             "tokens_used": s._total_chars_returned // 4,
             "tokens_naive": naive_chars // 4,
             "savings_pct": round(savings_pct, 2),
+            "naive_method": NAIVE_METHOD,
             "tool_counts": {
                 tool: count
                 for tool, count in s._tool_call_counts.items()
@@ -631,6 +632,14 @@ def _flush_stats(slot: _ProjectSlot, naive_chars: int) -> None:
         cum["total_calls"] = sum(entry.get("query_calls", 0) for entry in history)
         cum["total_chars_returned"] = sum(entry.get("chars_returned", 0) for entry in history)
         cum["total_naive_chars"] = sum(entry.get("naive_chars", 0) for entry in history)
+        # Totaux de la seule méthode actuelle : l'ancienne (fraction du projet)
+        # surestimait d'un ordre de grandeur, on ne l'additionne pas à la nouvelle.
+        v2 = [e for e in history if e.get("naive_method") == NAIVE_METHOD]
+        cum["naive_method"] = NAIVE_METHOD
+        cum["v2_since"] = min((e.get("timestamp") for e in v2), default=None)
+        cum["total_calls_v2"] = sum(e.get("query_calls", 0) for e in v2)
+        cum["total_chars_returned_v2"] = sum(e.get("chars_returned", 0) for e in v2)
+        cum["total_naive_chars_v2"] = sum(e.get("naive_chars", 0) for e in v2)
         aggregate_tool_counts: dict[str, int] = {}
         aggregate_client_counts: dict[str, int] = {}
         for entry in history:
@@ -786,20 +795,49 @@ def _count_and_wrap_result(
     return wrapped
 
 
+# Méthode d'estimation du coût « natif » d'un appel. 2 depuis le 07/10/2026 :
+# l'alternative réelle (Read du fichier, ou Grep) au lieu d'une fraction du
+# projet entier. Les totaux ne mélangent jamais les deux méthodes.
+NAIVE_METHOD = 2
+
+# Outils dont l'alternative native est de lire le fichier qui porte le symbole.
+_OUTILS_SYMBOLE = {
+    "get_function_source", "get_class_source", "find_symbol", "get_full_context",
+    "get_edit_context", "get_dependencies", "get_dependents", "get_change_impact",
+    "get_call_chain",
+}
+# Outils dont l'alternative native est de lire le fichier entier.
+_OUTILS_FICHIER = {"get_structure_summary", "get_functions", "get_classes", "get_imports"}
+
+
 def _estimate_naive_chars_for_call(
     slot: _ProjectSlot, tool_name: str, arguments: dict[str, Any], result: object
 ) -> int:
-    """Estimate the naive character cost of one tool call."""
+    """Ce que l'appel aurait coûté par la route native, en caractères.
+
+    Jusqu'au 07/10/2026, l'estimation par défaut était une fraction du projet
+    entier (15 % pour search_codebase, 30 % pour get_full_context) : sur un
+    projet de 4 Mo, une recherche « évitait » 600 000 caractères. D'où le
+    « 98,7 % d'économie » de `ts gain`, alors que le banc A/B du même jour
+    mesurait -14 % de coût et -25 % de jetons neufs.
+
+    Désormais l'alternative est celle qu'un agent prendrait vraiment : lire le
+    fichier qui porte le symbole (outils de symbole), lire le fichier entier
+    (outils de structure), ou Grep / Read borné, qui coûtent autant que la
+    réponse (recherche, lecture de plage) : là, aucune économie revendiquée.
+    """
+    rendu = len(_format_result(result))
     index = slot.indexer._project_index if slot.indexer else None
     if index is None:
-        return 0
+        return rendu
 
-    source_chars = sum(meta.total_chars for meta in index.files.values())
     file_sizes = {path: meta.total_chars for path, meta in index.files.items()}
 
     def size_for(paths: list[str]) -> int:
         total = 0
         for path in paths:
+            if not path:
+                continue
             resolved = (
                 path
                 if path in file_sizes
@@ -809,37 +847,50 @@ def _estimate_naive_chars_for_call(
                 total += file_sizes[resolved]
         return total
 
+    def fichier_du_symbole() -> str | None:
+        if isinstance(result, dict):
+            for cle in ("file", "file_path"):
+                if isinstance(result.get(cle), str):
+                    return result[cle]
+            loc = result.get("location") or result.get("symbol")
+            if isinstance(loc, dict) and isinstance(loc.get("file"), str):
+                return loc["file"]
+        if isinstance(arguments.get("file_path"), str):
+            return arguments["file_path"]
+        nom = arguments.get("name") or arguments.get("symbol_name")
+        table = getattr(index, "symbol_table", None) or {}
+        cible = table.get(nom) if isinstance(nom, str) else None
+        if isinstance(cible, str):
+            return cible
+        if isinstance(cible, dict) and isinstance(cible.get("file"), str):
+            return cible["file"]
+        return None
+
     is_ckpt_create = tool_name == "checkpoint" and (arguments.get("op") or "list") == "create"
     if tool_name in {"summarize_patch_by_symbol", "build_commit_summary"} or is_ckpt_create:
         changed_files = arguments.get("changed_files") or arguments.get("file_paths") or []
-        return max(size_for(changed_files), len(_format_result(result)))
+        return max(size_for(changed_files), rendu)
 
     if tool_name in {"replace_symbol_source", "insert_near_symbol"} and isinstance(result, dict):
-        target_file = result.get("file")
-        return max(size_for([target_file]) * 2 if target_file else 0, len(_format_result(result)))
+        # Route native : Read du fichier (exigé avant Edit), puis l'Edit lui-même.
+        return max(size_for([result.get("file")]), rendu)
 
     if tool_name in {"run_impacted_tests", "find_impacted_test_files"} and isinstance(result, dict):
         selection = result.get("selection") or result
         impacted = selection.get("impacted_tests", [])
         changed = selection.get("changed_files", [])
-        return max(size_for(impacted + changed), len(_format_result(result)))
-
-    if tool_name == "apply_symbol_change_and_validate" and isinstance(result, dict):
-        edit = result.get("edit", {})
-        file_path = edit.get("file")
-        validation = result.get("validation", {})
-        impacted = validation.get("selection", {}).get("impacted_tests", [])
-        return max(
-            size_for(([file_path] if file_path else []) + impacted) * 2, len(_format_result(result))
-        )
+        return max(size_for(impacted + changed), rendu)
 
     is_ckpt_compare = tool_name == "checkpoint" and (arguments.get("op") or "list") == "compare"
     if (tool_name == "get_changed_symbols" or is_ckpt_compare) and isinstance(result, dict):
         files = [entry.get("file") for entry in result.get("files", []) if entry.get("file")]
-        return max(size_for(files), len(_format_result(result)))
+        return max(size_for(files), rendu)
 
-    multiplier = _TOOL_COST_MULTIPLIERS.get(tool_name, 0.10)
-    return max(int(source_chars * multiplier), len(_format_result(result)))
+    if tool_name in _OUTILS_SYMBOLE:
+        return max(size_for([fichier_du_symbole()]), rendu)
+    if tool_name in _OUTILS_FICHIER and isinstance(arguments.get("file_path"), str):
+        return max(size_for([arguments["file_path"]]), rendu)
+    return rendu
 
 
 # ---------------------------------------------------------------------------
