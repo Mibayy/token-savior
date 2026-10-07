@@ -347,6 +347,28 @@ def _require_name(args: dict[str, Any], tool: str, *, batch: bool = False) -> st
     )
 
 
+def _niveau_de_source(args: dict[str, Any]) -> tuple[int, str | None]:
+    """Niveau de détail rendu par get_function_source / get_class_source.
+
+    Le code complet (niveau 0) par défaut. Le choix automatique par Thompson
+    sampling ne joue plus que si `TS_LEVEL_BANDIT=1`.
+
+    Mesuré le 07/10/2026 : l'apprentissage notait « succès » toute réponse non
+    vide, y compris un résumé [L2] qui ne contenait pas le code demandé, et
+    ne notait jamais d'échec (une redemande avec `level` explicite n'enregistre
+    rien). Il avait dérivé jusqu'à 5 284 succès pour [L2] contre 34 pour le
+    code : sur 30 jours, 61 des 95 appels sans `level` ont rendu un résumé ou
+    une signature au lieu de la source, et les agents passaient `level=0` à
+    la main pour s'en sortir.
+    """
+    if "level" in args and args.get("level") is not None:
+        return int(args.get("level") or 0), None
+    if os.environ.get("TS_LEVEL_BANDIT") != "1":
+        return 0, None
+    ctx_type = memory_db._detect_context_type(state._prefetcher.call_sequence)
+    return memory_db.thompson_sample_level(ctx_type), ctx_type
+
+
 def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
     batch = _batch_dispatch(qfns, args, _q_get_class_source)
     if batch is not None:
@@ -355,13 +377,7 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
     if missing:
         return missing
     slot, _ = state._slot_mgr.resolve(args.get("project"))
-    explicit_level = "level" in args and args.get("level") is not None
-    if explicit_level:
-        chosen_level = int(args.get("level") or 0)
-        ctx_type = None
-    else:
-        ctx_type = memory_db._detect_context_type(state._prefetcher.call_sequence)
-        chosen_level = memory_db.thompson_sample_level(ctx_type)
+    chosen_level, ctx_type = _niveau_de_source(args)
     result = _csc_maybe_serve(
         slot,
         "class",
@@ -382,7 +398,8 @@ def _q_get_class_source(qfns, args: dict[str, Any]) -> str:
             pass
     if not _HINTS_DISABLED and args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
-            result += f"\n\n{_stop_hint()}"
+            if _stop_hint_due():
+                result += f"\n\n{_stop_hint()}"
         else:
             indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
@@ -403,13 +420,7 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     from token_savior.server_runtime import _resolve_project_root
 
     slot, _ = state._slot_mgr.resolve(args.get("project"))
-    explicit_level = "level" in args and args.get("level") is not None
-    if explicit_level:
-        chosen_level = int(args.get("level") or 0)
-        ctx_type = None
-    else:
-        ctx_type = memory_db._detect_context_type(state._prefetcher.call_sequence)
-        chosen_level = memory_db.thompson_sample_level(ctx_type)
+    chosen_level, ctx_type = _niveau_de_source(args)
     result = _csc_maybe_serve(
         slot,
         "function",
@@ -470,7 +481,8 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
         pass
     if not _HINTS_DISABLED and args.get("hints", True) and isinstance(result, str) and result and not result.startswith("Error"):
         if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
-            result += f"\n\n{_stop_hint()}"
+            if _stop_hint_due():
+                result += f"\n\n{_stop_hint()}"
         else:
             indice = (
                 f"\n\n→ get_full_context('{args['name']}') "
@@ -611,6 +623,18 @@ def _navigation_calls_so_far() -> int:
     return sum(state._tool_call_counts.get(t, 0) for t in _NAV_TOOLS)
 
 
+# Le conseil d'arrêt revient au seuil puis tous les 25 appels, pas à chaque
+# réponse. Le compteur couvre toute la vie du serveur, sous-agents compris :
+# relevé du 07/10/2026, une session de travail normale le dépassait en une
+# heure et payait ensuite ~340 caractères identiques sur chaque appel.
+_STOP_HINT_EVERY = 25
+
+
+def _stop_hint_due(n: int | None = None) -> bool:
+    n = _navigation_calls_so_far() if n is None else n
+    return n >= _OVER_EXPLORATION_THRESHOLD and (n - _OVER_EXPLORATION_THRESHOLD) % _STOP_HINT_EVERY == 0
+
+
 def _stop_hint() -> str:
     n = _navigation_calls_so_far()
     return (
@@ -643,7 +667,7 @@ def _indice_supportable(reponse: str, indice: str) -> bool:
 
 def _hints_for_symbol(name: str, sym_type: str | None) -> list[str]:
     if _navigation_calls_so_far() >= _OVER_EXPLORATION_THRESHOLD:
-        return [_stop_hint()]
+        return [_stop_hint()] if _stop_hint_due() else []
     source_tool = "get_class_source" if sym_type == "class" else "get_function_source"
     return [
         f"full_context: get_full_context('{name}')",

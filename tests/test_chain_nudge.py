@@ -193,3 +193,11 @@ class TestTsExecuteNudge:
         # Fires once at the threshold, not on every subsequent call.
         self._seed_nav(6)
         assert server._detect_chain_nudge("search_codebase", "") is None
+
+
+def test_le_conseil_d_arret_ne_se_repete_pas_a_chaque_appel() -> None:
+    """07/10/2026 : ~340 caractères identiques ajoutés à chaque réponse passé 15 appels."""
+    from token_savior.server_handlers.code_nav import _OVER_EXPLORATION_THRESHOLD as T
+    from token_savior.server_handlers.code_nav import _stop_hint_due
+    vus = [n for n in range(T + 60) if _stop_hint_due(n)]
+    assert vus == [T, T + 25, T + 50]
