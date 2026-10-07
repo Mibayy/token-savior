@@ -1,7 +1,22 @@
 # Changelog
 
-## Unreleased — Second pass on real usage (07/10/2026)
+## v4.22.0 — What real usage said (2026-10-07)
 
+Every change below answers a failure counted in real transcripts (765 sessions
+over 30 days, then a second pass), not a hypothesis. Measured on this
+project's own A/B benchmark (tsbench `--reel`, Haiku, same evening): with the
+`auto` profile, 8/8 tasks solved like the baseline, cost -14 %, new tokens
+-25 %, wall time +45 %. One pass per task, variance not measured.
+
+### Second pass on real usage (07/10/2026)
+
+- **`ts_execute` results are capped** at 60 000 characters
+  (`TS_EXECUTE_MAX_CHARS`). A script that read four whole files returned
+  57 545, which Claude Code refused and parked in a file: the script ran for
+  nothing. The returned value is cut, logs and counters kept, and the cut is
+  reported.
+- **README: `"alwaysLoad": true`** in the Claude Code snippet. Without it every
+  tool sits behind ToolSearch and the model reaches for `Read` and `Grep`.
 - **`get_function_source` / `get_class_source` return the source again.**
   Without an explicit `level`, a Thompson-sampling bandit picked the detail
   level and scored every non-empty answer a success, a `[L2]` summary
@@ -36,7 +51,7 @@
   installed (fastembed without sqlite-vec made `vec_search_rows` return
   `[]` silently, read as a recall defect).
 
-## Unreleased — What 30 days of real calls said (06/10/2026)
+### What 30 days of real calls said (06/10/2026)
 
 Audit of 765 transcripts (3 569 Token Savior calls) and of the discipline
 guard's own log. Every change below answers a measured failure, counted in
@@ -93,7 +108,7 @@ the commit that fixes it.
     edited again;
   - a marker at `/` or in the temp directory no longer makes a project.
 
-## Unreleased — Reading by line number
+### Reading by line number
 
 An audit of 1 047 real code reads done in Bash rather than through this server
 found that 93,2 % never tried a tool at all (only 1,4 % were repairs after a
@@ -122,7 +137,7 @@ surface asked for a symbol name.
   silently answered from the wrong repository. Default behaviour is unchanged
   (promotion still happens with the flag off).
 
-## Unreleased — One server, many worktrees, no stolen calls
+### One server, many worktrees, no stolen calls
 
 Parallel agents in sibling worktrees shared one server and one mutable
 `active_root`, and the worktree a session actually worked in was often never
