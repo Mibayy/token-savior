@@ -969,6 +969,12 @@ def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | N
     Sert l'unique reproche qu'on peut faire a une lecture par plage : elle ne
     dit pas de quoi elle est un morceau. Repondre "ces lignes sont dans
     Foo.bar (98-160)" evite la relecture a l'aveugle de la plage suivante.
+
+    Quand aucun symbole ne couvre toute la plage, on nomme celui qui contient
+    la PREMIERE ligne. Au banc du 07/10/2026, « quelle fonction contient la
+    ligne 145 » coutait trois read_lines : la fenetre par defaut (60 lignes)
+    debordait sur la fonction suivante, aucun nom ne sortait, et le modele
+    relisait en resserrant.
     """
     try:
         symboles = qfns["get_functions"](file_path, max_results=0)
@@ -977,6 +983,7 @@ def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | N
     if not isinstance(symboles, list):
         return None
     meilleur = None
+    premiere = None
     for sym in symboles:
         if not isinstance(sym, dict):
             continue
@@ -986,16 +993,21 @@ def _read_lines_enclosing(qfns, file_path: str, start: int, end: int) -> str | N
         debut, fin = bornes
         if not (isinstance(debut, int) and isinstance(fin, int)):
             continue
+        nom = sym.get("qualified_name") or sym.get("name")
         # Le plus serre gagne : une methode plutot que la classe qui la porte.
         if (
             debut <= start
             and end <= fin
             and (meilleur is None or (fin - debut) < (meilleur[2] - meilleur[1]))
         ):
-            meilleur = (sym.get("qualified_name") or sym.get("name"), debut, fin)
-    if meilleur is None or not meilleur[0]:
-        return None
-    return f"{meilleur[0]} (lines {meilleur[1]}-{meilleur[2]})"
+            meilleur = (nom, debut, fin)
+        if debut <= start <= fin and (premiere is None or (fin - debut) < (premiere[2] - premiere[1])):
+            premiere = (nom, debut, fin)
+    if meilleur and meilleur[0]:
+        return f"{meilleur[0]} (lines {meilleur[1]}-{meilleur[2]})"
+    if premiere and premiere[0]:
+        return f"{premiere[0]} (lines {premiere[1]}-{premiere[2]}, which holds line {start})"
+    return None
 
 
 _HORS_INDEX_MAX_OCTETS = 5 * 1024 * 1024

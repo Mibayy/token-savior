@@ -473,3 +473,20 @@ def test_les_etats_de_session_perimes_sont_effaces(tmp_path: Path) -> None:
     assert not vieux.exists(), "l'etat perime est reste"
     assert recent.exists(), "un etat recent a ete emporte"
     assert (dossier / "s1.json").exists(), "l'etat de la session courante manque"
+
+
+def test_le_declencheur_du_hook_couvre_tous_les_outils_de_contexte() -> None:
+    """07/10/2026 : CONTEXT_TOOLS comptait get_function_source et ts_execute,
+    mais le matcher du hook ne les envoyait jamais au garde : la regle ne
+    pouvait pas jouer, et l'edition etait refusee apres une lecture valable."""
+    import importlib.util
+    import json
+    import re
+    spec = importlib.util.spec_from_file_location("garde", HOOK)
+    garde = importlib.util.module_from_spec(spec); spec.loader.exec_module(garde)
+    noms = re.search(r"__\((.*)\)\$", garde.CONTEXT_TOOLS.pattern).group(1).replace('"', "").replace("\n", "")
+    noms = [n.strip() for n in re.split(r"\|", noms) if n.strip()]
+    for conf in ("discipline-guard-config.json", "discipline-guard-codex.json"):
+        matcher = json.dumps(json.loads((HOOK.parent / conf).read_text(encoding="utf-8")))
+        for n in noms:
+            assert n in matcher, f"{n} absent du matcher de {conf}"

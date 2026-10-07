@@ -322,8 +322,8 @@ TOOL_SCHEMAS: dict[str, dict] = {
         'Read an exact line range from a file (1-indexed, inclusive). The tool to reach for '
         'when you hold a LINE NUMBER rather than a symbol name: a traceback frame, a `grep -n` '
         'hit, a compiler or linter error. Replaces `sed -n \'105,150p\' file`, `head`, `tail` '
-        'and `cat` + scroll. Names the enclosing function/class so you can widen to '
-        'get_function_source when the range turns out to be the wrong unit.'   ),
+        'and `cat` + scroll. Names the function/class holding the first line, so '
+        '"which function is line N in" takes one call.'   ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -340,7 +340,8 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "get_function_source": {
         "description": (
-        'Fetch a function/method source body.'   ),
+        'Full source of a function or method by name, no path needed: reads the '
+        'symbol instead of the whole file.'   ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -419,10 +420,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "find_symbol": {
         "description": (
-        'Locate a symbol: file, line, signature, minimal preview. '
-        'Searches functions and classes by default — pass kinds=["variable"] '
-        'for module globals, constants, and class attributes. A miss reports '
-        'which kinds were searched.'   ),
+        'Where is X defined: file, line, signature and preview in one call, the '
+        'definition only where Grep returns every mention. Functions and classes '
+        'first, then module constants and variables.'   ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -600,7 +600,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "search_codebase": {
         "description": (
-        'Regex (default) or semantic (semantic=true) search across indexed files.'
+        'Use instead of Grep/rg on code. Each hit also names the function or class '
+        'that contains it (`in`), so "who calls X" or "where is X used" takes one '
+        'call. Regex by default; semantic=true ranks symbols by meaning.'
     ),
         "inputSchema": {
             "type": "object",

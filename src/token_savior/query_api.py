@@ -489,6 +489,30 @@ def format_signature(func, path: str = "") -> str:
     return f"{prefixe}{func.name}({params})"
 
 
+def _symboles_par_portee(meta) -> list[tuple[int, int, str]]:
+    """(début, fin, nom qualifié) des fonctions et classes d'un fichier, les
+    plus courtes d'abord : la première qui contient une ligne est la plus
+    précise."""
+    out: list[tuple[int, int, str]] = []
+    for f in getattr(meta, "functions", None) or []:
+        lr = getattr(f, "line_range", None)
+        if lr:
+            out.append((lr.start, lr.end, f.qualified_name or f.name))
+    for c in getattr(meta, "classes", None) or []:
+        lr = getattr(c, "line_range", None)
+        if lr:
+            out.append((lr.start, lr.end, c.name))
+    out.sort(key=lambda t: t[1] - t[0])
+    return out
+
+
+def _symbole_englobant(portees: list[tuple[int, int, str]], ligne: int) -> str | None:
+    for debut, fin, nom in portees:
+        if debut <= ligne <= fin:
+            return nom
+    return None
+
+
 def _format_l2(sym: FunctionInfo | ClassInfo, body: str) -> str:
     """Semantic summary: raises, side effects, return hints, first doc line."""
     if isinstance(sym, ClassInfo):
@@ -2084,9 +2108,20 @@ class ProjectQueryEngine:
         def _scan(path: str) -> list[dict]:
             meta = files[path]
             hits: list[dict] = []
+            englobants = None
             for i, line in enumerate(meta.lines):
                 if regex.search(line):
-                    hits.append({"file": path, "line_number": i + 1, "content": _trim(line)})
+                    hit = {"file": path, "line_number": i + 1, "content": _trim(line)}
+                    # Le symbole qui contient la ligne : ce que Grep ne dit pas, et
+                    # la réponse même à « qui appelle X ». Au banc du 07/10/2026,
+                    # « quelle fonction appelle _cible_journalisable » coûtait un
+                    # Grep puis un Read ; ce nom la donne en un appel.
+                    if englobants is None:
+                        englobants = _symboles_par_portee(meta)
+                    nom = _symbole_englobant(englobants, i + 1)
+                    if nom:
+                        hit["in"] = nom
+                    hits.append(hit)
                     if limit and len(hits) >= limit:
                         break
             return hits

@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(Read|Bash|mcp__token-savior[\\w-]*__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol|get_edit_context|get_full_context))$",
+        "matcher": "^(Read|Bash|mcp__token-savior[\\w-]*__(replace_symbol_source|insert_near_symbol|add_field_to_model|move_symbol|get_edit_context|get_full_context|get_function_source|get_class_source|ts_execute))$",
         "hooks": [
           {
             "type": "command",
