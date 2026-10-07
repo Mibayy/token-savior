@@ -89,13 +89,14 @@ if tool == 'Bash':
     if exit_code != 0 or not command:
         sys.exit(0)
 
+    # Retirés le 07/10/2026 : systemctl start|restart|enable|reload et
+    # chmod|chown. Sur 7 jours, ces traces faisaient 83 % des souvenirs
+    # injectés (1 217 sur 1 461), 25 % de la base (538 observations), et le
+    # modèle n'en a cité ni appelé aucune : « restart X » ou « chmod sur
+    # /tmp/… » ne dit rien qu'on ne retrouve dans l'historique du shell.
     CAPTURE_PATTERNS = [
-        (r'systemctl\s+(start|restart|enable|reload)\s+(\S+)',
-         lambda m: ('command', f'{m.group(1)} {m.group(2)}', command, m.group(2))),
         (r'\bcrontab\s+-[el]',
          lambda m: ('infra', 'Crontab modifié', command, 'cron')),
-        (r'(chmod|chown)\s+[^\s]+\s+(\S+)',
-         lambda m: ('infra', f'{m.group(1)} sur {m.group(2)}', command, m.group(2))),
     ]
 
     for pattern, builder in CAPTURE_PATTERNS:

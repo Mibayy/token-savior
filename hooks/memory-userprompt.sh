@@ -125,6 +125,26 @@ try:
     if not results:
         sys.exit(0)
 
+    # Pertinence exigée (07/10/2026). Mesuré sur 7 jours : 13,5 % des souvenirs
+    # injectés partageaient un mot significatif avec le message, 83 % étaient
+    # des traces automatiques (« chmod sur … », « restart … ») et le modèle n'en
+    # a cité ni appelé aucun. Un souvenir passe s'il n'est pas une trace
+    # automatique et si son titre partage un mot de 5 lettres ou plus avec le
+    # message ; sinon on n'injecte rien, ce qui est la bonne réponse.
+    import unicodedata
+    def _mots(t):
+        t = unicodedata.normalize('NFKD', t or '').encode('ascii', 'ignore').decode().lower()
+        return {w for w in re.findall(r'[a-z0-9_]{5,}', t)} - {
+            'cette','comme','faire','fais','avoir','etre','encore','aussi','apres','avant',
+            'quand','toujours','juste','alors','parce','autre','autres','toute','toutes',
+            'there','where','which','would','could','should','about','these','those'}
+    mots_message = _mots(text)
+    AUTO = re.compile(r'^(chmod|chown|restart|start|stop|enable|reload) ', re.I)
+    def _pertinent(r):
+        if AUTO.match(r.get('title') or ''):
+            return False
+        return bool(mots_message & _mots(r.get('title') or ''))
+    results = [r for r in results if _pertinent(r)]
     priority_types = ('guardrail', 'convention', 'warning')
     priority = [r for r in results if r.get('type') in priority_types]
     others = [r for r in results if r.get('type') not in priority_types]
