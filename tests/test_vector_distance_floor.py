@@ -130,6 +130,11 @@ def test_le_titre_de_l_observation_atteint_le_vecteur(base) -> None:
     vecteur est le seul signal -- exactement le cas que _DISTANCE_MAX_SEULE
     est cense servir.
     """
+    # Les deux moitiés de la pile vectorielle, ou rien : avec fastembed sans
+    # sqlite-vec, vec_search_rows rend [] en silence et ce test lisait un
+    # IndexError comme un défaut de rappel (venv du dépôt, 07/10/2026).
+    pytest.importorskip("sqlite_vec")
+    pytest.importorskip("fastembed")
     from token_savior.memory.embeddings import embed
     from token_savior.memory.search import vec_search_rows
 

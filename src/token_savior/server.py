@@ -384,12 +384,14 @@ _CODE_MODE_INCLUDES: set[str] = {
 # Total manifest ~2-3 KT, converges to the user's actual usage after a
 # handful of sessions. Defaults to TINY_PLUS_INCLUDES on cold start
 # (no telemetry yet) to avoid a bad first-session experience.
-_AUTO_HOT_K = int(os.environ.get("TS_AUTO_HOT_K", "10"))
+_AUTO_HOT_K = int(os.environ.get("TS_AUTO_HOT_K", "8"))
+# Retirés des essentiels le 07/10/2026 sur 30 jours de transcriptions :
+# move_symbol 0 appel, ts_search 1, get_git_status 11 (git en Bash fait aussi
+# bien). Chaque outil annoncé coûte ~230 jetons dans un préfixe chargé
+# d'office (alwaysLoad). Ils restent appelables par leur nom et via ts_execute.
 _AUTO_ESSENTIALS: set[str] = {
     "switch_project",
     "list_projects",
-    "get_git_status",
-    "ts_search",
     "ts_execute",
     # Les trois primitives d'edition que le classement par usage ne peut pas
     # faire remonter, parce qu'il se mord la queue : un outil qui n'est pas
@@ -400,8 +402,11 @@ _AUTO_ESSENTIALS: set[str] = {
     # discipline, c'etait un cliquet. Les essentiels sont la sortie prevue.
     "get_edit_context",
     "insert_near_symbol",
-    "move_symbol",
 }
+# Jamais promus par l'usage : un autre outil annoncé fait déjà leur travail.
+# set_project_root -> switch_project enregistre un chemin inconnu ;
+# get_functions -> get_structure_summary. Le compteur à vie les gardait en tête.
+_AUTO_REDONDANTS: set[str] = {"set_project_root", "get_functions", "get_git_status", "move_symbol", "ts_search"}
 
 
 def _auto_includes() -> set[str]:
@@ -425,7 +430,7 @@ def _auto_includes() -> set[str]:
     ranked = sorted(eligible.items(), key=lambda kv: -kv[1])
     hot: list[str] = []
     for name, _n in ranked:
-        if name in _AUTO_ESSENTIALS:
+        if name in _AUTO_ESSENTIALS or name in _AUTO_REDONDANTS:
             continue
         hot.append(name)
         if len(hot) >= _AUTO_HOT_K:

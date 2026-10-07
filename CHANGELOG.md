@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — Second pass on real usage (07/10/2026)
+
+- **`get_function_source` / `get_class_source` return the source again.**
+  Without an explicit `level`, a Thompson-sampling bandit picked the detail
+  level and scored every non-empty answer a success, a `[L2]` summary
+  included; a re-request with an explicit `level` recorded nothing, so no
+  failure was ever counted. It had drifted to 5 284 successes for `[L2]`
+  against 34 for the full source: over 30 days, 61 of 95 calls without
+  `level` returned a summary or a bare signature instead of the code asked
+  for. Full source is now the default; the bandit only runs with
+  `TS_LEVEL_BANDIT=1`.
+- **The home directory is a container, never a project.** A home that is
+  itself a git repository (a VPS under version control) made every
+  marker-less folder below it — `/root/claude-chat`, `/root/gmgn-api`… —
+  resolve to the whole home: a 10 000-file index, capped, answering
+  "not found". Such a path now belongs to its first-level subdirectory, and
+  a session launched from home no longer registers home as its project.
+- **The active project survives a server restart.** Each Telegram message
+  starts a fresh `claude -p`, hence a fresh MCP server whose active project
+  fell back to the first configured root. The last project made active is
+  now remembered per launch directory and restored when nothing more
+  reliable (environment hint, launch directory that is a project) chose.
+- **The over-exploration hint stops repeating.** Past 15 navigation calls in
+  a server's life (sub-agents included), ~340 identical characters were
+  appended to every answer. It now shows at the threshold, then every 25
+  calls.
+- **Leaner `auto` manifest: 18 → 13 tools, ~4 160 → ~3 220 tokens.**
+  `move_symbol` (0 calls in 30 days), `ts_search` (1) and `get_git_status`
+  (11) leave the always-on set; `set_project_root` and `get_functions` are
+  never promoted (`switch_project` and `get_structure_summary` already do
+  their job). All stay callable by name and from `ts_execute`. Hot slots
+  10 → 8 (`TS_AUTO_HOT_K`).
+- `test_vector_distance_floor` skips when the vector stack is half
+  installed (fastembed without sqlite-vec made `vec_search_rows` return
+  `[]` silently, read as a recall defect).
+
 ## Unreleased — What 30 days of real calls said (06/10/2026)
 
 Audit of 765 transcripts (3 569 Token Savior calls) and of the discipline

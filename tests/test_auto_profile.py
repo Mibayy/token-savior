@@ -70,8 +70,10 @@ def test_auto_promotes_top_K_from_telemetry():
         telemetry.aggregate_counts = orig
 
     # Always-on essentials
-    for must in ("ts_search", "ts_execute", "switch_project", "list_projects"):
+    for must in ("ts_execute", "switch_project", "list_projects", "get_edit_context"):
         assert must in includes, f"missing essential: {must}"
+    # Redondants jamais promus, même haut dans la télémétrie (07/10/2026).
+    assert "get_git_status" not in includes
     # Top-10 hot tools (excluding essentials already in the set)
     for hot in ("find_symbol", "get_function_source", "search_codebase",
                 "get_full_context", "replace_symbol_source"):
