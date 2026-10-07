@@ -45,7 +45,26 @@ must assert that its tools were actually called.** Ours did not, so it happily
 compared two identical agents. That assertion now exists in the harness.
 
 The headline figures above therefore stand as reported and unverified, as
-stated in the previous paragraph. Re-measuring them properly is open work.
+stated in the previous paragraph.
+
+**Re-measured on 2026-10-07, with the tools actually called.** Same 8 tasks
+on a frozen copy of this repo (commit `9d15a1e`, no `CLAUDE.md`), Claude
+Haiku 4.5, plain Claude Code against the `auto` profile with `alwaysLoad`.
+The harness checks that the Token Savior sessions really called the server.
+
+| | Plain Claude Code | v4.22.0 `auto` | **v4.23.0 `auto`** |
+|---|---:|---:|---:|
+| **Cost, 8 tasks** | $0.234 | $0.202 (-14%) | **$0.129 (-45%)** |
+| **New tokens** | 99 993 | — | **43 660 (-56%)** |
+| **Sessions that used TS** | — | 5 / 8 | **8 / 8** |
+| **Wall time** | 134 s | — | 210 s (+57%) |
+
+One pass per configuration: read it as an order of magnitude, not a decimal.
+Wall time is worse because each benchmark session starts a fresh server that
+indexes the repo first; a long-lived session pays that once. What moved from
+v4.22.0 to v4.23.0 is mostly wording: `search_codebase` now names the function
+holding each hit, and the tool descriptions say plainly which native call they
+replace.
 
 </div>
 
