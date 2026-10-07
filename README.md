@@ -52,14 +52,18 @@ on a frozen copy of this repo (commit `9d15a1e`, no `CLAUDE.md`), Claude
 Haiku 4.5, plain Claude Code against the `auto` profile with `alwaysLoad`.
 The harness checks that the Token Savior sessions really called the server.
 
-| | Plain Claude Code | v4.22.0 `auto` | **v4.23.0 `auto`** |
-|---|---:|---:|---:|
-| **Cost, 8 tasks** | $0.234 | $0.202 (-14%) | **$0.129 (-45%)** |
-| **New tokens** | 99 993 | — | **43 660 (-56%)** |
-| **Sessions that used TS** | — | 5 / 8 | **8 / 8** |
-| **Wall time** | 134 s | — | 210 s (+57%) |
+| 3 passes, mean ± sd | Plain Claude Code | **v4.23.0 `auto`** |
+|---|---:|---:|
+| **Cost, 8 tasks** | $0.226 ± 0.011 | **$0.123 ± 0.020 (-45%, range -39% to -53%)** |
+| **New tokens** | 92 609 ± 6 731 | **38 150 ± 7 618 (-59%)** |
+| **Sessions that used TS** | — | **23 / 24** |
+| **Wall time, 8 tasks** | 157 ± 26 s | 216 ± 9 s (+40%) |
 
-One pass per configuration: read it as an order of magnitude, not a decimal.
+All 48 sessions succeeded. v4.22.0, measured once, saved 14% and used the tools
+in 5 sessions out of 8. On 3 editing tasks (one pass), both configurations
+succeed 3/3 and Token Savior shows no measurable gain yet: the agent used it in
+only one of the three.
+
 Wall time is worse because each benchmark session starts a fresh server that
 indexes the repo first; a long-lived session pays that once. What moved from
 v4.22.0 to v4.23.0 is mostly wording: `search_codebase` now names the function
