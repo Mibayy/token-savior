@@ -16,14 +16,14 @@ v2 improvements over v1:
 import re
 
 from token_savior.models import (
-    VariableInfo,
-    variables_mode,
     ClassInfo,
     FunctionInfo,
     ImportInfo,
     LineRange,
     StructuralMetadata,
+    VariableInfo,
     build_line_char_offsets,
+    variables_mode,
 )
 
 

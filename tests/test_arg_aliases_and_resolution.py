@@ -208,5 +208,6 @@ def test_une_seule_table_d_alias() -> None:
     """Deux tables homonymes avaient diverge : le schema lisait la premiere,
     la traduction la seconde."""
     import inspect
+
     import token_savior.server as srv
     assert inspect.getsource(srv).count("_ARG_ALIASES: dict") == 1
