@@ -1,5 +1,46 @@
 # Changelog
 
+## v4.23.0 — Beat Grep where the model reaches for it (2026-10-07)
+
+Same benchmark as v4.22.0 (tsbench `--reel`, Haiku, 8 tasks, same evening),
+three arms:
+
+| | cost | new tokens | sessions using TS | wall time |
+|---|---|---|---|---|
+| no Token Savior | 0.234 $ | 99 993 | — | 134 s |
+| v4.22.0 `auto` | 0.202 $ (-14 %) | 75 470 | 5/8 | 195 s |
+| v4.23.0 `auto` | **0.129 $ (-45 %)** | **43 660 (-56 %)** | **8/8** | 210 s |
+
+One pass per task, variance not measured. Wall time is still higher than the
+baseline: each benchmark session starts a fresh server that indexes the repo.
+
+- **`search_codebase` names the symbol containing each hit (`in`).** "Who
+  calls X" is answered in one call; Grep cannot do that, and that is where
+  the model kept choosing Grep.
+- **`read_lines` names the symbol holding the first line** when none covers
+  the whole range. "Which function is line 145 in" took three reads: the
+  default 60-line window spilled into the next function and no name came out.
+- **Descriptions of `search_codebase`, `find_symbol`, `get_function_source`
+  and `read_lines` rewritten** around what they do better than Grep and Read
+  (+37 tokens on the manifest).
+- **`ts gain` and the dashboard stop inflating savings.** The native cost of
+  a call was a fraction of the whole project (15 % for a search, 30 % for
+  `get_full_context`), hence "98.7 % saved". It is now the real alternative:
+  the file holding the symbol, the whole file for structure tools, and as
+  much as the answer for a search or a line range. Sessions carry their
+  method (`naive_method=2`); only that method is summed, and the output
+  recalls the end-to-end measurement.
+- **Memory hooks: no more `chmod`/`restart` traces, nothing injected off
+  topic.** Over 7 days, 83 % of memories injected with each prompt were
+  automatic traces ("chmod on …", "restart …"), 13.5 % shared a meaningful
+  word with the prompt, and none was cited or recalled by the model.
+  `memory-posttooluse.sh` no longer captures `systemctl start|restart|…` or
+  `chmod|chown`; `memory-userprompt.sh` injects only non-trace memories that
+  share a 5+ letter word with the prompt, and nothing otherwise.
+- **Discipline guard matcher** now sends `get_function_source`,
+  `get_class_source` and `ts_execute` to the guard, so reading a symbol counts
+  as context as v4.22.0 intended; a test keeps matcher and rule aligned.
+
 ## v4.22.0 — What real usage said (2026-10-07)
 
 Every change below answers a failure counted in real transcripts (765 sessions
