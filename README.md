@@ -92,6 +92,7 @@ Add to your MCP config (e.g. Claude Code):
   "mcpServers": {
     "token-savior-recall": {
       "command": "/path/to/venv/bin/token-savior",
+      "alwaysLoad": true,
       "env": {
         "WORKSPACE_ROOTS": "/path/to/project1,/path/to/project2",
         "TOKEN_SAVIOR_CLIENT": "claude-code",
@@ -101,6 +102,12 @@ Add to your MCP config (e.g. Claude Code):
   }
 }
 ```
+
+**`"alwaysLoad": true`** matters on Claude Code (2.1.28x and later): without
+it, every tool of the server sits behind ToolSearch and the model reaches for
+`Read` and `Grep`, which are already loaded. Measured on this project's
+benchmark before the option existed: one session in 143 called a Token Savior
+tool. With it, the manifest costs a few thousand cached tokens per session.
 
 That's it. **`TOKEN_SAVIOR_PROFILE=optimized`** ships the Pareto-optimum
 config that wins tsbench. It bundles:
@@ -405,7 +412,10 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 | `TS_STICKY_ACTIVE` | off (*bool*, `on` ok) | Freeze the active project: explicit `project=` hints and absolute path arguments still route each call, but no call repoints the shared default. For parallel agents in sibling worktrees |
 | `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile. `optimized` — the value the quickstart config and `ts init` recommend — ships the Pareto manifest, implies thin schemas, and omits the capture tools from the manifest |
 | `TS_THIN_SCHEMAS=1` | off (on in `optimized`) | Strip verbose tool schemas from the manifest |
-| `TS_AUTO_HOT_K` | `10` | Hot-tool count exposed by the telemetry-driven `auto` profile |
+| `TS_AUTO_HOT_K` | `8` | Hot-tool count exposed by the telemetry-driven `auto` profile (13 tools in all) |
+| `TS_LEVEL_BANDIT` | off | Let a Thompson-sampling bandit pick the detail level of `get_function_source` / `get_class_source` when no `level` is given. Off by default: it drifted to summaries in place of source |
+| `TS_EXECUTE_MAX_CHARS` | `60000` | Ceiling on a `ts_execute` result; past it the returned value is cut and the cut is reported |
+| `TS_GUARD_READ_FREE_LINES` | `200` | Discipline guard: whole-file `Read` of indexed code passes up to this many lines |
 | `TOKEN_SAVIOR_CHAIN_NUDGE` | on | `0`/`false`/`off` disables chained-tool nudges |
 | `TS_MEMORY_DISABLE=1` | off | Disable the memory engine (clean-context workloads) |
 | `TS_CAPTURE_DISABLED=1` | off | Skip read-side capture sandboxing and drop the capture tools from the manifest (no profile flips this; `optimized` only hides the capture tools) |
