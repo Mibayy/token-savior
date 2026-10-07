@@ -222,6 +222,14 @@ def project_root_of(path: str) -> str | None:
 
     The temp directory itself is never a project root, whatever it contains:
     it is shared by every tool on the machine (see `is_project_dir`).
+
+    Neither is the home directory, even when it is a git repository (dotfiles,
+    a whole VPS under version control). It is a container of projects: a path
+    below it with no marker of its own belongs to its first-level subdirectory.
+    Measured 07/10/2026 on a VPS whose /root is a git repository: every
+    marker-less folder (/root/claude-chat, /root/mochi-trader…) resolved to
+    /root itself, a 10 000-file index capped and answering "not found", and
+    sessions started in /root registered it as their launch project.
     """
     try:
         cur = os.path.abspath(path)
@@ -232,10 +240,19 @@ def project_root_of(path: str) -> str | None:
     if SKIP_DIRS.intersection(cur.split(os.sep)):
         return None
     temporaire = os.path.realpath(tempfile.gettempdir())
+    maison = os.path.realpath(os.path.expanduser("~"))
     seen: set[str] = set()
     while cur and cur not in seen and cur != os.path.dirname(cur):
         seen.add(cur)
-        if os.path.realpath(cur) != temporaire and is_project_dir(cur):
+        reel = os.path.realpath(cur)
+        if reel == maison:
+            if reel == os.path.realpath(path if os.path.isdir(path) else os.path.dirname(path)):
+                return None
+            # Premier sous-dossier du dossier personnel sur le chemin demandé.
+            reste = os.path.relpath(os.path.realpath(path), maison).split(os.sep)[0]
+            enfant = os.path.join(cur, reste)
+            return enfant if reste not in ("", ".", "..") and os.path.isdir(enfant) else None
+        if reel != temporaire and is_project_dir(cur):
             return cur
         cur = os.path.dirname(cur)
     return None
@@ -401,7 +418,9 @@ def autodiscover_and_register() -> list[str]:
     Called from `main()` rather than at import, so unit tests never trigger it.
     Set `TOKEN_SAVIOR_AUTODISCOVER=0` to keep the old behaviour.
     """
+    s._memoriser_actif = True
     if os.environ.get("TOKEN_SAVIOR_AUTODISCOVER", "1") == "0":
+        _restaurer_dernier_actif(None)
         return []
 
     fresh: list[str] = []
@@ -440,7 +459,30 @@ def autodiscover_and_register() -> list[str]:
         print(f"[token-savior] active project follows the launch worktree: "
               f"{cwd_root}", file=sys.stderr)
 
+    _restaurer_dernier_actif(cwd_root)
     return fresh
+
+
+def _restaurer_dernier_actif(cwd_root: str | None) -> None:
+    """Reprend le dernier projet actif de ce dossier de lancement.
+
+    Seulement quand rien de plus fiable n'a choisi : ni variable d'environnement
+    (CLAUDE_PROJECT_ROOT / CLAUDE_PROJECT_DIR) retenue, ni dossier de lancement
+    qui soit lui-même un projet. C'est le cas des sessions lancées depuis le
+    dossier personnel, dont chaque message Telegram.
+    """
+    if _active_hint_source or cwd_root:
+        return
+    from token_savior.slot_manager import dernier_actif
+    root = dernier_actif()
+    if not root:
+        return
+    if root not in s._slot_mgr.projects:
+        s._slot_mgr.register_roots([root])
+    if root in s._slot_mgr.projects:
+        s._slot_mgr.active_root = root
+        print(f"[token-savior] active project restored from last session: {root}",
+              file=sys.stderr)
 
 
 _client_roots_synced = False

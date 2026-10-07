@@ -160,7 +160,7 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
         # project. Cheap path avoids the reindex; the nudge below redirects the
         # caller to switch_project for next time -- that's the documented entry
         # point in CLAUDE.md and one round-trip lighter than set_project_root.
-        state._slot_mgr.active_root = new_root
+        state.noter_racine_active(new_root)
         name = os.path.basename(new_root)
         return [TextContent(
             type="text",
@@ -173,7 +173,7 @@ def _hm_set_project_root(arguments: dict[str, Any]) -> list[types.TextContent]:
         )]
     if not already_registered:
         state._slot_mgr.projects[new_root] = _ProjectSlot(root=new_root)
-    state._slot_mgr.active_root = new_root
+    state.noter_racine_active(new_root)
     slot = state._slot_mgr.projects[new_root]
     # Persist so switch_project reaches this project after a stdio restart
     # instead of forcing another set_project_root reindex every session.

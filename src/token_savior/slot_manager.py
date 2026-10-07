@@ -134,6 +134,50 @@ def _load_registered_roots() -> list[str]:
     if not isinstance(data, list):
         return []
     return [p for p in data if isinstance(p, str) and os.path.isdir(p)]
+def _dernier_actif_file() -> str:
+    return os.path.join(_stats_dir(), "dernier_projet_actif.json")
+
+
+def memoriser_actif(root: str, cwd: str | None = None) -> None:
+    """Retient le projet rendu actif, par dossier de lancement du serveur.
+
+    Chaque message Telegram relance un `claude -p`, donc un serveur MCP neuf
+    dont le projet actif retombait sur la première racine configurée
+    (`claude-code`, 8 fichiers) : 37 sessions sur 30 jours ont commencé
+    sans switch_project, 9 ont échoué ainsi (relevé du 06/10/2026). Le
+    dernier choix, retenu ici, est restauré au démarrage suivant lancé du
+    même dossier. Silencieux en cas d'échec : c'est un confort, pas un état.
+    """
+    import json
+    try:
+        cible = _dernier_actif_file()
+        try:
+            with open(cible, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+        except (OSError, ValueError):
+            data = {}
+        data[os.path.abspath(cwd or os.getcwd())] = os.path.abspath(root)
+        os.makedirs(os.path.dirname(cible), exist_ok=True)
+        tmp = cible + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, cible)
+    except OSError:
+        pass
+
+
+def dernier_actif(cwd: str | None = None) -> str | None:
+    """Le projet retenu pour ce dossier de lancement, s'il existe encore."""
+    import json
+    try:
+        with open(_dernier_actif_file(), encoding="utf-8") as f:
+            data = json.load(f)
+        root = data.get(os.path.abspath(cwd or os.getcwd())) if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+    return root if isinstance(root, str) and os.path.isdir(root) else None
 
 
 def _persist_registered_root(root: str) -> None:

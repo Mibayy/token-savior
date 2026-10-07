@@ -282,6 +282,9 @@ _STICKY_ACTIVE: bool = (
 # deductions later. Measured 2026-08-05: a search meant for this repository
 # returned a competitor's files, well-formed and entirely wrong.
 _racines_actives_vues: set[str] = set()
+# Vrai seulement dans un serveur lancé par main() (autodiscover_and_register) :
+# les tests qui changent de projet ne doivent pas écrire le fichier de l'utilisateur.
+_memoriser_actif: bool = False
 
 
 def noter_racine_active(root: str) -> bool:
@@ -295,6 +298,9 @@ def noter_racine_active(root: str) -> bool:
     if _STICKY_ACTIVE:
         return True
     _slot_mgr.active_root = root
+    if _memoriser_actif:
+        from token_savior.slot_manager import memoriser_actif
+        memoriser_actif(root)
     return False
 
 
