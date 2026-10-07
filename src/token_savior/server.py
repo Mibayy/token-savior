@@ -1330,7 +1330,40 @@ async def _handle_ts_execute(arguments: dict[str, Any]) -> list[types.TextConten
             "donc seule une valeur explicitement rendue remonte."
         )
 
-    return [TextContent(type="text", text=_json.dumps(outcome, indent=2, default=str))]
+    return [TextContent(type="text", text=_borner_sortie_script(outcome))]
+
+
+# Au-delà, Claude Code refuse le résultat et le dépose dans un fichier : le
+# script a tourné, mais l'appelant n'en voit rien (vécu le 07/10/2026, un
+# script qui relisait quatre fichiers entiers rendait 57 545 caractères).
+_TS_EXECUTE_BUDGET = int(os.environ.get("TS_EXECUTE_MAX_CHARS", "60000"))
+
+
+def _borner_sortie_script(outcome: dict) -> str:
+    """Sérialise le résultat de ts_execute en restant sous le budget.
+
+    La valeur rendue par le script est coupée en premier, en gardant logs,
+    erreur et compteurs intacts, et la coupure est dite avec la taille
+    d'origine : l'appelant sait qu'il doit rendre moins (un résumé, une
+    sélection) plutôt que croire avoir tout reçu.
+    """
+    import json as _json
+    texte = _json.dumps(outcome, indent=2, default=str)
+    if len(texte) <= _TS_EXECUTE_BUDGET:
+        return texte
+    compact = _json.dumps(outcome, default=str)
+    if len(compact) <= _TS_EXECUTE_BUDGET:
+        return compact
+    valeur = _json.dumps(outcome.get("value"), default=str)
+    reste = {k: v for k, v in outcome.items() if k != "value"}
+    place = max(2000, _TS_EXECUTE_BUDGET - len(_json.dumps(reste, default=str)) - 400)
+    reste["value"] = valeur[:place]
+    reste["_tronque"] = (
+        f"valeur rendue coupée à {place} caractères sur {len(valeur)} "
+        f"(budget TS_EXECUTE_MAX_CHARS={_TS_EXECUTE_BUDGET}). Rends moins depuis le "
+        "script : un extrait, des longueurs, ou un appel par fichier."
+    )
+    return _json.dumps(reste, default=str)
 
 
 # Request lifecycle logging is opt-in via TOKEN_SAVIOR_TRACE=1.
