@@ -3,6 +3,18 @@
 #
 # TS_HOOK_MINIMAL=1     -> emit only the Memory Index block (skip Continuity,
 #                          Tool Capture status, Warm start, statusline, decay).
+# Memory Index budget (mesure le 07/10/2026 : ~1 160 car. en moyenne, aucun
+# #NNN injecte jamais cite par le modele sur 7 jours). Bornes reglables :
+#   TS_SESSION_INDEX_MAX=12            nombre maximal d'observations injectees
+#   TS_SESSION_INDEX_TYPES=guardrail,warning,decision
+#                                      types retenus (liste separee par des virgules)
+#   TS_SESSION_INDEX_RECENT_DAYS=14    les observations plus jeunes passent d'abord,
+#                                      les plus anciennes ne comblent que le reste
+#   TS_SESSION_INDEX_EXCLUDE='chmod,chown,restart,start,stop,enable,reload'
+#                                      premiers mots de titre exclus (traces automatiques)
+#   TS_SESSION_LINE_MAX=100            les lignes Continuity et Tool Capture ne sont
+#                                      emises que si elles tiennent dans ce nombre de
+#                                      caracteres (0 = les retirer toujours)
 # TS_MEMORY_DISABLE=1   -> short-circuit entirely (no output at all). Used by
 #                          tsbench subprocesses where cross-project memory
 #                          would pollute task context.
@@ -72,34 +84,65 @@ from token_savior import memory_db
 
 project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
 
-# Adaptive budget based on remaining context
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, '').strip() or default)
+    except ValueError:
+        return default
+
+def _env_list(name, default):
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        raw = default
+    return [x.strip().lower() for x in raw.split(',') if x.strip()]
+
+idx_max = max(0, _env_int('TS_SESSION_INDEX_MAX', 12))
+idx_types = _env_list('TS_SESSION_INDEX_TYPES', 'guardrail,warning,decision')
+idx_days = _env_int('TS_SESSION_INDEX_RECENT_DAYS', 14)
+idx_excl = _env_list('TS_SESSION_INDEX_EXCLUDE', 'chmod,chown,restart,start,stop,enable,reload')
+
+# Adaptive budget based on remaining context (never above idx_max)
 try:
     ctx_pct = int(os.environ.get('CLAUDE_CONTEXT_REMAINING_PCT', '100'))
 except ValueError:
     ctx_pct = 100
 
-if ctx_pct >= 70:
-    limit, type_filter = 30, None
-elif ctx_pct >= 40:
-    limit, type_filter = 15, None
+if ctx_pct >= 40:
+    limit = idx_max
 elif ctx_pct >= 20:
-    limit, type_filter = 5, None  # filter done below
+    limit = min(5, idx_max)
 else:
-    limit, type_filter = 3, 'guardrail'
+    limit = min(3, idx_max)
+types = idx_types if ctx_pct >= 20 else ['guardrail']
+types = [t for t in types if t] or ['guardrail']
 
-# Mode-aware filter: only when context healthy
 mode_name = None
-if ctx_pct >= 40 and type_filter is None:
-    try:
-        mode = memory_db.get_current_mode(project_root=project or None)
-        mode_name = mode.get('name', 'code')
-        mtypes = mode.get('auto_capture_types') or []
-        if mtypes:
-            type_filter = list(mtypes)
-    except Exception:
-        pass
+try:
+    mode_name = memory_db.get_current_mode(project_root=project or None).get('name', 'code')
+except Exception:
+    pass
 
-rows = memory_db.get_recent_index(project, limit=limit, type_filter=type_filter, mode=mode_name) if project else []
+import re as _re
+_excl_re = _re.compile(r'^\W*(?:' + '|'.join(_re.escape(w) for w in idx_excl) + r')(?:\W|$)', _re.I) if idx_excl else None
+
+def _select(rows):
+    import time as _t
+    now = _t.time()
+    kept = [r for r in rows
+            if r['type'] in types and not (_excl_re and _excl_re.match(r.get('title') or ''))]
+    def _recent(r):
+        ep = r.get('created_at_epoch') or 0
+        return ep and (now - ep) < idx_days * 86400
+    # recentes d'abord, puis score decroissant
+    kept.sort(key=lambda r: (0 if _recent(r) else 1, -(r.get('score') or 0)))
+    return kept[:limit]
+
+def _fetch(proj):
+    if limit <= 0:
+        return []
+    return _select(memory_db.get_recent_index(proj, limit=500, type_filter=types, mode=mode_name))
+
+rows = _fetch(project) if project else []
 
 if not rows:
     db = memory_db.get_db()
@@ -109,12 +152,7 @@ if not rows:
     db.close()
     if row:
         project = row[0]
-        rows = memory_db.get_recent_index(project, limit=limit, type_filter=type_filter, mode=mode_name)
-
-# Tight budget: keep only high-signal types
-if 20 <= ctx_pct < 40:
-    keep = {'guardrail', 'convention', 'warning'}
-    rows = [r for r in rows if r['type'] in keep][:limit]
+        rows = _fetch(project)
 
 def _fmt_row(r):
     age = r.get('age') or '?'
@@ -180,13 +218,15 @@ if rows:
         }))
     print('')
 
-# Continuity score
+# Continuity score (one short line, or nothing)
+_line_max = _env_int('TS_SESSION_LINE_MAX', 100)
 if project:
     try:
         cs = memory_db.compute_continuity_score(project)
         if cs.get('total', 0) > 0:
-            print(f\"### 🧭 Continuity: {cs['score']}% ({cs['label']}) — {cs['valid']}/{cs['total']} valid, {cs['recent']} recent, {cs['potentially_stale']} stale\")
-            print('')
+            _line = f\"🧭 Continuity {cs['score']}% ({cs['label']})\"
+            if _line_max > 0 and len(_line) <= _line_max:
+                print(_line)
     except Exception:
         pass
 " 2>>"$ERR_LOG")
@@ -289,8 +329,9 @@ try:
         recent = conn.execute('SELECT COUNT(*) FROM tool_captures WHERE created_at_epoch > ?', (cutoff,)).fetchone()[0]
         bytes_total = conn.execute('SELECT COALESCE(SUM(output_bytes), 0) FROM tool_captures').fetchone()[0]
         kb = bytes_total // 1024
-        print(f'### 📦 Tool Capture: {total} captures sandboxed ({kb}KB) · {recent} in last hour. Use capture_search/get/aggregate to retrieve.')
-        print('')
+        _line = f'📦 Tool Capture {total} ({kb}KB, {recent}/h) · capture_search'
+        if int(os.environ.get('TS_SESSION_LINE_MAX', '100') or 100) >= len(_line) > 0:
+            print(_line)
     conn.close()
 except Exception:
     pass

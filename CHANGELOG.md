@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.23.1 — Smaller session start, reachable tools (2026-10-07)
+
+- **SessionStart memory index trimmed by 57 %** (2 990 -> 1 295 characters on
+  the author's base, 30 -> 12 observations). Only guardrails, warnings and
+  decisions; observations younger than 14 days first; automatic traces
+  (`chmod`, `restart`…) excluded; Continuity and Tool Capture on one short line.
+  Tunable: `TS_SESSION_INDEX_MAX`, `TS_SESSION_INDEX_TYPES`,
+  `TS_SESSION_INDEX_RECENT_DAYS`, `TS_SESSION_INDEX_EXCLUDE`, `TS_SESSION_LINE_MAX`.
+- **`move_symbol` and `checkpoint` callable from `ts_execute`.** The `auto`
+  profile no longer lists them, and the sandbox allowlist did not have them
+  either, so they had become unreachable. A test now checks that every tool
+  dropped from the profile stays reachable through `ts_execute`.
+- **Benchmark variance.** Three passes of the v4.23.0 measurement: cost
+  -45 % ± 7 (range -39 % to -53 %), new tokens -59 % ± 6, wall time +40 %,
+  Token Savior used in 23 sessions of 24. On 3 editing tasks (one pass) both
+  arms succeed 3/3 with no measurable gain yet.
+- Ops note: the index cache key includes `EXCLUDE_EXTRA`. Two processes sharing
+  a project with different values (a daemon and a Claude Code session, say)
+  invalidate each other's cache and rebuild the whole index on every switch.
+  Give them the same value.
+
 ## v4.23.0 — Beat Grep where the model reaches for it (2026-10-07)
 
 Same benchmark as v4.22.0 (tsbench `--reel`, Haiku, 8 tasks, same evening),

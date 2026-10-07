@@ -123,3 +123,18 @@ def test_full_profile_does_not_emit_deprecation(capsys, monkeypatch):
     _reload_server(monkeypatch, "full")
     captured = capsys.readouterr()
     assert "DEPRECATED" not in captured.err
+
+
+def test_les_outils_retires_du_profil_restent_joignables_par_ts_execute():
+    """Un outil sorti du manifeste chargé d'office doit rester appelable via
+    ts_execute (07/10/2026 : move_symbol ne l'était plus nulle part)."""
+    import re
+    from pathlib import Path
+
+    from token_savior import server as srv
+    facade = Path(srv.__file__).parent / "code_mode" / "facade.py"
+    autorises = set(re.findall(r'"([a-z_]+)"', facade.read_text(encoding="utf-8")))
+    # ts_search est la découverte d'outils elle-même ; set_project_root est couvert
+    # par switch_project, qui enregistre un chemin inconnu (outil annoncé).
+    for nom in srv._AUTO_REDONDANTS - {"ts_search", "set_project_root"}:
+        assert nom in autorises, f"{nom} n'est plus joignable"

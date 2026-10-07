@@ -34,6 +34,11 @@ ALLOWED_TOOLS: list[str] = [
     "replace_symbol_source",
     "insert_near_symbol",
     "add_field_to_model",
+    # move_symbol et checkpoint : sortis du profil auto le 07/10/2026 (0 appel
+    # sur 30 jours), ils doivent rester joignables quelque part, sinon le
+    # CLAUDE.md qui les prescrit renvoie vers un outil introuvable.
+    "move_symbol",
+    "checkpoint",
     "find_dead_code",
     "find_hotspots",
     "find_semantic_duplicates",
