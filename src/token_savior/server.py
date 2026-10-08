@@ -402,6 +402,11 @@ _AUTO_ESSENTIALS: set[str] = {
     # discipline, c'etait un cliquet. Les essentiels sont la sortie prevue.
     "get_edit_context",
     "insert_near_symbol",
+    # Pas edit_lines_in_symbol : essaye le 08/10/2026 sur le banc d'edition
+    # reel (4 passes), il n'a rien gagne. L'Edit natif se contente d'une lecture
+    # partielle (Read limit=100), et pour un renommage le modele a enchaine un
+    # appel par fonction (23 tours, 0,21 $) au lieu d'un Edit replace_all (6
+    # tours, 0,04 $). Il reste appelable via ts_execute.
 }
 # Jamais promus par l'usage : un autre outil annoncé fait déjà leur travail.
 # set_project_root -> switch_project enregistre un chemin inconnu ;

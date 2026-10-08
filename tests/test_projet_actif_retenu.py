@@ -53,3 +53,47 @@ def test_les_tests_n_ecrivent_pas_le_fichier_utilisateur() -> None:
     import os
     reel = os.path.realpath(os.path.expanduser("~/.local/share/token-savior"))
     assert not os.path.realpath(sm._stats_dir()).startswith(reel)
+
+
+def test_le_dossier_de_lancement_devient_le_projet_actif(tmp_path, monkeypatch) -> None:
+    """Banc d'édition du 08/10/2026 : lancée dans une copie du dépôt, la session
+    gardait l'original pour projet actif, et replace_symbol_source y écrivait."""
+    monkeypatch.setattr(sm, "_stats_dir", lambda: str(tmp_path / "stats"))
+    original = tmp_path / "original"; original.mkdir()
+    copie = tmp_path / "copie"; copie.mkdir()
+    for d in (original, copie):
+        (d / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    monkeypatch.setattr(rt, "_active_hint_source", "")
+    monkeypatch.setattr(rt, "_restaure", False)
+    monkeypatch.setenv("TOKEN_SAVIOR_AUTODISCOVER", "1")
+    avant = st._slot_mgr.active_root
+    st._slot_mgr.register_roots([str(original)])
+    st._slot_mgr.active_root = str(original)
+    monkeypatch.chdir(copie)
+    try:
+        rt.autodiscover_and_register()
+        assert st._slot_mgr.active_root == str(copie)
+    finally:
+        st._slot_mgr.active_root = avant
+        for d in (original, copie):
+            st._slot_mgr.projects.pop(str(d), None)
+
+
+def test_une_consigne_explicite_garde_la_main(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(sm, "_stats_dir", lambda: str(tmp_path / "stats"))
+    voulu = tmp_path / "voulu"; voulu.mkdir()
+    lance = tmp_path / "lance"; lance.mkdir()
+    for d in (voulu, lance):
+        (d / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    monkeypatch.setattr(rt, "_active_hint_source", "CLAUDE_PROJECT_ROOT")
+    avant = st._slot_mgr.active_root
+    st._slot_mgr.register_roots([str(voulu)])
+    st._slot_mgr.active_root = str(voulu)
+    monkeypatch.chdir(lance)
+    try:
+        rt.autodiscover_and_register()
+        assert st._slot_mgr.active_root == str(voulu)
+    finally:
+        st._slot_mgr.active_root = avant
+        for d in (voulu, lance):
+            st._slot_mgr.projects.pop(str(d), None)

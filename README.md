@@ -60,9 +60,11 @@ The harness checks that the Token Savior sessions really called the server.
 | **Wall time, 8 tasks** | 157 ± 26 s | 216 ± 9 s (+40%) |
 
 All 48 sessions succeeded. v4.22.0, measured once, saved 14% and used the tools
-in 5 sessions out of 8. On 3 editing tasks (one pass), both configurations
-succeed 3/3 and Token Savior shows no measurable gain yet: the agent used it in
-only one of the three.
+in 5 sessions out of 8. Editing, measured on 2026-10-08 on the same repository (3 tasks in files of
+1 900 to 3 700 lines, graded by running the code and the module's tests,
+4 passes): every session of both arms succeeded, and cost is too noisy to call
+a gain (from -54% to +16% per pass). Native `Edit` only needs a partial
+`Read`, so there is little left to remove there.
 
 Wall time is worse because each benchmark session starts a fresh server that
 indexes the repo first; a long-lived session pays that once. What moved from

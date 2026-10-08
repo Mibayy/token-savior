@@ -459,8 +459,25 @@ def autodiscover_and_register() -> list[str]:
         print(f"[token-savior] active project follows the launch worktree: "
               f"{cwd_root}", file=sys.stderr)
 
-    _restaurer_dernier_actif(cwd_root)
+    # Sans consigne explicite, le projet actif est celui du dossier de lancement.
+    # Mesure du 08/10/2026 (banc d'edition) : une session lancee dans une copie
+    # du depot gardait pour projet actif le premier WORKSPACE_ROOTS, l'original.
+    # Ses appels par nom de symbole lisaient l'original, et replace_symbol_source
+    # y a ecrit : l'edition « reussie » avait modifie un autre arbre.
+    # Un dossier sans marqueur sous le dossier personnel (/root/vps-remote) n'est
+    # pas un vrai projet : on y reprend d'abord le dernier projet actif retenu.
+    vrai_projet = bool(cwd_root) and is_project_dir(cwd_root)
+    _restaurer_dernier_actif(cwd_root if vrai_projet else None)
+    if (cwd_root and cwd_root in s._slot_mgr.projects and not _active_hint_source
+            and (vrai_projet or not _restaure)
+            and s._slot_mgr.active_root != cwd_root):
+        s._slot_mgr.active_root = cwd_root
+        print(f"[token-savior] active project = launch directory: {cwd_root}",
+              file=sys.stderr)
     return fresh
+
+
+_restaure = False
 
 
 def _restaurer_dernier_actif(cwd_root: str | None) -> None:
@@ -480,6 +497,8 @@ def _restaurer_dernier_actif(cwd_root: str | None) -> None:
     if root not in s._slot_mgr.projects:
         s._slot_mgr.register_roots([root])
     if root in s._slot_mgr.projects:
+        global _restaure
+        _restaure = True
         s._slot_mgr.active_root = root
         print(f"[token-savior] active project restored from last session: {root}",
               file=sys.stderr)

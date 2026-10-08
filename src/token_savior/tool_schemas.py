@@ -144,7 +144,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
     # ── Structural edits ──────────────────────────────────────────────────
     "replace_symbol_source": {
         "description": (
-        "Replace an indexed symbol's full source block directly."
+        "Rewrite a whole function or class by name, no Read needed."
     ),
         "inputSchema": {
             "type": "object",
@@ -167,7 +167,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         },
     },
     "edit_lines_in_symbol": {
-        "description": "Exact string-replace inside an indexed symbol's body (like Edit but symbol-scoped, no Read first needed).",
+        "description": (
+            "Edit code without reading the file first: exact old_string -> new_string, like Edit, "
+            "matched only inside one function or class. Edit refuses a file you have not Read, which "
+            "in a large file means reading all of it; this needs only the symbol name. "
+            "replace_all=true changes every occurrence inside that symbol."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {

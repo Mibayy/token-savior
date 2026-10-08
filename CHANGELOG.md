@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.23.2 — The launch directory is the active project (2026-10-08)
+
+- **Fix: a session could edit another project.** Started in a project that was
+  not the first `WORKSPACE_ROOTS` entry, the server registered the launch
+  directory but kept the first root as the active project. Calls by symbol name
+  or relative path then answered from that other tree, and
+  `replace_symbol_source` wrote into it while reporting success. Found by the
+  new editing benchmark, whose session in a copy of a repository rewrote the
+  original. The launch directory now becomes the active project unless
+  `CLAUDE_PROJECT_ROOT` / `CLAUDE_PROJECT_DIR` says otherwise; a marker-less
+  folder under the home directory still restores its last active project first.
+- **Editing benchmark on a real repository** (3 tasks in files of 1 900 to
+  3 700 lines, graded by running code and the module's tests, 4 passes).
+  Every session of both arms succeeded. Cost is too noisy to call a gain
+  (passes from -54 % to +16 %). Native `Edit` only needs a partial `Read`, so
+  Token Savior has little to remove there.
+- `edit_lines_in_symbol` was tried in the `auto` profile and taken back out: on
+  a rename it led the model to one call per function (23 turns, $0.21) instead
+  of one `Edit` with `replace_all` (6 turns, $0.04). Its description is
+  clearer and it now has its own tests; it stays callable via `ts_execute`.
+
 ## v4.23.1 — Smaller session start, reachable tools (2026-10-07)
 
 - **SessionStart memory index trimmed by 57 %** (2 990 -> 1 295 characters on

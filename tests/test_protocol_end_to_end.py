@@ -32,6 +32,9 @@ class ServeurMCP:
             [sys.executable, "-m", "token_savior.server"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, env=env, bufsize=1,
+            # Lance depuis le projet, comme un client reel : depuis le 08/10/2026
+            # le dossier de lancement devient le projet actif.
+            cwd=racine,
         )
         self.i = 0
         self._rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},

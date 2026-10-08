@@ -250,3 +250,42 @@ class TestMoveSymbol:
         )
 
         assert "error" in result
+
+
+class TestEditLinesInSymbol:
+    def _index(self, tmp_path):
+        (tmp_path / "m.py").write_text(
+            "def deco(f):\n"
+            "    return f\n"
+            "\n"
+            "@deco\n"
+            "def taux(pays):\n"
+            "    if pays == 'FR':\n"
+            "        return 0.2\n"
+            "    return 0.0\n"
+            "\n"
+            "def autre():\n"
+            "    return 0.0\n",
+            encoding="utf-8",
+        )
+        indexer = ProjectIndexer(str(tmp_path), include_patterns=["**/*.py"])
+        return indexer.index()
+
+    def test_edite_dans_le_symbole_seulement_et_garde_le_decorateur(self, tmp_path):
+        from token_savior.edit_ops import edit_lines_in_symbol
+
+        index = self._index(tmp_path)
+        r = edit_lines_in_symbol(index, "taux", "    return 0.0", "    return 0.1")
+        assert r["ok"] is True
+        txt = (tmp_path / "m.py").read_text(encoding="utf-8")
+        assert "@deco\ndef taux(pays):" in txt
+        assert "    return 0.1\n\ndef autre():\n    return 0.0\n" in txt
+
+    def test_refuse_texte_absent_ou_ambigu(self, tmp_path):
+        from token_savior.edit_ops import edit_lines_in_symbol
+
+        index = self._index(tmp_path)
+        avant = (tmp_path / "m.py").read_text(encoding="utf-8")
+        assert "error" in edit_lines_in_symbol(index, "taux", "return 9.9", "x")
+        assert "error" in edit_lines_in_symbol(index, "taux", "return", "rendre")
+        assert (tmp_path / "m.py").read_text(encoding="utf-8") == avant
