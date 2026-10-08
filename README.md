@@ -16,6 +16,12 @@
 **[mibayy.github.io/token-savior](https://mibayy.github.io/token-savior/)** -- project site + benchmark landing
 Benchmark source + fixtures: not currently published (see *Reproducing the score* below)
 
+<a href="https://github.com/Mibayy/token-savior/releases/download/v4.23.2/token-savior-v4-23.mp4">
+  <img src="docs/media/v4-23-preview.gif" width="800" alt="Plain Claude Code against Claude Code + Token Savior: 92,609 vs 38,150 new tokens, cost -45%">
+</a>
+
+<sub>v4.23 in 31 seconds, measured on 2026-10-07 · <a href="https://github.com/Mibayy/token-savior/releases/download/v4.23.2/token-savior-v4-23.mp4">watch the full video (MP4, sound on)</a></sub>
+
 ---
 
 ### Benchmark -- 96 real coding tasks (Claude Opus 4.7, May 2026)
