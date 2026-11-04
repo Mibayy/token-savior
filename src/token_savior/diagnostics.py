@@ -27,6 +27,8 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+from token_savior.project_actions import resolve_command
+
 
 @dataclass
 class Diagnostic:
@@ -214,7 +216,7 @@ def executer(racine: str, verificateur: str, timeout: int = 180) -> tuple[str, s
         return "", f"verificateur inconnu : {verificateur}"
     try:
         proc = subprocess.run(
-            cmd, cwd=racine, capture_output=True, text=True, timeout=timeout,
+            resolve_command(cmd), cwd=racine, capture_output=True, text=True, timeout=timeout,
             check=False,
         )
     except FileNotFoundError:

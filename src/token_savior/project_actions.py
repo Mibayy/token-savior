@@ -5,11 +5,24 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 import tomllib
 
 from token_savior.output_helpers import truncate_output
+
+
+def resolve_command(command: list[str]) -> list[str]:
+    """Return *command* with its program looked up on PATH.
+
+    On Windows npm, npx and mvn are batch files (npm.cmd, npx.cmd, mvn.cmd),
+    which a bare name passed to subprocess.run doesn't launch: it raises
+    FileNotFoundError although the tool is installed. shutil.which finds them
+    through PATHEXT. A program it can't find is left as it is.
+    """
+    program = shutil.which(command[0]) if command else None
+    return [program, *command[1:]] if program else list(command)
 
 
 def discover_project_actions(root_path: str) -> list[dict]:
@@ -230,7 +243,7 @@ def run_project_action(
     try:
         start = time.perf_counter()
         result = subprocess.run(
-            action["command"],
+            resolve_command(action["command"]),
             cwd=root_path,
             capture_output=True,
             check=False,
@@ -257,7 +270,7 @@ def run_project_action(
         return {
             "ok": False,
             "action": action,
-            "error": f"Command not found: {exc.filename}",
+            "error": f"Command not found: {exc.filename or action['command'][0]}",
             "timed_out": False,
         }
     except subprocess.TimeoutExpired as exc:
