@@ -20,7 +20,9 @@ projet utilise deja, donc zero dependance nouvelle.
 
 from __future__ import annotations
 
-from token_savior import diagnostics
+import subprocess
+
+from token_savior import diagnostics, project_actions
 
 
 class TestAnalyseDeSortie:
@@ -147,3 +149,20 @@ class TestSymboleEnglobant:
         trouves = [diagnostics.Diagnostic("a.ts", 1, 1, "error", "TS1", "boum")]
         diagnostics.attacher_symboles(trouves, None)
         assert trouves[0].symbole is None
+
+
+def test_executer_lance_npx_trouve_sur_le_path(tmp_path, monkeypatch) -> None:
+    """Sous Windows npx est npx.cmd : le nom nu ne se lance pas."""
+    lances = []
+
+    def faux_run(cmd, **kwargs):
+        lances.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(project_actions.shutil, "which", lambda nom: f"C:/node/{nom}.cmd")
+    monkeypatch.setattr(diagnostics.subprocess, "run", faux_run)
+
+    _sortie, erreur = diagnostics.executer(str(tmp_path), "tsc")
+
+    assert erreur is None
+    assert lances[0][0] == "C:/node/npx.cmd"

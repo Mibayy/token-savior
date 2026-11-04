@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from unittest.mock import MagicMock, patch
 
 from token_savior.project_actions import discover_project_actions, run_project_action
@@ -138,3 +140,55 @@ class TestRunProjectAction:
         assert result["summary"]["pytest"]["failed"] == 1
         assert result["summary"]["pytest"]["passed"] == 4
         assert result["summary"]["pytest"]["duration"] == "0.23s"
+
+    def test_runs_the_program_found_on_path(self, tmp_path):
+        """npm, npx and mvn are npm.cmd, npx.cmd and mvn.cmd on Windows."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"scripts": {"test": "vitest"}}),
+            encoding="utf-8",
+        )
+        with (
+            patch("token_savior.project_actions.shutil.which", return_value="C:/node/npm.cmd"),
+            patch("token_savior.project_actions.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+            run_project_action(str(tmp_path), "npm:test")
+
+        assert mock_run.call_args.args[0] == ["C:/node/npm.cmd", "run", "test"]
+
+    def test_runs_a_batch_file_npm_end_to_end(self, tmp_path, monkeypatch):
+        """A real `npm` on PATH: npm.cmd on Windows, a shell script elsewhere."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "package.json").write_text(
+            json.dumps({"scripts": {"test": "vitest"}}),
+            encoding="utf-8",
+        )
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        if os.name == "nt":
+            (bin_dir / "npm.cmd").write_text(
+                f'@"{sys.executable}" -c "print(42)"\r\n', encoding="utf-8"
+            )
+        else:
+            npm = bin_dir / "npm"
+            npm.write_text(f'#!/bin/sh\nexec "{sys.executable}" -c "print(42)"\n')
+            npm.chmod(0o755)
+        monkeypatch.setenv("PATH", str(bin_dir))
+
+        result = run_project_action(str(project), "npm:test")
+
+        assert result["ok"] is True, result
+        assert result["summary"]["headline"] == "42"
+
+    def test_names_the_missing_program(self, tmp_path, monkeypatch):
+        (tmp_path / "package.json").write_text(
+            json.dumps({"scripts": {"test": "vitest"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+
+        result = run_project_action(str(tmp_path), "npm:test")
+
+        assert result["ok"] is False
+        assert result["error"] == "Command not found: npm"
